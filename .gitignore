@@ -1,0 +1,23 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# CmdStan build files
+*.hpp
+*.o
+*.exe
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
