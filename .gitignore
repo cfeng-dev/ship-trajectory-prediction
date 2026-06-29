@@ -21,3 +21,9 @@ __pycache__/
 
 # Windows
 Thumbs.db
+
+# Ignore all datasets
+data/**
+
+# Keep documentation
+!data/README.md
