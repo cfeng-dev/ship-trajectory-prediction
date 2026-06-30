@@ -6,6 +6,8 @@ This repository contains the source code, Bayesian models, and accompanying docu
 
 The project investigates **probabilistic ship trajectory prediction using Bayesian methods**. The primary goal is to develop Bayesian models that predict future vessel trajectories while explicitly quantifying uncertainty in both observations and model parameters.
 
+---
+
 ## Problem Description
 
 Ship trajectory prediction plays an important role in maritime applications, including traffic monitoring, collision avoidance, and autonomous navigation. However, accurately predicting vessel movements remains challenging due to various sources of uncertainty.
@@ -13,6 +15,8 @@ Ship trajectory prediction plays an important role in maritime applications, inc
 Traditional deterministic prediction methods typically provide only a single estimated trajectory without expressing the associated uncertainty. In many real-world applications, this lack of uncertainty estimation can reduce the reliability of decision-making.
 
 Bayesian modeling provides a principled probabilistic framework that enables uncertainty to be explicitly incorporated into trajectory prediction by estimating full posterior distributions rather than single point estimates.
+
+---
 
 ## Objectives
 
@@ -26,13 +30,15 @@ The project aims to:
 - Evaluate different Bayesian modeling strategies using real-world ship trajectory data.
 - Visualize and analyze probabilistic trajectory predictions.
 
+---
+
 ## Getting Started
 
 ### 1. Install Prerequisites
 
 The following software is required before setting up the project:
 
-- **[Python](https://www.python.org/downloads/)**
+- **[Python 3.10 or later](https://www.python.org/downloads/)**
 - **[Git](https://git-scm.com/downloads)**
 - **[Visual Studio Code](https://code.visualstudio.com/)** (recommended)
 - **[Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)**
@@ -94,23 +100,39 @@ In Visual Studio Code:
 pip install -r requirements.txt
 ```
 
-If `requirements.txt` is not yet available:
+If `requirements.txt` is not yet available, install the required packages manually:
 
 ```bash
 pip install cmdstanpy pandas numpy matplotlib arviz
 ```
 
-### 7. Install CmdStan
+### 7. Install the C++ Toolchain (Windows only)
 
-Run the following command once inside Python:
+Windows users must install the GNU C++ toolchain required to compile Stan models:
 
-```python
-from cmdstanpy import install_cmdstan
-
-install_cmdstan()
+```bash
+python -m cmdstanpy.install_cxx_toolchain
 ```
 
-### 8. Verify the Installation
+This step is not required on Linux or macOS if a compatible C++ compiler is already installed.
+
+### 8. Install CmdStan
+
+Download and install the latest supported version of CmdStan:
+
+```bash
+python -m cmdstanpy.install_cmdstan
+```
+
+### 9. Verify the Installation
+
+Start the Python interpreter from the terminal:
+
+```bash
+python
+```
+
+Then execute:
 
 ```python
 import cmdstanpy
@@ -118,7 +140,44 @@ import cmdstanpy
 print(cmdstanpy.cmdstan_path())
 ```
 
-A valid installation path confirms that CmdStan has been installed successfully.
+A valid installation path, for example
+
+```text
+C:\Users\<username>\.cmdstan\cmdstan-2.39.0
+```
+
+confirms that CmdStan has been installed successfully.
+
+Exit the Python interpreter:
+
+```python
+exit()
+```
+
+---
+
+## Troubleshooting
+
+### CmdStan installation fails on Windows
+
+If the installation fails because commands such as `mingw32-make` or `cut` cannot be found, ensure that the following directories are included in the user `PATH` environment variable:
+
+```text
+%USERPROFILE%\.cmdstan\RTools40\mingw64\bin
+%USERPROFILE%\.cmdstan\RTools40\usr\bin
+```
+
+Restart the terminal after updating the `PATH` and rerun:
+
+```bash
+python -m cmdstanpy.install_cmdstan
+```
+
+For more detailed diagnostic output, run:
+
+```bash
+python -m cmdstanpy.install_cmdstan --verbose --cores 1
+```
 
 ---
 
