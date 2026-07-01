@@ -41,11 +41,6 @@ The following software is required before setting up the project:
 - **[Python 3.10 or later](https://www.python.org/downloads/)**
 - **[Git](https://git-scm.com/downloads)**
 - **[Visual Studio Code](https://code.visualstudio.com/)** (recommended)
-- **[Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)**
-
-During the installation of **Visual Studio Build Tools**, select the following workload: **Desktop development with C++**
-
-This installs the Microsoft C++ compiler required by CmdStan to compile Stan models.
 
 ### 2. Clone the Repository
 
@@ -82,9 +77,7 @@ After activation, the terminal should display:
 
 > **Important:** Before installing packages or running Python scripts, verify that `(.venv)` appears at the beginning of the terminal. Otherwise, packages may be installed into the global Python environment instead of the project's virtual environment.
 
-### 5. Select the Python Interpreter
-
-In Visual Studio Code:
+### 5. Select the Python Interpreter in Visual Studio Code
 
 1. Press **Ctrl + Shift + P**.
 2. Search for **Python: Select Interpreter**.
@@ -108,11 +101,13 @@ pip install cmdstanpy pandas numpy matplotlib arviz
 
 ### 7. Install the C++ Toolchain (Windows only)
 
-Windows users must install the GNU C++ toolchain required to compile Stan models:
+Windows users should install the GNU C++ toolchain required by CmdStanPy:
 
 ```bash
 python -m cmdstanpy.install_cxx_toolchain
 ```
+
+This command installs the required GCC compiler and build tools used to compile Stan models.
 
 This step is not required on Linux or macOS if a compatible C++ compiler is already installed.
 
@@ -126,7 +121,7 @@ python -m cmdstanpy.install_cmdstan
 
 ### 9. Verify the Installation
 
-Start the Python interpreter from the terminal:
+With the virtual environment activated, start the Python interpreter from the terminal:
 
 ```bash
 python
