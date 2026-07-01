@@ -1,13 +1,16 @@
+"""
+@file test_cmdstan.py
+@description Verifies the CmdStan installation by compiling and running a minimal Stan model.
+@date Created on: 01.07.2026
+@author C.Feng
+"""
+
 from pathlib import Path
 from cmdstanpy import CmdStanModel, cmdstan_path
 
-
-# Project root directory:
-# src/examples/test_cmdstan.py -> parents[2] = project root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Stan model to compile
-MODEL_NAME = "bernoulli"
+STAN_FILE = PROJECT_ROOT / "stan" / "examples" / "test_cmdstan.stan"
 
 
 def main():
@@ -16,22 +19,30 @@ def main():
     print("=" * 60)
 
     print(f"CmdStan path : {cmdstan_path()}")
+    print(f"Stan model   : {STAN_FILE}")
 
-    stan_file = PROJECT_ROOT / "stan" / "examples" / f"{MODEL_NAME}.stan"
+    if not STAN_FILE.exists():
+        raise FileNotFoundError(f"Stan model not found:\n{STAN_FILE}")
 
-    print(f"Stan model   : {stan_file}")
+    # Compile model
+    model = CmdStanModel(stan_file=str(STAN_FILE))
 
-    if not stan_file.exists():
-        raise FileNotFoundError(
-            f"Stan model not found:\n{stan_file}\n\n"
-            f"Please make sure the file exists at:\n"
-            f"stan/examples/{MODEL_NAME}.stan"
-        )
+    print("\n✓ Compilation successful")
 
-    model = CmdStanModel(stan_file=str(stan_file))
+    # Draw posterior samples
+    fit = model.sample(
+        chains=4,
+        iter_warmup=500,
+        iter_sampling=1000,
+        seed=42,
+        show_progress=True,
+        refresh=100,
+    )
 
-    print("\n✅ Compilation successful")
-    print(f"Executable   : {model.exe_file}")
+    print("\n✓ Sampling successful")
+
+    print("\nPosterior summary:")
+    print(fit.summary())
 
     print("\nEnvironment is ready for Bayesian modeling.")
 
