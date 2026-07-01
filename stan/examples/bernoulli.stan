@@ -1,13 +1,27 @@
+/*
+ * @file bernoulli.stan
+ * @description Bayesian Bernoulli model with a Beta prior.
+ * @date Created on: 01.07.2026
+ * @author C.Feng
+ */
+
 data {
-  int<lower=0> N;
-  array[N] int<lower=0,upper=1> y;
+    // Number of observations
+    int<lower=0> N;
+
+    // Binary observations: 1 = success, 0 = failure
+    array[N] int<lower=0, upper=1> y;
 }
 
 parameters {
-  real<lower=0,upper=1> theta;
+    // Unknown probability of success
+    real<lower=0, upper=1> theta;
 }
 
 model {
-  theta ~ beta(1, 1);
-  y ~ bernoulli(theta);
+    // Uniform prior distribution over theta
+    theta ~ beta(1, 1);
+
+    // Likelihood
+    y ~ bernoulli(theta);
 }
