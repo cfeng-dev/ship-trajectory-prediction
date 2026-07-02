@@ -99,17 +99,19 @@ If `requirements.txt` is not yet available, install the required packages manual
 pip install cmdstanpy pandas numpy matplotlib arviz
 ```
 
-### 7. Install the C++ Toolchain (Windows only)
+### 7. Install the C++ Toolchain
 
-Windows users should install the GNU C++ toolchain required by CmdStanPy:
+CmdStan requires a working C++17 toolchain to compile Stan models.
+
+Windows users can install the required GNU C++ toolchain with CmdStanPy:
 
 ```bash
 python -m cmdstanpy.install_cxx_toolchain
 ```
 
-This command installs the required GCC compiler and build tools used to compile Stan models.
+This command installs the RTools/MinGW toolchain used by CmdStanPy to compile Stan models on Windows.
 
-This step is not required on Linux or macOS if a compatible C++ compiler is already installed.
+For macOS and Linux setup instructions, please refer to the [official Stan installation guide](https://mc-stan.org/install/#prerequisite-c17-toolchain).
 
 ### 8. Install CmdStan
 
