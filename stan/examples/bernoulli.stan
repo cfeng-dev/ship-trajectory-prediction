@@ -11,6 +11,10 @@ data {
 
     // Binary observations: 1 = success, 0 = failure
     array[N] int<lower=0, upper=1> y;
+
+    // Prior parameters for the Beta distribution
+    real<lower=0> alpha_prior;
+    real<lower=0> beta_prior;
 }
 
 parameters {
@@ -19,9 +23,9 @@ parameters {
 }
 
 model {
-    // Uniform prior distribution over theta
-    theta ~ beta(1, 1);
+    // Beta prior distribution over theta
+    theta ~ beta(alpha_prior, beta_prior);
 
-    // Likelihood
+    // Bernoulli likelihood for binary observations
     y ~ bernoulli(theta);
 }
