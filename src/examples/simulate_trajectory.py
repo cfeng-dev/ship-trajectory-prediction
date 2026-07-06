@@ -18,130 +18,128 @@ from trajectory_models import (
 
 
 def main():
-    # Time points
-    t = np.linspace(0, 20, 100)
-
-    # Common parameters
+    # ==================================================
+    # Simulation parameters
+    # ==================================================
     x0 = 0.0
     y0 = 0.0
     v = 1.0
-
-    # Observation noise parameter
     sigma = 0.2
 
-    # ==================================================
-    # Straight trajectory
-    # ==================================================
     theta = np.deg2rad(20)
+    radius = 10.0
 
+    # Time settings
+    t_straight = np.linspace(0, 10, 50)
+    t_curve = np.linspace(0, 10, 50)
+
+    # ==================================================
+    # First segment: straight trajectory
+    # ==================================================
     x_straight, y_straight = simulate_straight_trajectory(
-        t=t,
+        t=t_straight,
         x0=x0,
         y0=y0,
         v=v,
         theta=theta,
     )
 
-    x_straight_obs, y_straight_obs = add_observation_noise(
-        x=x_straight,
-        y=y_straight,
+    # Last point of straight trajectory becomes start point of curve
+    x_curve_start = x_straight[-1]
+    y_curve_start = y_straight[-1]
+
+    # ==================================================
+    # Second segment: curved trajectory
+    # ==================================================
+    x_curve, y_curve = simulate_curved_trajectory(
+        t=t_curve,
+        x0=x_curve_start,
+        y0=y_curve_start,
+        v=v,
+        radius=radius,
+    )
+
+    # Remove first curve point to avoid duplicate point at transition
+    x_curve = x_curve[1:]
+    y_curve = y_curve[1:]
+    t_curve_shifted = t_curve[1:] + t_straight[-1]
+
+    # ==================================================
+    # Combine both segments into one trajectory
+    # ==================================================
+    t = np.concatenate([t_straight, t_curve_shifted])
+    x_true = np.concatenate([x_straight, x_curve])
+    y_true = np.concatenate([y_straight, y_curve])
+
+    # Add observation noise to the complete trajectory
+    x_obs, y_obs = add_observation_noise(
+        x=x_true,
+        y=y_true,
         sigma=sigma,
         random_seed=42,
     )
 
-    straight_df = create_trajectory_dataframe(
-        t=t,
-        x_true=x_straight,
-        y_true=y_straight,
-        x_obs=x_straight_obs,
-        y_obs=y_straight_obs,
-        trajectory_type="straight",
-        v=v,
-        sigma=sigma,
-        theta=theta,
-        radius=None,
+    # Mark which part of the trajectory each point belongs to
+    trajectory_type = ["straight"] * len(t_straight) + ["curved"] * len(t_curve_shifted)
+
+    # Create DataFrame
+    trajectory_df = pd.DataFrame(
+        {
+            "t": t,
+            "x_true": x_true,
+            "y_true": y_true,
+            "x_obs": x_obs,
+            "y_obs": y_obs,
+            "trajectory_type": trajectory_type,
+            "v": v,
+            "sigma": sigma,
+            "theta": theta,
+            "radius": radius,
+        }
     )
 
+    # Save combined trajectory
     save_trajectory_data(
-        df=straight_df,
-        filename="straight_trajectory.csv",
+        df=trajectory_df,
+        filename="combined_straight_curve_trajectory.csv",
     )
 
     # ==================================================
-    # Curved trajectory
-    # ==================================================
-    radius = 10.0
-
-    x_curve, y_curve = simulate_curved_trajectory(
-        t=t,
-        x0=x0,
-        y0=y0,
-        v=v,
-        radius=radius,
-    )
-
-    x_curve_obs, y_curve_obs = add_observation_noise(
-        x=x_curve,
-        y=y_curve,
-        sigma=sigma,
-        random_seed=43,
-    )
-
-    curve_df = create_trajectory_dataframe(
-        t=t,
-        x_true=x_curve,
-        y_true=y_curve,
-        x_obs=x_curve_obs,
-        y_obs=y_curve_obs,
-        trajectory_type="curved",
-        v=v,
-        sigma=sigma,
-        theta=None,
-        radius=radius,
-    )
-
-    save_trajectory_data(
-        df=curve_df,
-        filename="curved_trajectory.csv",
-    )
-
-    # Save both trajectories in one file
-    all_data_df = pd.concat(
-        [straight_df, curve_df],
-        ignore_index=True,
-    )
-
-    save_trajectory_data(
-        df=all_data_df,
-        filename="simulated_ship_trajectories.csv",
-    )
-
-    # ==================================================
-    # Plot trajectories
+    # Plot trajectory
     # ==================================================
     plt.figure(figsize=(8, 6))
 
-    plt.plot(x_straight, y_straight, label="True straight trajectory")
-    plt.plot(x_curve, y_curve, label="True curved trajectory")
-
-    plt.scatter(
-        x_straight_obs,
-        y_straight_obs,
-        s=15,
-        label="Noisy straight observations",
-    )
-    plt.scatter(
-        x_curve_obs,
-        y_curve_obs,
-        s=15,
-        label="Noisy curved observations",
+    plt.plot(
+        x_true,
+        y_true,
+        label="True combined trajectory",
     )
 
-    plt.scatter(x0, y0, color="black", label="Start position")
+    plt.scatter(
+        x_obs,
+        y_obs,
+        s=15,
+        label="Noisy observations",
+    )
+
+    plt.scatter(
+        x_true[0],
+        y_true[0],
+        color="black",
+        label="Start position",
+    )
+
+    plt.scatter(
+        x_curve_start,
+        y_curve_start,
+        color="black",
+        marker="x",
+        label="Transition point",
+    )
 
     plt.xlabel("x")
     plt.ylabel("y")
-    plt.title("Simulated Ship Trajectories with Observation Noise")
+    plt.title("Simulated Combined Ship Trajectory with Observation Noise")
     plt.axis("equal")
     plt.grid(True)
     plt.legend()
