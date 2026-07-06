@@ -26,6 +26,7 @@ class ShipTrajectoryGUI:
 
     The ship moves continuously when the motor is running.
     The steering slider controls the angular velocity.
+    The speed slider controls the ship velocity.
     """
 
     def __init__(self, root):
@@ -61,7 +62,7 @@ class ShipTrajectoryGUI:
 
     def create_widgets(self):
         """
-        Create buttons, slider, labels, and plot area.
+        Create buttons, sliders, labels, and plot area.
         """
         control_frame = tk.Frame(self.root)
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
@@ -118,6 +119,23 @@ class ShipTrajectoryGUI:
             command=self.center_steering,
         ).pack(pady=5)
 
+        tk.Label(
+            control_frame,
+            text="Speed",
+            font=("Arial", 11, "bold"),
+        ).pack(pady=(20, 0))
+
+        self.speed_slider = tk.Scale(
+            control_frame,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=180,
+            label="Slow  ←   Speed   →  Fast",
+        )
+        self.speed_slider.set(50)
+        self.speed_slider.pack(pady=5)
+
         self.status_label = tk.Label(
             control_frame,
             text="",
@@ -150,11 +168,30 @@ class ShipTrajectoryGUI:
 
         return omega
 
+    def get_speed_from_slider(self):
+        """
+        Convert speed slider value to ship velocity.
+
+        Returns
+        -------
+        speed : float
+            Ship velocity.
+        """
+        speed_value = self.speed_slider.get()
+
+        # Slider range 0..100 is mapped to velocity range 0.0..1.0.
+        speed = speed_value / 100.0
+
+        return speed
+
     def simulation_loop(self):
         """
         Continuously run the simulation loop.
         """
         omega = self.get_omega_from_steering()
+
+        # Update ship speed from speed slider.
+        self.simulator.v = self.get_speed_from_slider()
 
         self.simulator.step(
             omega=omega,
@@ -218,8 +255,10 @@ class ShipTrajectoryGUI:
         self.motor_running = False
         self.motor_button.config(text="Start Motor")
         self.steering_slider.set(0)
+        self.speed_slider.set(50)
 
         self.simulator.reset()
+        self.simulator.v = self.get_speed_from_slider()
 
         self.update_status()
         self.update_plot()
@@ -231,11 +270,12 @@ class ShipTrajectoryGUI:
         heading_deg = np.rad2deg(self.simulator.theta_current)
         omega = self.get_omega_from_steering()
         omega_deg = np.rad2deg(omega)
+        speed = self.get_speed_from_slider()
 
         if abs(omega) < 1e-8:
             radius_text = "∞"
         else:
-            radius_text = f"{self.simulator.v / omega:.2f}"
+            radius_text = f"{speed / omega:.2f}"
 
         motor_text = "Running" if self.motor_running else "Stopped"
 
@@ -246,6 +286,7 @@ class ShipTrajectoryGUI:
                 f"y={self.simulator.y_current:.2f}\n"
                 f"Heading: {heading_deg:.1f}°\n"
                 f"Omega: {omega_deg:.1f}°/s\n"
+                f"Speed: {speed:.2f}\n"
                 f"Radius: {radius_text}\n"
                 f"Time: {self.simulator.current_time:.1f} s"
             )
