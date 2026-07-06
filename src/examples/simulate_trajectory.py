@@ -1,12 +1,20 @@
 """
 @file simulate_trajectory.py
-@description Simulates simple ship trajectories: straight motion and curved motion with observation noise.
+@description Simulates simple 2D ship trajectories and saves synthetic data with observation noise.
 @date Created on: 03.07.2026
 @author C.Feng
 """
 
+from pathlib import Path
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+
+# Project root directory
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# Directory for simulated data
+DATA_DIR = PROJECT_ROOT / "data" / "simulated"
 
 
 def simulate_straight_trajectory(t, x0, y0, v, theta):
@@ -71,7 +79,7 @@ def simulate_curved_trajectory(t, x0, y0, v, radius):
     return x, y
 
 
-def add_observation_noise(x, y, noise_std, random_seed=None):
+def add_observation_noise(x, y, sigma, random_seed=None):
     """
     Add Gaussian observation noise to simulated trajectory positions.
 
@@ -81,24 +89,104 @@ def add_observation_noise(x, y, noise_std, random_seed=None):
         True x-positions.
     y : np.ndarray
         True y-positions.
-    noise_std : float
-        Standard deviation of the Gaussian noise.
+    sigma : float
+        Standard deviation of the Gaussian observation noise.
     random_seed : int, optional
         Random seed for reproducible results.
 
     Returns
     -------
-    x_noisy : np.ndarray
+    x_obs : np.ndarray
         Noisy observed x-positions.
-    y_noisy : np.ndarray
+    y_obs : np.ndarray
         Noisy observed y-positions.
     """
     rng = np.random.default_rng(random_seed)
 
-    x_noisy = x + rng.normal(0, noise_std, size=len(x))
-    y_noisy = y + rng.normal(0, noise_std, size=len(y))
+    x_obs = x + rng.normal(0, sigma, size=len(x))
+    y_obs = y + rng.normal(0, sigma, size=len(y))
 
-    return x_noisy, y_noisy
+    return x_obs, y_obs
+
+
+def create_trajectory_dataframe(
+    t,
+    x_true,
+    y_true,
+    x_obs,
+    y_obs,
+    trajectory_type,
+    v,
+    sigma,
+    theta=None,
+    radius=None,
+):
+    """
+    Create a DataFrame containing simulated trajectory data.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Time points.
+    x_true : np.ndarray
+        True x-positions without noise.
+    y_true : np.ndarray
+        True y-positions without noise.
+    x_obs : np.ndarray
+        Observed x-positions with noise.
+    y_obs : np.ndarray
+        Observed y-positions with noise.
+    trajectory_type : str
+        Type of trajectory, e.g. "straight" or "curved".
+    v : float
+        Constant speed.
+    sigma : float
+        Observation noise standard deviation.
+    theta : float, optional
+        Heading angle in radians.
+    radius : float, optional
+        Turning radius.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Simulated trajectory data.
+    """
+    df = pd.DataFrame(
+        {
+            "t": t,
+            "x_true": x_true,
+            "y_true": y_true,
+            "x_obs": x_obs,
+            "y_obs": y_obs,
+            "trajectory_type": trajectory_type,
+            "v": v,
+            "sigma": sigma,
+            "theta": theta,
+            "radius": radius,
+        }
+    )
+
+    return df
+
+
+def save_trajectory_data(df, filename):
+    """
+    Save simulated trajectory data as a CSV file.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Simulated trajectory data.
+    filename : str
+        Name of the output CSV file.
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    output_path = DATA_DIR / filename
+    df.to_csv(output_path, index=False)
+
+    print(f"Saved simulated data to: {output_path}")
 
 
 def main():
@@ -111,10 +199,13 @@ def main():
     v = 1.0
 
     # Observation noise parameter
-    noise_std = 0.2
+    sigma = 0.2
 
+    # ==================================================
     # Straight trajectory
+    # ==================================================
     theta = np.deg2rad(20)
+
     x_straight, y_straight = simulate_straight_trajectory(
         t=t,
         x0=x0,
@@ -123,16 +214,36 @@ def main():
         theta=theta,
     )
 
-    # Add observation noise to straight trajectory
-    x_straight_noisy, y_straight_noisy = add_observation_noise(
+    x_straight_obs, y_straight_obs = add_observation_noise(
         x=x_straight,
         y=y_straight,
-        noise_std=noise_std,
+        sigma=sigma,
         random_seed=42,
     )
 
+    straight_df = create_trajectory_dataframe(
+        t=t,
+        x_true=x_straight,
+        y_true=y_straight,
+        x_obs=x_straight_obs,
+        y_obs=y_straight_obs,
+        trajectory_type="straight",
+        v=v,
+        sigma=sigma,
+        theta=theta,
+        radius=None,
+    )
+
+    save_trajectory_data(
+        df=straight_df,
+        filename="straight_trajectory.csv",
+    )
+
+    # ==================================================
     # Curved trajectory
+    # ==================================================
     radius = 10.0
+
     x_curve, y_curve = simulate_curved_trajectory(
         t=t,
         x0=x0,
@@ -141,15 +252,45 @@ def main():
         radius=radius,
     )
 
-    # Add observation noise to curved trajectory
-    x_curve_noisy, y_curve_noisy = add_observation_noise(
+    x_curve_obs, y_curve_obs = add_observation_noise(
         x=x_curve,
         y=y_curve,
-        noise_std=noise_std,
+        sigma=sigma,
         random_seed=43,
     )
 
+    curve_df = create_trajectory_dataframe(
+        t=t,
+        x_true=x_curve,
+        y_true=y_curve,
+        x_obs=x_curve_obs,
+        y_obs=y_curve_obs,
+        trajectory_type="curved",
+        v=v,
+        sigma=sigma,
+        theta=None,
+        radius=radius,
+    )
+
+    save_trajectory_data(
+        df=curve_df,
+        filename="curved_trajectory.csv",
+    )
+
+    # Save both trajectories in one file
+    all_data_df = pd.concat(
+        [straight_df, curve_df],
+        ignore_index=True,
+    )
+
+    save_trajectory_data(
+        df=all_data_df,
+        filename="simulated_ship_trajectories.csv",
+    )
+
+    # ==================================================
     # Plot trajectories
+    # ==================================================
     plt.figure(figsize=(8, 6))
 
     # True trajectories without noise
@@ -158,14 +299,14 @@ def main():
 
     # Noisy observations
     plt.scatter(
-        x_straight_noisy,
-        y_straight_noisy,
+        x_straight_obs,
+        y_straight_obs,
         s=15,
         label="Noisy straight observations",
     )
     plt.scatter(
-        x_curve_noisy,
-        y_curve_noisy,
+        x_curve_obs,
+        y_curve_obs,
         s=15,
         label="Noisy curved observations",
     )
