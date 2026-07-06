@@ -409,8 +409,8 @@ class ShipTrajectoryGUI:
             # Show current ship position and heading direction.
             self.add_heading_marker()
 
-        self.ax.set_xlabel("x")
-        self.ax.set_ylabel("y", rotation=0, labelpad=15, va="center")
+        self.ax.set_xlabel("x [m]")
+        self.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
         self.ax.set_title("Interactive 2D Ship Trajectory")
         self.ax.axis("equal")
         self.ax.grid(True)
@@ -423,6 +423,7 @@ class ShipTrajectoryGUI:
 
 def main():
     root = tk.Tk()
+    root.geometry("1100x700")  # Set initial window size: width x height
     ShipTrajectoryGUI(root)
     root.mainloop()
 
