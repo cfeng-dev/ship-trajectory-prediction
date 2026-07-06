@@ -251,9 +251,40 @@ class ShipTrajectoryGUI:
             )
         )
 
+    def create_ship_marker(self, theta):
+        """
+        Create a narrow triangle marker for the ship heading.
+
+        The triangle points in the direction of theta.
+        The side edges are longer than the rear edge.
+        """
+        # Narrow triangle pointing to the right when theta = 0.
+        #
+        #        front
+        #          >
+        # rear -------- rear
+        #
+        # A larger x distance and smaller y distance make the triangle narrower.
+        marker = np.array(
+            [
+                [1.0, 0.0],  # Front tip
+                [-0.8, -0.35],  # Rear lower corner
+                [-0.8, 0.35],  # Rear upper corner
+            ]
+        )
+
+        rotation_matrix = np.array(
+            [
+                [np.cos(theta), -np.sin(theta)],
+                [np.sin(theta), np.cos(theta)],
+            ]
+        )
+
+        return marker @ rotation_matrix.T
+
     def add_heading_marker(self):
         """
-        Add a fixed-size red triangle marker at the current ship position.
+        Add a fixed-size red ship marker at the current ship position.
 
         The marker is rotated according to the current heading angle.
         """
@@ -261,17 +292,14 @@ class ShipTrajectoryGUI:
         y = self.simulator.y_current
         theta = self.simulator.theta_current
 
-        # Convert heading to degrees.
-        # Matplotlib triangle marker points upward by default,
-        # therefore subtract 90 degrees so theta=0 points to the right.
-        angle_deg = np.rad2deg(theta) - 90
+        ship_marker = self.create_ship_marker(theta)
 
         self.ax.scatter(
             x,
             y,
             s=180,
             color="red",
-            marker=(3, 0, angle_deg),
+            marker=ship_marker,
             label="Current heading",
             zorder=5,
         )
@@ -302,7 +330,7 @@ class ShipTrajectoryGUI:
             Line2D(
                 [0],
                 [0],
-                marker="^",
+                marker=self.create_ship_marker(0),
                 color="red",
                 linestyle="None",
                 markersize=12,
@@ -337,7 +365,7 @@ class ShipTrajectoryGUI:
                 label="Start position",
             )
 
-            # Show current ship position and heading direction
+            # Show current ship position and heading direction.
             self.add_heading_marker()
 
         self.ax.set_xlabel("x")
