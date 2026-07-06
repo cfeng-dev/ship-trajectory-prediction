@@ -161,8 +161,10 @@ class ShipTrajectoryGUI:
         """
         steering_value = self.steering_slider.get()
 
-        # Positive steering should turn left, negative steering right
-        omega = (steering_value / 100.0) * self.max_omega
+        # Positive slider value means steering to the right.
+        # In mathematical coordinates, positive omega turns left,
+        # therefore the sign is inverted here.
+        omega = -(steering_value / 100.0) * self.max_omega
 
         return omega
 
