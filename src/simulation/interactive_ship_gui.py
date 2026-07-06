@@ -95,11 +95,21 @@ class ShipTrajectoryGUI:
             command=self.reset,
         ).pack(pady=5)
 
+        # ==================================================
+        # Steering controls
+        # ==================================================
         tk.Label(
             control_frame,
             text="Steering",
             font=("Arial", 11, "bold"),
         ).pack(pady=(25, 0))
+
+        tk.Label(
+            control_frame,
+            text="Left  ←   0   →  Right",
+            width=24,
+            anchor="center",
+        ).pack()
 
         self.steering_slider = tk.Scale(
             control_frame,
@@ -107,7 +117,6 @@ class ShipTrajectoryGUI:
             to=100,
             orient=tk.HORIZONTAL,
             length=180,
-            label="Left  ←   0   →  Right",
         )
         self.steering_slider.set(0)
         self.steering_slider.pack(pady=5)
@@ -119,11 +128,21 @@ class ShipTrajectoryGUI:
             command=self.center_steering,
         ).pack(pady=5)
 
+        # ==================================================
+        # Speed controls
+        # ==================================================
         tk.Label(
             control_frame,
             text="Speed",
             font=("Arial", 11, "bold"),
         ).pack(pady=(20, 0))
+
+        tk.Label(
+            control_frame,
+            text="Slow  ←   Speed   →  Fast",
+            width=24,
+            anchor="center",
+        ).pack()
 
         self.speed_slider = tk.Scale(
             control_frame,
@@ -131,7 +150,6 @@ class ShipTrajectoryGUI:
             to=100,
             orient=tk.HORIZONTAL,
             length=180,
-            label="Slow  ←   Speed   →  Fast",
         )
         self.speed_slider.set(50)
         self.speed_slider.pack(pady=5)
@@ -423,7 +441,10 @@ class ShipTrajectoryGUI:
 
 def main():
     root = tk.Tk()
-    root.geometry("1100x700")  # Set initial window size: width x height
+
+    # Set initial window size: width x height.
+    root.geometry("1100x700")
+
     ShipTrajectoryGUI(root)
     root.mainloop()
 
