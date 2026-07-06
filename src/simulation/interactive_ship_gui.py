@@ -45,7 +45,7 @@ class ShipTrajectoryGUI:
         self.update_interval_ms = 100
 
         # Maximum angular velocity in rad/s
-        self.max_omega = np.deg2rad(15)
+        self.max_omega = np.deg2rad(45)
 
         self.motor_running = False
 
