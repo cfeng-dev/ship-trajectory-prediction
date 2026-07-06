@@ -46,7 +46,7 @@ def simulate_straight_trajectory(t, x0, y0, v, theta):
     return x, y
 
 
-def simulate_curved_trajectory(t, x0, y0, v, radius):
+def simulate_curved_trajectory(t, x0, y0, v, radius, theta):
     """
     Simulate a curved ship trajectory using circular motion.
 
@@ -62,6 +62,8 @@ def simulate_curved_trajectory(t, x0, y0, v, radius):
         Constant speed.
     radius : float
         Turning radius of the ship.
+    theta : float
+        Initial heading angle in radians.
 
     Returns
     -------
@@ -72,8 +74,8 @@ def simulate_curved_trajectory(t, x0, y0, v, radius):
     """
     omega = v / radius  # Angular velocity
 
-    x = x0 + radius * np.sin(omega * t)
-    y = y0 + radius * (1 - np.cos(omega * t))
+    x = x0 + radius * (np.sin(theta + omega * t) - np.sin(theta))
+    y = y0 - radius * (np.cos(theta + omega * t) - np.cos(theta))
 
     return x, y
 

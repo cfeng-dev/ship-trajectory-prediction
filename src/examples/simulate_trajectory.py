@@ -57,6 +57,7 @@ def main():
         y0=y_curve_start,
         v=v,
         radius=radius,
+        theta=theta,
     )
 
     # Remove first curve point to avoid duplicate point at transition
