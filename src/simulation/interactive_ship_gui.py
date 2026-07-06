@@ -45,9 +45,6 @@ class ShipTrajectoryGUI:
         # GUI update interval in milliseconds
         self.update_interval_ms = 100
 
-        # Maximum angular velocity in rad/s
-        self.max_omega = np.deg2rad(45)
-
         self.motor_running = False
 
         # ==================================================
@@ -106,17 +103,18 @@ class ShipTrajectoryGUI:
 
         tk.Label(
             control_frame,
-            text="Left  ←   0   →  Right",
+            text="Left  ←   0 °/s   →  Right",
             width=24,
             anchor="center",
         ).pack()
 
         self.steering_slider = tk.Scale(
             control_frame,
-            from_=-100,
-            to=100,
+            from_=-45,
+            to=45,
             orient=tk.HORIZONTAL,
             length=180,
+            resolution=1,
         )
         self.steering_slider.set(0)
         self.steering_slider.pack(pady=5)
@@ -139,19 +137,21 @@ class ShipTrajectoryGUI:
 
         tk.Label(
             control_frame,
-            text="Slow  ←   Speed   →  Fast",
+            text="Slow  ←   m/s   →  Fast",
             width=24,
             anchor="center",
         ).pack()
 
         self.speed_slider = tk.Scale(
             control_frame,
-            from_=0,
-            to=100,
+            from_=0.0,
+            to=1.0,
             orient=tk.HORIZONTAL,
             length=180,
+            resolution=0.05,
+            digits=3,
         )
-        self.speed_slider.set(50)
+        self.speed_slider.set(0.5)
         self.speed_slider.pack(pady=5)
 
         self.status_label = tk.Label(
@@ -170,35 +170,32 @@ class ShipTrajectoryGUI:
 
     def get_omega_from_steering(self):
         """
-        Convert steering slider value to angular velocity.
+        Convert steering slider value from degrees per second to rad/s.
 
         Returns
         -------
         omega : float
             Angular velocity in rad/s.
         """
-        steering_value = self.steering_slider.get()
+        steering_deg_per_second = self.steering_slider.get()
 
         # Positive slider value means steering to the right.
         # In mathematical coordinates, positive omega turns left,
         # therefore the sign is inverted here.
-        omega = -(steering_value / 100.0) * self.max_omega
+        omega = -np.deg2rad(steering_deg_per_second)
 
         return omega
 
     def get_speed_from_slider(self):
         """
-        Convert speed slider value to ship velocity.
+        Get ship velocity from speed slider.
 
         Returns
         -------
         speed : float
-            Ship velocity.
+            Ship velocity in m/s.
         """
-        speed_value = self.speed_slider.get()
-
-        # Slider range 0..100 is mapped to velocity range 0.0..1.0.
-        speed = speed_value / 100.0
+        speed = self.speed_slider.get()
 
         return speed
 
@@ -273,7 +270,7 @@ class ShipTrajectoryGUI:
         self.motor_running = False
         self.motor_button.config(text="Start Motor")
         self.steering_slider.set(0)
-        self.speed_slider.set(50)
+        self.speed_slider.set(0.5)
 
         self.simulator.reset()
         self.simulator.v = self.get_speed_from_slider()
@@ -293,18 +290,18 @@ class ShipTrajectoryGUI:
         if abs(omega) < 1e-8:
             radius_text = "∞"
         else:
-            radius_text = f"{speed / omega:.2f}"
+            radius_text = f"{speed / omega:.2f} m"
 
         motor_text = "Running" if self.motor_running else "Stopped"
 
         self.status_label.config(
             text=(
                 f"Motor: {motor_text}\n"
-                f"Position: x={self.simulator.x_current:.2f}, "
-                f"y={self.simulator.y_current:.2f}\n"
+                f"Position: x={self.simulator.x_current:.2f} m, "
+                f"y={self.simulator.y_current:.2f} m\n"
                 f"Heading: {heading_deg:.1f}°\n"
                 f"Omega: {omega_deg:.1f}°/s\n"
-                f"Speed: {speed:.2f}\n"
+                f"Speed: {speed:.2f} m/s\n"
                 f"Radius: {radius_text}\n"
                 f"Time: {self.simulator.current_time:.1f} s"
             )
