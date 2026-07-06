@@ -1,6 +1,6 @@
 """
 @file interactive_trajectory_simulator.py
-@description Lets the user interactively steer a simple 2D ship trajectory and saves the simulated data.
+@description Provides a GUI to steer a simple 2D ship trajectory with motor control and CSV export.
 @date Created on: 06.07.2026
 @author C.Feng
 """
@@ -16,14 +16,15 @@ from matplotlib.figure import Figure
 from trajectory_models import (
     add_observation_noise,
     save_trajectory_data,
-    simulate_curved_trajectory,
-    simulate_straight_trajectory,
 )
 
 
 class ShipTrajectoryGUI:
     """
-    Simple GUI for interactively simulating a 2D ship trajectory.
+    GUI for interactively steering a 2D ship trajectory.
+
+    The ship moves continuously when the motor is running.
+    The steering slider controls the angular velocity.
     """
 
     def __init__(self, root):
@@ -34,11 +35,18 @@ class ShipTrajectoryGUI:
         # Simulation parameters
         # ==================================================
         self.v = 1.0
-        self.radius = 10.0
         self.sigma = 0.2
 
-        self.segment_duration = 5.0
-        self.points_per_segment = 30
+        # Simulation time step in seconds
+        self.dt = 0.1
+
+        # GUI update interval in milliseconds
+        self.update_interval_ms = 100
+
+        # Maximum angular velocity in rad/s
+        self.max_omega = np.deg2rad(20)
+
+        self.motor_running = False
 
         self.reset_simulation_state()
 
@@ -46,7 +54,11 @@ class ShipTrajectoryGUI:
         # GUI layout
         # ==================================================
         self.create_widgets()
+        self.update_status()
         self.update_plot()
+
+        # Start continuous simulation loop
+        self.simulation_loop()
 
     def reset_simulation_state(self):
         """
@@ -54,19 +66,21 @@ class ShipTrajectoryGUI:
         """
         self.x_current = 0.0
         self.y_current = 0.0
-        self.theta_current = np.deg2rad(0)
+        self.theta_current = 0.0
         self.current_time = 0.0
 
         self.t_all = []
         self.x_all = []
         self.y_all = []
-        self.segment_types = []
+        self.theta_all = []
+        self.omega_all = []
+        self.radius_all = []
+        self.motor_state_all = []
 
     def create_widgets(self):
         """
-        Create buttons, labels, and plot area.
+        Create buttons, slider, labels, and plot area.
         """
-        # Left control panel
         control_frame = tk.Frame(self.root)
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
 
@@ -76,26 +90,13 @@ class ShipTrajectoryGUI:
             font=("Arial", 14, "bold"),
         ).pack(pady=(0, 10))
 
-        tk.Button(
+        self.motor_button = tk.Button(
             control_frame,
-            text="Drive Straight",
+            text="Start Motor",
             width=18,
-            command=self.drive_straight,
-        ).pack(pady=5)
-
-        tk.Button(
-            control_frame,
-            text="Turn Left",
-            width=18,
-            command=self.turn_left,
-        ).pack(pady=5)
-
-        tk.Button(
-            control_frame,
-            text="Turn Right",
-            width=18,
-            command=self.turn_right,
-        ).pack(pady=5)
+            command=self.toggle_motor,
+        )
+        self.motor_button.pack(pady=5)
 
         tk.Button(
             control_frame,
@@ -111,134 +112,120 @@ class ShipTrajectoryGUI:
             command=self.reset,
         ).pack(pady=5)
 
+        tk.Label(
+            control_frame,
+            text="Steering",
+            font=("Arial", 11, "bold"),
+        ).pack(pady=(25, 0))
+
+        self.steering_slider = tk.Scale(
+            control_frame,
+            from_=-100,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=180,
+            label="Left  ←   0   →  Right",
+        )
+        self.steering_slider.set(0)
+        self.steering_slider.pack(pady=5)
+
+        tk.Button(
+            control_frame,
+            text="Center Steering",
+            width=18,
+            command=self.center_steering,
+        ).pack(pady=5)
+
         self.status_label = tk.Label(
             control_frame,
-            text="Position: x=0.00, y=0.00\nHeading: 0.0°",
+            text="",
             justify=tk.LEFT,
         )
         self.status_label.pack(pady=(20, 0))
 
-        # Right plot area
+        # Plot area
         self.figure = Figure(figsize=(7, 6))
         self.ax = self.figure.add_subplot(111)
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
         self.canvas.get_tk_widget().pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-    def append_segment(self, t_segment, x_segment, y_segment, segment_type):
+    def get_omega_from_steering(self):
         """
-        Append a trajectory segment to the full trajectory.
+        Convert steering slider value to angular velocity.
 
-        The first point of each new segment is removed to avoid duplicate
-        points at the transition between two segments.
+        Returns
+        -------
+        omega : float
+            Angular velocity in rad/s.
         """
-        if len(self.t_all) > 0:
-            t_segment = t_segment[1:]
-            x_segment = x_segment[1:]
-            y_segment = y_segment[1:]
+        steering_value = self.steering_slider.get()
 
-        t_shifted = t_segment + self.current_time
+        # Positive steering should turn left, negative steering right
+        omega = (steering_value / 100.0) * self.max_omega
 
-        self.t_all.extend(t_shifted)
-        self.x_all.extend(x_segment)
-        self.y_all.extend(y_segment)
-        self.segment_types.extend([segment_type] * len(t_segment))
+        return omega
 
-        self.x_current = x_segment[-1]
-        self.y_current = y_segment[-1]
-        self.current_time = self.t_all[-1]
-
-    def drive_straight(self):
+    def simulation_step(self):
         """
-        Add a straight trajectory segment.
+        Perform one simulation step if the motor is running.
         """
-        t_segment = np.linspace(
-            0,
-            self.segment_duration,
-            self.points_per_segment,
-        )
+        if not self.motor_running:
+            return
 
-        x_segment, y_segment = simulate_straight_trajectory(
-            t=t_segment,
-            x0=self.x_current,
-            y0=self.y_current,
-            v=self.v,
-            theta=self.theta_current,
-        )
+        omega = self.get_omega_from_steering()
 
-        self.append_segment(
-            t_segment=t_segment,
-            x_segment=x_segment,
-            y_segment=y_segment,
-            segment_type="straight",
-        )
+        # Store current state before updating
+        self.t_all.append(self.current_time)
+        self.x_all.append(self.x_current)
+        self.y_all.append(self.y_current)
+        self.theta_all.append(self.theta_current)
+        self.omega_all.append(omega)
+        self.motor_state_all.append(self.motor_running)
 
+        # Turning radius R = v / omega
+        # For straight motion omega is almost zero, so radius is infinite
+        if abs(omega) < 1e-8:
+            radius = np.inf
+        else:
+            radius = self.v / omega
+
+        self.radius_all.append(radius)
+
+        # Update ship position and heading
+        self.x_current += self.v * np.cos(self.theta_current) * self.dt
+        self.y_current += self.v * np.sin(self.theta_current) * self.dt
+        self.theta_current += omega * self.dt
+        self.current_time += self.dt
+
+    def simulation_loop(self):
+        """
+        Continuously run the simulation loop.
+        """
+        self.simulation_step()
         self.update_status()
         self.update_plot()
 
-    def turn_left(self):
+        self.root.after(self.update_interval_ms, self.simulation_loop)
+
+    def toggle_motor(self):
         """
-        Add a left-turn trajectory segment.
+        Start or stop the motor.
         """
-        t_segment = np.linspace(
-            0,
-            self.segment_duration,
-            self.points_per_segment,
-        )
+        self.motor_running = not self.motor_running
 
-        x_segment, y_segment = simulate_curved_trajectory(
-            t=t_segment,
-            x0=self.x_current,
-            y0=self.y_current,
-            v=self.v,
-            radius=self.radius,
-            theta=self.theta_current,
-        )
-
-        omega = self.v / self.radius
-        self.theta_current += omega * self.segment_duration
-
-        self.append_segment(
-            t_segment=t_segment,
-            x_segment=x_segment,
-            y_segment=y_segment,
-            segment_type="left_curve",
-        )
+        if self.motor_running:
+            self.motor_button.config(text="Stop Motor")
+        else:
+            self.motor_button.config(text="Start Motor")
 
         self.update_status()
-        self.update_plot()
 
-    def turn_right(self):
+    def center_steering(self):
         """
-        Add a right-turn trajectory segment.
+        Reset steering slider to center.
         """
-        t_segment = np.linspace(
-            0,
-            self.segment_duration,
-            self.points_per_segment,
-        )
-
-        x_segment, y_segment = simulate_curved_trajectory(
-            t=t_segment,
-            x0=self.x_current,
-            y0=self.y_current,
-            v=self.v,
-            radius=-self.radius,
-            theta=self.theta_current,
-        )
-
-        omega = self.v / (-self.radius)
-        self.theta_current += omega * self.segment_duration
-
-        self.append_segment(
-            t_segment=t_segment,
-            x_segment=x_segment,
-            y_segment=y_segment,
-            segment_type="right_curve",
-        )
-
-        self.update_status()
-        self.update_plot()
+        self.steering_slider.set(0)
 
     def save_csv(self):
         """
@@ -247,7 +234,7 @@ class ShipTrajectoryGUI:
         if len(self.x_all) == 0:
             messagebox.showwarning(
                 "No Data",
-                "No trajectory data available. Please drive the ship first.",
+                "No trajectory data available. Please start the motor first.",
             )
             return
 
@@ -269,27 +256,33 @@ class ShipTrajectoryGUI:
                 "y_true": y_true,
                 "x_obs": x_obs,
                 "y_obs": y_obs,
-                "trajectory_type": self.segment_types,
+                "theta": self.theta_all,
+                "omega": self.omega_all,
+                "radius": self.radius_all,
                 "v": self.v,
                 "sigma": self.sigma,
-                "radius": self.radius,
+                "motor_running": self.motor_state_all,
             }
         )
 
         save_trajectory_data(
             df=trajectory_df,
-            filename="gui_ship_trajectory.csv",
+            filename="gui_steered_ship_trajectory.csv",
         )
 
         messagebox.showinfo(
             "Saved",
-            "Trajectory data saved as gui_ship_trajectory.csv",
+            "Trajectory data saved as gui_steered_ship_trajectory.csv",
         )
 
     def reset(self):
         """
         Reset the simulation and clear the plot.
         """
+        self.motor_running = False
+        self.motor_button.config(text="Start Motor")
+        self.steering_slider.set(0)
+
         self.reset_simulation_state()
         self.update_status()
         self.update_plot()
@@ -299,11 +292,23 @@ class ShipTrajectoryGUI:
         Update the status label.
         """
         heading_deg = np.rad2deg(self.theta_current)
+        omega = self.get_omega_from_steering()
+        omega_deg = np.rad2deg(omega)
+
+        if abs(omega) < 1e-8:
+            radius_text = "∞"
+        else:
+            radius_text = f"{self.v / omega:.2f}"
+
+        motor_text = "Running" if self.motor_running else "Stopped"
 
         self.status_label.config(
             text=(
+                f"Motor: {motor_text}\n"
                 f"Position: x={self.x_current:.2f}, y={self.y_current:.2f}\n"
                 f"Heading: {heading_deg:.1f}°\n"
+                f"Omega: {omega_deg:.1f}°/s\n"
+                f"Radius: {radius_text}\n"
                 f"Time: {self.current_time:.1f} s"
             )
         )
@@ -318,8 +323,6 @@ class ShipTrajectoryGUI:
             self.ax.plot(
                 self.x_all,
                 self.y_all,
-                marker="o",
-                markersize=3,
                 label="True trajectory",
             )
 
@@ -342,7 +345,9 @@ class ShipTrajectoryGUI:
         self.ax.set_title("Interactive 2D Ship Trajectory")
         self.ax.axis("equal")
         self.ax.grid(True)
-        self.ax.legend()
+
+        if len(self.x_all) > 0:
+            self.ax.legend()
 
         self.canvas.draw()
 
