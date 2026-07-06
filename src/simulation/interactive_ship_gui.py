@@ -278,10 +278,11 @@ class ShipTrajectoryGUI:
 
     def update_legend(self):
         """
-        Update the plot legend with a rotated heading marker.
-        """
-        angle_deg = np.rad2deg(self.simulator.theta_current) - 90
+        Update the plot legend with a fixed heading marker.
 
+        The legend icon does not rotate, because it is only a symbol.
+        The real heading marker in the plot still rotates with the ship heading.
+        """
         legend_handles = [
             Line2D(
                 [0],
@@ -301,7 +302,7 @@ class ShipTrajectoryGUI:
             Line2D(
                 [0],
                 [0],
-                marker=(3, 0, angle_deg),
+                marker="^",
                 color="red",
                 linestyle="None",
                 markersize=12,
