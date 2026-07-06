@@ -369,7 +369,7 @@ class ShipTrajectoryGUI:
             self.add_heading_marker()
 
         self.ax.set_xlabel("x")
-        self.ax.set_ylabel("y")
+        self.ax.set_ylabel("y", rotation=0, labelpad=15, va="center")
         self.ax.set_title("Interactive 2D Ship Trajectory")
         self.ax.axis("equal")
         self.ax.grid(True)
