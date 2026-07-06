@@ -11,6 +11,7 @@ from tkinter import messagebox
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 
 from ship_simulator import ShipSimulator
 from simulation_io import (
@@ -250,6 +251,66 @@ class ShipTrajectoryGUI:
             )
         )
 
+    def add_heading_marker(self):
+        """
+        Add a fixed-size red triangle marker at the current ship position.
+
+        The marker is rotated according to the current heading angle.
+        """
+        x = self.simulator.x_current
+        y = self.simulator.y_current
+        theta = self.simulator.theta_current
+
+        # Convert heading to degrees.
+        # Matplotlib triangle marker points upward by default,
+        # therefore subtract 90 degrees so theta=0 points to the right.
+        angle_deg = np.rad2deg(theta) - 90
+
+        self.ax.scatter(
+            x,
+            y,
+            s=180,
+            color="red",
+            marker=(3, 0, angle_deg),
+            label="Current heading",
+            zorder=5,
+        )
+
+    def update_legend(self):
+        """
+        Update the plot legend with a rotated heading marker.
+        """
+        angle_deg = np.rad2deg(self.simulator.theta_current) - 90
+
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                color="tab:blue",
+                label="True trajectory",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="black",
+                linestyle="None",
+                markersize=8,
+                label="Start position",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker=(3, 0, angle_deg),
+                color="red",
+                linestyle="None",
+                markersize=12,
+                label="Current heading",
+            ),
+        ]
+
+        self.ax.legend(handles=legend_handles)
+
     def update_plot(self):
         """
         Update the trajectory plot.
@@ -257,9 +318,14 @@ class ShipTrajectoryGUI:
         self.ax.clear()
 
         if self.simulator.has_data():
+            # Add the current position to the displayed trajectory.
+            # This makes the blue line connect to the current heading marker.
+            x_plot = list(self.simulator.x_all) + [self.simulator.x_current]
+            y_plot = list(self.simulator.y_all) + [self.simulator.y_current]
+
             self.ax.plot(
-                self.simulator.x_all,
-                self.simulator.y_all,
+                x_plot,
+                y_plot,
                 label="True trajectory",
             )
 
@@ -270,12 +336,8 @@ class ShipTrajectoryGUI:
                 label="Start position",
             )
 
-            self.ax.scatter(
-                self.simulator.x_all[-1],
-                self.simulator.y_all[-1],
-                color="red",
-                label="Current position",
-            )
+            # Show current ship position and heading direction
+            self.add_heading_marker()
 
         self.ax.set_xlabel("x")
         self.ax.set_ylabel("y")
@@ -284,7 +346,7 @@ class ShipTrajectoryGUI:
         self.ax.grid(True)
 
         if self.simulator.has_data():
-            self.ax.legend()
+            self.update_legend()
 
         self.canvas.draw()
 
