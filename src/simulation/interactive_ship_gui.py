@@ -68,6 +68,27 @@ class ShipTrajectoryGUI:
         self.ship_linewidth = 1.5
 
         # ==================================================
+        # Plot style colors
+        # ==================================================
+        # Slight blue background to create a water feeling
+        self.plot_background_color = "#eaf6fb"
+
+        # Trajectory line color
+        self.trajectory_color = "#2a6f97"
+        self.trajectory_linewidth = 2.0
+
+        # Start point color
+        self.start_position_color = "black"
+
+        # Grid style
+        self.grid_color = "#8fbcd4"
+        self.grid_alpha = 0.75
+        self.grid_linewidth = 1.0
+
+        # Figure background
+        self.figure_background_color = "white"
+
+        # ==================================================
         # Plot axis settings
         # ==================================================
         # Available modes:
@@ -241,7 +262,10 @@ class ShipTrajectoryGUI:
         # Plot area
         # ==================================================
         self.figure = Figure(figsize=(self.figure_width, self.figure_height))
+        self.figure.patch.set_facecolor(self.figure_background_color)
+
         self.ax = self.figure.add_subplot(111)
+        self.ax.set_facecolor(self.plot_background_color)
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
         self.canvas.get_tk_widget().pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
@@ -500,14 +524,15 @@ class ShipTrajectoryGUI:
             Line2D(
                 [0],
                 [0],
-                color="tab:blue",
+                color=self.trajectory_color,
+                linewidth=self.trajectory_linewidth,
                 label="True trajectory",
             ),
             Line2D(
                 [0],
                 [0],
                 marker="o",
-                color="black",
+                color=self.start_position_color,
                 linestyle="None",
                 markersize=8,
                 label="Start position",
@@ -634,6 +659,9 @@ class ShipTrajectoryGUI:
         """
         self.ax.clear()
 
+        # Reapply plot background after clearing
+        self.ax.set_facecolor(self.plot_background_color)
+
         if self.simulator.has_data():
             # Add the current position to the displayed trajectory.
             # This makes the blue line connect to the current heading marker.
@@ -643,13 +671,15 @@ class ShipTrajectoryGUI:
             self.ax.plot(
                 x_plot,
                 y_plot,
+                color=self.trajectory_color,
+                linewidth=self.trajectory_linewidth,
                 label="True trajectory",
             )
 
             self.ax.scatter(
                 self.simulator.x_all[0],
                 self.simulator.y_all[0],
-                color="black",
+                color=self.start_position_color,
                 label="Start position",
                 zorder=4,
             )
@@ -664,7 +694,12 @@ class ShipTrajectoryGUI:
         # Keep 1 meter on x-axis equal to 1 meter on y-axis.
         self.ax.set_aspect("equal", adjustable="box")
 
-        self.ax.grid(True)
+        self.ax.grid(
+            True,
+            color=self.grid_color,
+            alpha=self.grid_alpha,
+            linewidth=self.grid_linewidth,
+        )
 
         # Update axis range and ticks depending on axis_mode.
         self.update_axis_limits()
