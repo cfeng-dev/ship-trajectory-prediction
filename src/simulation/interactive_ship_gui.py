@@ -353,7 +353,7 @@ class ShipTrajectoryGUI:
         self.ax.scatter(
             x,
             y,
-            s=180,
+            s=700,
             color="red",
             marker=ship_marker,
             label="Current heading",
@@ -389,7 +389,7 @@ class ShipTrajectoryGUI:
                 marker=self.create_ship_marker(0),
                 color="red",
                 linestyle="None",
-                markersize=12,
+                markersize=16,
                 label="Current heading",
             ),
         ]
