@@ -6,7 +6,7 @@
 """
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -17,6 +17,7 @@ from matplotlib.path import Path
 
 from modules.ship_simulator import ShipSimulator
 from modules.simulation_io import (
+    DATA_DIR,
     create_simulation_dataframe,
     save_trajectory_data,
 )
@@ -42,6 +43,9 @@ class ShipTrajectoryGUI:
         # Simulation timing
         self.simulation_dt = 0.05
         self.update_interval_ms = 100
+
+        # Default CSV export settings
+        self.default_csv_filename = "gui_steered_ship_trajectory.csv"
 
         # Initial simulation values
         self.initial_speed = 5.0
@@ -348,12 +352,33 @@ class ShipTrajectoryGUI:
     def save_csv(self):
         """
         Save the simulated trajectory as CSV.
+
+        The user can choose the output folder and filename.
+        By default, the file dialog opens in data/simulated.
         """
         if not self.simulator.has_data():
             messagebox.showwarning(
                 "No Data",
                 "No trajectory data available. Please start the motor first.",
             )
+            return
+
+        # Make sure the default data directory exists.
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        output_path = filedialog.asksaveasfilename(
+            title="Save trajectory data",
+            initialdir=DATA_DIR,
+            initialfile=self.default_csv_filename,
+            defaultextension=".csv",
+            filetypes=[
+                ("CSV files", "*.csv"),
+                ("All files", "*.*"),
+            ],
+        )
+
+        # If the user cancels the dialog, do nothing.
+        if not output_path:
             return
 
         trajectory_df = create_simulation_dataframe(
@@ -363,7 +388,7 @@ class ShipTrajectoryGUI:
 
         output_path = save_trajectory_data(
             df=trajectory_df,
-            filename="gui_steered_ship_trajectory.csv",
+            filename=output_path,
         )
 
         messagebox.showinfo(

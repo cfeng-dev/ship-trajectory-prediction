@@ -13,7 +13,7 @@ import pandas as pd
 from modules.trajectory_models import add_observation_noise
 
 # Project root directory
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # Directory for simulated data
 DATA_DIR = PROJECT_ROOT / "data" / "simulated"
@@ -68,21 +68,30 @@ def save_trajectory_data(df, filename):
     """
     Save simulated trajectory data as a CSV file.
 
+    If only a filename is given, the file is saved in data/simulated.
+    If a full path is given, the file is saved at that location.
+
     Parameters
     ----------
     df : pd.DataFrame
         Simulated trajectory data.
-    filename : str
-        Name of the output CSV file.
+    filename : str or pathlib.Path
+        Output CSV filename or full output path.
 
     Returns
     -------
     output_path : pathlib.Path
         Path to the saved CSV file.
     """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = Path(filename)
 
-    output_path = DATA_DIR / filename
+    # If only a filename is given, save it in the default data directory.
+    if not output_path.is_absolute():
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        output_path = DATA_DIR / output_path
+    else:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
     df.to_csv(output_path, index=False)
 
     print(f"Saved simulated data to: {output_path}")
