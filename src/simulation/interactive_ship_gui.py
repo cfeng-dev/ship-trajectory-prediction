@@ -735,18 +735,3 @@ class ShipTrajectoryGUI:
             self.update_legend()
 
         self.canvas.draw()
-
-
-def main():
-    root = tk.Tk()
-
-    app = ShipTrajectoryGUI(root)
-
-    # Set initial window size: width x height.
-    root.geometry(f"{app.window_width}x{app.window_height}")
-
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
