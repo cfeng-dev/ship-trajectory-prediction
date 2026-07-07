@@ -92,7 +92,8 @@ def save_trajectory_data(df, filename):
     else:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df.to_csv(output_path, index=False)
+    # Save CSV without index and round floating-point values to three decimal places.
+    df.to_csv(output_path, index=False, float_format="%.3f")
 
     print(f"Saved simulated data to: {output_path}")
 
