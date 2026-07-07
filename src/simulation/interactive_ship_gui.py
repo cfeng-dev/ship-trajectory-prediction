@@ -36,28 +36,60 @@ class ShipTrajectoryGUI:
         self.root.title("2D Ship Trajectory Simulator")
 
         # ==================================================
-        # Simulation parameters
+        # Important adjustable parameters
         # ==================================================
-        self.simulator = ShipSimulator(
-            v=0.5,
-            sigma=0.2,
-            dt=0.05,
-        )
 
-        # GUI update interval in milliseconds.
+        # Simulation timing
+        self.simulation_dt = 0.05
         self.update_interval_ms = 100
 
-        self.motor_running = False
+        # Initial simulation values
+        self.initial_speed = 5.0
+        self.observation_noise_sigma = 0.2
 
-        # Ship visualization size in meters.
-        # You can change these values to make the ship larger or smaller.
+        # Steering slider settings in degrees per second [°/s]
+        self.min_steering_deg_per_second = -45
+        self.max_steering_deg_per_second = 45
+        self.steering_resolution = 1
+
+        # Speed slider settings in meters per second [m/s]
+        self.min_speed = 1.0
+        self.max_speed = 10.0
+        self.speed_resolution = 0.1
+
+        # Ship visualization size in meters [m]
         self.ship_length = 10.0
         self.ship_width = 3.0
 
-        # Ship visualization colors.
+        # Ship visualization colors
         self.ship_facecolor = "lightsalmon"
         self.ship_edgecolor = "darkred"
         self.ship_alpha = 0.85
+        self.ship_linewidth = 1.5
+
+        # Plot axis range in meters [m]
+        self.axis_x_min = -10
+        self.axis_x_max = 50
+        self.axis_y_min = -30
+        self.axis_y_max = 30
+        self.axis_tick_step = 10
+
+        # Window and plot size
+        self.window_width = 1100
+        self.window_height = 700
+        self.figure_width = 7
+        self.figure_height = 6
+
+        # ==================================================
+        # Simulation object
+        # ==================================================
+        self.simulator = ShipSimulator(
+            v=self.initial_speed,
+            sigma=self.observation_noise_sigma,
+            dt=self.simulation_dt,
+        )
+
+        self.motor_running = False
 
         # ==================================================
         # GUI layout
@@ -66,7 +98,7 @@ class ShipTrajectoryGUI:
         self.update_status()
         self.update_plot()
 
-        # Start continuous simulation loop.
+        # Start continuous simulation loop
         self.simulation_loop()
 
     def create_widgets(self):
@@ -122,11 +154,11 @@ class ShipTrajectoryGUI:
 
         self.steering_slider = tk.Scale(
             control_frame,
-            from_=-45,
-            to=45,
+            from_=self.min_steering_deg_per_second,
+            to=self.max_steering_deg_per_second,
             orient=tk.HORIZONTAL,
             length=180,
-            resolution=1,
+            resolution=self.steering_resolution,
         )
         self.steering_slider.set(0)
         self.steering_slider.pack(pady=5)
@@ -156,14 +188,14 @@ class ShipTrajectoryGUI:
 
         self.speed_slider = tk.Scale(
             control_frame,
-            from_=0.0,
-            to=1.0,
+            from_=self.min_speed,
+            to=self.max_speed,
             orient=tk.HORIZONTAL,
             length=180,
-            resolution=0.05,
+            resolution=self.speed_resolution,
             digits=3,
         )
-        self.speed_slider.set(0.5)
+        self.speed_slider.set(self.initial_speed)
         self.speed_slider.pack(pady=5)
 
         self.status_label = tk.Label(
@@ -173,8 +205,10 @@ class ShipTrajectoryGUI:
         )
         self.status_label.pack(pady=(20, 0))
 
-        # Plot area.
-        self.figure = Figure(figsize=(7, 6))
+        # ==================================================
+        # Plot area
+        # ==================================================
+        self.figure = Figure(figsize=(self.figure_width, self.figure_height))
         self.ax = self.figure.add_subplot(111)
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
@@ -282,7 +316,7 @@ class ShipTrajectoryGUI:
         self.motor_running = False
         self.motor_button.config(text="Start Motor")
         self.steering_slider.set(0)
-        self.speed_slider.set(0.5)
+        self.speed_slider.set(self.initial_speed)
 
         self.simulator.reset()
         self.simulator.v = self.get_speed_from_slider()
@@ -335,18 +369,9 @@ class ShipTrajectoryGUI:
 
         # Ship points for theta = 0.
         # The ship points to the right.
-        #
-        #                    bow
-        #                     >
-        #              /-------------\
-        # stern  -----               |
-        #              \-------------/
-        #
-        # x coordinates use the ship length.
-        # y coordinates use the ship width.
         ship_shape = np.array(
             [
-                [0.50 * length, 0.0],  # Bow / front tip
+                [0.50 * length, 0.00 * width],  # Bow / front tip
                 [0.20 * length, 0.50 * width],  # Front upper side
                 [-0.35 * length, 0.40 * width],  # Rear upper side
                 [-0.50 * length, 0.20 * width],  # Stern upper corner
@@ -419,7 +444,7 @@ class ShipTrajectoryGUI:
             closed=True,
             facecolor=self.ship_facecolor,
             edgecolor=self.ship_edgecolor,
-            linewidth=1.5,
+            linewidth=self.ship_linewidth,
             alpha=self.ship_alpha,
             label="Current heading",
             zorder=5,
@@ -511,11 +536,23 @@ class ShipTrajectoryGUI:
         self.ax.grid(True)
 
         # Fixed axis range and ticks in meters.
-        self.ax.set_xlim(-10, 50)
-        self.ax.set_ylim(-30, 30)
+        self.ax.set_xlim(self.axis_x_min, self.axis_x_max)
+        self.ax.set_ylim(self.axis_y_min, self.axis_y_max)
 
-        self.ax.set_xticks(np.arange(-10, 51, 10))
-        self.ax.set_yticks(np.arange(-30, 31, 10))
+        self.ax.set_xticks(
+            np.arange(
+                self.axis_x_min,
+                self.axis_x_max + self.axis_tick_step,
+                self.axis_tick_step,
+            )
+        )
+        self.ax.set_yticks(
+            np.arange(
+                self.axis_y_min,
+                self.axis_y_max + self.axis_tick_step,
+                self.axis_tick_step,
+            )
+        )
 
         if self.simulator.has_data():
             self.update_legend()
@@ -526,10 +563,11 @@ class ShipTrajectoryGUI:
 def main():
     root = tk.Tk()
 
-    # Set initial window size: width x height.
-    root.geometry("1100x700")
+    app = ShipTrajectoryGUI(root)
 
-    ShipTrajectoryGUI(root)
+    # Set initial window size: width x height.
+    root.geometry(f"{app.window_width}x{app.window_height}")
+
     root.mainloop()
 
 
