@@ -67,17 +67,44 @@ class ShipTrajectoryGUI:
         self.ship_alpha = 0.85
         self.ship_linewidth = 1.5
 
-        # Plot axis range in meters [m]
+        # ==================================================
+        # Plot axis settings
+        # ==================================================
+        # Available modes:
+        # "auto"   = show the full trajectory automatically
+        # "fixed"  = use fixed axis limits
+        # "follow" = smoothly follow the current ship position
+        self.axis_mode = "auto"
+
+        # Extra space around the trajectory when axis_mode = "auto"
+        self.auto_axis_margin = 15
+
+        # Visible plot size when axis_mode = "follow"
+        self.view_width = 100
+        self.view_height = 100
+
+        # Smooth camera movement when axis_mode = "follow"
+        # Smaller value = smoother but slower following.
+        # Larger value = faster but less smooth.
+        self.camera_x = 0.0
+        self.camera_y = 0.0
+        self.camera_smoothness = 0.06
+
+        # Fixed plot axis range when axis_mode = "fixed"
         self.axis_x_min = -10
         self.axis_x_max = 50
         self.axis_y_min = -30
         self.axis_y_max = 30
+
+        # Tick distance on x-axis and y-axis [m]
         self.axis_tick_step = 10
 
         # Window and plot size
         self.window_width = 1100
         self.window_height = 700
-        self.figure_width = 7
+
+        # Keep figure square
+        self.figure_width = 6
         self.figure_height = 6
 
         # ==================================================
@@ -90,6 +117,11 @@ class ShipTrajectoryGUI:
         )
 
         self.motor_running = False
+
+        # Initialize camera at the ship start position.
+        # This is only used when axis_mode = "follow".
+        self.camera_x = self.simulator.x_current
+        self.camera_y = self.simulator.y_current
 
         # ==================================================
         # GUI layout
@@ -321,6 +353,11 @@ class ShipTrajectoryGUI:
         self.simulator.reset()
         self.simulator.v = self.get_speed_from_slider()
 
+        # Reset camera to the ship start position.
+        # This is only used when axis_mode = "follow".
+        self.camera_x = self.simulator.x_current
+        self.camera_y = self.simulator.y_current
+
         self.update_status()
         self.update_plot()
 
@@ -497,6 +534,100 @@ class ShipTrajectoryGUI:
             borderpad=0.5,
         )
 
+    def update_axis_limits(self):
+        """
+        Update plot axis limits.
+
+        axis_mode = "auto":
+            Show the full trajectory automatically with a square axis range.
+
+        axis_mode = "fixed":
+            Use fixed axis limits.
+
+        axis_mode = "follow":
+            Smoothly follow the current ship position.
+        """
+        if self.axis_mode == "auto":
+            if self.simulator.has_data():
+                x_values = list(self.simulator.x_all) + [self.simulator.x_current]
+                y_values = list(self.simulator.y_all) + [self.simulator.y_current]
+
+                x_min_data = min(x_values)
+                x_max_data = max(x_values)
+                y_min_data = min(y_values)
+                y_max_data = max(y_values)
+
+                x_center = (x_min_data + x_max_data) / 2
+                y_center = (y_min_data + y_max_data) / 2
+
+                x_range = (x_max_data - x_min_data) + 2 * self.auto_axis_margin
+                y_range = (y_max_data - y_min_data) + 2 * self.auto_axis_margin
+
+                # Use the larger range for both axes.
+                # This keeps the visible plot area square in meters.
+                plot_range = max(x_range, y_range)
+
+                x_min = x_center - plot_range / 2
+                x_max = x_center + plot_range / 2
+                y_min = y_center - plot_range / 2
+                y_max = y_center + plot_range / 2
+            else:
+                x_center = (self.axis_x_min + self.axis_x_max) / 2
+                y_center = (self.axis_y_min + self.axis_y_max) / 2
+
+                x_range = self.axis_x_max - self.axis_x_min
+                y_range = self.axis_y_max - self.axis_y_min
+
+                plot_range = max(x_range, y_range)
+
+                x_min = x_center - plot_range / 2
+                x_max = x_center + plot_range / 2
+                y_min = y_center - plot_range / 2
+                y_max = y_center + plot_range / 2
+
+        elif self.axis_mode == "follow":
+            ship_x = self.simulator.x_current
+            ship_y = self.simulator.y_current
+
+            # Smoothly move the camera toward the current ship position.
+            self.camera_x += self.camera_smoothness * (ship_x - self.camera_x)
+            self.camera_y += self.camera_smoothness * (ship_y - self.camera_y)
+
+            x_min = self.camera_x - self.view_width / 2
+            x_max = self.camera_x + self.view_width / 2
+            y_min = self.camera_y - self.view_height / 2
+            y_max = self.camera_y + self.view_height / 2
+
+        else:
+            x_min = self.axis_x_min
+            x_max = self.axis_x_max
+            y_min = self.axis_y_min
+            y_max = self.axis_y_max
+
+        self.ax.set_xlim(x_min, x_max)
+        self.ax.set_ylim(y_min, y_max)
+
+        x_tick_min = np.floor(x_min / self.axis_tick_step) * self.axis_tick_step
+        x_tick_max = np.ceil(x_max / self.axis_tick_step) * self.axis_tick_step
+
+        y_tick_min = np.floor(y_min / self.axis_tick_step) * self.axis_tick_step
+        y_tick_max = np.ceil(y_max / self.axis_tick_step) * self.axis_tick_step
+
+        self.ax.set_xticks(
+            np.arange(
+                x_tick_min,
+                x_tick_max + self.axis_tick_step,
+                self.axis_tick_step,
+            )
+        )
+        self.ax.set_yticks(
+            np.arange(
+                y_tick_min,
+                y_tick_max + self.axis_tick_step,
+                self.axis_tick_step,
+            )
+        )
+
     def update_plot(self):
         """
         Update the trajectory plot.
@@ -535,24 +666,8 @@ class ShipTrajectoryGUI:
 
         self.ax.grid(True)
 
-        # Fixed axis range and ticks in meters.
-        self.ax.set_xlim(self.axis_x_min, self.axis_x_max)
-        self.ax.set_ylim(self.axis_y_min, self.axis_y_max)
-
-        self.ax.set_xticks(
-            np.arange(
-                self.axis_x_min,
-                self.axis_x_max + self.axis_tick_step,
-                self.axis_tick_step,
-            )
-        )
-        self.ax.set_yticks(
-            np.arange(
-                self.axis_y_min,
-                self.axis_y_max + self.axis_tick_step,
-                self.axis_tick_step,
-            )
-        )
+        # Update axis range and ticks depending on axis_mode.
+        self.update_axis_limits()
 
         if self.simulator.has_data():
             self.update_legend()
