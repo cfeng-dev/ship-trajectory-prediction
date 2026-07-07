@@ -67,9 +67,15 @@ class ShipTrajectoryGUI:
         self.ship_alpha = 0.85
         self.ship_linewidth = 1.5
 
+        # Ship center marker style
+        self.show_ship_center = True
+        self.ship_center_color = "darkred"
+        self.ship_center_size = 8
+
         # ==================================================
         # Plot style colors
         # ==================================================
+
         # Slight blue background to create a water feeling
         self.plot_background_color = "#eaf6fb"
 
@@ -513,6 +519,24 @@ class ShipTrajectoryGUI:
 
         self.ax.add_patch(ship_patch)
 
+    def add_ship_center_marker(self):
+        """
+        Add a small marker at the ship center.
+
+        This shows the actual simulated position of the ship.
+        """
+        if not self.show_ship_center:
+            return
+
+        self.ax.scatter(
+            self.simulator.x_current,
+            self.simulator.y_current,
+            s=self.ship_center_size,
+            color=self.ship_center_color,
+            marker="o",
+            zorder=6,
+        )
+
     def update_legend(self):
         """
         Update the plot legend with a fixed heading marker.
@@ -684,8 +708,11 @@ class ShipTrajectoryGUI:
                 zorder=4,
             )
 
-            # Show current ship position and heading direction.
+            # Show current ship shape and heading direction.
             self.add_heading_marker()
+
+            # Show the simulated ship center.
+            self.add_ship_center_marker()
 
         self.ax.set_xlabel("x [m]")
         self.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
