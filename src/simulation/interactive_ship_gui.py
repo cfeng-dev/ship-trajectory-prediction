@@ -13,6 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
+from matplotlib.path import Path
 
 from ship_simulator import ShipSimulator
 from simulation_io import (
@@ -43,14 +44,20 @@ class ShipTrajectoryGUI:
             dt=0.05,
         )
 
-        # GUI update interval in milliseconds
+        # GUI update interval in milliseconds.
         self.update_interval_ms = 100
 
         self.motor_running = False
 
-        # Ship visualization size in meters
+        # Ship visualization size in meters.
+        # You can change these values to make the ship larger or smaller.
         self.ship_length = 10.0
         self.ship_width = 3.0
+
+        # Ship visualization colors.
+        self.ship_facecolor = "lightsalmon"
+        self.ship_edgecolor = "darkred"
+        self.ship_alpha = 0.85
 
         # ==================================================
         # GUI layout
@@ -59,7 +66,7 @@ class ShipTrajectoryGUI:
         self.update_status()
         self.update_plot()
 
-        # Start continuous simulation loop
+        # Start continuous simulation loop.
         self.simulation_loop()
 
     def create_widgets(self):
@@ -166,7 +173,7 @@ class ShipTrajectoryGUI:
         )
         self.status_label.pack(pady=(20, 0))
 
-        # Plot area
+        # Plot area.
         self.figure = Figure(figsize=(7, 6))
         self.ax = self.figure.add_subplot(111)
 
@@ -314,26 +321,38 @@ class ShipTrajectoryGUI:
 
     def create_ship_shape(self, theta):
         """
-        Create a ship triangle in real-world meter size.
+        Create a simple ship-like polygon in real-world meter size.
 
-        The ship length and width are defined in meters.
-        The triangle points in the direction of theta.
+        The shape is not a regular triangle:
+        - sharp bow at the front
+        - wider middle section
+        - narrower stern at the back
+
+        The ship points in the direction of theta.
         """
         length = self.ship_length
         width = self.ship_width
 
-        # Triangle pointing to the right when theta = 0.
+        # Ship points for theta = 0.
+        # The ship points to the right.
         #
-        #              front
-        #                >
-        # rear lower -------- rear upper
+        #                    bow
+        #                     >
+        #              /-------------\
+        # stern  -----               |
+        #              \-------------/
         #
-        # The current ship position is approximately the center of the ship.
+        # x coordinates use the ship length.
+        # y coordinates use the ship width.
         ship_shape = np.array(
             [
-                [length / 2, 0.0],  # Front tip
-                [-length / 2, -width / 2],  # Rear lower corner
-                [-length / 2, width / 2],  # Rear upper corner
+                [0.50 * length, 0.0],  # Bow / front tip
+                [0.20 * length, 0.50 * width],  # Front upper side
+                [-0.35 * length, 0.40 * width],  # Rear upper side
+                [-0.50 * length, 0.20 * width],  # Stern upper corner
+                [-0.50 * length, -0.20 * width],  # Stern lower corner
+                [-0.35 * length, -0.40 * width],  # Rear lower side
+                [0.20 * length, -0.50 * width],  # Front lower side
             ]
         )
 
@@ -346,9 +365,42 @@ class ShipTrajectoryGUI:
 
         return ship_shape @ rotation_matrix.T
 
+    def create_ship_legend_marker(self):
+        """
+        Create a small custom ship marker for the legend.
+
+        This marker has the same ship-like shape as the real polygon,
+        but it is normalized for display inside the legend.
+        """
+        half_width = 0.35
+
+        vertices = [
+            (1.00, 0.00),  # Bow / front tip
+            (0.40, half_width),  # Front upper side
+            (-0.70, 0.28),  # Rear upper side
+            (-1.00, 0.14),  # Stern upper corner
+            (-1.00, -0.14),  # Stern lower corner
+            (-0.70, -0.28),  # Rear lower side
+            (0.40, -half_width),  # Front lower side
+            (1.00, 0.00),  # Close polygon
+        ]
+
+        codes = [
+            Path.MOVETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.CLOSEPOLY,
+        ]
+
+        return Path(vertices, codes)
+
     def add_heading_marker(self):
         """
-        Add a red ship marker at the current ship position.
+        Add a ship marker at the current ship position.
 
         The marker is drawn in real-world meter size.
         """
@@ -365,7 +417,10 @@ class ShipTrajectoryGUI:
         ship_patch = Polygon(
             ship_shape,
             closed=True,
-            color="red",
+            facecolor=self.ship_facecolor,
+            edgecolor=self.ship_edgecolor,
+            linewidth=1.5,
+            alpha=self.ship_alpha,
             label="Current heading",
             zorder=5,
         )
@@ -398,12 +453,12 @@ class ShipTrajectoryGUI:
             Line2D(
                 [0],
                 [0],
-                marker=">",
-                markerfacecolor="red",
-                markeredgecolor="red",
-                color="red",
+                marker=self.create_ship_legend_marker(),
+                markerfacecolor=self.ship_facecolor,
+                markeredgecolor=self.ship_edgecolor,
+                color=self.ship_edgecolor,
                 linestyle="None",
-                markersize=10,
+                markersize=14,
                 label="Current heading",
             ),
         ]
