@@ -12,6 +12,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from matplotlib.patches import Polygon
 
 from ship_simulator import ShipSimulator
 from simulation_io import (
@@ -46,6 +47,10 @@ class ShipTrajectoryGUI:
         self.update_interval_ms = 100
 
         self.motor_running = False
+
+        # Ship visualization size in meters
+        self.ship_length = 10.0
+        self.ship_width = 3.0
 
         # ==================================================
         # GUI layout
@@ -307,25 +312,28 @@ class ShipTrajectoryGUI:
             )
         )
 
-    def create_ship_marker(self, theta):
+    def create_ship_shape(self, theta):
         """
-        Create a narrow triangle marker for the ship heading.
+        Create a ship triangle in real-world meter size.
 
+        The ship length and width are defined in meters.
         The triangle points in the direction of theta.
-        The side edges are longer than the rear edge.
         """
-        # Narrow triangle pointing to the right when theta = 0.
+        length = self.ship_length
+        width = self.ship_width
+
+        # Triangle pointing to the right when theta = 0.
         #
-        #        front
-        #          >
-        # rear -------- rear
+        #              front
+        #                >
+        # rear lower -------- rear upper
         #
-        # A larger x distance and smaller y distance make the triangle narrower.
-        marker = np.array(
+        # The current ship position is approximately the center of the ship.
+        ship_shape = np.array(
             [
-                [1.0, 0.0],  # Front tip
-                [-0.8, -0.35],  # Rear lower corner
-                [-0.8, 0.35],  # Rear upper corner
+                [length / 2, 0.0],  # Front tip
+                [-length / 2, -width / 2],  # Rear lower corner
+                [-length / 2, width / 2],  # Rear upper corner
             ]
         )
 
@@ -336,29 +344,33 @@ class ShipTrajectoryGUI:
             ]
         )
 
-        return marker @ rotation_matrix.T
+        return ship_shape @ rotation_matrix.T
 
     def add_heading_marker(self):
         """
-        Add a fixed-size red ship marker at the current ship position.
+        Add a red ship marker at the current ship position.
 
-        The marker is rotated according to the current heading angle.
+        The marker is drawn in real-world meter size.
         """
         x = self.simulator.x_current
         y = self.simulator.y_current
         theta = self.simulator.theta_current
 
-        ship_marker = self.create_ship_marker(theta)
+        ship_shape = self.create_ship_shape(theta)
 
-        self.ax.scatter(
-            x,
-            y,
-            s=700,
+        # Move ship shape to current position.
+        ship_shape[:, 0] += x
+        ship_shape[:, 1] += y
+
+        ship_patch = Polygon(
+            ship_shape,
+            closed=True,
             color="red",
-            marker=ship_marker,
             label="Current heading",
             zorder=5,
         )
+
+        self.ax.add_patch(ship_patch)
 
     def update_legend(self):
         """
@@ -386,15 +398,24 @@ class ShipTrajectoryGUI:
             Line2D(
                 [0],
                 [0],
-                marker=self.create_ship_marker(0),
+                marker=">",
+                markerfacecolor="red",
+                markeredgecolor="red",
                 color="red",
                 linestyle="None",
-                markersize=16,
+                markersize=10,
                 label="Current heading",
             ),
         ]
 
-        self.ax.legend(handles=legend_handles)
+        self.ax.legend(
+            handles=legend_handles,
+            loc="upper right",
+            frameon=True,
+            handlelength=1.8,
+            handletextpad=0.8,
+            borderpad=0.5,
+        )
 
     def update_plot(self):
         """
@@ -419,6 +440,7 @@ class ShipTrajectoryGUI:
                 self.simulator.y_all[0],
                 color="black",
                 label="Start position",
+                zorder=4,
             )
 
             # Show current ship position and heading direction.
@@ -427,8 +449,18 @@ class ShipTrajectoryGUI:
         self.ax.set_xlabel("x [m]")
         self.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
         self.ax.set_title("Interactive 2D Ship Trajectory")
-        self.ax.axis("equal")
+
+        # Keep 1 meter on x-axis equal to 1 meter on y-axis.
+        self.ax.set_aspect("equal", adjustable="box")
+
         self.ax.grid(True)
+
+        # Fixed axis range and ticks in meters.
+        self.ax.set_xlim(-10, 50)
+        self.ax.set_ylim(-30, 30)
+
+        self.ax.set_xticks(np.arange(-10, 51, 10))
+        self.ax.set_yticks(np.arange(-30, 31, 10))
 
         if self.simulator.has_data():
             self.update_legend()
