@@ -45,7 +45,7 @@ class ShipTrajectoryGUI:
         self.update_interval_ms = 100
 
         # Default CSV export settings
-        self.default_csv_filename = "gui_steered_ship_trajectory.csv"
+        self.default_csv_filename = "simulated_ship_trajectory.csv"
 
         # Initial simulation values
         self.initial_speed = 5.0
