@@ -15,8 +15,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
 
-from ship_simulator import ShipSimulator
-from simulation_io import (
+from modules.ship_simulator import ShipSimulator
+from modules.simulation_io import (
     create_simulation_dataframe,
     save_trajectory_data,
 )

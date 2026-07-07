@@ -7,7 +7,7 @@
 
 import tkinter as tk
 
-from interactive_ship_gui import ShipTrajectoryGUI
+from modules.interactive_ship_gui import ShipTrajectoryGUI
 
 
 def main():
