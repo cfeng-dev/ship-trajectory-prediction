@@ -1063,7 +1063,7 @@ class ShipTrajectoryGUI:
             edgecolor=self.ship_edgecolor,
             linewidth=self.ship_linewidth,
             alpha=self.ship_alpha,
-            label="Current heading",
+            label="Ship",
             zorder=5,
         )
 
@@ -1100,7 +1100,7 @@ class ShipTrajectoryGUI:
                 [0],
                 color=self.trajectory_color,
                 linewidth=self.trajectory_linewidth,
-                label="True trajectory",
+                label="Trajectory",
             ),
             Line2D(
                 [0],
@@ -1109,7 +1109,7 @@ class ShipTrajectoryGUI:
                 color=self.start_position_color,
                 linestyle="None",
                 markersize=8,
-                label="Start position",
+                label="Start",
             ),
             Line2D(
                 [0],
@@ -1120,7 +1120,7 @@ class ShipTrajectoryGUI:
                 color=self.ship_edgecolor,
                 linestyle="None",
                 markersize=14,
-                label="Current heading",
+                label="Ship",
             ),
         ]
 
@@ -1247,14 +1247,14 @@ class ShipTrajectoryGUI:
                 y_plot,
                 color=self.trajectory_color,
                 linewidth=self.trajectory_linewidth,
-                label="True trajectory",
+                label="Trajectory",
             )
 
             self.ax.scatter(
                 self.simulator.x_all[0],
                 self.simulator.y_all[0],
                 color=self.start_position_color,
-                label="Start position",
+                label="Start",
                 zorder=4,
             )
 
@@ -1266,7 +1266,7 @@ class ShipTrajectoryGUI:
 
         self.ax.set_xlabel("x [m]")
         self.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
-        self.ax.set_title("Interactive 2D Ship Trajectory")
+        self.ax.set_title("Ship Trajectory Simulation")
 
         # Keep 1 meter on x-axis equal to 1 meter on y-axis.
         self.ax.set_aspect("equal", adjustable="box")
