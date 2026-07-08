@@ -34,7 +34,7 @@ class ShipTrajectoryGUI:
     Keyboard controls:
     - Up / Down arrows increase or decrease speed.
     - Left / Right arrows steer the ship.
-    - Space starts or stops the simulation.
+    - Space starts, pauses, or continues the simulation.
     - Ctrl + S saves the trajectory as CSV.
     """
 
@@ -157,7 +157,13 @@ class ShipTrajectoryGUI:
             dt=self.simulation_dt,
         )
 
+        # Simulation state:
+        # - simulation_running = True means the ship is moving.
+        # - simulation_started = True means the simulation was started at least once.
+        # This allows three GUI states:
+        # Stopped, Running, Paused.
         self.simulation_running = False
+        self.simulation_started = False
 
         # Initialize camera at the ship start position.
         # This is only used when axis_mode = "follow".
@@ -374,11 +380,11 @@ class ShipTrajectoryGUI:
         """
         Show a help window with keyboard shortcuts and basic usage.
 
-        The simulation is stopped before opening the help window so the
+        The simulation is paused before opening the help window so the
         trajectory does not keep changing while the user is reading the
         instructions.
         """
-        self.stop_simulation()
+        self.pause_simulation()
 
         help_window = tk.Toplevel(self.root)
         help_window.title("Help")
@@ -412,7 +418,7 @@ class ShipTrajectoryGUI:
         keyboard_shortcuts = [
             ("↑ / ↓", "Increase / decrease speed"),
             ("← / →", "Steer left / right"),
-            ("Space", "Start / stop simulation"),
+            ("Space", "Start / pause / continue simulation"),
             ("Ctrl + S", "Save trajectory data as CSV"),
         ]
 
@@ -444,9 +450,10 @@ class ShipTrajectoryGUI:
 
         button_descriptions = [
             ("Start Simulation", "Start the interactive simulation"),
-            ("Stop Simulation", "Stop the interactive simulation"),
-            ("Save CSV", "Save trajectory data as CSV"),
-            ("Reset", "Reset simulation and clear trajectory"),
+            ("Pause Simulation", "Pause the simulation without clearing data"),
+            ("Continue Simulation", "Continue a paused simulation"),
+            ("Save CSV", "Pause simulation and save trajectory data"),
+            ("Reset", "Stop simulation and clear trajectory"),
             ("Center Steering", "Reset steering to 0 °/s"),
         ]
 
@@ -454,7 +461,7 @@ class ShipTrajectoryGUI:
             tk.Label(
                 button_frame,
                 text=button,
-                width=16,
+                width=19,
                 anchor="w",
                 font=("Arial", 10, "bold"),
             ).grid(row=row, column=0, sticky="w", pady=2)
@@ -531,9 +538,12 @@ class ShipTrajectoryGUI:
 
     def toggle_simulation_with_keyboard(self, event=None):
         """
-        Start or stop the simulation using the space key.
+        Start, pause, or continue the simulation using the space key.
         """
         self.toggle_simulation()
+
+        # Prevent the space key from also triggering focused buttons.
+        return "break"
 
     def save_csv_with_keyboard(self, event=None):
         """
@@ -594,25 +604,75 @@ class ShipTrajectoryGUI:
 
         self.root.after(self.update_interval_ms, self.simulation_loop)
 
-    def toggle_simulation(self):
+    def get_simulation_state(self):
         """
-        Start or stop the simulation.
-        """
-        self.simulation_running = not self.simulation_running
+        Return the current simulation state as text.
 
+        Returns
+        -------
+        state : str
+            One of "stopped", "running", or "paused".
+        """
         if self.simulation_running:
-            self.simulation_button.config(text="Stop Simulation")
+            return "running"
+
+        if self.simulation_started:
+            return "paused"
+
+        return "stopped"
+
+    def update_simulation_button(self):
+        """
+        Update the simulation button text based on the current state.
+        """
+        state = self.get_simulation_state()
+
+        if state == "running":
+            self.simulation_button.config(text="Pause Simulation")
+        elif state == "paused":
+            self.simulation_button.config(text="Continue Simulation")
         else:
             self.simulation_button.config(text="Start Simulation")
 
+    def toggle_simulation(self):
+        """
+        Start, pause, or continue the simulation.
+        """
+        if self.simulation_running:
+            self.pause_simulation()
+        else:
+            self.start_or_continue_simulation()
+
+    def start_or_continue_simulation(self):
+        """
+        Start the simulation for the first time or continue after pausing.
+        """
+        self.simulation_running = True
+        self.simulation_started = True
+
+        self.update_simulation_button()
         self.update_status()
 
-    def stop_simulation(self):
+    def pause_simulation(self):
         """
-        Stop the simulation without resetting trajectory data.
+        Pause the simulation without resetting trajectory data.
+        """
+        if not self.simulation_started:
+            return
+
+        self.simulation_running = False
+
+        self.update_simulation_button()
+        self.update_status()
+
+    def reset_simulation_state(self):
+        """
+        Reset the simulation state to stopped.
         """
         self.simulation_running = False
-        self.simulation_button.config(text="Start Simulation")
+        self.simulation_started = False
+
+        self.update_simulation_button()
         self.update_status()
 
     def center_steering(self):
@@ -628,7 +688,7 @@ class ShipTrajectoryGUI:
         The user can choose the output folder and filename.
         By default, the file dialog opens in data/simulated.
 
-        The simulation is stopped before opening the file dialog.
+        The simulation is paused before opening the file dialog.
         This prevents trajectory data from changing while the user is choosing
         the output filename or folder.
         """
@@ -639,9 +699,9 @@ class ShipTrajectoryGUI:
             )
             return
 
-        # Stop simulation before saving so the data stays unchanged
+        # Pause simulation before saving so the data stays unchanged
         # while the file dialog is open.
-        self.stop_simulation()
+        self.pause_simulation()
 
         # Make sure the default data directory exists.
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -681,7 +741,8 @@ class ShipTrajectoryGUI:
         Reset the simulation and clear the plot.
         """
         self.simulation_running = False
-        self.simulation_button.config(text="Start Simulation")
+        self.simulation_started = False
+
         self.steering_slider.set(0)
         self.speed_slider.set(self.initial_speed)
 
@@ -693,6 +754,7 @@ class ShipTrajectoryGUI:
         self.camera_x = self.simulator.x_current
         self.camera_y = self.simulator.y_current
 
+        self.update_simulation_button()
         self.update_status()
         self.update_plot()
 
@@ -704,14 +766,22 @@ class ShipTrajectoryGUI:
         omega = self.get_omega_from_steering()
         omega_deg = np.rad2deg(omega)
         speed = self.get_speed_from_slider()
+        simulation_state = self.get_simulation_state()
 
         if abs(omega) < 1e-8:
             radius_text = "∞"
         else:
             radius_text = f"{speed / omega:.2f} m"
 
-        simulation_text = "Running" if self.simulation_running else "Stopped"
-        simulation_color = "darkgreen" if self.simulation_running else "darkred"
+        if simulation_state == "running":
+            simulation_text = "Running"
+            simulation_color = "darkgreen"
+        elif simulation_state == "paused":
+            simulation_text = "Paused"
+            simulation_color = "orange"
+        else:
+            simulation_text = "Stopped"
+            simulation_color = "darkred"
 
         self.simulation_value_label.config(
             text=simulation_text,
