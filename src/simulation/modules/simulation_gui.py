@@ -142,7 +142,7 @@ class ShipTrajectoryGUI:
 
         # Window and plot size
         self.window_width = 1100
-        self.window_height = 720
+        self.window_height = 700
 
         # Keep figure square
         self.figure_width = 6
@@ -173,13 +173,51 @@ class ShipTrajectoryGUI:
         # ==================================================
         # GUI layout
         # ==================================================
+        self.root.geometry(f"{self.window_width}x{self.window_height}")
+
+        self.create_menu_bar()
         self.create_widgets()
         self.bind_keyboard_controls()
+        self.update_simulation_button()
         self.update_status()
         self.update_plot()
 
         # Start continuous simulation loop.
         self.simulation_loop()
+
+    def create_menu_bar(self):
+        """
+        Create a simple desktop-style menu bar with File and Help menus.
+        """
+        menu_bar = tk.Menu(self.root)
+
+        # ==================================================
+        # File menu
+        # ==================================================
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(
+            label="Save CSV",
+            accelerator="Ctrl+S",
+            command=self.save_csv,
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Exit",
+            command=self.root.destroy,
+        )
+        menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # ==================================================
+        # Help menu
+        # ==================================================
+        help_menu = tk.Menu(menu_bar, tearoff=0)
+        help_menu.add_command(
+            label="Show Help",
+            command=self.show_help,
+        )
+        menu_bar.add_cascade(label="Help", menu=help_menu)
+
+        self.root.config(menu=menu_bar)
 
     def create_widgets(self):
         """
@@ -214,13 +252,6 @@ class ShipTrajectoryGUI:
             text="Reset",
             width=18,
             command=self.reset,
-        ).pack(pady=5)
-
-        tk.Button(
-            control_frame,
-            text="Help",
-            width=18,
-            command=self.show_help,
         ).pack(pady=5)
 
         # ==================================================
@@ -433,6 +464,38 @@ class ShipTrajectoryGUI:
 
             tk.Label(
                 keyboard_frame,
+                text=description,
+                anchor="w",
+            ).grid(row=row, column=1, sticky="w", pady=2)
+
+        # ==================================================
+        # Menu controls
+        # ==================================================
+        menu_frame = tk.LabelFrame(
+            main_frame,
+            text="Menu",
+            padx=12,
+            pady=10,
+        )
+        menu_frame.pack(fill=tk.X, pady=(0, 16))
+
+        menu_descriptions = [
+            ("File → Save CSV", "Pause simulation and save trajectory data"),
+            ("File → Exit", "Close the application"),
+            ("Help → Show Help", "Open this help window"),
+        ]
+
+        for row, (menu_item, description) in enumerate(menu_descriptions):
+            tk.Label(
+                menu_frame,
+                text=menu_item,
+                width=20,
+                anchor="w",
+                font=("Arial", 10, "bold"),
+            ).grid(row=row, column=0, sticky="w", pady=2)
+
+            tk.Label(
+                menu_frame,
                 text=description,
                 anchor="w",
             ).grid(row=row, column=1, sticky="w", pady=2)
@@ -661,16 +724,6 @@ class ShipTrajectoryGUI:
             return
 
         self.simulation_running = False
-
-        self.update_simulation_button()
-        self.update_status()
-
-    def reset_simulation_state(self):
-        """
-        Reset the simulation state to stopped.
-        """
-        self.simulation_running = False
-        self.simulation_started = False
 
         self.update_simulation_button()
         self.update_status()
