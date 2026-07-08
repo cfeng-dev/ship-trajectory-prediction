@@ -91,26 +91,34 @@ class ShipTrajectoryGUI:
         # ==================================================
 
         # Soft application background color.
-        # This replaces the plain white window background.
         self.app_background_color = "#eef7fb"
 
-        # Slight blue background to create a water feeling
+        # Slightly stronger color for the left control panel.
+        self.control_panel_color = "#e3eef4"
+
+        # Soft color for the right plot panel.
+        self.plot_panel_color = "#f4f9fc"
+
+        # Thin separator between control panel and plot panel.
+        self.separator_color = "#b7cbd6"
+
+        # Slight blue background to create a water feeling.
         self.plot_background_color = "#eaf6fb"
 
-        # Trajectory line color
+        # Trajectory line color.
         self.trajectory_color = "#2a6f97"
         self.trajectory_linewidth = 2.0
 
-        # Start point color
+        # Start point color.
         self.start_position_color = "black"
 
-        # Grid style
+        # Grid style.
         self.grid_color = "#8fbcd4"
         self.grid_alpha = 0.75
         self.grid_linewidth = 1.0
 
-        # Figure background
-        self.figure_background_color = self.app_background_color
+        # Figure background.
+        self.figure_background_color = self.plot_panel_color
 
         # ==================================================
         # Plot axis settings
@@ -146,7 +154,7 @@ class ShipTrajectoryGUI:
 
         # Window and plot size
         self.window_width = 1100
-        self.window_height = 700
+        self.window_height = 720
 
         # Keep figure square
         self.figure_width = 6
@@ -228,17 +236,29 @@ class ShipTrajectoryGUI:
         """
         Create buttons, sliders, labels, and plot area.
         """
-        control_frame = tk.Frame(
+        # Main content frame below the menu bar.
+        content_frame = tk.Frame(
             self.root,
             bg=self.app_background_color,
         )
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        # ==================================================
+        # Left control panel
+        # ==================================================
+        control_frame = tk.Frame(
+            content_frame,
+            bg=self.control_panel_color,
+            padx=14,
+            pady=14,
+        )
+        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 0), pady=10)
 
         tk.Label(
             control_frame,
             text="Ship Controls",
             font=("Arial", 14, "bold"),
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         ).pack(pady=(0, 10))
 
         self.simulation_button = tk.Button(
@@ -270,7 +290,7 @@ class ShipTrajectoryGUI:
             control_frame,
             text="Steering",
             font=("Arial", 11, "bold"),
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         ).pack(pady=(25, 0))
 
         tk.Label(
@@ -278,7 +298,7 @@ class ShipTrajectoryGUI:
             text="Left  ←   0 °/s   →  Right",
             width=24,
             anchor="center",
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         ).pack()
 
         self.steering_slider = tk.Scale(
@@ -288,8 +308,8 @@ class ShipTrajectoryGUI:
             orient=tk.HORIZONTAL,
             length=180,
             resolution=self.steering_resolution,
-            bg=self.app_background_color,
-            highlightbackground=self.app_background_color,
+            bg=self.control_panel_color,
+            highlightbackground=self.control_panel_color,
         )
         self.steering_slider.set(0)
         self.steering_slider.pack(pady=5)
@@ -308,7 +328,7 @@ class ShipTrajectoryGUI:
             control_frame,
             text="Speed",
             font=("Arial", 11, "bold"),
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         ).pack(pady=(20, 0))
 
         tk.Label(
@@ -316,7 +336,7 @@ class ShipTrajectoryGUI:
             text="Slow  ←   m/s   →  Fast",
             width=24,
             anchor="center",
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         ).pack()
 
         self.speed_slider = tk.Scale(
@@ -327,8 +347,8 @@ class ShipTrajectoryGUI:
             length=180,
             resolution=self.speed_resolution,
             digits=3,
-            bg=self.app_background_color,
-            highlightbackground=self.app_background_color,
+            bg=self.control_panel_color,
+            highlightbackground=self.control_panel_color,
         )
         self.speed_slider.set(self.initial_speed)
         self.speed_slider.pack(pady=5)
@@ -341,7 +361,7 @@ class ShipTrajectoryGUI:
             text="Status",
             padx=10,
             pady=8,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         status_frame.pack(pady=(20, 0), fill=tk.X)
 
@@ -349,43 +369,43 @@ class ShipTrajectoryGUI:
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.position_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.heading_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.omega_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.speed_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.radius_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
         self.time_value_label = tk.Label(
             status_frame,
             anchor="w",
             width=18,
-            bg=self.app_background_color,
+            bg=self.control_panel_color,
         )
 
         status_rows = [
@@ -405,14 +425,32 @@ class ShipTrajectoryGUI:
                 anchor="w",
                 width=10,
                 font=("Arial", 10, "bold"),
-                bg=self.app_background_color,
+                bg=self.control_panel_color,
             ).grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
 
             value_label.grid(row=row_index, column=1, sticky="w", pady=2)
 
         # ==================================================
-        # Plot area
+        # Vertical separator between left and right area
         # ==================================================
+        separator = tk.Frame(
+            content_frame,
+            bg=self.separator_color,
+            width=2,
+        )
+        separator.pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=10)
+
+        # ==================================================
+        # Right plot panel
+        # ==================================================
+        plot_frame = tk.Frame(
+            content_frame,
+            bg=self.plot_panel_color,
+            padx=10,
+            pady=10,
+        )
+        plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=10)
+
         self.figure = Figure(
             figsize=(self.figure_width, self.figure_height),
             facecolor=self.figure_background_color,
@@ -422,14 +460,15 @@ class ShipTrajectoryGUI:
         self.ax = self.figure.add_subplot(111)
         self.ax.set_facecolor(self.plot_background_color)
 
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
+        self.canvas = FigureCanvasTkAgg(self.figure, master=plot_frame)
 
         canvas_widget = self.canvas.get_tk_widget()
         canvas_widget.configure(
-            bg=self.app_background_color,
-            highlightbackground=self.app_background_color,
+            bg=self.plot_panel_color,
+            highlightbackground=self.plot_panel_color,
+            highlightthickness=0,
         )
-        canvas_widget.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        canvas_widget.pack(fill=tk.BOTH, expand=True)
 
     def bind_keyboard_controls(self):
         """
