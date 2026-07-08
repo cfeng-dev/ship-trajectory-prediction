@@ -1,13 +1,13 @@
 """
-@file run_ship_gui.py
-@description Starts the interactive 2D ship trajectory GUI.
+@file run_simulation_gui.py
+@description Starts the interactive 2D ship trajectory simulation GUI.
 @date Created on: 07.07.2026
 @author C.Feng
 """
 
 import tkinter as tk
 
-from modules.ship_gui import ShipTrajectoryGUI
+from modules.simulation_gui import ShipTrajectoryGUI
 
 
 def main():

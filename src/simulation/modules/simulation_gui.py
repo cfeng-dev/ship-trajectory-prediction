@@ -1,5 +1,5 @@
 """
-@file ship_gui.py
+@file simulation_gui.py
 @description Provides a GUI to steer a simple 2D ship trajectory with motor control and CSV export.
 @date Created on: 06.07.2026
 @author C.Feng
@@ -15,8 +15,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
 
-from modules.ship_simulation import ShipSimulator
-from modules.ship_io import (
+from modules.simulation_core import ShipSimulator
+from modules.simulation_io import (
     DATA_DIR,
     create_simulation_dataframe,
     save_trajectory_data,

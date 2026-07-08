@@ -1,5 +1,5 @@
 """
-@file ship_simulation.py
+@file simulation_core.py
 @description Provides ship trajectory simulation models and a step-based 2D ship simulator.
 @date Created on: 08.07.2026
 @author C.Feng
