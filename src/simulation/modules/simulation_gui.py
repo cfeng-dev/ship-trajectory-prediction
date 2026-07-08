@@ -141,7 +141,7 @@ class ShipTrajectoryGUI:
 
         # Window and plot size
         self.window_width = 1100
-        self.window_height = 700
+        self.window_height = 750
 
         # Keep figure square
         self.figure_width = 6
@@ -278,12 +278,45 @@ class ShipTrajectoryGUI:
         self.speed_slider.set(self.initial_speed)
         self.speed_slider.pack(pady=5)
 
-        self.status_label = tk.Label(
+        # ==================================================
+        # Status area
+        # ==================================================
+        status_frame = tk.LabelFrame(
             control_frame,
-            text="",
-            justify=tk.LEFT,
+            text="Status",
+            padx=10,
+            pady=8,
         )
-        self.status_label.pack(pady=(20, 0))
+        status_frame.pack(pady=(20, 0), fill=tk.X)
+
+        self.motor_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.position_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.heading_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.omega_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.speed_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.radius_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.time_value_label = tk.Label(status_frame, anchor="w", width=18)
+
+        status_rows = [
+            ("Motor:", self.motor_value_label),
+            ("Position:", self.position_value_label),
+            ("Heading:", self.heading_value_label),
+            ("Omega:", self.omega_value_label),
+            ("Speed:", self.speed_value_label),
+            ("Radius:", self.radius_value_label),
+            ("Time:", self.time_value_label),
+        ]
+
+        for row_index, (label_text, value_label) in enumerate(status_rows):
+            tk.Label(
+                status_frame,
+                text=label_text,
+                anchor="w",
+                width=10,
+                font=("Arial", 10, "bold"),
+            ).grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
+
+            value_label.grid(row=row_index, column=1, sticky="w", pady=2)
 
         # ==================================================
         # Plot area
@@ -626,7 +659,7 @@ class ShipTrajectoryGUI:
 
     def update_status(self):
         """
-        Update the status label.
+        Update the status display.
         """
         heading_deg = np.rad2deg(self.simulator.theta_current)
         omega = self.get_omega_from_steering()
@@ -639,19 +672,23 @@ class ShipTrajectoryGUI:
             radius_text = f"{speed / omega:.2f} m"
 
         motor_text = "Running" if self.motor_running else "Stopped"
+        motor_color = "darkgreen" if self.motor_running else "darkred"
 
-        self.status_label.config(
+        self.motor_value_label.config(
+            text=motor_text,
+            fg=motor_color,
+        )
+        self.position_value_label.config(
             text=(
-                f"Motor: {motor_text}\n"
-                f"Position: x={self.simulator.x_current:.2f} m, "
-                f"y={self.simulator.y_current:.2f} m\n"
-                f"Heading: {heading_deg:.1f}°\n"
-                f"Omega: {omega_deg:.1f}°/s\n"
-                f"Speed: {speed:.2f} m/s\n"
-                f"Radius: {radius_text}\n"
-                f"Time: {self.simulator.current_time:.1f} s"
+                f"x={self.simulator.x_current:.2f} m, "
+                f"y={self.simulator.y_current:.2f} m"
             )
         )
+        self.heading_value_label.config(text=f"{heading_deg:.1f}°")
+        self.omega_value_label.config(text=f"{omega_deg:.1f}°/s")
+        self.speed_value_label.config(text=f"{speed:.2f} m/s")
+        self.radius_value_label.config(text=radius_text)
+        self.time_value_label.config(text=f"{self.simulator.current_time:.1f} s")
 
     def create_ship_shape(self, theta):
         """
