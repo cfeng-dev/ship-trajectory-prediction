@@ -314,22 +314,100 @@ class ShipTrajectoryGUI:
         """
         Show a help window with keyboard shortcuts and basic usage.
         """
-        messagebox.showinfo(
-            "Help",
-            (
-                "Keyboard controls:\n\n"
-                "↑ / ↓     Increase / decrease speed\n"
-                "← / →     Steer left / right\n"
-                "Space     Start / stop motor\n\n"
-                "Buttons:\n\n"
-                "Save CSV  Save trajectory data as CSV\n"
-                "Reset     Reset simulation and clear trajectory\n"
-                "Center Steering  Reset steering to 0 °/s"
-            ),
+        help_window = tk.Toplevel(self.root)
+        help_window.title("Help")
+        help_window.resizable(False, False)
+
+        # Keep the help window above the main window.
+        help_window.transient(self.root)
+        help_window.grab_set()
+
+        main_frame = tk.Frame(help_window, padx=24, pady=18)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            main_frame,
+            text="Simulation Controls",
+            font=("Arial", 13, "bold"),
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 12))
+
+        # ==================================================
+        # Keyboard controls
+        # ==================================================
+        keyboard_frame = tk.LabelFrame(
+            main_frame,
+            text="Keyboard shortcuts",
+            padx=12,
+            pady=10,
         )
+        keyboard_frame.pack(fill=tk.X, pady=(0, 12))
+
+        keyboard_shortcuts = [
+            ("↑ / ↓", "Increase / decrease speed"),
+            ("← / →", "Steer left / right"),
+            ("Space", "Start / stop motor"),
+        ]
+
+        for row, (key, description) in enumerate(keyboard_shortcuts):
+            tk.Label(
+                keyboard_frame,
+                text=key,
+                width=10,
+                anchor="w",
+                font=("Arial", 10, "bold"),
+            ).grid(row=row, column=0, sticky="w", pady=2)
+
+            tk.Label(
+                keyboard_frame,
+                text=description,
+                anchor="w",
+            ).grid(row=row, column=1, sticky="w", pady=2)
+
+        # ==================================================
+        # Button controls
+        # ==================================================
+        button_frame = tk.LabelFrame(
+            main_frame,
+            text="Buttons",
+            padx=12,
+            pady=10,
+        )
+        button_frame.pack(fill=tk.X, pady=(0, 16))
+
+        button_descriptions = [
+            ("Save CSV", "Save trajectory data as CSV"),
+            ("Reset", "Reset simulation and clear trajectory"),
+            ("Center Steering", "Reset steering to 0 °/s"),
+        ]
+
+        for row, (button, description) in enumerate(button_descriptions):
+            tk.Label(
+                button_frame,
+                text=button,
+                width=15,
+                anchor="w",
+                font=("Arial", 10, "bold"),
+            ).grid(row=row, column=0, sticky="w", pady=2)
+
+            tk.Label(
+                button_frame,
+                text=description,
+                anchor="w",
+            ).grid(row=row, column=1, sticky="w", pady=2)
+
+        tk.Button(
+            main_frame,
+            text="OK",
+            width=12,
+            command=lambda: (help_window.destroy(), self.root.focus_set()),
+        ).pack(anchor="e")
 
         # Restore keyboard focus after closing the help window.
-        self.root.focus_set()
+        help_window.protocol(
+            "WM_DELETE_WINDOW",
+            lambda: (help_window.destroy(), self.root.focus_set()),
+        )
 
     def increase_speed(self, event=None):
         """
