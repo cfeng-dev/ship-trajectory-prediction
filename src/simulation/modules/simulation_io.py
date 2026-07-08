@@ -57,7 +57,7 @@ def create_simulation_dataframe(simulator, random_seed=42):
             "radius": np.array(simulator.radius_all),
             "v": simulator.v,
             "sigma": simulator.sigma,
-            "motor_running": np.array(simulator.motor_state_all),
+            "simulation_running": np.array(simulator.motor_state_all),
         }
     )
 

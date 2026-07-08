@@ -1,6 +1,6 @@
 """
 @file simulation_gui.py
-@description Provides a GUI to steer a simple 2D ship trajectory with motor control and CSV export.
+@description Provides a GUI to steer a simple 2D ship trajectory with simulation control and CSV export.
 @date Created on: 06.07.2026
 @author C.Feng
 """
@@ -27,14 +27,14 @@ class ShipTrajectoryGUI:
     """
     GUI for interactively steering a 2D ship trajectory.
 
-    The ship moves continuously when the motor is running.
+    The ship moves continuously when the simulation is running.
     The steering slider controls the angular velocity.
     The speed slider controls the ship velocity.
 
     Keyboard controls:
     - Up / Down arrows increase or decrease speed.
     - Left / Right arrows steer the ship.
-    - Space starts or stops the motor.
+    - Space starts or stops the simulation.
     - Ctrl + S saves the trajectory as CSV.
     """
 
@@ -157,7 +157,7 @@ class ShipTrajectoryGUI:
             dt=self.simulation_dt,
         )
 
-        self.motor_running = False
+        self.simulation_running = False
 
         # Initialize camera at the ship start position.
         # This is only used when axis_mode = "follow".
@@ -188,13 +188,13 @@ class ShipTrajectoryGUI:
             font=("Arial", 14, "bold"),
         ).pack(pady=(0, 10))
 
-        self.motor_button = tk.Button(
+        self.simulation_button = tk.Button(
             control_frame,
-            text="Start Motor",
+            text="Start Simulation",
             width=18,
-            command=self.toggle_motor,
+            command=self.toggle_simulation,
         )
-        self.motor_button.pack(pady=5)
+        self.simulation_button.pack(pady=5)
 
         tk.Button(
             control_frame,
@@ -290,7 +290,7 @@ class ShipTrajectoryGUI:
         )
         status_frame.pack(pady=(20, 0), fill=tk.X)
 
-        self.motor_value_label = tk.Label(status_frame, anchor="w", width=18)
+        self.simulation_value_label = tk.Label(status_frame, anchor="w", width=18)
         self.position_value_label = tk.Label(status_frame, anchor="w", width=18)
         self.heading_value_label = tk.Label(status_frame, anchor="w", width=18)
         self.omega_value_label = tk.Label(status_frame, anchor="w", width=18)
@@ -299,7 +299,7 @@ class ShipTrajectoryGUI:
         self.time_value_label = tk.Label(status_frame, anchor="w", width=18)
 
         status_rows = [
-            ("Motor:", self.motor_value_label),
+            ("Simulation:", self.simulation_value_label),
             ("Position:", self.position_value_label),
             ("Heading:", self.heading_value_label),
             ("Omega:", self.omega_value_label),
@@ -333,13 +333,13 @@ class ShipTrajectoryGUI:
 
     def bind_keyboard_controls(self):
         """
-        Bind keyboard keys to speed, steering, motor controls, and CSV export.
+        Bind keyboard keys to speed, steering, simulation controls, and CSV export.
         """
         self.root.bind("<Up>", self.increase_speed)
         self.root.bind("<Down>", self.decrease_speed)
         self.root.bind("<Left>", self.steer_left)
         self.root.bind("<Right>", self.steer_right)
-        self.root.bind("<space>", self.toggle_motor_with_keyboard)
+        self.root.bind("<space>", self.toggle_simulation_with_keyboard)
 
         # Save CSV with Ctrl + S.
         self.root.bind("<Control-s>", self.save_csv_with_keyboard)
@@ -406,7 +406,7 @@ class ShipTrajectoryGUI:
         keyboard_shortcuts = [
             ("↑ / ↓", "Increase / decrease speed"),
             ("← / →", "Steer left / right"),
-            ("Space", "Start / stop motor"),
+            ("Space", "Start / stop simulation"),
             ("Ctrl + S", "Save trajectory data as CSV"),
         ]
 
@@ -437,6 +437,8 @@ class ShipTrajectoryGUI:
         button_frame.pack(fill=tk.X, pady=(0, 16))
 
         button_descriptions = [
+            ("Start Simulation", "Start the interactive simulation"),
+            ("Stop Simulation", "Stop the interactive simulation"),
             ("Save CSV", "Save trajectory data as CSV"),
             ("Reset", "Reset simulation and clear trajectory"),
             ("Center Steering", "Reset steering to 0 °/s"),
@@ -446,7 +448,7 @@ class ShipTrajectoryGUI:
             tk.Label(
                 button_frame,
                 text=button,
-                width=15,
+                width=16,
                 anchor="w",
                 font=("Arial", 10, "bold"),
             ).grid(row=row, column=0, sticky="w", pady=2)
@@ -521,11 +523,11 @@ class ShipTrajectoryGUI:
         self.steering_slider.set(new_steering)
         self.update_status()
 
-    def toggle_motor_with_keyboard(self, event=None):
+    def toggle_simulation_with_keyboard(self, event=None):
         """
-        Start or stop the motor using the space key.
+        Start or stop the simulation using the space key.
         """
-        self.toggle_motor()
+        self.toggle_simulation()
 
     def save_csv_with_keyboard(self, event=None):
         """
@@ -578,7 +580,7 @@ class ShipTrajectoryGUI:
 
         self.simulator.step(
             omega=omega,
-            motor_running=self.motor_running,
+            motor_running=self.simulation_running,
         )
 
         self.update_status()
@@ -586,16 +588,16 @@ class ShipTrajectoryGUI:
 
         self.root.after(self.update_interval_ms, self.simulation_loop)
 
-    def toggle_motor(self):
+    def toggle_simulation(self):
         """
-        Start or stop the motor.
+        Start or stop the simulation.
         """
-        self.motor_running = not self.motor_running
+        self.simulation_running = not self.simulation_running
 
-        if self.motor_running:
-            self.motor_button.config(text="Stop Motor")
+        if self.simulation_running:
+            self.simulation_button.config(text="Stop Simulation")
         else:
-            self.motor_button.config(text="Start Motor")
+            self.simulation_button.config(text="Start Simulation")
 
         self.update_status()
 
@@ -615,7 +617,7 @@ class ShipTrajectoryGUI:
         if not self.simulator.has_data():
             messagebox.showwarning(
                 "No Data",
-                "No trajectory data available. Please start the motor first.",
+                "No trajectory data available. Please start the simulation first.",
             )
             return
 
@@ -656,8 +658,8 @@ class ShipTrajectoryGUI:
         """
         Reset the simulation and clear the plot.
         """
-        self.motor_running = False
-        self.motor_button.config(text="Start Motor")
+        self.simulation_running = False
+        self.simulation_button.config(text="Start Simulation")
         self.steering_slider.set(0)
         self.speed_slider.set(self.initial_speed)
 
@@ -686,12 +688,12 @@ class ShipTrajectoryGUI:
         else:
             radius_text = f"{speed / omega:.2f} m"
 
-        motor_text = "Running" if self.motor_running else "Stopped"
-        motor_color = "darkgreen" if self.motor_running else "darkred"
+        simulation_text = "Running" if self.simulation_running else "Stopped"
+        simulation_color = "darkgreen" if self.simulation_running else "darkred"
 
-        self.motor_value_label.config(
-            text=motor_text,
-            fg=motor_color,
+        self.simulation_value_label.config(
+            text=simulation_text,
+            fg=simulation_color,
         )
         self.position_value_label.config(
             text=(
