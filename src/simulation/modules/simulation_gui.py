@@ -310,9 +310,9 @@ class ShipTrajectoryGUI:
         # Make sure the main window can receive keyboard input.
         self.root.focus_set()
 
-    def center_window(self, window):
+    def center_window_on_screen(self, window):
         """
-        Center a child window relative to the main GUI window.
+        Center a child window on the screen.
 
         Parameters
         ----------
@@ -321,16 +321,14 @@ class ShipTrajectoryGUI:
         """
         window.update_idletasks()
 
-        parent_x = self.root.winfo_x()
-        parent_y = self.root.winfo_y()
-        parent_width = self.root.winfo_width()
-        parent_height = self.root.winfo_height()
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
 
         window_width = window.winfo_width()
         window_height = window.winfo_height()
 
-        x = parent_x + (parent_width - window_width) // 2
-        y = parent_y + (parent_height - window_height) // 2
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
 
         window.geometry(f"+{x}+{y}")
 
@@ -433,8 +431,8 @@ class ShipTrajectoryGUI:
             lambda: (help_window.destroy(), self.root.focus_set()),
         )
 
-        # Show the help window in the center of the main GUI window.
-        self.center_window(help_window)
+        # Show the help window in the center of the screen.
+        self.center_window_on_screen(help_window)
 
     def increase_speed(self, event=None):
         """
