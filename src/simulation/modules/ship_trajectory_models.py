@@ -1,5 +1,5 @@
 """
-@file trajectory_models.py
+@file ship_trajectory_models.py
 @description Provides simple 2D ship trajectory simulation utilities.
 @date Created on: 03.07.2026
 @author C.Feng

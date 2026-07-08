@@ -1,5 +1,5 @@
 """
-@file run_gui.py
+@file run_ship_gui.py
 @description Starts the interactive 2D ship trajectory GUI.
 @date Created on: 07.07.2026
 @author C.Feng
@@ -7,7 +7,7 @@
 
 import tkinter as tk
 
-from modules.interactive_ship_gui import ShipTrajectoryGUI
+from modules.ship_gui import ShipTrajectoryGUI
 
 
 def main():
