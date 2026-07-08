@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from modules.ship_trajectory_models import add_observation_noise
+from modules.ship_simulation import add_observation_noise
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
