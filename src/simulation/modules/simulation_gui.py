@@ -30,6 +30,11 @@ class ShipTrajectoryGUI:
     The ship moves continuously when the motor is running.
     The steering slider controls the angular velocity.
     The speed slider controls the ship velocity.
+
+    Keyboard controls:
+    - Up / Down arrows increase or decrease speed.
+    - Left / Right arrows steer the ship.
+    - Space starts or stops the motor.
     """
 
     def __init__(self, root):
@@ -60,6 +65,10 @@ class ShipTrajectoryGUI:
         self.min_speed = 1.0
         self.max_speed = 10.0
         self.speed_resolution = 0.1
+
+        # Keyboard control step sizes
+        self.keyboard_speed_step = 0.1
+        self.keyboard_steering_step = 1
 
         # Ship visualization size in meters [m]
         self.ship_length = 10.0
@@ -158,6 +167,7 @@ class ShipTrajectoryGUI:
         # GUI layout
         # ==================================================
         self.create_widgets()
+        self.bind_keyboard_controls()
         self.update_status()
         self.update_plot()
 
@@ -261,6 +271,12 @@ class ShipTrajectoryGUI:
         self.speed_slider.set(self.initial_speed)
         self.speed_slider.pack(pady=5)
 
+        tk.Label(
+            control_frame,
+            text="Keyboard:\n↑/↓ speed\n←/→ steering\nSpace motor",
+            justify=tk.CENTER,
+        ).pack(pady=(10, 0))
+
         self.status_label = tk.Label(
             control_frame,
             text="",
@@ -279,6 +295,73 @@ class ShipTrajectoryGUI:
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
         self.canvas.get_tk_widget().pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+    def bind_keyboard_controls(self):
+        """
+        Bind keyboard keys to speed, steering, and motor controls.
+        """
+        self.root.bind("<Up>", self.increase_speed)
+        self.root.bind("<Down>", self.decrease_speed)
+        self.root.bind("<Left>", self.steer_left)
+        self.root.bind("<Right>", self.steer_right)
+        self.root.bind("<space>", self.toggle_motor_with_keyboard)
+
+        # Make sure the main window can receive keyboard input.
+        self.root.focus_set()
+
+    def increase_speed(self, event=None):
+        """
+        Increase ship speed using the keyboard.
+        """
+        new_speed = min(
+            self.speed_slider.get() + self.keyboard_speed_step,
+            self.max_speed,
+        )
+
+        self.speed_slider.set(new_speed)
+        self.update_status()
+
+    def decrease_speed(self, event=None):
+        """
+        Decrease ship speed using the keyboard.
+        """
+        new_speed = max(
+            self.speed_slider.get() - self.keyboard_speed_step,
+            self.min_speed,
+        )
+
+        self.speed_slider.set(new_speed)
+        self.update_status()
+
+    def steer_left(self, event=None):
+        """
+        Steer the ship to the left using the keyboard.
+        """
+        new_steering = max(
+            self.steering_slider.get() - self.keyboard_steering_step,
+            self.min_steering_deg_per_second,
+        )
+
+        self.steering_slider.set(new_steering)
+        self.update_status()
+
+    def steer_right(self, event=None):
+        """
+        Steer the ship to the right using the keyboard.
+        """
+        new_steering = min(
+            self.steering_slider.get() + self.keyboard_steering_step,
+            self.max_steering_deg_per_second,
+        )
+
+        self.steering_slider.set(new_steering)
+        self.update_status()
+
+    def toggle_motor_with_keyboard(self, event=None):
+        """
+        Start or stop the motor using the space key.
+        """
+        self.toggle_motor()
 
     def get_omega_from_steering(self):
         """
@@ -708,7 +791,7 @@ class ShipTrajectoryGUI:
         """
         self.ax.clear()
 
-        # Reapply plot background after clearing
+        # Reapply plot background after clearing.
         self.ax.set_facecolor(self.plot_background_color)
 
         if self.simulator.has_data():
