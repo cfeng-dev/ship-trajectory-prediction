@@ -35,6 +35,7 @@ class ShipTrajectoryGUI:
     - Up / Down arrows increase or decrease speed.
     - Left / Right arrows steer the ship.
     - Space starts or stops the motor.
+    - Ctrl + S saves the trajectory as CSV.
     """
 
     def __init__(self, root):
@@ -141,7 +142,7 @@ class ShipTrajectoryGUI:
 
         # Window and plot size
         self.window_width = 1100
-        self.window_height = 750
+        self.window_height = 720
 
         # Keep figure square
         self.figure_width = 6
@@ -332,13 +333,17 @@ class ShipTrajectoryGUI:
 
     def bind_keyboard_controls(self):
         """
-        Bind keyboard keys to speed, steering, and motor controls.
+        Bind keyboard keys to speed, steering, motor controls, and CSV export.
         """
         self.root.bind("<Up>", self.increase_speed)
         self.root.bind("<Down>", self.decrease_speed)
         self.root.bind("<Left>", self.steer_left)
         self.root.bind("<Right>", self.steer_right)
         self.root.bind("<space>", self.toggle_motor_with_keyboard)
+
+        # Save CSV with Ctrl + S.
+        self.root.bind("<Control-s>", self.save_csv_with_keyboard)
+        self.root.bind("<Control-S>", self.save_csv_with_keyboard)
 
         # Make sure the main window can receive keyboard input.
         self.root.focus_set()
@@ -402,6 +407,7 @@ class ShipTrajectoryGUI:
             ("↑ / ↓", "Increase / decrease speed"),
             ("← / →", "Steer left / right"),
             ("Space", "Start / stop motor"),
+            ("Ctrl + S", "Save trajectory data as CSV"),
         ]
 
         for row, (key, description) in enumerate(keyboard_shortcuts):
@@ -520,6 +526,15 @@ class ShipTrajectoryGUI:
         Start or stop the motor using the space key.
         """
         self.toggle_motor()
+
+    def save_csv_with_keyboard(self, event=None):
+        """
+        Save the trajectory as CSV using Ctrl + S.
+        """
+        self.save_csv()
+
+        # Prevent other default Ctrl + S behavior.
+        return "break"
 
     def get_omega_from_steering(self):
         """
