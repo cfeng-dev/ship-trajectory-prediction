@@ -209,6 +209,13 @@ class ShipTrajectoryGUI:
             command=self.reset,
         ).pack(pady=5)
 
+        tk.Button(
+            control_frame,
+            text="Help",
+            width=18,
+            command=self.show_help,
+        ).pack(pady=5)
+
         # ==================================================
         # Steering controls
         # ==================================================
@@ -271,12 +278,6 @@ class ShipTrajectoryGUI:
         self.speed_slider.set(self.initial_speed)
         self.speed_slider.pack(pady=5)
 
-        tk.Label(
-            control_frame,
-            text="Keyboard:\n↑/↓ speed\n←/→ steering\nSpace motor",
-            justify=tk.CENTER,
-        ).pack(pady=(10, 0))
-
         self.status_label = tk.Label(
             control_frame,
             text="",
@@ -307,6 +308,27 @@ class ShipTrajectoryGUI:
         self.root.bind("<space>", self.toggle_motor_with_keyboard)
 
         # Make sure the main window can receive keyboard input.
+        self.root.focus_set()
+
+    def show_help(self):
+        """
+        Show a help window with keyboard shortcuts and basic usage.
+        """
+        messagebox.showinfo(
+            "Help",
+            (
+                "Keyboard controls:\n\n"
+                "↑ / ↓     Increase / decrease speed\n"
+                "← / →     Steer left / right\n"
+                "Space     Start / stop motor\n\n"
+                "Buttons:\n\n"
+                "Save CSV  Save trajectory data as CSV\n"
+                "Reset     Reset simulation and clear trajectory\n"
+                "Center Steering  Reset steering to 0 °/s"
+            ),
+        )
+
+        # Restore keyboard focus after closing the help window.
         self.root.focus_set()
 
     def increase_speed(self, event=None):
