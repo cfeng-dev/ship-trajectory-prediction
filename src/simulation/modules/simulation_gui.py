@@ -172,7 +172,7 @@ class ShipTrajectoryGUI:
         self.update_status()
         self.update_plot()
 
-        # Start continuous simulation loop
+        # Start continuous simulation loop.
         self.simulation_loop()
 
     def create_widgets(self):
@@ -373,7 +373,13 @@ class ShipTrajectoryGUI:
     def show_help(self):
         """
         Show a help window with keyboard shortcuts and basic usage.
+
+        The simulation is stopped before opening the help window so the
+        trajectory does not keep changing while the user is reading the
+        instructions.
         """
+        self.stop_simulation()
+
         help_window = tk.Toplevel(self.root)
         help_window.title("Help")
         help_window.resizable(False, False)
@@ -601,6 +607,14 @@ class ShipTrajectoryGUI:
 
         self.update_status()
 
+    def stop_simulation(self):
+        """
+        Stop the simulation without resetting trajectory data.
+        """
+        self.simulation_running = False
+        self.simulation_button.config(text="Start Simulation")
+        self.update_status()
+
     def center_steering(self):
         """
         Reset steering slider to center.
@@ -613,6 +627,10 @@ class ShipTrajectoryGUI:
 
         The user can choose the output folder and filename.
         By default, the file dialog opens in data/simulated.
+
+        The simulation is stopped before opening the file dialog.
+        This prevents trajectory data from changing while the user is choosing
+        the output filename or folder.
         """
         if not self.simulator.has_data():
             messagebox.showwarning(
@@ -620,6 +638,10 @@ class ShipTrajectoryGUI:
                 "No trajectory data available. Please start the simulation first.",
             )
             return
+
+        # Stop simulation before saving so the data stays unchanged
+        # while the file dialog is open.
+        self.stop_simulation()
 
         # Make sure the default data directory exists.
         DATA_DIR.mkdir(parents=True, exist_ok=True)
