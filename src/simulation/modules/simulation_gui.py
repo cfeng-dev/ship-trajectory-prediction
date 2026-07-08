@@ -310,6 +310,30 @@ class ShipTrajectoryGUI:
         # Make sure the main window can receive keyboard input.
         self.root.focus_set()
 
+    def center_window(self, window):
+        """
+        Center a child window relative to the main GUI window.
+
+        Parameters
+        ----------
+        window : tk.Toplevel
+            Child window to be centered.
+        """
+        window.update_idletasks()
+
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+
+        window_width = window.winfo_width()
+        window_height = window.winfo_height()
+
+        x = parent_x + (parent_width - window_width) // 2
+        y = parent_y + (parent_height - window_height) // 2
+
+        window.geometry(f"+{x}+{y}")
+
     def show_help(self):
         """
         Show a help window with keyboard shortcuts and basic usage.
@@ -408,6 +432,9 @@ class ShipTrajectoryGUI:
             "WM_DELETE_WINDOW",
             lambda: (help_window.destroy(), self.root.focus_set()),
         )
+
+        # Show the help window in the center of the main GUI window.
+        self.center_window(help_window)
 
     def increase_speed(self, event=None):
         """
