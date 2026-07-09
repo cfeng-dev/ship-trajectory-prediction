@@ -153,12 +153,16 @@ class ShipTrajectoryGUI:
         self.axis_tick_step = 10
 
         # Window and plot size
-        self.window_width = 1100
+        self.window_width = 1200
         self.window_height = 720
 
         # Keep figure square
         self.figure_width = 6
         self.figure_height = 6
+
+        # Width of the left control panel in pixels.
+        # This gives the status values enough space to stay readable.
+        self.control_panel_width = 280
 
         # ==================================================
         # Simulation object
@@ -248,11 +252,13 @@ class ShipTrajectoryGUI:
         # ==================================================
         control_frame = tk.Frame(
             content_frame,
+            width=self.control_panel_width,
             bg=self.control_panel_color,
             padx=14,
             pady=14,
         )
         control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 0), pady=10)
+        control_frame.pack_propagate(False)
 
         tk.Label(
             control_frame,
@@ -365,48 +371,53 @@ class ShipTrajectoryGUI:
         )
         status_frame.pack(pady=(20, 0), fill=tk.X)
 
+        # The value labels do not use a fixed character width.
+        # This avoids cutting off long numbers when the position grows.
         self.simulation_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.position_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.heading_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.omega_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.speed_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.radius_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
         self.time_value_label = tk.Label(
             status_frame,
             anchor="w",
-            width=18,
+            justify="left",
             bg=self.control_panel_color,
         )
+
+        status_frame.columnconfigure(0, weight=0)
+        status_frame.columnconfigure(1, weight=1)
 
         status_rows = [
             ("Simulation:", self.simulation_value_label),
@@ -428,7 +439,7 @@ class ShipTrajectoryGUI:
                 bg=self.control_panel_color,
             ).grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
 
-            value_label.grid(row=row_index, column=1, sticky="w", pady=2)
+            value_label.grid(row=row_index, column=1, sticky="ew", pady=2)
 
         # ==================================================
         # Vertical separator between left and right area
@@ -960,8 +971,8 @@ class ShipTrajectoryGUI:
         )
         self.position_value_label.config(
             text=(
-                f"x={self.simulator.x_current:.2f} m, "
-                f"y={self.simulator.y_current:.2f} m"
+                f"x = {self.simulator.x_current:.2f} m\n"
+                f"y = {self.simulator.y_current:.2f} m"
             )
         )
         self.heading_value_label.config(text=f"{heading_deg:.1f}°")
