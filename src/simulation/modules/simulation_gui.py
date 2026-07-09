@@ -159,6 +159,9 @@ class ShipTrajectoryGUI:
         self.window_width = 1100
         self.window_height = 720
 
+        # Move the main window slightly upward from the exact screen center.
+        self.main_window_vertical_offset = 40
+
         # Keep figure square
         self.figure_width = 6
         self.figure_height = 6
@@ -208,7 +211,7 @@ class ShipTrajectoryGUI:
         # ==================================================
         # GUI layout
         # ==================================================
-        self.root.geometry(f"{self.window_width}x{self.window_height}")
+        self.center_main_window_on_screen()
         self.root.configure(bg=self.app_background_color)
 
         self.create_menu_bar()
@@ -220,6 +223,18 @@ class ShipTrajectoryGUI:
 
         # Start continuous simulation loop.
         self.simulation_loop()
+
+    def center_main_window_on_screen(self):
+        """
+        Center the main application window on the screen.
+        """
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        x = (screen_width - self.window_width) // 2
+        y = (screen_height - self.window_height) // 2 - self.main_window_vertical_offset
+
+        self.root.geometry(f"{self.window_width}x{self.window_height}+{x}+{y}")
 
     def create_menu_bar(self):
         """
