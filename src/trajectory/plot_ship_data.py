@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from modules.ship_data_io import read_ship_data
+from modules.ship_data_io import read_ship_data, print_ship_data_summary
 from modules.ship_data_plotting import (
     plot_ship_speeds,
     plot_ship_trajectory,
@@ -24,9 +24,9 @@ DATA_FILE = (
 # ==================================================
 # Data selection
 # ==================================================
-RUN_ID = None
-START_TIME = "2026-01-09 23:00:10"
-END_TIME = "2026-01-10 08:07:30"
+RUN_ID = 1
+START_TIME = None
+END_TIME = None
 
 
 def main():
@@ -40,6 +40,7 @@ def main():
         end_time=END_TIME,
     )
 
+    print_ship_data_summary(ship_data)
     plot_ship_trajectory(ship_data)
     plot_ship_speeds(ship_data)
 

@@ -16,7 +16,7 @@ def plot_ship_trajectory(data, arrow_step=20):
     - the trajectory line
     - start point
     - end point
-    - small direction arrows along the path
+    - direction arrows along the path
 
     Parameters
     ----------
@@ -33,33 +33,40 @@ def plot_ship_trajectory(data, arrow_step=20):
 
     plt.figure(figsize=(8, 6))
 
+    # trajectory line
     plt.plot(
         longitude,
         latitude,
+        color="tab:blue",
         marker="o",
         markersize=3,
-        linewidth=1.5,
+        linewidth=1.8,
         label="Ship trajectory",
     )
 
+    # start point
     plt.scatter(
         longitude[0],
         latitude[0],
-        s=80,
+        s=70,
+        color="black",
         marker="o",
         label="Start",
-        zorder=3,
+        zorder=4,
     )
 
+    # end point
     plt.scatter(
         longitude[-1],
         latitude[-1],
-        s=80,
+        s=90,
+        color="green",
         marker="X",
         label="End",
-        zorder=3,
+        zorder=4,
     )
 
+    # direction arrows
     for index in range(0, len(longitude) - 1, arrow_step):
         start = (longitude[index], latitude[index])
         end = (longitude[index + 1], latitude[index + 1])
@@ -76,8 +83,9 @@ def plot_ship_trajectory(data, arrow_step=20):
             xytext=start,
             arrowprops={
                 "arrowstyle": "->",
-                "linewidth": 1.2,
-                "mutation_scale": 12,
+                "color": "darkorange",
+                "linewidth": 1.5,
+                "mutation_scale": 14,
             },
         )
 
