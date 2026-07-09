@@ -9,6 +9,29 @@ import matplotlib.pyplot as plt
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
+# ==================================================
+# Plot settings
+# ==================================================
+TRAJECTORY_FIGURE_SIZE = (8, 6)
+SPEED_FIGURE_SIZE = (10, 6)
+
+DEFAULT_ARROW_STEP = 18  # 18 points = about 3 minutes if data interval is 10 s
+
+TRAJECTORY_COLOR = "tab:blue"
+START_COLOR = "black"
+END_COLOR = "green"
+DIRECTION_COLOR = "darkorange"
+
+TRAJECTORY_MARKER_SIZE = 3
+START_MARKER_SIZE = 45
+END_MARKER_SIZE = 110
+
+TRAJECTORY_LINE_WIDTH = 1.8
+DIRECTION_LINE_WIDTH = 1.5
+
+END_ALPHA = 0.45
+ARROW_MUTATION_SCALE = 14
+
 
 class HandlerDirectionArrow(HandlerPatch):
     """
@@ -34,14 +57,14 @@ class HandlerDirectionArrow(HandlerPatch):
             arrowstyle="->",
             color=orig_handle.get_edgecolor(),
             linewidth=orig_handle.get_linewidth(),
-            mutation_scale=14,
+            mutation_scale=ARROW_MUTATION_SCALE,
             transform=trans,
         )
 
         return [arrow]
 
 
-def plot_ship_trajectory(data, arrow_step=20):
+def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
     """
     Plot the ship trajectory using GPS longitude and latitude.
 
@@ -68,16 +91,16 @@ def plot_ship_trajectory(data, arrow_step=20):
     longitude = data["gps_longitude"].to_numpy()
     latitude = data["gps_latitude"].to_numpy()
 
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=TRAJECTORY_FIGURE_SIZE)
 
     # Trajectory line
     trajectory_line = plt.plot(
         longitude,
         latitude,
-        color="tab:blue",
+        color=TRAJECTORY_COLOR,
         marker="o",
-        markersize=3,
-        linewidth=1.8,
+        markersize=TRAJECTORY_MARKER_SIZE,
+        linewidth=TRAJECTORY_LINE_WIDTH,
         label="Ship trajectory",
     )[0]
 
@@ -85,8 +108,8 @@ def plot_ship_trajectory(data, arrow_step=20):
     start_marker = plt.scatter(
         longitude[0],
         latitude[0],
-        s=45,
-        color="black",
+        s=START_MARKER_SIZE,
+        color=START_COLOR,
         marker="o",
         label="Start",
         zorder=4,
@@ -96,9 +119,9 @@ def plot_ship_trajectory(data, arrow_step=20):
     end_marker = plt.scatter(
         longitude[-1],
         latitude[-1],
-        s=110,
-        color="green",
-        alpha=0.45,
+        s=END_MARKER_SIZE,
+        color=END_COLOR,
+        alpha=END_ALPHA,
         marker="X",
         label="End",
         zorder=5,
@@ -130,9 +153,9 @@ def plot_ship_trajectory(data, arrow_step=20):
                 xytext=start,
                 arrowprops={
                     "arrowstyle": "->",
-                    "color": "darkorange",
-                    "linewidth": 1.5,
-                    "mutation_scale": 14,
+                    "color": DIRECTION_COLOR,
+                    "linewidth": DIRECTION_LINE_WIDTH,
+                    "mutation_scale": ARROW_MUTATION_SCALE,
                 },
             )
 
@@ -140,9 +163,9 @@ def plot_ship_trajectory(data, arrow_step=20):
             (0, 0),
             (1, 0),
             arrowstyle="->",
-            color="darkorange",
-            linewidth=1.5,
-            mutation_scale=14,
+            color=DIRECTION_COLOR,
+            linewidth=DIRECTION_LINE_WIDTH,
+            mutation_scale=ARROW_MUTATION_SCALE,
             label="Direction",
         )
 
@@ -180,7 +203,8 @@ def plot_ship_speeds(data):
     if data.empty:
         raise ValueError("The input data is empty.")
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=SPEED_FIGURE_SIZE)
+
     plt.plot(data["time"], data["gps_speed"], label="GPS speed")
     plt.plot(data["time"], data["shaft_speed"], label="Shaft speed")
     plt.plot(data["time"], data["thruster_speed"], label="Thruster speed")
