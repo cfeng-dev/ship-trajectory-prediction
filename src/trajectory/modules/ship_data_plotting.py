@@ -6,6 +6,39 @@
 """
 
 import matplotlib.pyplot as plt
+from matplotlib.legend_handler import HandlerPatch
+from matplotlib.patches import FancyArrowPatch
+
+
+class HandlerDirectionArrow(HandlerPatch):
+    """
+    Custom legend handler for direction arrows.
+    """
+
+    def create_artists(
+        self,
+        legend,
+        orig_handle,
+        xdescent,
+        ydescent,
+        width,
+        height,
+        fontsize,
+        trans,
+    ):
+        center_y = ydescent + height / 2
+
+        arrow = FancyArrowPatch(
+            (xdescent, center_y),
+            (xdescent + width, center_y),
+            arrowstyle="->",
+            color=orig_handle.get_edgecolor(),
+            linewidth=orig_handle.get_linewidth(),
+            mutation_scale=14,
+            transform=trans,
+        )
+
+        return [arrow]
 
 
 def plot_ship_trajectory(data, arrow_step=20):
@@ -34,7 +67,7 @@ def plot_ship_trajectory(data, arrow_step=20):
     plt.figure(figsize=(8, 6))
 
     # Trajectory line
-    plt.plot(
+    trajectory_line = plt.plot(
         longitude,
         latitude,
         color="tab:blue",
@@ -42,10 +75,10 @@ def plot_ship_trajectory(data, arrow_step=20):
         markersize=3,
         linewidth=1.8,
         label="Ship trajectory",
-    )
+    )[0]
 
     # Start point
-    plt.scatter(
+    start_marker = plt.scatter(
         longitude[0],
         latitude[0],
         s=45,
@@ -56,7 +89,7 @@ def plot_ship_trajectory(data, arrow_step=20):
     )
 
     # End point
-    plt.scatter(
+    end_marker = plt.scatter(
         longitude[-1],
         latitude[-1],
         s=110,
@@ -90,15 +123,37 @@ def plot_ship_trajectory(data, arrow_step=20):
             },
         )
 
+    # Custom legend entry for direction arrows
+    direction_handle = FancyArrowPatch(
+        (0, 0),
+        (1, 0),
+        arrowstyle="->",
+        color="darkorange",
+        linewidth=1.5,
+        mutation_scale=14,
+        label="Direction",
+    )
+
     plt.xlabel("Longitude [deg]")
     plt.ylabel("Latitude [deg]")
     plt.title("Ship Trajectory with Direction")
     plt.grid(True)
-    plt.legend()
     plt.axis("equal")
 
     ax = plt.gca()
     ax.ticklabel_format(useOffset=False, style="plain")
+
+    plt.legend(
+        handles=[
+            trajectory_line,
+            start_marker,
+            end_marker,
+            direction_handle,
+        ],
+        handler_map={
+            FancyArrowPatch: HandlerDirectionArrow(),
+        },
+    )
 
     plt.tight_layout()
     plt.show()
