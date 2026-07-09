@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ship-trajectory-prediction"
+version = "0.1.0"
+description = "Master thesis project on Bayesian methods for probabilistic ship trajectory prediction"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
