@@ -164,6 +164,12 @@ class ShipTrajectoryGUI:
         # This gives the status values enough space to stay readable.
         self.control_panel_width = 280
 
+        # Status display font and spacing.
+        # Smaller values make the status box more compact.
+        self.status_label_font = ("Arial", 9, "bold")
+        self.status_value_font = ("Arial", 9)
+        self.status_row_padding_y = 1
+
         # ==================================================
         # Simulation object
         # ==================================================
@@ -365,11 +371,11 @@ class ShipTrajectoryGUI:
         status_frame = tk.LabelFrame(
             control_frame,
             text="Status",
-            padx=10,
-            pady=8,
+            padx=8,
+            pady=6,
             bg=self.control_panel_color,
         )
-        status_frame.pack(pady=(20, 0), fill=tk.X)
+        status_frame.pack(pady=(16, 0), fill=tk.X)
 
         # The value labels do not use a fixed character width.
         # This avoids cutting off long numbers when the position grows.
@@ -377,42 +383,49 @@ class ShipTrajectoryGUI:
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.position_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.heading_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.omega_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.speed_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.radius_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
         self.time_value_label = tk.Label(
             status_frame,
             anchor="w",
             justify="left",
+            font=self.status_value_font,
             bg=self.control_panel_color,
         )
 
@@ -435,11 +448,22 @@ class ShipTrajectoryGUI:
                 text=label_text,
                 anchor="w",
                 width=10,
-                font=("Arial", 10, "bold"),
+                font=self.status_label_font,
                 bg=self.control_panel_color,
-            ).grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=2)
+            ).grid(
+                row=row_index,
+                column=0,
+                sticky="w",
+                padx=(0, 8),
+                pady=self.status_row_padding_y,
+            )
 
-            value_label.grid(row=row_index, column=1, sticky="ew", pady=2)
+            value_label.grid(
+                row=row_index,
+                column=1,
+                sticky="ew",
+                pady=self.status_row_padding_y,
+            )
 
         # ==================================================
         # Vertical separator between left and right area
