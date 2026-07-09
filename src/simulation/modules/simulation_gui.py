@@ -153,7 +153,7 @@ class ShipTrajectoryGUI:
         self.axis_tick_step = 10
 
         # Window and plot size
-        self.window_width = 1200
+        self.window_width = 1100
         self.window_height = 720
 
         # Keep figure square
@@ -169,6 +169,9 @@ class ShipTrajectoryGUI:
         self.status_label_font = ("Arial", 9, "bold")
         self.status_value_font = ("Arial", 9)
         self.status_row_padding_y = 1
+
+        # Equal vertical spacing between control panel sections.
+        self.section_spacing = 14
 
         # ==================================================
         # Simulation object
@@ -269,7 +272,7 @@ class ShipTrajectoryGUI:
         tk.Label(
             control_frame,
             text="Simulation Control",
-            font=("Arial", 14, "bold"),
+            font=("Arial", 12, "bold"),
             bg=self.control_panel_color,
         ).pack(pady=(0, 12))
 
@@ -283,7 +286,7 @@ class ShipTrajectoryGUI:
             pady=8,
             bg=self.control_panel_color,
         )
-        action_frame.pack(fill=tk.X, pady=(0, 14))
+        action_frame.pack(fill=tk.X, pady=(0, self.section_spacing))
 
         self.simulation_button = tk.Button(
             action_frame,
@@ -317,7 +320,7 @@ class ShipTrajectoryGUI:
             pady=8,
             bg=self.control_panel_color,
         )
-        steering_frame.pack(fill=tk.X, pady=(0, 14))
+        steering_frame.pack(fill=tk.X, pady=(0, self.section_spacing))
 
         tk.Label(
             steering_frame,
@@ -357,7 +360,7 @@ class ShipTrajectoryGUI:
             pady=8,
             bg=self.control_panel_color,
         )
-        speed_frame.pack(fill=tk.X, pady=(0, 14))
+        speed_frame.pack(fill=tk.X, pady=(0, self.section_spacing))
 
         tk.Label(
             speed_frame,
@@ -391,7 +394,7 @@ class ShipTrajectoryGUI:
             pady=6,
             bg=self.control_panel_color,
         )
-        status_frame.pack(pady=(16, 0), fill=tk.X)
+        status_frame.pack(pady=(0, 0), fill=tk.X)
 
         # The value labels do not use a fixed character width.
         # This avoids cutting off long numbers when the position grows.
