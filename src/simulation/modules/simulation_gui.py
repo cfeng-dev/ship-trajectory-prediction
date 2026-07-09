@@ -268,53 +268,67 @@ class ShipTrajectoryGUI:
 
         tk.Label(
             control_frame,
-            text="Ship Controls",
+            text="Simulation Control",
             font=("Arial", 14, "bold"),
             bg=self.control_panel_color,
-        ).pack(pady=(0, 10))
+        ).pack(pady=(0, 12))
+
+        # ==================================================
+        # Action buttons
+        # ==================================================
+        action_frame = tk.LabelFrame(
+            control_frame,
+            text="Actions",
+            padx=10,
+            pady=8,
+            bg=self.control_panel_color,
+        )
+        action_frame.pack(fill=tk.X, pady=(0, 14))
 
         self.simulation_button = tk.Button(
-            control_frame,
+            action_frame,
             text="Start Simulation",
             width=18,
             command=self.toggle_simulation,
         )
-        self.simulation_button.pack(pady=5)
+        self.simulation_button.pack(pady=(2, 5))
 
         tk.Button(
-            control_frame,
+            action_frame,
             text="Save CSV",
             width=18,
             command=self.save_csv,
-        ).pack(pady=(20, 5))
+        ).pack(pady=5)
 
         tk.Button(
-            control_frame,
+            action_frame,
             text="Reset",
             width=18,
             command=self.reset,
-        ).pack(pady=5)
+        ).pack(pady=(5, 2))
 
         # ==================================================
         # Steering controls
         # ==================================================
-        tk.Label(
+        steering_frame = tk.LabelFrame(
             control_frame,
             text="Steering",
-            font=("Arial", 11, "bold"),
+            padx=10,
+            pady=8,
             bg=self.control_panel_color,
-        ).pack(pady=(25, 0))
+        )
+        steering_frame.pack(fill=tk.X, pady=(0, 14))
 
         tk.Label(
-            control_frame,
+            steering_frame,
             text="Left  ←   0 °/s   →  Right",
             width=24,
             anchor="center",
             bg=self.control_panel_color,
-        ).pack()
+        ).pack(pady=(0, 2))
 
         self.steering_slider = tk.Scale(
-            control_frame,
+            steering_frame,
             from_=self.min_steering_deg_per_second,
             to=self.max_steering_deg_per_second,
             orient=tk.HORIZONTAL,
@@ -324,35 +338,37 @@ class ShipTrajectoryGUI:
             highlightbackground=self.control_panel_color,
         )
         self.steering_slider.set(0)
-        self.steering_slider.pack(pady=5)
+        self.steering_slider.pack(pady=(0, 5))
 
         tk.Button(
-            control_frame,
+            steering_frame,
             text="Center Steering",
             width=18,
             command=self.center_steering,
-        ).pack(pady=5)
+        ).pack(pady=(2, 0))
 
         # ==================================================
         # Speed controls
         # ==================================================
-        tk.Label(
+        speed_frame = tk.LabelFrame(
             control_frame,
             text="Speed",
-            font=("Arial", 11, "bold"),
+            padx=10,
+            pady=8,
             bg=self.control_panel_color,
-        ).pack(pady=(20, 0))
+        )
+        speed_frame.pack(fill=tk.X, pady=(0, 14))
 
         tk.Label(
-            control_frame,
+            speed_frame,
             text="Slow  ←   m/s   →  Fast",
             width=24,
             anchor="center",
             bg=self.control_panel_color,
-        ).pack()
+        ).pack(pady=(0, 2))
 
         self.speed_slider = tk.Scale(
-            control_frame,
+            speed_frame,
             from_=self.min_speed,
             to=self.max_speed,
             orient=tk.HORIZONTAL,
@@ -363,7 +379,7 @@ class ShipTrajectoryGUI:
             highlightbackground=self.control_panel_color,
         )
         self.speed_slider.set(self.initial_speed)
-        self.speed_slider.pack(pady=5)
+        self.speed_slider.pack(pady=(0, 2))
 
         # ==================================================
         # Status area
