@@ -46,9 +46,13 @@ class ShipTrajectoryGUI:
         # Important adjustable parameters
         # ==================================================
 
-        # Simulation timing
+        # Simulation time step in seconds.
+        # Each simulation step advances the simulated time by 0.05 s.
         self.simulation_dt = 0.05
-        self.update_interval_ms = 100
+
+        # GUI update interval in milliseconds.
+        # The simulation and plot are updated every 50 ms = 0.05 s.
+        self.update_interval_ms = 50
 
         # Default CSV export settings
         self.default_csv_filename = "simulated_ship_trajectory.csv"
@@ -137,8 +141,7 @@ class ShipTrajectoryGUI:
         self.view_height = 100
 
         # Smooth camera movement when axis_mode = "follow"
-        # Smaller value = smoother but slower following.
-        # Larger value = faster but less smooth.
+        # Smaller value = smoother but slower following. Larger value = faster but less smooth.
         self.camera_x = 0.0
         self.camera_y = 0.0
         self.camera_smoothness = 0.06
@@ -161,17 +164,25 @@ class ShipTrajectoryGUI:
         self.figure_height = 6
 
         # Width of the left control panel in pixels.
-        # This gives the status values enough space to stay readable.
         self.control_panel_width = 280
 
         # Status display font and spacing.
-        # Smaller values make the status box more compact.
         self.status_label_font = ("Arial", 9, "bold")
         self.status_value_font = ("Arial", 9)
         self.status_row_padding_y = 1
 
         # Equal vertical spacing between control panel sections.
         self.section_spacing = 14
+
+        # Help window layout.
+        # Change this single value to align the explanation columns in all help sections.
+        self.help_description_column_start = 22
+
+        # Separate variables for each help section.
+        # They currently use the same value so all descriptions start at the same vertical line.
+        self.help_keyboard_left_column_width = self.help_description_column_start
+        self.help_menu_left_column_width = self.help_description_column_start
+        self.help_button_left_column_width = self.help_description_column_start
 
         # ==================================================
         # Simulation object
@@ -185,8 +196,7 @@ class ShipTrajectoryGUI:
         # Simulation state:
         # - simulation_running = True means the ship is moving.
         # - simulation_started = True means the simulation was started at least once.
-        # This allows three GUI states:
-        # Stopped, Running, Paused.
+        # This allows three GUI states: Stopped, Running, Paused.
         self.simulation_running = False
         self.simulation_started = False
 
@@ -621,7 +631,7 @@ class ShipTrajectoryGUI:
             tk.Label(
                 keyboard_frame,
                 text=key,
-                width=10,
+                width=self.help_keyboard_left_column_width,
                 anchor="w",
                 font=("Arial", 10, "bold"),
                 bg=self.app_background_color,
@@ -656,7 +666,7 @@ class ShipTrajectoryGUI:
             tk.Label(
                 menu_frame,
                 text=menu_item,
-                width=20,
+                width=self.help_menu_left_column_width,
                 anchor="w",
                 font=("Arial", 10, "bold"),
                 bg=self.app_background_color,
@@ -694,7 +704,7 @@ class ShipTrajectoryGUI:
             tk.Label(
                 button_frame,
                 text=button,
-                width=19,
+                width=self.help_button_left_column_width,
                 anchor="w",
                 font=("Arial", 10, "bold"),
                 bg=self.app_background_color,
