@@ -49,17 +49,21 @@ def plot_ship_trajectory(data, arrow_step=20):
     - the trajectory line
     - start point
     - end point
-    - direction arrows along the path
+    - optional direction arrows along the path
 
     Parameters
     ----------
     data : pandas.DataFrame
         Ship trajectory data containing gps_longitude and gps_latitude.
-    arrow_step : int, optional
+    arrow_step : int or None, optional
         Distance between direction arrows in number of data points.
+        If None, no direction arrows are plotted.
     """
     if data.empty:
         raise ValueError("The input data is empty.")
+
+    if arrow_step is not None and arrow_step <= 0:
+        raise ValueError("arrow_step must be a positive integer or None.")
 
     longitude = data["gps_longitude"].to_numpy()
     latitude = data["gps_latitude"].to_numpy()
@@ -100,39 +104,50 @@ def plot_ship_trajectory(data, arrow_step=20):
         zorder=5,
     )
 
+    legend_handles = [
+        trajectory_line,
+        start_marker,
+        end_marker,
+    ]
+
+    legend_handler_map = {}
+
     # Direction arrows
-    for index in range(0, len(longitude) - 1, arrow_step):
-        start = (longitude[index], latitude[index])
-        end = (longitude[index + 1], latitude[index + 1])
+    if arrow_step is not None:
+        for index in range(0, len(longitude) - 1, arrow_step):
+            start = (longitude[index], latitude[index])
+            end = (longitude[index + 1], latitude[index + 1])
 
-        dx = end[0] - start[0]
-        dy = end[1] - start[1]
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
 
-        if dx == 0 and dy == 0:
-            continue
+            if dx == 0 and dy == 0:
+                continue
 
-        plt.annotate(
-            "",
-            xy=end,
-            xytext=start,
-            arrowprops={
-                "arrowstyle": "->",
-                "color": "darkorange",
-                "linewidth": 1.5,
-                "mutation_scale": 14,
-            },
+            plt.annotate(
+                "",
+                xy=end,
+                xytext=start,
+                arrowprops={
+                    "arrowstyle": "->",
+                    "color": "darkorange",
+                    "linewidth": 1.5,
+                    "mutation_scale": 14,
+                },
+            )
+
+        direction_handle = FancyArrowPatch(
+            (0, 0),
+            (1, 0),
+            arrowstyle="->",
+            color="darkorange",
+            linewidth=1.5,
+            mutation_scale=14,
+            label="Direction",
         )
 
-    # Custom legend entry for direction arrows
-    direction_handle = FancyArrowPatch(
-        (0, 0),
-        (1, 0),
-        arrowstyle="->",
-        color="darkorange",
-        linewidth=1.5,
-        mutation_scale=14,
-        label="Direction",
-    )
+        legend_handles.append(direction_handle)
+        legend_handler_map[FancyArrowPatch] = HandlerDirectionArrow()
 
     plt.xlabel("Longitude [deg]")
     plt.ylabel("Latitude [deg]")
@@ -144,15 +159,8 @@ def plot_ship_trajectory(data, arrow_step=20):
     ax.ticklabel_format(useOffset=False, style="plain")
 
     plt.legend(
-        handles=[
-            trajectory_line,
-            start_marker,
-            end_marker,
-            direction_handle,
-        ],
-        handler_map={
-            FancyArrowPatch: HandlerDirectionArrow(),
-        },
+        handles=legend_handles,
+        handler_map=legend_handler_map,
     )
 
     plt.tight_layout()
