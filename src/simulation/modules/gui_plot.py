@@ -11,6 +11,38 @@ from matplotlib.patches import Polygon
 from matplotlib.path import Path
 
 
+def get_auto_tick_step(axis_range):
+    """
+    Choose a readable tick distance based on the visible axis range.
+
+    Parameters
+    ----------
+    axis_range : float
+        Current visible axis range in meters.
+
+    Returns
+    -------
+    tick_step : int
+        Tick distance in meters.
+    """
+    if axis_range <= 120:
+        return 10
+
+    if axis_range <= 300:
+        return 25
+
+    if axis_range <= 700:
+        return 50
+
+    if axis_range <= 1500:
+        return 100
+
+    if axis_range <= 3000:
+        return 200
+
+    return 500
+
+
 def create_ship_shape(gui, theta):
     """
     Create a simple ship-like polygon in real-world meter size.
@@ -252,24 +284,29 @@ def update_axis_limits(gui):
     gui.ax.set_xlim(x_min, x_max)
     gui.ax.set_ylim(y_min, y_max)
 
-    x_tick_min = np.floor(x_min / gui.axis_tick_step) * gui.axis_tick_step
-    x_tick_max = np.ceil(x_max / gui.axis_tick_step) * gui.axis_tick_step
+    # Choose tick step automatically so the axis labels stay readable.
+    x_axis_range = x_max - x_min
+    y_axis_range = y_max - y_min
+    tick_step = get_auto_tick_step(max(x_axis_range, y_axis_range))
 
-    y_tick_min = np.floor(y_min / gui.axis_tick_step) * gui.axis_tick_step
-    y_tick_max = np.ceil(y_max / gui.axis_tick_step) * gui.axis_tick_step
+    x_tick_min = np.floor(x_min / tick_step) * tick_step
+    x_tick_max = np.ceil(x_max / tick_step) * tick_step
+
+    y_tick_min = np.floor(y_min / tick_step) * tick_step
+    y_tick_max = np.ceil(y_max / tick_step) * tick_step
 
     gui.ax.set_xticks(
         np.arange(
             x_tick_min,
-            x_tick_max + gui.axis_tick_step,
-            gui.axis_tick_step,
+            x_tick_max + tick_step,
+            tick_step,
         )
     )
     gui.ax.set_yticks(
         np.arange(
             y_tick_min,
-            y_tick_max + gui.axis_tick_step,
-            gui.axis_tick_step,
+            y_tick_max + tick_step,
+            tick_step,
         )
     )
 
