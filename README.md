@@ -96,8 +96,16 @@ pip install -r requirements.txt
 If `requirements.txt` is not yet available, install the required packages manually:
 
 ```bash
-pip install cmdstanpy pandas numpy matplotlib arviz
+pip install cmdstanpy pandas numpy matplotlib arviz ipykernel
 ```
+
+After installing the dependencies, run the following command in the project root:
+
+```bash
+pip install -e .
+```
+
+This makes the local source code in `src/` importable in Jupyter notebooks.
 
 ### 7. Install the C++ Toolchain
 
