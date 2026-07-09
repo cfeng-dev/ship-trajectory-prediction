@@ -21,12 +21,24 @@ DATA_FILE = (
     / "processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
+# ==================================================
+# Data selection
+# ==================================================
+RUN_ID = None
+START_TIME = "2026-01-09 23:00:10"
+END_TIME = "2026-01-10 08:07:30"
+
 
 def main():
     """
     Load the ship data and create basic plots.
     """
-    ship_data = read_ship_data(DATA_FILE)
+    ship_data = read_ship_data(
+        DATA_FILE,
+        run_id=RUN_ID,
+        start_time=START_TIME,
+        end_time=END_TIME,
+    )
 
     plot_ship_trajectory(ship_data)
     plot_ship_speeds(ship_data)
