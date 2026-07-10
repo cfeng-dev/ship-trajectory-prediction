@@ -7,7 +7,7 @@
 
 import tkinter as tk
 
-from modules.simulation_gui import ShipTrajectoryGUI
+from simulation.modules.simulation_gui import ShipTrajectoryGUI
 
 
 def main():
