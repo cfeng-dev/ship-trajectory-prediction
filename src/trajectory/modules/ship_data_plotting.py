@@ -6,6 +6,7 @@
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
@@ -31,6 +32,8 @@ DIRECTION_LINE_WIDTH = 1.5
 
 END_ALPHA = 0.45
 ARROW_MUTATION_SCALE = 14
+EARTH_RADIUS_KM = 6371.0088
+MIN_AXIS_MARGIN_METERS = 15
 
 
 class HandlerDirectionArrow(HandlerPatch):
@@ -64,7 +67,7 @@ class HandlerDirectionArrow(HandlerPatch):
         return [arrow]
 
 
-def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
+def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="gps"):
     """
     Plot the ship trajectory using GPS longitude and latitude.
 
@@ -81,9 +84,16 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
     arrow_step : int or None, optional
         Distance between direction arrows in number of data points.
         If None, no direction arrows are plotted.
+    coordinate_unit : {"gps", "km", "m"}, optional
+        Coordinate representation. ``"gps"`` plots longitude and latitude in
+        degrees. ``"km"`` and ``"m"`` plot local east and north distances
+        from the first trajectory point.
     """
     if data.empty:
         raise ValueError("The input data is empty.")
+
+    if coordinate_unit not in {"gps", "km", "m"}:
+        raise ValueError("coordinate_unit must be 'gps', 'km', or 'm'.")
 
     if arrow_step is not None and arrow_step <= 0:
         raise ValueError("arrow_step must be a positive integer or None.")
@@ -91,12 +101,45 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
     longitude = data["gps_longitude"].to_numpy()
     latitude = data["gps_latitude"].to_numpy()
 
+    if coordinate_unit in {"km", "m"}:
+        reference_longitude = np.radians(longitude[0])
+        reference_latitude = np.radians(latitude[0])
+        longitude_radians = np.radians(longitude)
+        latitude_radians = np.radians(latitude)
+        mean_latitude = (latitude_radians + reference_latitude) / 2
+
+        x_coordinates_km = (
+            EARTH_RADIUS_KM
+            * (longitude_radians - reference_longitude)
+            * np.cos(mean_latitude)
+        )
+        y_coordinates_km = EARTH_RADIUS_KM * (
+            latitude_radians - reference_latitude
+        )
+
+        if coordinate_unit == "m":
+            x_coordinates = x_coordinates_km * 1000
+            y_coordinates = y_coordinates_km * 1000
+            axis_unit = "m"
+        else:
+            x_coordinates = x_coordinates_km
+            y_coordinates = y_coordinates_km
+            axis_unit = "km"
+
+        x_label = f"x [{axis_unit}]"
+        y_label = f"y [{axis_unit}]"
+    else:
+        x_coordinates = longitude
+        y_coordinates = latitude
+        x_label = "Longitude [deg]"
+        y_label = "Latitude [deg]"
+
     plt.figure(figsize=TRAJECTORY_FIGURE_SIZE)
 
     # Trajectory line
     trajectory_line = plt.plot(
-        longitude,
-        latitude,
+        x_coordinates,
+        y_coordinates,
         color=TRAJECTORY_COLOR,
         marker="o",
         markersize=TRAJECTORY_MARKER_SIZE,
@@ -106,8 +149,8 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
 
     # Start point
     start_marker = plt.scatter(
-        longitude[0],
-        latitude[0],
+        x_coordinates[0],
+        y_coordinates[0],
         s=START_MARKER_SIZE,
         color=START_COLOR,
         marker="o",
@@ -117,8 +160,8 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
 
     # End point
     end_marker = plt.scatter(
-        longitude[-1],
-        latitude[-1],
+        x_coordinates[-1],
+        y_coordinates[-1],
         s=END_MARKER_SIZE,
         color=END_COLOR,
         alpha=END_ALPHA,
@@ -137,9 +180,9 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
 
     # Direction arrows
     if arrow_step is not None:
-        for index in range(0, len(longitude) - 1, arrow_step):
-            start = (longitude[index], latitude[index])
-            end = (longitude[index + 1], latitude[index + 1])
+        for index in range(0, len(x_coordinates) - 1, arrow_step):
+            start = (x_coordinates[index], y_coordinates[index])
+            end = (x_coordinates[index + 1], y_coordinates[index + 1])
 
             dx = end[0] - start[0]
             dy = end[1] - start[1]
@@ -172,13 +215,26 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP):
         legend_handles.append(direction_handle)
         legend_handler_map[FancyArrowPatch] = HandlerDirectionArrow()
 
-    plt.xlabel("Longitude [deg]")
-    plt.ylabel("Latitude [deg]")
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
     plt.title("Ship Trajectory with Direction")
     plt.grid(True)
     plt.axis("equal")
 
     ax = plt.gca()
+    ax.set_aspect("equal", adjustable="box")
+
+    if coordinate_unit in {"km", "m"}:
+        x_center = (x_coordinates.min() + x_coordinates.max()) / 2
+        y_center = (y_coordinates.min() + y_coordinates.max()) / 2
+        data_range = max(np.ptp(x_coordinates), np.ptp(y_coordinates))
+        minimum_margin = MIN_AXIS_MARGIN_METERS if coordinate_unit == "m" else 0.015
+        margin = max(data_range * 0.05, minimum_margin)
+        plot_range = max(data_range + 2 * margin, 2 * minimum_margin)
+
+        ax.set_xlim(x_center - plot_range / 2, x_center + plot_range / 2)
+        ax.set_ylim(y_center - plot_range / 2, y_center + plot_range / 2)
+
     ax.ticklabel_format(useOffset=False, style="plain")
 
     plt.legend(

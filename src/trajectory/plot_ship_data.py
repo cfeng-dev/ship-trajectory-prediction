@@ -27,6 +27,7 @@ DATA_FILE = (
 RUN_ID = 1
 START_TIME = None
 END_TIME = None
+TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
 
 
 def main():
@@ -41,7 +42,10 @@ def main():
     )
 
     print_ship_data_summary(ship_data)
-    plot_ship_trajectory(ship_data)
+    plot_ship_trajectory(
+        ship_data,
+        coordinate_unit=TRAJECTORY_COORDINATE_UNIT,
+    )
     plot_ship_speeds(ship_data)
 
 
