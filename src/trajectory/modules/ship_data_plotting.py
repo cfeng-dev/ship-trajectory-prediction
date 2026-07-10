@@ -260,7 +260,11 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
 
 def plot_ship_speeds(data):
     """
-    Plot ship speed signals over time.
+    Plot ship speed signals and speed calculated from GPS positions over time.
+
+    The calculated ship speed is the distance between two consecutive GPS
+    positions divided by their actual time difference. With the current data,
+    this time difference is normally 10 seconds.
 
     Parameters
     ----------
@@ -271,16 +275,66 @@ def plot_ship_speeds(data):
     if data.empty:
         raise ValueError("The input data is empty.")
 
-    plt.figure(figsize=SPEED_FIGURE_SIZE)
+    longitude = np.radians(data["gps_longitude"].to_numpy())
+    latitude = np.radians(data["gps_latitude"].to_numpy())
 
-    plt.plot(data["time"], data["gps_speed"], label="GPS speed")
-    plt.plot(data["time"], data["shaft_speed"], label="Shaft speed")
-    plt.plot(data["time"], data["thruster_speed"], label="Thruster speed")
+    # Calculate the great-circle distance between consecutive GPS positions
+    # with the haversine formula. Using the timestamps instead of a fixed
+    # 10-second value also handles missing or irregular measurements.
+    delta_longitude = np.diff(longitude)
+    delta_latitude = np.diff(latitude)
+    haversine_value = (
+        np.sin(delta_latitude / 2) ** 2
+        + np.cos(latitude[:-1])
+        * np.cos(latitude[1:])
+        * np.sin(delta_longitude / 2) ** 2
+    )
+    angular_distance = 2 * np.arctan2(
+        np.sqrt(haversine_value),
+        np.sqrt(1 - haversine_value),
+    )
+    distance_meters = EARTH_RADIUS_KM * 1000 * angular_distance
 
-    plt.xlabel("Time")
-    plt.ylabel("Speed")
-    plt.title("Ship Speed Signals Over Time")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
+    time_seconds = data["time"].diff().dt.total_seconds().to_numpy()[1:]
+    calculated_speed_mps = np.full(len(data), np.nan)
+    valid_intervals = time_seconds > 0
+    calculated_speed_mps[1:] = np.divide(
+        distance_meters,
+        time_seconds,
+        out=np.full_like(distance_meters, np.nan),
+        where=valid_intervals,
+    )
+    calculated_speed_kmh = calculated_speed_mps * 3.6
+
+    figure, (speed_axis, propulsion_axis) = plt.subplots(
+        2,
+        1,
+        figsize=SPEED_FIGURE_SIZE,
+        sharex=True,
+    )
+
+    speed_axis.plot(data["time"], data["gps_speed"], label="GPS speed")
+    speed_axis.plot(
+        data["time"],
+        calculated_speed_kmh,
+        label="Calculated from GPS positions",
+        linewidth=2,
+    )
+    speed_axis.set_ylabel("Ship speed [km/h]")
+    speed_axis.set_title("Ship Speed Over Time")
+    speed_axis.grid(True)
+    speed_axis.legend()
+
+    propulsion_axis.plot(
+        data["time"], data["shaft_speed"], label="Shaft speed"
+    )
+    propulsion_axis.plot(
+        data["time"], data["thruster_speed"], label="Thruster speed"
+    )
+    propulsion_axis.set_xlabel("Time")
+    propulsion_axis.set_ylabel("Propulsion speed")
+    propulsion_axis.grid(True)
+    propulsion_axis.legend()
+
+    figure.tight_layout()
     plt.show()
