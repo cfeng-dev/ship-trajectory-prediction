@@ -7,8 +7,8 @@
 
 from pathlib import Path
 
-from modules.ship_data_io import read_ship_data, print_ship_data_summary
-from modules.ship_data_plotting import (
+from trajectory.modules.ship_data_io import read_ship_data, print_ship_data_summary
+from trajectory.modules.ship_data_plotting import (
     plot_ship_speeds,
     plot_ship_trajectory,
 )

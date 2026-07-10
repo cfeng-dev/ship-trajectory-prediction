@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from modules.ship_data_io import read_ship_data, print_ship_data_summary
+from trajectory.modules.ship_data_io import read_ship_data, print_ship_data_summary
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
