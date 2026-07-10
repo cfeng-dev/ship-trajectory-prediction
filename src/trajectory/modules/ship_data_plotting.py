@@ -102,6 +102,17 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
     latitude = data["gps_latitude"].to_numpy()
 
     if coordinate_unit in {"km", "m"}:
+        # Convert GPS coordinates to a local Cartesian coordinate system.
+        # The first GPS point is used as the origin (x=0, y=0). For the
+        # relatively short trajectories considered here, the equirectangular
+        # approximation provides local east/north distances:
+        #
+        #   x = R * (longitude - reference_longitude) * cos(mean_latitude)
+        #   y = R * (latitude  - reference_latitude)
+        #
+        # All angles must be in radians. The cosine term compensates for the
+        # decreasing east-west distance of one longitude degree toward the
+        # poles. Positive x points east and positive y points north.
         reference_longitude = np.radians(longitude[0])
         reference_latitude = np.radians(latitude[0])
         longitude_radians = np.radians(longitude)
@@ -118,6 +129,7 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
         )
 
         if coordinate_unit == "m":
+            # The calculation above uses the Earth radius in kilometres.
             x_coordinates = x_coordinates_km * 1000
             y_coordinates = y_coordinates_km * 1000
             axis_unit = "m"
