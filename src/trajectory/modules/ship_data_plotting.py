@@ -36,6 +36,57 @@ EARTH_RADIUS_KM = 6371.0088
 MIN_AXIS_MARGIN_METERS = 15
 
 
+def _get_gps_coordinates(data, radians=False):
+    """Return longitude and latitude arrays, optionally in radians."""
+    longitude = data["gps_longitude"].to_numpy()
+    latitude = data["gps_latitude"].to_numpy()
+
+    if radians:
+        longitude = np.radians(longitude)
+        latitude = np.radians(latitude)
+
+    return longitude, latitude
+
+
+def _convert_gps_to_local_km(longitude, latitude):
+    """Convert GPS coordinates to local east/north distances in kilometres."""
+    longitude_radians = np.radians(longitude)
+    latitude_radians = np.radians(latitude)
+    reference_longitude = longitude_radians[0]
+    reference_latitude = latitude_radians[0]
+    mean_latitude = (latitude_radians + reference_latitude) / 2
+
+    x_coordinates = (
+        EARTH_RADIUS_KM
+        * (longitude_radians - reference_longitude)
+        * np.cos(mean_latitude)
+    )
+    y_coordinates = EARTH_RADIUS_KM * (
+        latitude_radians - reference_latitude
+    )
+
+    return x_coordinates, y_coordinates
+
+
+def _calculate_gps_distances_meters(data):
+    """Calculate great-circle distances between consecutive GPS positions."""
+    longitude, latitude = _get_gps_coordinates(data, radians=True)
+    delta_longitude = np.diff(longitude)
+    delta_latitude = np.diff(latitude)
+    haversine_value = (
+        np.sin(delta_latitude / 2) ** 2
+        + np.cos(latitude[:-1])
+        * np.cos(latitude[1:])
+        * np.sin(delta_longitude / 2) ** 2
+    )
+    angular_distance = 2 * np.arctan2(
+        np.sqrt(haversine_value),
+        np.sqrt(1 - haversine_value),
+    )
+
+    return EARTH_RADIUS_KM * 1000 * angular_distance
+
+
 class HandlerDirectionArrow(HandlerPatch):
     """
     Custom legend handler for direction arrows.
@@ -98,8 +149,7 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
     if arrow_step is not None and arrow_step <= 0:
         raise ValueError("arrow_step must be a positive integer or None.")
 
-    longitude = data["gps_longitude"].to_numpy()
-    latitude = data["gps_latitude"].to_numpy()
+    longitude, latitude = _get_gps_coordinates(data)
 
     if coordinate_unit in {"km", "m"}:
         # Convert GPS coordinates to a local Cartesian coordinate system.
@@ -113,19 +163,9 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
         # All angles must be in radians. The cosine term compensates for the
         # decreasing east-west distance of one longitude degree toward the
         # poles. Positive x points east and positive y points north.
-        reference_longitude = np.radians(longitude[0])
-        reference_latitude = np.radians(latitude[0])
-        longitude_radians = np.radians(longitude)
-        latitude_radians = np.radians(latitude)
-        mean_latitude = (latitude_radians + reference_latitude) / 2
-
-        x_coordinates_km = (
-            EARTH_RADIUS_KM
-            * (longitude_radians - reference_longitude)
-            * np.cos(mean_latitude)
-        )
-        y_coordinates_km = EARTH_RADIUS_KM * (
-            latitude_radians - reference_latitude
+        x_coordinates_km, y_coordinates_km = _convert_gps_to_local_km(
+            longitude,
+            latitude,
         )
 
         if coordinate_unit == "m":
@@ -275,25 +315,10 @@ def plot_ship_speeds(data):
     if data.empty:
         raise ValueError("The input data is empty.")
 
-    longitude = np.radians(data["gps_longitude"].to_numpy())
-    latitude = np.radians(data["gps_latitude"].to_numpy())
-
     # Calculate the great-circle distance between consecutive GPS positions
     # with the haversine formula. Using the timestamps instead of a fixed
     # 10-second value also handles missing or irregular measurements.
-    delta_longitude = np.diff(longitude)
-    delta_latitude = np.diff(latitude)
-    haversine_value = (
-        np.sin(delta_latitude / 2) ** 2
-        + np.cos(latitude[:-1])
-        * np.cos(latitude[1:])
-        * np.sin(delta_longitude / 2) ** 2
-    )
-    angular_distance = 2 * np.arctan2(
-        np.sqrt(haversine_value),
-        np.sqrt(1 - haversine_value),
-    )
-    distance_meters = EARTH_RADIUS_KM * 1000 * angular_distance
+    distance_meters = _calculate_gps_distances_meters(data)
 
     time_seconds = data["time"].diff().dt.total_seconds().to_numpy()[1:]
     calculated_speed_mps = np.full(len(data), np.nan)
