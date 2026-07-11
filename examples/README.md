@@ -12,7 +12,7 @@ Compile and sample from a minimal Stan model to check that CmdStan and the C++
 toolchain are working correctly:
 
 ```bash
-python examples/verify_cmdstan_installation.py
+python examples/cmdstan_check.py
 ```
 
 ## Run the Bernoulli example

@@ -1,5 +1,5 @@
 """
-@file verify_cmdstan_installation.py
+@file cmdstan_check.py
 @description Verifies the CmdStan installation by compiling and running a minimal Stan model.
 @date Created on: 01.07.2026
 @author C.Feng
