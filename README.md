@@ -200,6 +200,16 @@ ship-simulator
 
 This command starts the interactive ship trajectory simulator.
 
+Alternatively, the simulator can be started by running `cli.py` directly from
+the project root:
+
+```bash
+python src/ship_trajectory_prediction/simulation/cli.py
+```
+
+The project must be installed first (`pip install -e .`) so that the package
+imports can be resolved.
+
 ---
 
 ## Code Quality and Tests
