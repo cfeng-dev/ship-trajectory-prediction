@@ -217,30 +217,14 @@ imports can be resolved.
 
 ## Code Quality and Tests
 
-GitHub Actions runs the test suite automatically for every push and pull
-request on Python 3.10 and 3.12. The badge at the top of this README shows the
-result of the latest workflow run.
-
-To get feedback before pushing, run the same tests locally from the project
-root:
+GitHub Actions runs the tests on Python 3.10 and 3.12 for every push and pull
+request. Run the checks locally from the project root with:
 
 ```bash
 pytest
 ```
 
-Check lint rules and import ordering:
-
-```bash
-ruff check .
-```
-
-Check formatting without modifying files:
-
-```bash
-ruff format --check .
-```
-
-Apply formatting locally with:
+To apply Ruff formatting automatically:
 
 ```bash
 ruff format .
