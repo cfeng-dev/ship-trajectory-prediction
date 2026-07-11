@@ -1,5 +1,5 @@
 """
-@file simulation_gui.py
+@file gui.py
 @description Provides a GUI to steer a simple 2D ship trajectory with simulation control and CSV export.
 @date Created on: 06.07.2026
 @author C.Feng
@@ -10,15 +10,17 @@ from tkinter import filedialog, messagebox
 
 import numpy as np
 
-from simulation.modules.gui_config import GUIConfig
-from simulation.modules.gui_controls import create_gui_widgets
-from simulation.modules.gui_help import show_help_window
-from simulation.modules.gui_plot import update_plot as draw_ship_plot
-from simulation.modules.simulation_core import ShipSimulator
-from simulation.modules.simulation_io import (
+from ship_trajectory_prediction.simulation.config import GUIConfig
+from ship_trajectory_prediction.simulation.controls import create_gui_widgets
+from ship_trajectory_prediction.simulation.core import ShipSimulator
+from ship_trajectory_prediction.simulation.help import show_help_window
+from ship_trajectory_prediction.simulation.io import (
     DATA_DIR,
     create_simulation_dataframe,
     save_trajectory_data,
+)
+from ship_trajectory_prediction.simulation.plotting import (
+    update_plot as draw_ship_plot,
 )
 
 

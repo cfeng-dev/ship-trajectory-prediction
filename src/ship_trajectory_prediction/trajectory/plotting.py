@@ -1,5 +1,5 @@
 """
-@file ship_data_plotting.py
+@file plotting.py
 @description Provides helper functions to plot real ship trajectory data.
 @date Created on: 09.07.2026
 @author C.Feng
@@ -9,6 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
+
+from ship_trajectory_prediction.trajectory.coordinates import (
+    calculate_speed_from_gps,
+    gps_to_local_coordinates,
+)
 
 # ==================================================
 # Plot settings
@@ -32,59 +37,7 @@ DIRECTION_LINE_WIDTH = 1.5
 
 END_ALPHA = 0.45
 ARROW_MUTATION_SCALE = 14
-EARTH_RADIUS_KM = 6371.0088
 MIN_AXIS_MARGIN_METERS = 15
-
-
-def _get_gps_coordinates(data, radians=False):
-    """Return longitude and latitude arrays, optionally in radians."""
-    longitude = data["gps_longitude"].to_numpy()
-    latitude = data["gps_latitude"].to_numpy()
-
-    if radians:
-        longitude = np.radians(longitude)
-        latitude = np.radians(latitude)
-
-    return longitude, latitude
-
-
-def _convert_gps_to_local_km(longitude, latitude):
-    """Convert GPS coordinates to local east/north distances in kilometres."""
-    longitude_radians = np.radians(longitude)
-    latitude_radians = np.radians(latitude)
-    reference_longitude = longitude_radians[0]
-    reference_latitude = latitude_radians[0]
-    mean_latitude = (latitude_radians + reference_latitude) / 2
-
-    x_coordinates = (
-        EARTH_RADIUS_KM
-        * (longitude_radians - reference_longitude)
-        * np.cos(mean_latitude)
-    )
-    y_coordinates = EARTH_RADIUS_KM * (
-        latitude_radians - reference_latitude
-    )
-
-    return x_coordinates, y_coordinates
-
-
-def _calculate_gps_distances_meters(data):
-    """Calculate great-circle distances between consecutive GPS positions."""
-    longitude, latitude = _get_gps_coordinates(data, radians=True)
-    delta_longitude = np.diff(longitude)
-    delta_latitude = np.diff(latitude)
-    haversine_value = (
-        np.sin(delta_latitude / 2) ** 2
-        + np.cos(latitude[:-1])
-        * np.cos(latitude[1:])
-        * np.sin(delta_longitude / 2) ** 2
-    )
-    angular_distance = 2 * np.arctan2(
-        np.sqrt(haversine_value),
-        np.sqrt(1 - haversine_value),
-    )
-
-    return EARTH_RADIUS_KM * 1000 * angular_distance
 
 
 class HandlerDirectionArrow(HandlerPatch):
@@ -149,7 +102,8 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
     if arrow_step is not None and arrow_step <= 0:
         raise ValueError("arrow_step must be a positive integer or None.")
 
-    longitude, latitude = _get_gps_coordinates(data)
+    longitude = data["gps_longitude"].to_numpy()
+    latitude = data["gps_latitude"].to_numpy()
 
     if coordinate_unit in {"km", "m"}:
         # Convert GPS coordinates to a local Cartesian coordinate system.
@@ -163,23 +117,13 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
         # All angles must be in radians. The cosine term compensates for the
         # decreasing east-west distance of one longitude degree toward the
         # poles. Positive x points east and positive y points north.
-        x_coordinates_km, y_coordinates_km = _convert_gps_to_local_km(
+        x_coordinates, y_coordinates = gps_to_local_coordinates(
             longitude,
             latitude,
+            unit=coordinate_unit,
         )
-
-        if coordinate_unit == "m":
-            # The calculation above uses the Earth radius in kilometres.
-            x_coordinates = x_coordinates_km * 1000
-            y_coordinates = y_coordinates_km * 1000
-            axis_unit = "m"
-        else:
-            x_coordinates = x_coordinates_km
-            y_coordinates = y_coordinates_km
-            axis_unit = "km"
-
-        x_label = f"x [{axis_unit}]"
-        y_label = f"y [{axis_unit}]"
+        x_label = f"x [{coordinate_unit}]"
+        y_label = f"y [{coordinate_unit}]"
     else:
         x_coordinates = longitude
         y_coordinates = latitude
@@ -315,21 +259,7 @@ def plot_ship_speeds(data):
     if data.empty:
         raise ValueError("The input data is empty.")
 
-    # Calculate the great-circle distance between consecutive GPS positions
-    # with the haversine formula. Using the timestamps instead of a fixed
-    # 10-second value also handles missing or irregular measurements.
-    distance_meters = _calculate_gps_distances_meters(data)
-
-    time_seconds = data["time"].diff().dt.total_seconds().to_numpy()[1:]
-    calculated_speed_mps = np.full(len(data), np.nan)
-    valid_intervals = time_seconds > 0
-    calculated_speed_mps[1:] = np.divide(
-        distance_meters,
-        time_seconds,
-        out=np.full_like(distance_meters, np.nan),
-        where=valid_intervals,
-    )
-    calculated_speed_kmh = calculated_speed_mps * 3.6
+    calculated_speed_kmh = calculate_speed_from_gps(data, unit="km/h")
 
     figure, (speed_axis, propulsion_axis) = plt.subplots(
         2,
@@ -350,12 +280,8 @@ def plot_ship_speeds(data):
     speed_axis.grid(True)
     speed_axis.legend()
 
-    propulsion_axis.plot(
-        data["time"], data["shaft_speed"], label="Shaft speed"
-    )
-    propulsion_axis.plot(
-        data["time"], data["thruster_speed"], label="Thruster speed"
-    )
+    propulsion_axis.plot(data["time"], data["shaft_speed"], label="Shaft speed")
+    propulsion_axis.plot(data["time"], data["thruster_speed"], label="Thruster speed")
     propulsion_axis.set_xlabel("Time")
     propulsion_axis.set_ylabel("Propulsion speed")
     propulsion_axis.grid(True)

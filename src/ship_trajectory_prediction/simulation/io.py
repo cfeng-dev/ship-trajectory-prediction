@@ -1,5 +1,5 @@
 """
-@file simulation_io.py
+@file io.py
 @description Handles DataFrame creation and CSV export for simulated trajectory data.
 @date Created on: 06.07.2026
 @author C.Feng
@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from simulation.modules.simulation_core import add_observation_noise
+from ship_trajectory_prediction.simulation.core import add_observation_noise
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

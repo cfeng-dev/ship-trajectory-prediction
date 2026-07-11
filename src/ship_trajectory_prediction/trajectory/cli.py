@@ -1,19 +1,22 @@
 """
-@file plot_ship_data.py
-@description Loads real ship trajectory data and plots the trajectory and speed signals.
+@file cli.py
+@description Command-line entry points for inspecting and plotting ship data.
 @date Created on: 09.07.2026
 @author C.Feng
 """
 
 from pathlib import Path
 
-from trajectory.modules.ship_data_io import read_ship_data, print_ship_data_summary
-from trajectory.modules.ship_data_plotting import (
+from ship_trajectory_prediction.trajectory.io import (
+    print_ship_data_summary,
+    read_ship_data,
+)
+from ship_trajectory_prediction.trajectory.plotting import (
     plot_ship_speeds,
     plot_ship_trajectory,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_FILE = (
     PROJECT_ROOT
     / "data"
@@ -30,7 +33,7 @@ END_TIME = None
 TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
 
 
-def main():
+def plot_main():
     """
     Load the ship data and create basic plots.
     """
@@ -49,5 +52,14 @@ def main():
     plot_ship_speeds(ship_data)
 
 
+def read_main():
+    """Load the real ship trajectory data and print basic information."""
+    ship_data = read_ship_data(DATA_FILE)
+
+    print(ship_data.head())
+    print()
+    print_ship_data_summary(ship_data)
+
+
 if __name__ == "__main__":
-    main()
+    plot_main()

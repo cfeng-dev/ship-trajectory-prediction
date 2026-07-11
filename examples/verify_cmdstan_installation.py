@@ -1,14 +1,15 @@
 """
-@file test_cmdstan.py
+@file verify_cmdstan_installation.py
 @description Verifies the CmdStan installation by compiling and running a minimal Stan model.
 @date Created on: 01.07.2026
 @author C.Feng
 """
 
 from pathlib import Path
+
 from cmdstanpy import CmdStanModel, cmdstan_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 STAN_FILE = PROJECT_ROOT / "stan" / "examples" / "test_cmdstan.stan"
 

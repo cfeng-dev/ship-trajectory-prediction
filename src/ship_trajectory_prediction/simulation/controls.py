@@ -1,5 +1,5 @@
 """
-@file gui_controls.py
+@file controls.py
 @description Creates the Tkinter control panel and plot canvas for the ship trajectory GUI.
 @date Created on: 09.07.2026
 @author C.Feng
