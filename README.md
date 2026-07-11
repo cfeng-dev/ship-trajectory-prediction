@@ -176,10 +176,13 @@ python -m cmdstanpy.install_cmdstan --verbose --cores 1
 
 ## Managing Dependencies
 
-### Install a New Package
+Dependencies are declared in `pyproject.toml`, which is the single source of
+truth for the project environment.
+
+### Install the Project Dependencies
 
 ```bash
-pip install <package-name>
+pip install -e .
 ```
 
 ### Install All Development Dependencies
