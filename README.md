@@ -217,8 +217,8 @@ imports can be resolved.
 
 ## Code Quality and Tests
 
-GitHub Actions runs the tests on Python 3.10 and 3.12 for every push and pull
-request. Run the checks locally from the project root with:
+GitHub Actions runs the tests on Python 3.10, 3.12, and 3.14 for every push and
+pull request. Run the checks locally from the project root with:
 
 ```bash
 pytest
