@@ -1,5 +1,7 @@
 # Ship Trajectory Prediction
 
+[![Tests](https://github.com/cfeng-dev/ship-trajectory-prediction/actions/workflows/tests.yml/badge.svg)](https://github.com/cfeng-dev/ship-trajectory-prediction/actions/workflows/tests.yml)
+
 ## Overview
 
 This repository contains the source code, Bayesian models, and accompanying documentation for my Master's thesis.
@@ -202,7 +204,12 @@ This command starts the interactive ship trajectory simulator.
 
 ## Code Quality and Tests
 
-Run the automated tests from the project root:
+GitHub Actions runs the test suite automatically for every push and pull
+request on Python 3.10 and 3.12. The badge at the top of this README shows the
+result of the latest workflow run.
+
+To get feedback before pushing, run the same tests locally from the project
+root:
 
 ```bash
 pytest
