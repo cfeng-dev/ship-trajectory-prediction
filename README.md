@@ -185,7 +185,7 @@ pip install <package-name>
 ### Install All Development Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 ---

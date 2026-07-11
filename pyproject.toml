@@ -16,6 +16,13 @@ dependencies = [
     "pandas>=2.3,<3",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ipykernel>=7.3,<8",
+    "pytest>=8.4,<9",
+    "ruff>=0.15,<0.16",
+]
+
 [project.scripts]
 ship-simulator = "ship_trajectory_prediction.simulation.cli:main"
 
