@@ -87,25 +87,11 @@ After activation, the terminal should display:
 .venv\Scripts\python.exe
 ```
 
-### 6. Install Project Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-If `requirements.txt` is not yet available, install the required packages manually:
-
-```bash
-pip install cmdstanpy pandas numpy matplotlib arviz ipykernel
-```
-
-After installing the dependencies, run the following command in the project root:
+### 6. Install the Project
 
 ```bash
 pip install -e .
 ```
-
-This makes the local source code in `src/` importable in Jupyter notebooks.
 
 ### 7. Install the C++ Toolchain
 
@@ -194,16 +180,48 @@ python -m cmdstanpy.install_cmdstan --verbose --cores 1
 pip install <package-name>
 ```
 
-### Update `requirements.txt`
-
-```bash
-pip freeze > requirements.txt
-```
-
-### Install All Project Dependencies
+### Install All Development Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Note:** After adding, removing, or upgrading Python packages, `requirements.txt` should be updated using `pip freeze > requirements.txt` to ensure a reproducible software environment.
+---
+
+## Command-Line Tools
+
+Installing the project creates the simulator command:
+
+```bash
+ship-simulator
+```
+
+This command starts the interactive ship trajectory simulator.
+
+---
+
+## Code Quality and Tests
+
+Run the automated tests from the project root:
+
+```bash
+pytest
+```
+
+Check lint rules and import ordering:
+
+```bash
+ruff check .
+```
+
+Check formatting without modifying files:
+
+```bash
+ruff format --check .
+```
+
+Apply formatting locally with:
+
+```bash
+ruff format .
+```
