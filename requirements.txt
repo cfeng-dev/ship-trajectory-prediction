@@ -1,6 +1,8 @@
-cmdstanpy==1.3.0
-pandas==2.3.3
-numpy==2.2.6
-matplotlib==3.10.9
 arviz==0.23.4
+cmdstanpy==1.3.0
 ipykernel==7.3.0
+matplotlib==3.10.9
+numpy==2.2.6
+pandas==2.3.3
+pytest==8.4.2
+ruff==0.15.21
