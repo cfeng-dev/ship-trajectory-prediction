@@ -1,9 +1,4 @@
-"""
-@file help.py
-@description Creates the help window for the interactive ship trajectory GUI.
-@date Created on: 09.07.2026
-@author C.Feng
-"""
+"""Help window for the interactive ship trajectory GUI."""
 
 import tkinter as tk
 from collections.abc import Callable

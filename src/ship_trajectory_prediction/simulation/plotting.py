@@ -1,9 +1,4 @@
-"""
-@file plotting.py
-@description Contains plotting helper functions for the interactive ship trajectory GUI.
-@date Created on: 09.07.2026
-@author C.Feng
-"""
+"""Plotting utilities for the interactive ship trajectory GUI."""
 
 import numpy as np
 from matplotlib.lines import Line2D

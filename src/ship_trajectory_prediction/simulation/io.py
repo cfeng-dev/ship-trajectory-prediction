@@ -1,9 +1,4 @@
-"""
-@file io.py
-@description Handles DataFrame creation and CSV export for simulated trajectory data.
-@date Created on: 06.07.2026
-@author C.Feng
-"""
+"""DataFrame creation and CSV export for simulated trajectory data."""
 
 from pathlib import Path
 

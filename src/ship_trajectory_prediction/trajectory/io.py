@@ -1,9 +1,4 @@
-"""
-@file io.py
-@description Provides helper functions to read and preprocess real ship trajectory data.
-@date Created on: 09.07.2026
-@author C.Feng
-"""
+"""Utilities for loading and preprocessing real ship trajectory data."""
 
 from pathlib import Path
 

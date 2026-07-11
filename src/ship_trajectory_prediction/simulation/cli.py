@@ -1,9 +1,4 @@
-"""
-@file cli.py
-@description Starts the interactive 2D ship trajectory simulation GUI.
-@date Created on: 07.07.2026
-@author C.Feng
-"""
+"""Start the interactive 2D ship trajectory simulation GUI."""
 
 import tkinter as tk
 

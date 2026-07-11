@@ -1,9 +1,4 @@
-"""
-@file gui.py
-@description Provides a GUI to steer a simple 2D ship trajectory with simulation control and CSV export.
-@date Created on: 06.07.2026
-@author C.Feng
-"""
+"""Interactive GUI for steering, controlling, and exporting a 2D simulation."""
 
 import tkinter as tk
 from tkinter import filedialog, messagebox

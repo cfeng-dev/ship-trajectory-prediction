@@ -1,9 +1,4 @@
-"""
-@file core.py
-@description Provides ship trajectory simulation models and a step-based 2D ship simulator.
-@date Created on: 08.07.2026
-@author C.Feng
-"""
+"""Trajectory models and a step-based 2D ship simulator."""
 
 import numpy as np
 

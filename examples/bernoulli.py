@@ -1,9 +1,4 @@
-"""
-@file bernoulli.py
-@description Runs a Bayesian Bernoulli model using CmdStanPy to estimate the probability of success from binary observations.
-@date Created on: 01.07.2026
-@author C.Feng
-"""
+"""Estimate a Bernoulli success probability with CmdStanPy."""
 
 from pathlib import Path
 

@@ -1,9 +1,4 @@
-"""
-@file cmdstan_check.py
-@description Verifies the CmdStan installation by compiling and running a minimal Stan model.
-@date Created on: 01.07.2026
-@author C.Feng
-"""
+"""Verify CmdStan by compiling and running a minimal model."""
 
 from pathlib import Path
 

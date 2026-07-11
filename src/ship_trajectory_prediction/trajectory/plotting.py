@@ -1,9 +1,4 @@
-"""
-@file plotting.py
-@description Provides helper functions to plot real ship trajectory data.
-@date Created on: 09.07.2026
-@author C.Feng
-"""
+"""Plotting utilities for real ship trajectory data."""
 
 import matplotlib.pyplot as plt
 import numpy as np

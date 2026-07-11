@@ -1,9 +1,4 @@
-"""
-@file config.py
-@description Stores configuration values for the interactive ship trajectory GUI.
-@date Created on: 09.07.2026
-@author C.Feng
-"""
+"""Configuration values for the interactive ship trajectory GUI."""
 
 from dataclasses import dataclass, field
 
