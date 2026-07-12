@@ -8,6 +8,7 @@ from ship_trajectory_prediction.simulation.core import (
 
 
 def test_straight_trajectory_moves_in_heading_direction():
+    """A zero heading should move the ship only along the positive x-axis."""
     time = np.array([0.0, 1.0, 2.0])
 
     x_position, y_position = simulate_straight_trajectory(

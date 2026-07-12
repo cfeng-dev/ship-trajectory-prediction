@@ -12,6 +12,7 @@ from ship_trajectory_prediction.trajectory.coordinates import (
 
 
 def test_first_local_coordinate_is_origin():
+    """Local coordinates should start at the first GPS position."""
     longitude = [8.3122, 8.3132]
     latitude = [47.0515, 47.0525]
 
@@ -28,6 +29,7 @@ def test_first_local_coordinate_is_origin():
 
 
 def test_meter_and_kilometer_coordinates_are_consistent():
+    """Meter coordinates should be 1000 times kilometer coordinates."""
     longitude = [8.3122, 8.3132]
     latitude = [47.0515, 47.0525]
 
@@ -43,6 +45,7 @@ def test_meter_and_kilometer_coordinates_are_consistent():
 
 
 def test_identical_positions_have_zero_distance():
+    """Two identical GPS positions should have no distance between them."""
     distances = calculate_gps_distances(
         longitude=[8.3122, 8.3122],
         latitude=[47.0515, 47.0515],
@@ -52,6 +55,7 @@ def test_identical_positions_have_zero_distance():
 
 
 def test_one_latitude_degree_has_expected_distance_at_equator():
+    """One latitude degree at the equator should be about 111.2 km."""
     distances = calculate_gps_distances(
         longitude=[0.0, 0.0],
         latitude=[0.0, 1.0],
@@ -61,6 +65,7 @@ def test_one_latitude_degree_has_expected_distance_at_equator():
 
 
 def test_speed_uses_actual_timestamp_difference():
+    """Speed should equal traveled distance divided by the real time interval."""
     data = pd.DataFrame(
         {
             "time": pd.to_datetime(["2026-01-01T00:00:00Z", "2026-01-01T00:00:20Z"]),
@@ -77,6 +82,7 @@ def test_speed_uses_actual_timestamp_difference():
 
 
 def test_non_positive_time_interval_produces_nan_speed():
+    """A zero or negative time interval should not produce a finite speed."""
     data = pd.DataFrame(
         {
             "time": pd.to_datetime(["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"]),
@@ -92,5 +98,6 @@ def test_non_positive_time_interval_produces_nan_speed():
 
 @pytest.mark.parametrize("unit", ["miles", "knots", "degrees"])
 def test_invalid_coordinate_unit_is_rejected(unit):
+    """Unsupported coordinate units should raise a clear error."""
     with pytest.raises(ValueError, match="unit must be"):
         gps_to_local_coordinates([8.0], [47.0], unit=unit)

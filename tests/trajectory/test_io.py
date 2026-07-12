@@ -6,6 +6,7 @@ from ship_trajectory_prediction.trajectory.io import read_ship_data
 
 
 def test_read_ship_data_filters_run_and_time(tmp_path):
+    """The loader should filter rows and parse timestamps as UTC."""
     csv_path = tmp_path / "trajectory.csv"
     data = pd.DataFrame(
         {
