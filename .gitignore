@@ -20,6 +20,8 @@ src/*.egg-info/
 *.hpp
 *.o
 *.exe
+/stan/examples/*
+!/stan/examples/*.stan
 
 # macOS
 .DS_Store
