@@ -46,6 +46,7 @@ def create_control_panel(gui, parent):
         text="Simulation Control",
         font=("Arial", 12, "bold"),
         bg=gui.control_panel_color,
+        fg="black",
     ).pack(pady=(0, 12))
 
     create_action_section(gui, control_frame)
@@ -64,6 +65,7 @@ def create_action_section(gui, parent):
         padx=10,
         pady=8,
         bg=gui.control_panel_color,
+        fg="black",
     )
     action_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
 
@@ -100,6 +102,7 @@ def create_steering_section(gui, parent):
         padx=10,
         pady=8,
         bg=gui.control_panel_color,
+        fg="black",
     )
     steering_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
 
@@ -109,6 +112,7 @@ def create_steering_section(gui, parent):
         width=24,
         anchor="center",
         bg=gui.control_panel_color,
+        fg="black",
     ).pack(pady=(0, 2))
 
     gui.steering_slider = tk.Scale(
@@ -119,6 +123,7 @@ def create_steering_section(gui, parent):
         length=180,
         resolution=gui.steering_resolution,
         bg=gui.control_panel_color,
+        fg="black",
         highlightbackground=gui.control_panel_color,
     )
     gui.steering_slider.set(0)
@@ -142,6 +147,7 @@ def create_speed_section(gui, parent):
         padx=10,
         pady=8,
         bg=gui.control_panel_color,
+        fg="black",
     )
     speed_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
 
@@ -151,6 +157,7 @@ def create_speed_section(gui, parent):
         width=24,
         anchor="center",
         bg=gui.control_panel_color,
+        fg="black",
     ).pack(pady=(0, 2))
 
     gui.speed_slider = tk.Scale(
@@ -162,6 +169,7 @@ def create_speed_section(gui, parent):
         resolution=gui.speed_resolution,
         digits=3,
         bg=gui.control_panel_color,
+        fg="black",
         highlightbackground=gui.control_panel_color,
     )
     gui.speed_slider.set(gui.initial_speed)
@@ -178,6 +186,7 @@ def create_status_section(gui, parent):
         padx=8,
         pady=6,
         bg=gui.control_panel_color,
+        fg="black",
     )
     status_frame.pack(pady=(0, 0), fill=tk.X)
 
@@ -212,6 +221,7 @@ def create_status_section(gui, parent):
             width=10,
             font=gui.status_label_font,
             bg=gui.control_panel_color,
+            fg="black",
         ).grid(
             row=row_index,
             column=0,
@@ -238,6 +248,7 @@ def create_status_value_label(gui, parent):
         justify="left",
         font=gui.status_value_font,
         bg=gui.control_panel_color,
+        fg="black",
     )
 
 

@@ -154,6 +154,8 @@ class ShipTrajectoryGUI:
         # Save CSV with Ctrl + S.
         self.root.bind("<Control-s>", self.save_csv_with_keyboard)
         self.root.bind("<Control-S>", self.save_csv_with_keyboard)
+        self.root.bind("<Command-s>", self.save_csv_with_keyboard)
+        self.root.bind("<Command-S>", self.save_csv_with_keyboard)
 
         # Make sure the main window can receive keyboard input.
         self.root.focus_set()
