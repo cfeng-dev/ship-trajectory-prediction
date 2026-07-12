@@ -24,7 +24,6 @@ def create_styled_button(parent, *, text, command, width):
         highlightthickness=0,
         padx=10,
         pady=3,
-        cursor="hand2",
     )
 
 
