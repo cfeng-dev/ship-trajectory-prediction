@@ -8,15 +8,18 @@ from matplotlib.figure import Figure
 
 def create_styled_button(parent, *, text, command, width):
     """Create a button with the same visual style on Windows and macOS."""
-    return tk.Button(
+    normal_color = "#ffffff"
+    hover_color = "#b8d8e8"
+
+    button = tk.Button(
         parent,
         text=text,
         command=command,
         width=width,
         font=("Arial", 10),
-        bg="#ffffff",
+        bg=normal_color,
         fg="#1f2933",
-        activebackground="#d8eaf3",
+        activebackground=hover_color,
         activeforeground="#1f2933",
         disabledforeground="#7a8790",
         relief=tk.SOLID,
@@ -25,6 +28,9 @@ def create_styled_button(parent, *, text, command, width):
         padx=10,
         pady=3,
     )
+    button.bind("<Enter>", lambda _event: button.configure(bg=hover_color))
+    button.bind("<Leave>", lambda _event: button.configure(bg=normal_color))
+    return button
 
 
 def create_gui_widgets(gui):
