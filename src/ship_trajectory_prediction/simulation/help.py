@@ -3,6 +3,8 @@
 import tkinter as tk
 from collections.abc import Callable
 
+from ship_trajectory_prediction.simulation.controls import create_styled_button
+
 
 def center_window_on_screen(window):
     """
@@ -191,7 +193,7 @@ def show_help_window(
         help_window.destroy()
         focus_callback()
 
-    tk.Button(
+    create_styled_button(
         main_frame,
         text="OK",
         width=12,

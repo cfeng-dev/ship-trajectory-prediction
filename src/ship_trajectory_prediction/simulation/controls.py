@@ -6,6 +6,28 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 
+def create_styled_button(parent, *, text, command, width):
+    """Create a button with the same visual style on Windows and macOS."""
+    return tk.Button(
+        parent,
+        text=text,
+        command=command,
+        width=width,
+        font=("Arial", 10),
+        bg="#ffffff",
+        fg="#1f2933",
+        activebackground="#d8eaf3",
+        activeforeground="#1f2933",
+        disabledforeground="#7a8790",
+        relief=tk.SOLID,
+        borderwidth=1,
+        highlightthickness=0,
+        padx=10,
+        pady=3,
+        cursor="hand2",
+    )
+
+
 def create_gui_widgets(gui):
     """
     Create the main GUI widgets.
@@ -69,7 +91,7 @@ def create_action_section(gui, parent):
     )
     action_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
 
-    gui.simulation_button = tk.Button(
+    gui.simulation_button = create_styled_button(
         action_frame,
         text="Start Simulation",
         width=18,
@@ -77,14 +99,14 @@ def create_action_section(gui, parent):
     )
     gui.simulation_button.pack(pady=(2, 5))
 
-    tk.Button(
+    create_styled_button(
         action_frame,
         text="Save CSV",
         width=18,
         command=gui.save_csv,
     ).pack(pady=5)
 
-    tk.Button(
+    create_styled_button(
         action_frame,
         text="Reset",
         width=18,
@@ -129,7 +151,7 @@ def create_steering_section(gui, parent):
     gui.steering_slider.set(0)
     gui.steering_slider.pack(pady=(0, 5))
 
-    tk.Button(
+    create_styled_button(
         steering_frame,
         text="Center Steering",
         width=18,
