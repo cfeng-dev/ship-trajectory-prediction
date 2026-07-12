@@ -61,12 +61,13 @@ cd ship-trajectory-prediction
 uv sync --locked
 ```
 
-> **Important:** This creates the `.venv` virtual environment and installs the project together with its development dependencies. Manual activation is not required when using `uv run`.
+This creates `.venv` and installs the project. No manual activation is needed
+when using `uv run`.
 
 ### 4. Select the Python Interpreter in Visual Studio Code
 
-This optional step requires the Microsoft Python extension for Visual Studio
-Code. It is not needed when running commands exclusively with `uv run`.
+This optional step requires the Microsoft Python extension. It is not needed
+when using `uv run`.
 
 1. Press **Ctrl + Shift + P**.
 2. Search for **Python: Select Interpreter**.
@@ -161,14 +162,24 @@ uv run python -m cmdstanpy.install_cmdstan --verbose --cores 1
 
 ## Managing Dependencies
 
-Dependencies are defined in `pyproject.toml` and locked in `uv.lock`. Install
-the complete project environment with:
+Dependencies are defined in `pyproject.toml`, while `uv.lock` stores the exact
+resolved versions.
+
+Install the existing locked environment without changing `uv.lock`:
 
 ```bash
 uv sync --locked
 ```
 
-After changing dependencies, run `uv lock` and commit both files.
+After changing dependencies in `pyproject.toml`, update the lockfile and
+environment with:
+
+```bash
+uv lock
+uv sync
+```
+
+Commit `pyproject.toml` and `uv.lock` together.
 
 ---
 
