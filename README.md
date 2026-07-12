@@ -161,19 +161,14 @@ uv run python -m cmdstanpy.install_cmdstan --verbose --cores 1
 
 ## Managing Dependencies
 
-Dependencies are declared in `pyproject.toml`, which is the single source of
-truth for the project environment.
-
-### Synchronize the Project Environment
+Dependencies are defined in `pyproject.toml` and locked in `uv.lock`. Install
+the complete project environment with:
 
 ```bash
 uv sync --locked
 ```
 
-This installs the project together with all tools required for running,
-testing, and formatting the code.
-
-Run `uv lock` after changing dependencies and commit the updated `uv.lock` file.
+After changing dependencies, run `uv lock` and commit both files.
 
 ---
 
