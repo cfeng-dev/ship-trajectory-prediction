@@ -40,9 +40,13 @@ The project aims to:
 
 The following software is required before setting up the project:
 
-- **[Python 3.10 or later](https://www.python.org/downloads/)**
 - **[Git](https://git-scm.com/downloads)**
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)**
 - **[Visual Studio Code](https://code.visualstudio.com/)** (recommended)
+- **[Python extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** (recommended)
+
+A separate Python installation is not required. If necessary, `uv` downloads
+and manages a compatible Python version automatically.
 
 ### 2. Clone the Repository
 
@@ -51,78 +55,59 @@ git clone https://github.com/cfeng-dev/ship-trajectory-prediction.git
 cd ship-trajectory-prediction
 ```
 
-### 3. Create a Virtual Environment
+### 3. Install the Project
 
 ```bash
-python -m venv .venv
+uv sync --locked
 ```
 
-### 4. Activate the Virtual Environment
+> **Important:** This creates the `.venv` virtual environment and installs the project together with its development dependencies. Manual activation is not required when using `uv run`.
 
-**Windows**
+### 4. Select the Python Interpreter in Visual Studio Code
 
-```bash
-.venv\Scripts\activate
-```
-
-**macOS / Linux**
-
-```bash
-source .venv/bin/activate
-```
-
-After activation, the terminal should display:
-
-```text
-(.venv)
-```
-
-> **Important:** Before installing packages or running Python scripts, verify that `(.venv)` appears at the beginning of the terminal. Otherwise, packages may be installed into the global Python environment instead of the project's virtual environment.
-
-### 5. Select the Python Interpreter in Visual Studio Code
+This optional step requires the Microsoft Python extension for Visual Studio
+Code. It is not needed when running commands exclusively with `uv run`.
 
 1. Press **Ctrl + Shift + P**.
 2. Search for **Python: Select Interpreter**.
-3. Select:
+3. Select the interpreter inside `.venv`:
 
 ```text
+# Windows
 .venv\Scripts\python.exe
+
+# macOS / Linux
+.venv/bin/python
 ```
 
-### 6. Install the Project
-
-```bash
-pip install -e .
-```
-
-### 7. Install the C++ Toolchain
+### 5. Install the C++ Toolchain
 
 CmdStan requires a working C++17 toolchain to compile Stan models.
 
 Windows users can install the required GNU C++ toolchain with CmdStanPy:
 
 ```bash
-python -m cmdstanpy.install_cxx_toolchain
+uv run python -m cmdstanpy.install_cxx_toolchain
 ```
 
 This command installs the RTools/MinGW toolchain used by CmdStanPy to compile Stan models on Windows.
 
 For macOS and Linux setup instructions, please refer to the [official Stan installation guide](https://mc-stan.org/install/#prerequisite-c17-toolchain).
 
-### 8. Install CmdStan
+### 6. Install CmdStan
 
 Download and install the latest supported version of CmdStan:
 
 ```bash
-python -m cmdstanpy.install_cmdstan
+uv run python -m cmdstanpy.install_cmdstan
 ```
 
-### 9. Verify the Installation
+### 7. Verify the Installation
 
-With the virtual environment activated, start the Python interpreter from the terminal:
+Start the Python interpreter in the project environment:
 
 ```bash
-python
+uv run python
 ```
 
 Then execute:
@@ -163,13 +148,13 @@ If the installation fails because commands such as `mingw32-make` or `cut` canno
 Restart the terminal after updating the `PATH` and rerun:
 
 ```bash
-python -m cmdstanpy.install_cmdstan
+uv run python -m cmdstanpy.install_cmdstan
 ```
 
 For more detailed diagnostic output, run:
 
 ```bash
-python -m cmdstanpy.install_cmdstan --verbose --cores 1
+uv run python -m cmdstanpy.install_cmdstan --verbose --cores 1
 ```
 
 ---
@@ -179,17 +164,16 @@ python -m cmdstanpy.install_cmdstan --verbose --cores 1
 Dependencies are declared in `pyproject.toml`, which is the single source of
 truth for the project environment.
 
-### Install the Project Dependencies
+### Synchronize the Project Environment
 
 ```bash
-pip install -e .
+uv sync --locked
 ```
 
-### Install All Development Dependencies
+This installs the project together with all tools required for running,
+testing, and formatting the code.
 
-```bash
-pip install -e ".[dev]"
-```
+Run `uv lock` after changing dependencies and commit the updated `uv.lock` file.
 
 ---
 
@@ -198,7 +182,7 @@ pip install -e ".[dev]"
 Installing the project creates the simulator command:
 
 ```bash
-ship-simulator
+uv run ship-simulator
 ```
 
 This command starts the interactive ship trajectory simulator.
@@ -207,11 +191,10 @@ Alternatively, the simulator can be started by running `cli.py` directly from
 the project root:
 
 ```bash
-python src/ship_trajectory_prediction/simulation/cli.py
+uv run python src/ship_trajectory_prediction/simulation/cli.py
 ```
 
-The project must be installed first (`pip install -e .`) so that the package
-imports can be resolved.
+The project environment must be synchronized first with `uv sync --locked`.
 
 ---
 
@@ -221,11 +204,11 @@ GitHub Actions runs the tests on Python 3.10, 3.12, and 3.14 for every push and
 pull request. Run the checks locally from the project root with:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 To apply Ruff formatting automatically:
 
 ```bash
-ruff format .
+uv run ruff format .
 ```

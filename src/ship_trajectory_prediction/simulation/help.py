@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from ship_trajectory_prediction.simulation.controls import create_styled_button
 
+
 def _add_description_rows(parent, rows, left_column_width, background_color):
     """
     Add two-column description rows to a help section.
