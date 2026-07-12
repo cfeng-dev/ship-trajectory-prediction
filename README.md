@@ -66,9 +66,6 @@ when using `uv run`.
 
 ### 4. Select the Python Interpreter in Visual Studio Code
 
-This optional step requires the Microsoft Python extension. It is not needed
-when using `uv run`.
-
 1. Press **Ctrl + Shift + P**.
 2. Search for **Python: Select Interpreter**.
 3. Select the interpreter inside `.venv`:
