@@ -1,5 +1,6 @@
 """Help window for the interactive ship trajectory GUI."""
 
+import sys
 import tkinter as tk
 from collections.abc import Callable
 
@@ -203,5 +204,7 @@ def show_help_window(
     # Restore keyboard focus after closing the help window.
     help_window.protocol("WM_DELETE_WINDOW", close_help_window)
 
-    # Show the help window in the center of the screen.
-    center_window_on_screen(help_window)
+    # Keep the centered Windows layout. On macOS, let the window manager choose
+    # the native position instead of forcing the dialog into the screen center.
+    if sys.platform == "win32":
+        center_window_on_screen(help_window)
