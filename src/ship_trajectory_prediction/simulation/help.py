@@ -50,6 +50,7 @@ def _add_description_rows(parent, rows, left_column_width, background_color):
             anchor="w",
             font=("Arial", 10, "bold"),
             bg=background_color,
+            fg="black",
         ).grid(row=row, column=0, sticky="w", pady=2)
 
         tk.Label(
@@ -57,6 +58,7 @@ def _add_description_rows(parent, rows, left_column_width, background_color):
             text=description,
             anchor="w",
             bg=background_color,
+            fg="black",
         ).grid(row=row, column=1, sticky="w", pady=2)
 
 
@@ -100,6 +102,7 @@ def show_help_window(
         font=("Arial", 13, "bold"),
         anchor="w",
         bg=app_background_color,
+        fg="black",
     ).pack(fill=tk.X, pady=(0, 12))
 
     # ==================================================
@@ -111,6 +114,7 @@ def show_help_window(
         padx=12,
         pady=10,
         bg=app_background_color,
+        fg="black",
     )
     keyboard_frame.pack(fill=tk.X, pady=(0, 12))
 
@@ -137,6 +141,7 @@ def show_help_window(
         padx=12,
         pady=10,
         bg=app_background_color,
+        fg="black",
     )
     menu_frame.pack(fill=tk.X, pady=(0, 16))
 
@@ -162,6 +167,7 @@ def show_help_window(
         padx=12,
         pady=10,
         bg=app_background_color,
+        fg="black",
     )
     button_frame.pack(fill=tk.X, pady=(0, 16))
 
