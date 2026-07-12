@@ -1,34 +1,9 @@
 """Help window for the interactive ship trajectory GUI."""
 
-import sys
 import tkinter as tk
 from collections.abc import Callable
 
 from ship_trajectory_prediction.simulation.controls import create_styled_button
-
-
-def center_window_on_screen(window):
-    """
-    Center a child window on the screen.
-
-    Parameters
-    ----------
-    window : tk.Toplevel
-        Child window to be centered.
-    """
-    window.update_idletasks()
-
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
-
-    window_width = window.winfo_width()
-    window_height = window.winfo_height()
-
-    x = (screen_width - window_width) // 2
-    y = (screen_height - window_height) // 2
-
-    window.geometry(f"+{x}+{y}")
-
 
 def _add_description_rows(parent, rows, left_column_width, background_color):
     """
@@ -203,8 +178,3 @@ def show_help_window(
 
     # Restore keyboard focus after closing the help window.
     help_window.protocol("WM_DELETE_WINDOW", close_help_window)
-
-    # Keep the centered Windows layout. On macOS, let the window manager choose
-    # the native position instead of forcing the dialog into the screen center.
-    if sys.platform == "win32":
-        center_window_on_screen(help_window)
