@@ -38,12 +38,15 @@ The project aims to:
 
 ### 1. Install Prerequisites
 
-The following software is required before setting up the project:
+The following software is required:
 
 - **[Git](https://git-scm.com/downloads)**
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)**
-- **[Visual Studio Code](https://code.visualstudio.com/)** (recommended)
-- **[Python extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-python.python)** (recommended)
+
+The following tools are optional:
+
+- **[Visual Studio Code](https://code.visualstudio.com/)**
+- **[Python extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-python.python)**
 
 A separate Python installation is not required. If necessary, `uv` downloads
 and manages a compatible Python version automatically.
@@ -64,7 +67,7 @@ uv sync --locked
 This creates `.venv` and installs the project. No manual activation is needed
 when using `uv run`.
 
-### 4. Select the Python Interpreter in Visual Studio Code
+### 4. Select the Python Interpreter in Visual Studio Code (Optional)
 
 1. Press **Ctrl + Shift + P**.
 2. Search for **Python: Select Interpreter**.
