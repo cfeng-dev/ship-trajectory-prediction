@@ -426,7 +426,7 @@ class ShipTrajectoryGUI:
         )
 
         try:
-            output_path = save_trajectory_data(
+            save_result = save_trajectory_data(
                 df=trajectory_df,
                 filename=output_path,
             )
@@ -437,9 +437,24 @@ class ShipTrajectoryGUI:
             )
             return
 
+        if save_result.appended:
+            message_title = "Trajectory Appended"
+            message_text = (
+                "Trajectory appended to the existing CSV file.\n\n"
+                f"Run ID: {save_result.run_id}\n"
+                f"File:\n{save_result.output_path}"
+            )
+        else:
+            message_title = "Trajectory Saved"
+            message_text = (
+                "New CSV file created.\n\n"
+                f"Run ID: {save_result.run_id}\n"
+                f"File:\n{save_result.output_path}"
+            )
+
         messagebox.showinfo(
-            "Saved",
-            f"Trajectory run saved to:\n{output_path}",
+            message_title,
+            message_text,
         )
 
     def reset(self):

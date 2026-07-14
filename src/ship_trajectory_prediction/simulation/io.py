@@ -1,5 +1,6 @@
 """DataFrame creation and CSV export for simulated trajectory data."""
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # Directory for simulated data
 DATA_DIR = PROJECT_ROOT / "data" / "simulated"
+
+
+@dataclass(frozen=True)
+class TrajectorySaveResult:
+    """Result details for a saved simulation run."""
+
+    output_path: Path
+    run_id: int
+    appended: bool
 
 
 def _format_utc_timestamp(timestamp):
@@ -196,8 +206,8 @@ def save_trajectory_data(df, filename):
 
     Returns
     -------
-    output_path : pathlib.Path
-        Path to the saved CSV file.
+    result : TrajectorySaveResult
+        Saved path, assigned run ID, and whether data was appended.
     """
     output_path = Path(filename)
 
@@ -226,4 +236,8 @@ def save_trajectory_data(df, filename):
 
     print(f"Saved simulated run {run_id} to: {output_path}")
 
-    return output_path
+    return TrajectorySaveResult(
+        output_path=output_path,
+        run_id=run_id,
+        appended=append_to_existing_file,
+    )

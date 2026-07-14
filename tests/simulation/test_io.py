@@ -60,8 +60,11 @@ def test_csv_uses_shiptech_style_timestamp(tmp_path):
         reference_latitude=REFERENCE_LATITUDE,
     )
 
-    output_path = save_trajectory_data(data, tmp_path / "trajectory.csv")
-    csv_lines = output_path.read_text(encoding="utf-8").splitlines()
+    save_result = save_trajectory_data(data, tmp_path / "trajectory.csv")
+    csv_lines = save_result.output_path.read_text(encoding="utf-8").splitlines()
+
+    assert save_result.run_id == 0
+    assert save_result.appended is False
 
     assert csv_lines[0].startswith(
         "time,run_id,gps_latitude,gps_longitude,gps_speed,t,"
@@ -106,10 +109,14 @@ def test_save_appends_trajectory_with_next_run_id(tmp_path):
         reference_latitude=REFERENCE_LATITUDE,
     )
 
-    save_trajectory_data(first_run, output_path)
-    save_trajectory_data(second_run, output_path)
+    first_result = save_trajectory_data(first_run, output_path)
+    second_result = save_trajectory_data(second_run, output_path)
 
     saved_data = pd.read_csv(output_path)
+    assert first_result.run_id == 0
+    assert first_result.appended is False
+    assert second_result.run_id == 1
+    assert second_result.appended is True
     assert saved_data["run_id"].tolist() == [0, 0, 1, 1]
     assert len(saved_data) == 4
 
