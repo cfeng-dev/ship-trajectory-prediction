@@ -244,19 +244,19 @@ def show_help_window(
     )
 
     # ==================================================
-    # Simulation time
+    # Simulation information
     # ==================================================
-    simulation_time_frame = tk.LabelFrame(
+    simulation_info_frame = tk.LabelFrame(
         help_content_frame,
-        text="Simulation Time",
+        text="Simulation Information",
         padx=12,
         pady=10,
         bg=app_background_color,
         fg="black",
     )
-    simulation_time_frame.pack(fill=tk.X, pady=(0, 16))
+    simulation_info_frame.pack(fill=tk.X, pady=(0, 16))
 
-    simulation_time_descriptions = [
+    simulation_info_descriptions = [
         (
             "While paused",
             "Simulation time stops; exported timestamps contain no pause gap",
@@ -273,11 +273,15 @@ def show_help_window(
             "After Reset",
             "Next save to the same file starts a new run ID",
         ),
+        (
+            "Turn Radius",
+            "Speed divided by angular velocity; ∞ means straight travel",
+        ),
     ]
 
     _add_description_rows(
-        parent=simulation_time_frame,
-        rows=simulation_time_descriptions,
+        parent=simulation_info_frame,
+        rows=simulation_info_descriptions,
         left_column_width=simulation_time_left_column_width,
         background_color=app_background_color,
     )

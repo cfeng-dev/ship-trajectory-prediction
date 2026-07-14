@@ -391,7 +391,7 @@ def create_status_section(gui, parent):
         ("Heading:", gui.heading_value_label),
         ("Omega:", gui.omega_value_label),
         ("Speed:", gui.speed_value_label),
-        ("Radius:", gui.radius_value_label),
+        ("Turn Radius:", gui.radius_value_label),
         ("Time:", gui.time_value_label),
     ]
 
@@ -400,7 +400,7 @@ def create_status_section(gui, parent):
             status_frame,
             text=label_text,
             anchor="w",
-            width=10,
+            width=12,
             font=gui.status_label_font,
             bg=gui.control_panel_color,
             fg="black",
