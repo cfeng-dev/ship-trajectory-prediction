@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from datetime import datetime, timezone
+from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import numpy as np
@@ -62,6 +63,10 @@ class ShipTrajectoryGUI:
         self.simulation_running = False
         self.simulation_started = False
         self.simulation_start_time = None
+
+        # Remember how much of the current simulation session was saved to
+        # each CSV file. Reset starts a new session and clears this mapping.
+        self.saved_run_states = {}
 
         # Initialize camera at the ship start position.
         # This is only used when axis_mode = "follow".
@@ -425,10 +430,34 @@ class ShipTrajectoryGUI:
             reference_latitude=self.reference_latitude,
         )
 
+        resolved_output_path = Path(output_path).resolve()
+        saved_run_state = self.saved_run_states.get(resolved_output_path)
+        if (
+            not resolved_output_path.is_file()
+            or resolved_output_path.stat().st_size == 0
+        ):
+            saved_run_state = None
+
+        if saved_run_state is None:
+            existing_run_id = None
+            first_unsaved_sample = 0
+        else:
+            existing_run_id, first_unsaved_sample = saved_run_state
+
+        if first_unsaved_sample >= len(trajectory_df):
+            messagebox.showinfo(
+                "No New Data",
+                "No new trajectory samples are available.\n\n"
+                f"Run ID: {existing_run_id}\n"
+                f"File:\n{resolved_output_path}",
+            )
+            return
+
         try:
             save_result = save_trajectory_data(
-                df=trajectory_df,
+                df=trajectory_df.iloc[first_unsaved_sample:],
                 filename=output_path,
+                existing_run_id=existing_run_id,
             )
         except (OSError, ValueError) as error:
             messagebox.showerror(
@@ -437,10 +466,22 @@ class ShipTrajectoryGUI:
             )
             return
 
-        if save_result.appended:
+        self.saved_run_states[save_result.output_path.resolve()] = (
+            save_result.run_id,
+            len(trajectory_df),
+        )
+
+        if save_result.continued:
+            message_title = "Trajectory Updated"
+            message_text = (
+                "New samples appended to the current trajectory run.\n\n"
+                f"Run ID: {save_result.run_id}\n"
+                f"File:\n{save_result.output_path}"
+            )
+        elif save_result.appended:
             message_title = "Trajectory Appended"
             message_text = (
-                "Trajectory appended to the existing CSV file.\n\n"
+                "New trajectory run appended to the existing CSV file.\n\n"
                 f"Run ID: {save_result.run_id}\n"
                 f"File:\n{save_result.output_path}"
             )
@@ -464,6 +505,7 @@ class ShipTrajectoryGUI:
         self.simulation_running = False
         self.simulation_started = False
         self.simulation_start_time = None
+        self.saved_run_states.clear()
 
         self.steering_slider.set(0)
         self.speed_slider.set(self.initial_speed)

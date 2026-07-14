@@ -65,6 +65,7 @@ def test_csv_uses_shiptech_style_timestamp(tmp_path):
 
     assert save_result.run_id == 0
     assert save_result.appended is False
+    assert save_result.continued is False
 
     assert csv_lines[0].startswith(
         "time,run_id,gps_latitude,gps_longitude,gps_speed,t,"
@@ -115,10 +116,36 @@ def test_save_appends_trajectory_with_next_run_id(tmp_path):
     saved_data = pd.read_csv(output_path)
     assert first_result.run_id == 0
     assert first_result.appended is False
+    assert first_result.continued is False
     assert second_result.run_id == 1
     assert second_result.appended is True
+    assert second_result.continued is False
     assert saved_data["run_id"].tolist() == [0, 0, 1, 1]
     assert len(saved_data) == 4
+
+
+def test_save_continues_existing_run_without_duplicate_samples(tmp_path):
+    """New samples from one session should retain the same run ID."""
+    output_path = tmp_path / "trajectory.csv"
+    trajectory = create_simulation_dataframe(
+        create_test_simulator(),
+        reference_longitude=REFERENCE_LONGITUDE,
+        reference_latitude=REFERENCE_LATITUDE,
+    )
+
+    first_result = save_trajectory_data(trajectory.iloc[:1], output_path)
+    continued_result = save_trajectory_data(
+        trajectory.iloc[1:],
+        output_path,
+        existing_run_id=first_result.run_id,
+    )
+
+    saved_data = pd.read_csv(output_path)
+    assert continued_result.run_id == 0
+    assert continued_result.appended is True
+    assert continued_result.continued is True
+    assert saved_data["run_id"].tolist() == [0, 0]
+    assert len(saved_data) == 2
 
 
 def test_save_migrates_compatible_csv_without_run_id(tmp_path):

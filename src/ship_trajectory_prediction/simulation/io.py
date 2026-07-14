@@ -27,6 +27,7 @@ class TrajectorySaveResult:
     output_path: Path
     run_id: int
     appended: bool
+    continued: bool
 
 
 def _format_utc_timestamp(timestamp):
@@ -189,13 +190,15 @@ def create_simulation_dataframe(
     return trajectory_df
 
 
-def save_trajectory_data(df, filename):
+def save_trajectory_data(df, filename, existing_run_id=None):
     """
     Save or append simulated trajectory data as a CSV file.
 
     If only a filename is given, the file is saved in data/simulated.
     A new file starts with ``run_id = 0``. If a compatible file already
     exists, the trajectory is appended using the next available run ID.
+    New samples from an already saved simulation session can be appended to
+    their existing run by passing ``existing_run_id``.
 
     Parameters
     ----------
@@ -203,11 +206,14 @@ def save_trajectory_data(df, filename):
         Simulated trajectory data.
     filename : str or pathlib.Path
         Output CSV filename or full output path.
+    existing_run_id : int or None, optional
+        Existing run to continue. The DataFrame must contain only samples that
+        have not been saved previously.
 
     Returns
     -------
     result : TrajectorySaveResult
-        Saved path, assigned run ID, and whether data was appended.
+        Saved path, assigned run ID, and how data was appended.
     """
     output_path = Path(filename)
 
@@ -219,10 +225,29 @@ def save_trajectory_data(df, filename):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
     expected_columns = _prepare_export_data(df, run_id=0).columns.tolist()
-    run_id, append_to_existing_file = _get_next_run_id(
+    next_run_id, append_to_existing_file = _get_next_run_id(
         output_path,
         expected_columns,
     )
+
+    continued_run = existing_run_id is not None
+    if continued_run:
+        if not append_to_existing_file:
+            raise ValueError(
+                "Cannot continue a run because the existing CSV file is missing "
+                "or empty."
+            )
+
+        existing_run_ids = pd.read_csv(output_path, usecols=["run_id"])["run_id"]
+        numeric_run_ids = pd.to_numeric(existing_run_ids, errors="coerce")
+        if existing_run_id not in numeric_run_ids.to_numpy():
+            raise ValueError(
+                f"Run ID {existing_run_id} does not exist in the selected CSV file."
+            )
+        run_id = existing_run_id
+    else:
+        run_id = next_run_id
+
     export_data = _prepare_export_data(df, run_id=run_id)
 
     # Keep fixed timestamp and GPS precision while rounding other floats.
@@ -240,4 +265,5 @@ def save_trajectory_data(df, filename):
         output_path=output_path,
         run_id=run_id,
         appended=append_to_existing_file,
+        continued=continued_run,
     )

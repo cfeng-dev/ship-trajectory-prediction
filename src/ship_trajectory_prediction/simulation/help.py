@@ -261,6 +261,14 @@ def show_help_window(
             "CSV timestamps",
             "UTC start time plus elapsed simulation time",
         ),
+        (
+            "Repeated save",
+            "Append only new samples to the current run ID",
+        ),
+        (
+            "After Reset",
+            "Next save to the same file starts a new run ID",
+        ),
     ]
 
     _add_description_rows(
