@@ -50,8 +50,11 @@ def test_simulation_dataframe_contains_utc_timestamps():
 
 def test_csv_uses_shiptech_style_timestamp(tmp_path):
     """CSV timestamps should use the timezone-aware format found in Shiptech data."""
+    simulator = create_test_simulator()
+    simulator.step(omega=0.0, motor_running=True)
+
     data = create_simulation_dataframe(
-        create_test_simulator(),
+        simulator,
         start_time="2026-01-09 23:00:10+00:00",
         reference_longitude=REFERENCE_LONGITUDE,
         reference_latitude=REFERENCE_LATITUDE,
@@ -62,9 +65,10 @@ def test_csv_uses_shiptech_style_timestamp(tmp_path):
 
     assert csv_lines[0].startswith("time,gps_latitude,gps_longitude,gps_speed,t,")
     assert csv_lines[1].startswith(
-        "2026-01-09 23:00:10+00:00,47.05150000,8.31220000,7.200,0.000,"
+        "2026-01-09 23:00:10.00+00:00,47.05150000,8.31220000,7.200,0.000,"
     )
-    assert csv_lines[2].startswith("2026-01-09 23:00:10.050000+00:00,")
+    assert csv_lines[2].startswith("2026-01-09 23:00:10.05+00:00,")
+    assert csv_lines[3].startswith("2026-01-09 23:00:10.10+00:00,")
 
 
 def test_simulation_dataframe_exports_speed_history_in_mps_and_kmh():

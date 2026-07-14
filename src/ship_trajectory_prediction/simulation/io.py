@@ -19,6 +19,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data" / "simulated"
 
 
+def _format_utc_timestamp(timestamp):
+    """Format a timestamp in UTC with fixed hundredths of a second."""
+    timestamp = pd.Timestamp(timestamp)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    else:
+        timestamp = timestamp.tz_convert("UTC")
+
+    timestamp = timestamp.round("10ms")
+    hundredths = timestamp.microsecond // 10_000
+    return f"{timestamp:%Y-%m-%d %H:%M:%S}.{hundredths:02d}+00:00"
+
+
 def create_simulation_dataframe(
     simulator,
     random_seed=42,
@@ -134,13 +147,16 @@ def save_trajectory_data(df, filename):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
     export_data = df.copy()
+    if "time" in export_data.columns:
+        export_data["time"] = export_data["time"].map(_format_utc_timestamp)
+
     for coordinate_column in ("gps_latitude", "gps_longitude"):
         if coordinate_column in export_data.columns:
             export_data[coordinate_column] = export_data[coordinate_column].map(
                 lambda value: f"{value:.8f}"
             )
 
-    # Keep GPS precision while rounding other floating-point values to three decimals.
+    # Keep fixed timestamp and GPS precision while rounding other floats.
     export_data.to_csv(output_path, index=False, float_format="%.3f")
 
     print(f"Saved simulated data to: {output_path}")
