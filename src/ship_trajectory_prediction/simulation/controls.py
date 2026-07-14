@@ -56,17 +56,57 @@ def create_gui_widgets(gui):
 
 def create_control_panel(gui, parent):
     """
-    Create the left control panel.
+    Create the scrollable left control panel.
     """
-    control_frame = tk.Frame(
+    control_container = tk.Frame(
         parent,
         width=gui.control_panel_width,
+        bg=gui.control_panel_color,
+    )
+    control_container.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 0), pady=10)
+    control_container.pack_propagate(False)
+
+    control_canvas = tk.Canvas(
+        control_container,
+        bg=gui.control_panel_color,
+        borderwidth=0,
+        highlightthickness=0,
+    )
+    control_scrollbar = tk.Scrollbar(
+        control_container,
+        orient=tk.VERTICAL,
+        command=control_canvas.yview,
+    )
+    control_canvas.configure(yscrollcommand=control_scrollbar.set)
+
+    control_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    control_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    control_frame = tk.Frame(
+        control_canvas,
         bg=gui.control_panel_color,
         padx=14,
         pady=14,
     )
-    control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(10, 0), pady=10)
-    control_frame.pack_propagate(False)
+    control_window = control_canvas.create_window(
+        (0, 0),
+        window=control_frame,
+        anchor="nw",
+    )
+
+    control_frame.bind(
+        "<Configure>",
+        lambda _event: control_canvas.configure(
+            scrollregion=control_canvas.bbox("all")
+        ),
+    )
+    control_canvas.bind(
+        "<Configure>",
+        lambda event: control_canvas.itemconfigure(
+            control_window,
+            width=event.width,
+        ),
+    )
 
     tk.Label(
         control_frame,
@@ -81,6 +121,29 @@ def create_control_panel(gui, parent):
     create_speed_section(gui, control_frame)
     create_coordinate_display_section(gui, control_frame)
     create_status_section(gui, control_frame)
+
+    bind_mouse_wheel_to_panel(control_frame, control_canvas)
+
+
+def bind_mouse_wheel_to_panel(panel, canvas):
+    """Scroll the control panel when the pointer is over one of its widgets."""
+
+    def scroll_panel(event):
+        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+            direction = -1
+        else:
+            direction = 1
+
+        canvas.yview_scroll(direction, "units")
+        return "break"
+
+    widgets = [panel]
+    while widgets:
+        widget = widgets.pop()
+        widget.bind("<MouseWheel>", scroll_panel, add="+")
+        widget.bind("<Button-4>", scroll_panel, add="+")
+        widget.bind("<Button-5>", scroll_panel, add="+")
+        widgets.extend(widget.winfo_children())
 
 
 def create_action_section(gui, parent):
