@@ -7,6 +7,7 @@ from matplotlib.path import Path
 from matplotlib.ticker import FuncFormatter
 
 from ship_trajectory_prediction.trajectory.coordinates import (
+    METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )
 
@@ -312,7 +313,7 @@ def update_axis_limits(gui):
 
 
 def configure_coordinate_display(gui):
-    """Format metric plot coordinates as local distances or GPS positions."""
+    """Format plot coordinates as meters, kilometers, or GPS positions."""
     if gui.coordinate_display_mode == "gps":
 
         def format_longitude(x_coordinate, _position):
@@ -337,6 +338,16 @@ def configure_coordinate_display(gui):
         gui.ax.yaxis.set_major_formatter(FuncFormatter(format_latitude))
         gui.ax.set_xlabel("Longitude [°]")
         gui.ax.set_ylabel("Latitude [°]")
+    elif gui.coordinate_display_mode == "km":
+
+        def format_kilometers(coordinate_meters, _position):
+            return f"{coordinate_meters / METERS_PER_KILOMETER:g}"
+
+        kilometer_formatter = FuncFormatter(format_kilometers)
+        gui.ax.xaxis.set_major_formatter(kilometer_formatter)
+        gui.ax.yaxis.set_major_formatter(kilometer_formatter)
+        gui.ax.set_xlabel("x [km]")
+        gui.ax.set_ylabel("y [km]", rotation=0, labelpad=15, va="center")
     else:
         gui.ax.set_xlabel("x [m]")
         gui.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")

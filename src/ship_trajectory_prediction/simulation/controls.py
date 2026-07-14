@@ -280,7 +280,12 @@ def create_coordinate_display_section(gui, parent):
 
     gui.coordinate_display_var = tk.StringVar(value=gui.coordinate_display_mode)
 
-    for label, mode in (("Local [m]", "local"), ("GPS [°]", "gps")):
+    display_modes = (
+        ("Local [m]", "local"),
+        ("Local [km]", "km"),
+        ("GPS [°]", "gps"),
+    )
+    for label, mode in display_modes:
         tk.Radiobutton(
             display_frame,
             text=label,

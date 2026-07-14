@@ -103,7 +103,8 @@ class GUIConfig:
     # "follow" = smoothly follow the current ship position
     axis_mode: str = "auto"
 
-    # Coordinate representation shown in the plot and status panel.
+    # Coordinate representation shown in the plot and status panel:
+    # "local" = meters, "km" = kilometers, "gps" = longitude/latitude.
     # The simulation itself always uses local coordinates in meters.
     coordinate_display_mode: str = "local"
 
@@ -138,7 +139,7 @@ class GUIConfig:
     figure_height: int = 6
 
     # Width of the left control panel in pixels.
-    control_panel_width: int = 280
+    control_panel_width: int = 320
 
     # ==================================================
     # Status display font and spacing

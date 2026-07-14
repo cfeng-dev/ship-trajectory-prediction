@@ -20,6 +20,7 @@ from ship_trajectory_prediction.simulation.plotting import (
     update_plot as draw_ship_plot,
 )
 from ship_trajectory_prediction.trajectory.coordinates import (
+    METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )
 
@@ -376,7 +377,7 @@ class ShipTrajectoryGUI:
         self.steering_slider.set(0)
 
     def change_coordinate_display(self):
-        """Switch the position display between local and GPS coordinates."""
+        """Switch the position display between meters, kilometers, and GPS."""
         self.coordinate_display_mode = self.coordinate_display_var.get()
         self.update_status()
         self.update_plot()
@@ -560,6 +561,11 @@ class ShipTrajectoryGUI:
                 reference_latitude=self.reference_latitude,
             )
             position_text = f"lon = {longitude[0]:.6f}°\nlat = {latitude[0]:.6f}°"
+        elif self.coordinate_display_mode == "km":
+            position_text = (
+                f"x = {self.simulator.x_current / METERS_PER_KILOMETER:.3f} km\n"
+                f"y = {self.simulator.y_current / METERS_PER_KILOMETER:.3f} km"
+            )
         else:
             position_text = (
                 f"x = {self.simulator.x_current:.2f} m\n"
