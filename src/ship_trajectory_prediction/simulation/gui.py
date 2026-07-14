@@ -402,10 +402,11 @@ class ShipTrajectoryGUI:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         output_path = filedialog.asksaveasfilename(
-            title="Save trajectory data",
+            title="Save or append trajectory data",
             initialdir=DATA_DIR,
             initialfile=self.default_csv_filename,
             defaultextension=".csv",
+            confirmoverwrite=False,
             filetypes=[
                 ("CSV files", "*.csv"),
                 ("All files", "*.*"),
@@ -424,14 +425,21 @@ class ShipTrajectoryGUI:
             reference_latitude=self.reference_latitude,
         )
 
-        output_path = save_trajectory_data(
-            df=trajectory_df,
-            filename=output_path,
-        )
+        try:
+            output_path = save_trajectory_data(
+                df=trajectory_df,
+                filename=output_path,
+            )
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Save Failed",
+                f"Could not save trajectory data:\n\n{error}",
+            )
+            return
 
         messagebox.showinfo(
             "Saved",
-            f"Trajectory data saved to:\n{output_path}",
+            f"Trajectory run saved to:\n{output_path}",
         )
 
     def reset(self):

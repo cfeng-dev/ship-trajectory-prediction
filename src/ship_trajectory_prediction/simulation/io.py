@@ -32,6 +32,67 @@ def _format_utc_timestamp(timestamp):
     return f"{timestamp:%Y-%m-%d %H:%M:%S}.{hundredths:02d}+00:00"
 
 
+def _prepare_export_data(df, run_id):
+    """Add a run ID and apply stable CSV formatting."""
+    export_data = df.copy()
+
+    if "run_id" in export_data.columns:
+        export_data["run_id"] = run_id
+    else:
+        column_position = 1 if "time" in export_data.columns else 0
+        export_data.insert(column_position, "run_id", run_id)
+
+    if "time" in export_data.columns:
+        export_data["time"] = export_data["time"].map(_format_utc_timestamp)
+
+    for coordinate_column in ("gps_latitude", "gps_longitude"):
+        if coordinate_column in export_data.columns:
+            export_data[coordinate_column] = export_data[coordinate_column].map(
+                lambda value: f"{value:.8f}"
+            )
+
+    return export_data
+
+
+def _get_next_run_id(output_path, expected_columns):
+    """Validate an existing CSV and return its next run ID."""
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return 0, False
+
+    try:
+        existing_columns = pd.read_csv(output_path, nrows=0).columns.tolist()
+    except pd.errors.EmptyDataError:
+        return 0, False
+
+    if existing_columns == expected_columns:
+        existing_run_ids = pd.read_csv(output_path, usecols=["run_id"])["run_id"]
+        if existing_run_ids.empty:
+            return 0, True
+
+        numeric_run_ids = pd.to_numeric(existing_run_ids, errors="coerce")
+        if (
+            numeric_run_ids.isna().any()
+            or (numeric_run_ids < 0).any()
+            or (numeric_run_ids % 1 != 0).any()
+        ):
+            raise ValueError("Existing CSV contains invalid run_id values.")
+
+        return int(numeric_run_ids.max()) + 1, True
+
+    legacy_columns = [column for column in expected_columns if column != "run_id"]
+    if existing_columns == legacy_columns:
+        legacy_data = pd.read_csv(output_path)
+        migrated_data = _prepare_export_data(legacy_data, run_id=0)
+        migrated_data.to_csv(output_path, index=False, float_format="%.3f")
+        next_run_id = 1 if not legacy_data.empty else 0
+        return next_run_id, True
+
+    raise ValueError(
+        "Existing CSV columns do not match the current simulation export schema. "
+        "Choose a new filename to avoid mixing incompatible data."
+    )
+
+
 def create_simulation_dataframe(
     simulator,
     random_seed=42,
@@ -120,10 +181,11 @@ def create_simulation_dataframe(
 
 def save_trajectory_data(df, filename):
     """
-    Save simulated trajectory data as a CSV file.
+    Save or append simulated trajectory data as a CSV file.
 
     If only a filename is given, the file is saved in data/simulated.
-    If a full path is given, the file is saved at that location.
+    A new file starts with ``run_id = 0``. If a compatible file already
+    exists, the trajectory is appended using the next available run ID.
 
     Parameters
     ----------
@@ -146,19 +208,22 @@ def save_trajectory_data(df, filename):
     else:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    export_data = df.copy()
-    if "time" in export_data.columns:
-        export_data["time"] = export_data["time"].map(_format_utc_timestamp)
-
-    for coordinate_column in ("gps_latitude", "gps_longitude"):
-        if coordinate_column in export_data.columns:
-            export_data[coordinate_column] = export_data[coordinate_column].map(
-                lambda value: f"{value:.8f}"
-            )
+    expected_columns = _prepare_export_data(df, run_id=0).columns.tolist()
+    run_id, append_to_existing_file = _get_next_run_id(
+        output_path,
+        expected_columns,
+    )
+    export_data = _prepare_export_data(df, run_id=run_id)
 
     # Keep fixed timestamp and GPS precision while rounding other floats.
-    export_data.to_csv(output_path, index=False, float_format="%.3f")
+    export_data.to_csv(
+        output_path,
+        mode="a" if append_to_existing_file else "w",
+        header=not append_to_existing_file,
+        index=False,
+        float_format="%.3f",
+    )
 
-    print(f"Saved simulated data to: {output_path}")
+    print(f"Saved simulated run {run_id} to: {output_path}")
 
     return output_path
