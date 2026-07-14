@@ -116,10 +116,8 @@ def create_control_panel(gui, parent):
     ).pack(pady=(0, 12))
 
     create_action_section(gui, control_frame)
-    create_gps_start_position_section(gui, control_frame)
     create_steering_section(gui, control_frame)
     create_speed_section(gui, control_frame)
-    create_coordinate_display_section(gui, control_frame)
     create_status_section(gui, control_frame)
 
     bind_mouse_wheel_to_canvas(control_frame, control_canvas)
@@ -265,97 +263,6 @@ def create_speed_section(gui, parent):
     )
     gui.speed_slider.set(gui.initial_speed)
     gui.speed_slider.pack(pady=(0, 2))
-
-
-def create_gps_start_position_section(gui, parent):
-    """Create inputs for the GPS position represented by the local origin."""
-    gps_frame = tk.LabelFrame(
-        parent,
-        text="GPS Start Position",
-        padx=10,
-        pady=8,
-        bg=gui.control_panel_color,
-        fg="black",
-    )
-    gps_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
-    gps_frame.columnconfigure(1, weight=1)
-
-    gui.gps_latitude_var = tk.StringVar(value=f"{gui.reference_latitude:.8f}")
-    gui.gps_longitude_var = tk.StringVar(value=f"{gui.reference_longitude:.8f}")
-
-    tk.Label(
-        gps_frame,
-        text="Latitude [°]:",
-        anchor="w",
-        bg=gui.control_panel_color,
-        fg="black",
-    ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
-    gui.gps_latitude_entry = tk.Entry(
-        gps_frame,
-        textvariable=gui.gps_latitude_var,
-        justify=tk.RIGHT,
-    )
-    gui.gps_latitude_entry.grid(row=0, column=1, sticky="ew", pady=2)
-
-    tk.Label(
-        gps_frame,
-        text="Longitude [°]:",
-        anchor="w",
-        bg=gui.control_panel_color,
-        fg="black",
-    ).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
-    gui.gps_longitude_entry = tk.Entry(
-        gps_frame,
-        textvariable=gui.gps_longitude_var,
-        justify=tk.RIGHT,
-    )
-    gui.gps_longitude_entry.grid(row=1, column=1, sticky="ew", pady=2)
-
-    gui.gps_position_apply_button = create_styled_button(
-        gps_frame,
-        text="Apply GPS Position",
-        width=18,
-        command=gui.apply_gps_start_position,
-    )
-    gui.gps_position_apply_button.grid(
-        row=2,
-        column=0,
-        columnspan=2,
-        pady=(8, 0),
-    )
-
-
-def create_coordinate_display_section(gui, parent):
-    """Create controls for switching between local and GPS coordinates."""
-    display_frame = tk.LabelFrame(
-        parent,
-        text="Coordinate Display",
-        padx=10,
-        pady=6,
-        bg=gui.control_panel_color,
-        fg="black",
-    )
-    display_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
-
-    gui.coordinate_display_var = tk.StringVar(value=gui.coordinate_display_mode)
-
-    display_modes = (
-        ("Local [m]", "local"),
-        ("Local [km]", "km"),
-        ("GPS [°]", "gps"),
-    )
-    for label, mode in display_modes:
-        tk.Radiobutton(
-            display_frame,
-            text=label,
-            variable=gui.coordinate_display_var,
-            value=mode,
-            command=gui.change_coordinate_display,
-            bg=gui.control_panel_color,
-            fg="black",
-            activebackground=gui.control_panel_color,
-            selectcolor=gui.control_panel_color,
-        ).pack(side=tk.LEFT, expand=True)
 
 
 def create_status_section(gui, parent):

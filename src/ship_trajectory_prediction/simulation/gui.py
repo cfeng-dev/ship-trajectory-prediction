@@ -8,7 +8,10 @@ from tkinter import filedialog, messagebox
 import numpy as np
 
 from ship_trajectory_prediction.simulation.config import GUIConfig
-from ship_trajectory_prediction.simulation.controls import create_gui_widgets
+from ship_trajectory_prediction.simulation.controls import (
+    create_gui_widgets,
+    create_styled_button,
+)
 from ship_trajectory_prediction.simulation.core import ShipSimulator
 from ship_trajectory_prediction.simulation.help import show_help_window
 from ship_trajectory_prediction.simulation.io import (
@@ -132,7 +135,7 @@ class ShipTrajectoryGUI:
 
     def create_menu_bar(self):
         """
-        Create a simple desktop-style menu bar with File and Help menus.
+        Create the desktop-style application menu bar.
         """
         menu_bar = tk.Menu(self.root)
 
@@ -151,6 +154,36 @@ class ShipTrajectoryGUI:
             command=self.root.destroy,
         )
         menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # ==================================================
+        # View menu
+        # ==================================================
+        view_menu = tk.Menu(menu_bar, tearoff=0)
+        self.coordinate_display_var = tk.StringVar(value=self.coordinate_display_mode)
+        coordinate_display_modes = (
+            ("Local [m]", "local"),
+            ("Local [km]", "km"),
+            ("GPS [°]", "gps"),
+        )
+        for label, mode in coordinate_display_modes:
+            view_menu.add_radiobutton(
+                label=label,
+                variable=self.coordinate_display_var,
+                value=mode,
+                command=self.change_coordinate_display,
+            )
+        menu_bar.add_cascade(label="View", menu=view_menu)
+
+        # ==================================================
+        # Settings menu
+        # ==================================================
+        self.settings_menu = tk.Menu(menu_bar, tearoff=0)
+        self.settings_menu.add_command(
+            label="GPS Start Position...",
+            command=self.show_gps_start_position_dialog,
+        )
+        self.gps_position_menu_index = self.settings_menu.index("end")
+        menu_bar.add_cascade(label="Settings", menu=self.settings_menu)
 
         # ==================================================
         # Help menu
@@ -352,14 +385,15 @@ class ShipTrajectoryGUI:
         else:
             self.simulation_button.config(text="Start Simulation")
 
-        self.update_gps_start_position_controls()
+        self.update_gps_start_position_menu()
 
-    def update_gps_start_position_controls(self):
-        """Lock the GPS origin while a simulation run is active."""
-        gps_input_state = tk.DISABLED if self.simulation_started else tk.NORMAL
-        self.gps_latitude_entry.config(state=gps_input_state)
-        self.gps_longitude_entry.config(state=gps_input_state)
-        self.gps_position_apply_button.config(state=gps_input_state)
+    def update_gps_start_position_menu(self):
+        """Lock the GPS origin setting while a simulation run is active."""
+        menu_state = tk.DISABLED if self.simulation_started else tk.NORMAL
+        self.settings_menu.entryconfig(
+            self.gps_position_menu_index,
+            state=menu_state,
+        )
 
     def toggle_simulation(self):
         """
@@ -375,9 +409,6 @@ class ShipTrajectoryGUI:
         Start the simulation for the first time or continue after pausing.
         """
         if not self.simulation_started:
-            if not self.apply_gps_start_position(show_confirmation=False):
-                return
-
             self.simulation_start_time = datetime.now(timezone.utc).replace(
                 microsecond=0
             )
@@ -412,42 +443,138 @@ class ShipTrajectoryGUI:
         self.update_status()
         self.update_plot()
 
-    def apply_gps_start_position(self, show_confirmation=True):
-        """Validate and apply the GPS position of the local simulation origin."""
+    def show_gps_start_position_dialog(self):
+        """Open a dialog for configuring the GPS position of the local origin."""
         if self.simulation_started:
             messagebox.showwarning(
                 "GPS Position Locked",
                 "Reset the simulation before changing the GPS start position.",
             )
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("GPS Start Position")
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.app_background_color)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        form_frame = tk.Frame(
+            dialog,
+            bg=self.app_background_color,
+            padx=18,
+            pady=16,
+        )
+        form_frame.pack(fill=tk.BOTH, expand=True)
+        form_frame.columnconfigure(1, weight=1)
+
+        latitude_var = tk.StringVar(value=f"{self.reference_latitude:.8f}")
+        longitude_var = tk.StringVar(value=f"{self.reference_longitude:.8f}")
+
+        tk.Label(
+            form_frame,
+            text="Latitude [°]:",
+            anchor="w",
+            bg=self.app_background_color,
+            fg="black",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
+        latitude_entry = tk.Entry(
+            form_frame,
+            textvariable=latitude_var,
+            width=20,
+            justify=tk.RIGHT,
+        )
+        latitude_entry.grid(row=0, column=1, sticky="ew", pady=4)
+
+        tk.Label(
+            form_frame,
+            text="Longitude [°]:",
+            anchor="w",
+            bg=self.app_background_color,
+            fg="black",
+        ).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=4)
+        longitude_entry = tk.Entry(
+            form_frame,
+            textvariable=longitude_var,
+            width=20,
+            justify=tk.RIGHT,
+        )
+        longitude_entry.grid(row=1, column=1, sticky="ew", pady=4)
+
+        button_frame = tk.Frame(form_frame, bg=self.app_background_color)
+        button_frame.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="e",
+            pady=(14, 0),
+        )
+
+        def apply_position():
+            if self.apply_gps_start_position(
+                latitude_var.get(),
+                longitude_var.get(),
+                parent=dialog,
+            ):
+                dialog.destroy()
+
+        create_styled_button(
+            button_frame,
+            text="Apply",
+            width=10,
+            command=apply_position,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        create_styled_button(
+            button_frame,
+            text="Cancel",
+            width=10,
+            command=dialog.destroy,
+        ).pack(side=tk.LEFT)
+
+        dialog.bind("<Return>", lambda _event: apply_position())
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        latitude_entry.focus_set()
+        latitude_entry.select_range(0, tk.END)
+
+        dialog.update_idletasks()
+        x = (
+            self.root.winfo_rootx()
+            + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        )
+        y = (
+            self.root.winfo_rooty()
+            + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        )
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
+        """Validate and apply the GPS position of the local simulation origin."""
+        if self.simulation_started:
+            messagebox.showwarning(
+                "GPS Position Locked",
+                "Reset the simulation before changing the GPS start position.",
+                parent=parent,
+            )
             return False
 
         try:
             latitude, longitude = _parse_gps_start_position(
-                self.gps_latitude_var.get(),
-                self.gps_longitude_var.get(),
+                latitude_text,
+                longitude_text,
             )
         except ValueError as error:
             messagebox.showerror(
                 "Invalid GPS Position",
                 str(error),
+                parent=parent,
             )
             return False
 
         self.reference_latitude = latitude
         self.reference_longitude = longitude
-        self.gps_latitude_var.set(f"{latitude:.8f}")
-        self.gps_longitude_var.set(f"{longitude:.8f}")
 
         self.update_status()
         self.update_plot()
-
-        if show_confirmation:
-            messagebox.showinfo(
-                "GPS Position Applied",
-                "The local origin now represents:\n\n"
-                f"Latitude: {latitude:.4f}°\n"
-                f"Longitude: {longitude:.4f}°",
-            )
 
         return True
 

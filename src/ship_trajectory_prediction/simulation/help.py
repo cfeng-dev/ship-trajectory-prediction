@@ -200,6 +200,8 @@ def show_help_window(
     menu_descriptions = [
         ("File → Save CSV", "Pause simulation and save trajectory data"),
         ("File → Exit", "Close the application"),
+        ("View", "Choose local meters, local kilometers, or GPS display"),
+        ("Settings", "Configure the GPS start position before a run"),
         ("Help → Show Help", "Open this help window"),
     ]
 
@@ -230,10 +232,6 @@ def show_help_window(
         ("Save CSV", "Pause simulation and save trajectory data"),
         ("Reset", "Clear trajectory and unlock the GPS start position"),
         ("Center Steering", "Reset steering to 0 °/s"),
-        (
-            "Apply GPS Position",
-            "Use the entered latitude and longitude as the local origin",
-        ),
     ]
 
     _add_description_rows(
