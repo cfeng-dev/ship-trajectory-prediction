@@ -39,6 +39,30 @@ def test_read_ship_data_filters_run_and_time(tmp_path):
     assert str(result["time"].dt.tz) == "UTC"
 
 
+def test_read_ship_data_accepts_simulated_trajectory_columns(tmp_path):
+    """The loader should not require Shiptech-specific propulsion columns."""
+    csv_path = tmp_path / "simulated_trajectory.csv"
+    data = pd.DataFrame(
+        {
+            "time": ["2026-01-01T00:00:00Z"],
+            "run_id": [0],
+            "gps_latitude": [47.0],
+            "gps_longitude": [8.0],
+            "gps_speed": [7.2],
+            "x_true": [0.0],
+            "y_true": [0.0],
+        }
+    )
+    data.to_csv(csv_path, index=False)
+
+    result = read_ship_data(csv_path, run_id=0)
+
+    assert len(result) == 1
+    assert result.iloc[0]["gps_speed"] == 7.2
+    assert "shaft_speed" not in result.columns
+    assert "thruster_speed" not in result.columns
+
+
 def test_resample_trajectory_data_uses_separate_ten_second_run_windows():
     """Resampling should keep one original row per window and per run."""
     data = pd.DataFrame(

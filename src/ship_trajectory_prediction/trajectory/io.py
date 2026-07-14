@@ -1,4 +1,4 @@
-"""Utilities for loading and preprocessing real ship trajectory data."""
+"""Utilities for loading and preprocessing ship trajectory data."""
 
 from pathlib import Path
 
@@ -9,9 +9,9 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
     """
     Read ship trajectory data from a CSV file and optionally filter it.
 
-    The CSV file is expected to contain columns such as:
-    time, run_id, gps_latitude, gps_longitude, gps_speed,
-    shaft_speed, thruster_speed.
+    The CSV file must contain the shared trajectory columns ``time``,
+    ``run_id``, ``gps_latitude``, ``gps_longitude``, and ``gps_speed``.
+    Additional columns, such as propulsion or simulation values, are preserved.
 
     Parameters
     ----------
@@ -44,8 +44,6 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
         "gps_latitude",
         "gps_longitude",
         "gps_speed",
-        "shaft_speed",
-        "thruster_speed",
     ]
 
     missing_columns = [
