@@ -560,7 +560,7 @@ class ShipTrajectoryGUI:
                 reference_longitude=self.reference_longitude,
                 reference_latitude=self.reference_latitude,
             )
-            position_text = f"lon = {longitude[0]:.6f}°\nlat = {latitude[0]:.6f}°"
+            position_text = f"lon = {longitude[0]:.4f}°\nlat = {latitude[0]:.4f}°"
         elif self.coordinate_display_mode == "km":
             position_text = (
                 f"x = {self.simulator.x_current / METERS_PER_KILOMETER:.3f} km\n"

@@ -323,7 +323,7 @@ def configure_coordinate_display(gui):
                 reference_longitude=gui.reference_longitude,
                 reference_latitude=gui.reference_latitude,
             )
-            return f"{longitude[0]:.5f}"
+            return f"{longitude[0]:.4f}"
 
         def format_latitude(y_coordinate, _position):
             _, latitude = local_to_gps_coordinates(
@@ -332,7 +332,7 @@ def configure_coordinate_display(gui):
                 reference_longitude=gui.reference_longitude,
                 reference_latitude=gui.reference_latitude,
             )
-            return f"{latitude[0]:.5f}"
+            return f"{latitude[0]:.4f}"
 
         gui.ax.xaxis.set_major_formatter(FuncFormatter(format_longitude))
         gui.ax.yaxis.set_major_formatter(FuncFormatter(format_latitude))
