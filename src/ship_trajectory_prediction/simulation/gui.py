@@ -533,8 +533,6 @@ class ShipTrajectoryGUI:
 
         dialog.bind("<Return>", lambda _event: apply_position())
         dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        latitude_entry.focus_set()
-        latitude_entry.select_range(0, tk.END)
 
         dialog.update_idletasks()
         x = (
@@ -546,6 +544,7 @@ class ShipTrajectoryGUI:
             + (self.root.winfo_height() - dialog.winfo_height()) // 2
         )
         dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+        dialog.focus_set()
 
     def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
         """Validate and apply the GPS position of the local simulation origin."""
