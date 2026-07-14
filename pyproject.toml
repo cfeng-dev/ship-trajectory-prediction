@@ -28,7 +28,7 @@ include = ["ship_trajectory_prediction*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers"
+addopts = "--strict-config --strict-markers --import-mode=importlib"
 
 [tool.ruff]
 line-length = 88

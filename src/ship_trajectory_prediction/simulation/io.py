@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data" / "simulated"
 
 
-def create_simulation_dataframe(simulator, random_seed=42):
+def create_simulation_dataframe(simulator, random_seed=42, start_time=None):
     """
     Create a DataFrame from a completed ship simulation.
 
@@ -24,6 +24,9 @@ def create_simulation_dataframe(simulator, random_seed=42):
         Simulator instance containing stored trajectory data.
     random_seed : int, optional
         Random seed for reproducible observation noise.
+    start_time : datetime-like or None, optional
+        UTC time corresponding to ``t = 0``. The current UTC time is used if
+        no start time is provided.
 
     Returns
     -------
@@ -32,6 +35,18 @@ def create_simulation_dataframe(simulator, random_seed=42):
     """
     x_true = np.array(simulator.x_all)
     y_true = np.array(simulator.y_all)
+    elapsed_time = np.array(simulator.t_all)
+
+    if start_time is None:
+        start_timestamp = pd.Timestamp.now(tz="UTC").floor("s")
+    else:
+        start_timestamp = pd.Timestamp(start_time)
+        if start_timestamp.tzinfo is None:
+            start_timestamp = start_timestamp.tz_localize("UTC")
+        else:
+            start_timestamp = start_timestamp.tz_convert("UTC")
+
+    timestamps = start_timestamp + pd.to_timedelta(elapsed_time, unit="s")
 
     x_obs, y_obs = add_observation_noise(
         x=x_true,
@@ -42,7 +57,8 @@ def create_simulation_dataframe(simulator, random_seed=42):
 
     trajectory_df = pd.DataFrame(
         {
-            "t": np.array(simulator.t_all),
+            "time": timestamps,
+            "t": elapsed_time,
             "x_true": x_true,
             "y_true": y_true,
             "x_obs": x_obs,

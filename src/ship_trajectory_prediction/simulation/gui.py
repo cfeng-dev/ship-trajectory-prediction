@@ -1,6 +1,7 @@
 """Interactive GUI for steering, controlling, and exporting a 2D simulation."""
 
 import tkinter as tk
+from datetime import datetime, timezone
 from tkinter import filedialog, messagebox
 
 import numpy as np
@@ -60,6 +61,7 @@ class ShipTrajectoryGUI:
         # This allows three GUI states: Stopped, Running, Paused.
         self.simulation_running = False
         self.simulation_started = False
+        self.simulation_start_time = None
 
         # Initialize camera at the ship start position.
         # This is only used when axis_mode = "follow".
@@ -336,6 +338,11 @@ class ShipTrajectoryGUI:
         """
         Start the simulation for the first time or continue after pausing.
         """
+        if not self.simulation_started:
+            self.simulation_start_time = datetime.now(timezone.utc).replace(
+                microsecond=0
+            )
+
         self.simulation_running = True
         self.simulation_started = True
 
@@ -409,6 +416,7 @@ class ShipTrajectoryGUI:
         trajectory_df = create_simulation_dataframe(
             simulator=self.simulator,
             random_seed=42,
+            start_time=self.simulation_start_time,
         )
 
         output_path = save_trajectory_data(
@@ -427,6 +435,7 @@ class ShipTrajectoryGUI:
         """
         self.simulation_running = False
         self.simulation_started = False
+        self.simulation_start_time = None
 
         self.steering_slider.set(0)
         self.speed_slider.set(self.initial_speed)
