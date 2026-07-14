@@ -2,7 +2,10 @@
 
 import pandas as pd
 
-from ship_trajectory_prediction.trajectory.io import read_ship_data
+from ship_trajectory_prediction.trajectory.io import (
+    read_ship_data,
+    resample_trajectory_data,
+)
 
 
 def test_read_ship_data_filters_run_and_time(tmp_path):
@@ -34,3 +37,45 @@ def test_read_ship_data_filters_run_and_time(tmp_path):
     assert len(result) == 1
     assert result.iloc[0]["gps_speed"] == 1.0
     assert str(result["time"].dt.tz) == "UTC"
+
+
+def test_resample_trajectory_data_uses_separate_ten_second_run_windows():
+    """Resampling should keep one original row per window and per run."""
+    data = pd.DataFrame(
+        {
+            "time": [
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00.050Z",
+                "2026-01-01T00:00:10Z",
+                "2026-01-01T00:00:03Z",
+                "2026-01-01T00:00:03.050Z",
+                "2026-01-01T00:00:13Z",
+            ],
+            "run_id": [1, 1, 1, 2, 2, 2],
+            "value": [0, 1, 2, 3, 4, 5],
+        }
+    )
+
+    result = resample_trajectory_data(data, interval_seconds=10)
+
+    assert result["value"].tolist() == [0, 2, 3, 5]
+    assert result["run_id"].tolist() == [1, 1, 2, 2]
+    assert str(result["time"].dt.tz) == "UTC"
+
+
+def test_resample_trajectory_data_supports_simulation_data_without_run_id():
+    """Simulation data should be resampled even when no run ID is present."""
+    data = pd.DataFrame(
+        {
+            "time": [
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00.050000+00:00",
+                "2026-01-01T00:00:10+00:00",
+            ],
+            "t": [0.0, 0.05, 10.0],
+        }
+    )
+
+    result = resample_trajectory_data(data, interval_seconds=10)
+
+    assert result["t"].tolist() == [0.0, 10.0]
