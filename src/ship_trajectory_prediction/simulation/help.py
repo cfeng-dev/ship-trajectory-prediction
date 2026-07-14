@@ -2,8 +2,14 @@
 
 import tkinter as tk
 from collections.abc import Callable
+from tkinter import ttk
 
-from ship_trajectory_prediction.simulation.controls import create_styled_button
+from ship_trajectory_prediction.simulation.controls import (
+    bind_mouse_wheel_to_canvas,
+    create_styled_button,
+)
+
+HELP_CONTENT_MAX_SCREEN_RATIO = 0.65
 
 
 def _add_description_rows(parent, rows, left_column_width, background_color):
@@ -41,6 +47,69 @@ def _add_description_rows(parent, rows, left_column_width, background_color):
         ).grid(row=row, column=1, sticky="w", pady=2)
 
 
+def _create_scrollable_content(parent, background_color):
+    """Create the scrollable content area inside the help window."""
+    scroll_container = tk.Frame(parent, bg=background_color)
+    scroll_container.pack(fill=tk.BOTH, expand=True)
+
+    canvas = tk.Canvas(
+        scroll_container,
+        bg=background_color,
+        borderwidth=0,
+        highlightthickness=0,
+    )
+    scrollbar = ttk.Scrollbar(
+        scroll_container,
+        orient=tk.VERTICAL,
+        command=canvas.yview,
+    )
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    content_frame = tk.Frame(
+        canvas,
+        bg=background_color,
+        padx=24,
+    )
+    content_window = canvas.create_window(
+        (0, 0),
+        window=content_frame,
+        anchor="nw",
+    )
+
+    content_frame.bind(
+        "<Configure>",
+        lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
+    )
+    canvas.bind(
+        "<Configure>",
+        lambda event: canvas.itemconfigure(content_window, width=event.width),
+    )
+
+    return canvas, content_frame, scrollbar
+
+
+def _fit_scrollable_content_to_screen(help_window, canvas, content, scrollbar):
+    """Limit help content height and hide the scrollbar when it is unnecessary."""
+    help_window.update_idletasks()
+
+    content_height = content.winfo_reqheight()
+    maximum_height = max(
+        240,
+        int(help_window.winfo_screenheight() * HELP_CONTENT_MAX_SCREEN_RATIO),
+    )
+
+    canvas.configure(
+        width=content.winfo_reqwidth(),
+        height=min(content_height, maximum_height),
+    )
+
+    if content_height <= maximum_height:
+        scrollbar.pack_forget()
+
+
 def show_help_window(
     root,
     app_background_color,
@@ -68,28 +137,31 @@ def show_help_window(
     help_window.transient(root)
     help_window.grab_set()
 
-    main_frame = tk.Frame(
-        help_window,
-        padx=24,
-        pady=18,
-        bg=app_background_color,
-    )
+    main_frame = tk.Frame(help_window, bg=app_background_color)
     main_frame.pack(fill=tk.BOTH, expand=True)
 
+    header_frame = tk.Frame(main_frame, bg=app_background_color)
+    header_frame.pack(fill=tk.X, padx=24, pady=(18, 12))
+
     tk.Label(
-        main_frame,
+        header_frame,
         text="Simulation Controls",
         font=("Arial", 13, "bold"),
         anchor="w",
         bg=app_background_color,
         fg="black",
-    ).pack(fill=tk.X, pady=(0, 12))
+    ).pack(fill=tk.X)
+
+    help_canvas, help_content_frame, help_scrollbar = _create_scrollable_content(
+        main_frame,
+        app_background_color,
+    )
 
     # ==================================================
     # Keyboard controls
     # ==================================================
     keyboard_frame = tk.LabelFrame(
-        main_frame,
+        help_content_frame,
         text="Keyboard shortcuts",
         padx=12,
         pady=10,
@@ -116,7 +188,7 @@ def show_help_window(
     # Menu controls
     # ==================================================
     menu_frame = tk.LabelFrame(
-        main_frame,
+        help_content_frame,
         text="Menu",
         padx=12,
         pady=10,
@@ -142,7 +214,7 @@ def show_help_window(
     # Button controls
     # ==================================================
     button_frame = tk.LabelFrame(
-        main_frame,
+        help_content_frame,
         text="Buttons",
         padx=12,
         pady=10,
@@ -171,7 +243,7 @@ def show_help_window(
     # Simulation time
     # ==================================================
     simulation_time_frame = tk.LabelFrame(
-        main_frame,
+        help_content_frame,
         text="Simulation Time",
         padx=12,
         pady=10,
@@ -202,12 +274,23 @@ def show_help_window(
         help_window.destroy()
         focus_callback()
 
+    footer_frame = tk.Frame(main_frame, bg=app_background_color)
+    footer_frame.pack(fill=tk.X, padx=24, pady=(16, 18))
+
     create_styled_button(
-        main_frame,
+        footer_frame,
         text="OK",
         width=12,
         command=close_help_window,
     ).pack(anchor="e")
+
+    bind_mouse_wheel_to_canvas(help_content_frame, help_canvas)
+    _fit_scrollable_content_to_screen(
+        help_window,
+        help_canvas,
+        help_content_frame,
+        help_scrollbar,
+    )
 
     # Restore keyboard focus after closing the help window.
     help_window.protocol("WM_DELETE_WINDOW", close_help_window)

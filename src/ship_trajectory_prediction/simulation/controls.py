@@ -121,11 +121,11 @@ def create_control_panel(gui, parent):
     create_coordinate_display_section(gui, control_frame)
     create_status_section(gui, control_frame)
 
-    bind_mouse_wheel_to_panel(control_frame, control_canvas)
+    bind_mouse_wheel_to_canvas(control_frame, control_canvas)
 
 
-def bind_mouse_wheel_to_panel(panel, canvas):
-    """Scroll the control panel when the pointer is over one of its widgets."""
+def bind_mouse_wheel_to_canvas(container, canvas):
+    """Scroll a canvas when the pointer is over its content widgets."""
 
     def scroll_panel(event):
         if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
@@ -136,7 +136,7 @@ def bind_mouse_wheel_to_panel(panel, canvas):
         canvas.yview_scroll(direction, "units")
         return "break"
 
-    widgets = [panel]
+    widgets = [container]
     while widgets:
         widget = widgets.pop()
         widget.bind("<MouseWheel>", scroll_panel, add="+")
