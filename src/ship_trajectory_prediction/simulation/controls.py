@@ -37,10 +37,10 @@ def create_gui_widgets(gui):
     """
     Create the main GUI widgets.
 
-    This function builds the left control panel, the separator, and the
-    right plot panel. The main ShipTrajectoryGUI object is passed in as
-    `gui`, so widget references such as gui.speed_slider can still be used
-    by the main GUI logic.
+    This function builds the left control panel and the right plot panel.
+    The main ShipTrajectoryGUI object is passed in as `gui`, so widget
+    references such as gui.speed_slider can still be used by the main GUI
+    logic.
     """
     # Main content frame below the menu bar.
     content_frame = tk.Frame(
@@ -50,7 +50,6 @@ def create_gui_widgets(gui):
     content_frame.pack(fill=tk.BOTH, expand=True)
 
     create_control_panel(gui, content_frame)
-    create_separator(gui, content_frame)
     create_plot_panel(gui, content_frame)
 
 
@@ -369,18 +368,6 @@ def create_status_value_label(gui, parent):
         bg=gui.control_panel_color,
         fg="black",
     )
-
-
-def create_separator(gui, parent):
-    """
-    Create the vertical separator between control panel and plot area.
-    """
-    separator = tk.Frame(
-        parent,
-        bg=gui.separator_color,
-        width=2,
-    )
-    separator.pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=10)
 
 
 def create_plot_panel(gui, parent):

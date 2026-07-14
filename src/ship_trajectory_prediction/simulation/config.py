@@ -82,7 +82,6 @@ class GUIConfig:
     app_background_color: str = "#eef7fb"
     control_panel_color: str = "#e3eef4"
     plot_panel_color: str = "#f4f9fc"
-    separator_color: str = "#b7cbd6"
     plot_background_color: str = "#eaf6fb"
     trajectory_color: str = "#2a6f97"
     trajectory_linewidth: float = 2.0
