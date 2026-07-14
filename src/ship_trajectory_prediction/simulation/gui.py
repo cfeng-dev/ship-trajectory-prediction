@@ -177,6 +177,9 @@ class ShipTrajectoryGUI:
             keyboard_left_column_width=self.help_keyboard_left_column_width,
             menu_left_column_width=self.help_menu_left_column_width,
             button_left_column_width=self.help_button_left_column_width,
+            simulation_time_left_column_width=(
+                self.help_simulation_time_left_column_width
+            ),
         )
 
     def increase_speed(self, event=None):

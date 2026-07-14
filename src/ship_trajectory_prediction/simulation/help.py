@@ -49,6 +49,7 @@ def show_help_window(
     keyboard_left_column_width,
     menu_left_column_width,
     button_left_column_width,
+    simulation_time_left_column_width,
 ):
     """
     Show a help window with keyboard shortcuts and basic usage.
@@ -163,6 +164,37 @@ def show_help_window(
         parent=button_frame,
         rows=button_descriptions,
         left_column_width=button_left_column_width,
+        background_color=app_background_color,
+    )
+
+    # ==================================================
+    # Simulation time
+    # ==================================================
+    simulation_time_frame = tk.LabelFrame(
+        main_frame,
+        text="Simulation Time",
+        padx=12,
+        pady=10,
+        bg=app_background_color,
+        fg="black",
+    )
+    simulation_time_frame.pack(fill=tk.X, pady=(0, 16))
+
+    simulation_time_descriptions = [
+        (
+            "While paused",
+            "Simulation time stops; exported timestamps contain no pause gap",
+        ),
+        (
+            "CSV timestamps",
+            "UTC start time plus elapsed simulation time",
+        ),
+    ]
+
+    _add_description_rows(
+        parent=simulation_time_frame,
+        rows=simulation_time_descriptions,
+        left_column_width=simulation_time_left_column_width,
         background_color=app_background_color,
     )
 

@@ -162,6 +162,7 @@ class GUIConfig:
     help_keyboard_left_column_width: int = field(init=False)
     help_menu_left_column_width: int = field(init=False)
     help_button_left_column_width: int = field(init=False)
+    help_simulation_time_left_column_width: int = field(init=False)
 
     def __post_init__(self):
         """
@@ -173,3 +174,4 @@ class GUIConfig:
         self.help_keyboard_left_column_width = self.help_description_column_start
         self.help_menu_left_column_width = self.help_description_column_start
         self.help_button_left_column_width = self.help_description_column_start
+        self.help_simulation_time_left_column_width = self.help_description_column_start
