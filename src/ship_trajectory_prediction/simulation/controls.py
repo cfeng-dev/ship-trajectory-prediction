@@ -79,6 +79,7 @@ def create_control_panel(gui, parent):
     create_action_section(gui, control_frame)
     create_steering_section(gui, control_frame)
     create_speed_section(gui, control_frame)
+    create_coordinate_display_section(gui, control_frame)
     create_status_section(gui, control_frame)
 
 
@@ -201,6 +202,34 @@ def create_speed_section(gui, parent):
     )
     gui.speed_slider.set(gui.initial_speed)
     gui.speed_slider.pack(pady=(0, 2))
+
+
+def create_coordinate_display_section(gui, parent):
+    """Create controls for switching between local and GPS coordinates."""
+    display_frame = tk.LabelFrame(
+        parent,
+        text="Coordinate Display",
+        padx=10,
+        pady=6,
+        bg=gui.control_panel_color,
+        fg="black",
+    )
+    display_frame.pack(fill=tk.X, pady=(0, gui.section_spacing))
+
+    gui.coordinate_display_var = tk.StringVar(value=gui.coordinate_display_mode)
+
+    for label, mode in (("Local [m]", "local"), ("GPS [°]", "gps")):
+        tk.Radiobutton(
+            display_frame,
+            text=label,
+            variable=gui.coordinate_display_var,
+            value=mode,
+            command=gui.change_coordinate_display,
+            bg=gui.control_panel_color,
+            fg="black",
+            activebackground=gui.control_panel_color,
+            selectcolor=gui.control_panel_color,
+        ).pack(side=tk.LEFT, expand=True)
 
 
 def create_status_section(gui, parent):

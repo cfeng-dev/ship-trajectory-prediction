@@ -17,6 +17,9 @@ from ship_trajectory_prediction.simulation.io import (
 from ship_trajectory_prediction.simulation.plotting import (
     update_plot as draw_ship_plot,
 )
+from ship_trajectory_prediction.trajectory.coordinates import (
+    local_to_gps_coordinates,
+)
 
 
 class ShipTrajectoryGUI:
@@ -357,6 +360,12 @@ class ShipTrajectoryGUI:
         """
         self.steering_slider.set(0)
 
+    def change_coordinate_display(self):
+        """Switch the position display between local and GPS coordinates."""
+        self.coordinate_display_mode = self.coordinate_display_var.get()
+        self.update_status()
+        self.update_plot()
+
     def save_csv(self):
         """
         Save the simulated trajectory as CSV.
@@ -463,11 +472,23 @@ class ShipTrajectoryGUI:
             text=simulation_text,
             fg=simulation_color,
         )
-        self.position_value_label.config(
-            text=(
+
+        if self.coordinate_display_mode == "gps":
+            longitude, latitude = local_to_gps_coordinates(
+                [self.simulator.x_current],
+                [self.simulator.y_current],
+                reference_longitude=self.reference_longitude,
+                reference_latitude=self.reference_latitude,
+            )
+            position_text = f"lon = {longitude[0]:.6f}°\nlat = {latitude[0]:.6f}°"
+        else:
+            position_text = (
                 f"x = {self.simulator.x_current:.2f} m\n"
                 f"y = {self.simulator.y_current:.2f} m"
             )
+
+        self.position_value_label.config(
+            text=position_text,
         )
         self.heading_value_label.config(text=f"{heading_deg:.1f}°")
         self.omega_value_label.config(text=f"{omega_deg:.1f}°/s")

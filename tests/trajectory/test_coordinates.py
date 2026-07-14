@@ -8,6 +8,7 @@ from ship_trajectory_prediction.trajectory.coordinates import (
     calculate_gps_distances,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
+    local_to_gps_coordinates,
 )
 
 
@@ -42,6 +43,41 @@ def test_meter_and_kilometer_coordinates_are_consistent():
 
     np.testing.assert_allclose(x_meters, x_kilometers * 1000)
     np.testing.assert_allclose(y_meters, y_kilometers * 1000)
+
+
+def test_local_coordinates_convert_back_to_gps():
+    """Converting GPS coordinates to local meters and back should be reversible."""
+    longitude = np.array([8.3122, 8.3132])
+    latitude = np.array([47.0515, 47.0525])
+
+    x_coordinates, y_coordinates = gps_to_local_coordinates(
+        longitude,
+        latitude,
+        unit="m",
+    )
+    converted_longitude, converted_latitude = local_to_gps_coordinates(
+        x_coordinates,
+        y_coordinates,
+        reference_longitude=longitude[0],
+        reference_latitude=latitude[0],
+        unit="m",
+    )
+
+    np.testing.assert_allclose(converted_longitude, longitude)
+    np.testing.assert_allclose(converted_latitude, latitude)
+
+
+def test_local_origin_maps_to_reference_gps_position():
+    """The local origin should represent the configured GPS reference point."""
+    longitude, latitude = local_to_gps_coordinates(
+        [0.0],
+        [0.0],
+        reference_longitude=8.3122,
+        reference_latitude=47.0515,
+    )
+
+    assert longitude[0] == pytest.approx(8.3122)
+    assert latitude[0] == pytest.approx(47.0515)
 
 
 def test_identical_positions_have_zero_distance():

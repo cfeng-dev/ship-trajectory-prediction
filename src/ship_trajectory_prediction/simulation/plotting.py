@@ -4,6 +4,11 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
+from matplotlib.ticker import FuncFormatter
+
+from ship_trajectory_prediction.trajectory.coordinates import (
+    local_to_gps_coordinates,
+)
 
 
 def get_auto_tick_step(axis_range):
@@ -306,6 +311,37 @@ def update_axis_limits(gui):
     )
 
 
+def configure_coordinate_display(gui):
+    """Format metric plot coordinates as local distances or GPS positions."""
+    if gui.coordinate_display_mode == "gps":
+
+        def format_longitude(x_coordinate, _position):
+            longitude, _ = local_to_gps_coordinates(
+                [x_coordinate],
+                [0.0],
+                reference_longitude=gui.reference_longitude,
+                reference_latitude=gui.reference_latitude,
+            )
+            return f"{longitude[0]:.5f}"
+
+        def format_latitude(y_coordinate, _position):
+            _, latitude = local_to_gps_coordinates(
+                [0.0],
+                [y_coordinate],
+                reference_longitude=gui.reference_longitude,
+                reference_latitude=gui.reference_latitude,
+            )
+            return f"{latitude[0]:.5f}"
+
+        gui.ax.xaxis.set_major_formatter(FuncFormatter(format_longitude))
+        gui.ax.yaxis.set_major_formatter(FuncFormatter(format_latitude))
+        gui.ax.set_xlabel("Longitude [°]")
+        gui.ax.set_ylabel("Latitude [°]")
+    else:
+        gui.ax.set_xlabel("x [m]")
+        gui.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
+
+
 def update_plot(gui):
     """
     Update the trajectory plot.
@@ -343,8 +379,6 @@ def update_plot(gui):
         # Show the simulated ship center.
         add_ship_center_marker(gui)
 
-    gui.ax.set_xlabel("x [m]")
-    gui.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
     gui.ax.set_title("Ship Trajectory Simulation")
 
     # Keep 1 meter on x-axis equal to 1 meter on y-axis.
@@ -359,6 +393,7 @@ def update_plot(gui):
 
     # Update axis range and ticks depending on axis_mode.
     update_axis_limits(gui)
+    configure_coordinate_display(gui)
 
     if gui.simulator.has_data():
         update_legend(gui)

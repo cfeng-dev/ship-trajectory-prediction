@@ -104,6 +104,14 @@ class GUIConfig:
     # "follow" = smoothly follow the current ship position
     axis_mode: str = "auto"
 
+    # Coordinate representation shown in the plot and status panel.
+    # The simulation itself always uses local coordinates in meters.
+    coordinate_display_mode: str = "local"
+
+    # GPS position represented by the local simulation origin (0, 0).
+    reference_longitude: float = 8.312259928385417
+    reference_latitude: float = 47.05150553385417
+
     auto_axis_margin: int = 15
     view_width: int = 100
     view_height: int = 100
