@@ -420,6 +420,8 @@ class ShipTrajectoryGUI:
             simulator=self.simulator,
             random_seed=42,
             start_time=self.simulation_start_time,
+            reference_longitude=self.reference_longitude,
+            reference_latitude=self.reference_latitude,
         )
 
         output_path = save_trajectory_data(

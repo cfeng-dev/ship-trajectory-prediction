@@ -101,7 +101,7 @@ class ShipSimulator:
     """
     Step-based simulator for a simple 2D ship trajectory.
 
-    The ship state is updated using a constant speed and a steering-based
+    The ship state is updated using its current speed and a steering-based
     angular velocity.
     """
 
@@ -117,7 +117,7 @@ class ShipSimulator:
         Parameters
         ----------
         v : float
-            Constant ship speed.
+            Initial ship speed.
         sigma : float
             Observation noise standard deviation.
         dt : float
@@ -144,6 +144,7 @@ class ShipSimulator:
         self.theta_all = []
         self.omega_all = []
         self.radius_all = []
+        self.v_all = []
         self.motor_state_all = []
 
     def step(self, omega, motor_running):
@@ -166,6 +167,7 @@ class ShipSimulator:
         self.y_all.append(self.y_current)
         self.theta_all.append(self.theta_current)
         self.omega_all.append(omega)
+        self.v_all.append(self.v)
         self.motor_state_all.append(motor_running)
 
         # Turning radius R = v / omega.

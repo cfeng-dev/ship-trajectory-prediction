@@ -6,6 +6,11 @@ import numpy as np
 import pandas as pd
 
 from ship_trajectory_prediction.simulation.core import add_observation_noise
+from ship_trajectory_prediction.trajectory.coordinates import (
+    local_to_gps_coordinates,
+)
+
+METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -14,7 +19,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data" / "simulated"
 
 
-def create_simulation_dataframe(simulator, random_seed=42, start_time=None):
+def create_simulation_dataframe(
+    simulator,
+    random_seed=42,
+    start_time=None,
+    *,
+    reference_longitude,
+    reference_latitude,
+):
     """
     Create a DataFrame from a completed ship simulation.
 
@@ -27,15 +39,19 @@ def create_simulation_dataframe(simulator, random_seed=42, start_time=None):
     start_time : datetime-like or None, optional
         UTC time corresponding to ``t = 0``. The current UTC time is used if
         no start time is provided.
+    reference_longitude, reference_latitude : float
+        GPS coordinates represented by the local simulation origin ``(0, 0)``.
 
     Returns
     -------
     trajectory_df : pd.DataFrame
-        Simulated trajectory data including true and noisy observations.
+        Simulated trajectory data including true positions, noisy GPS-like
+        observations, GPS speed in km/h, and simulated speed in m/s.
     """
     x_true = np.array(simulator.x_all)
     y_true = np.array(simulator.y_all)
     elapsed_time = np.array(simulator.t_all)
+    speed_mps = np.array(simulator.v_all)
 
     if start_time is None:
         start_timestamp = pd.Timestamp.now(tz="UTC").floor("s")
@@ -55,9 +71,23 @@ def create_simulation_dataframe(simulator, random_seed=42, start_time=None):
         random_seed=random_seed,
     )
 
+    if len(x_obs) == 0:
+        gps_longitude = np.array([])
+        gps_latitude = np.array([])
+    else:
+        gps_longitude, gps_latitude = local_to_gps_coordinates(
+            x_obs,
+            y_obs,
+            reference_longitude=reference_longitude,
+            reference_latitude=reference_latitude,
+        )
+
     trajectory_df = pd.DataFrame(
         {
             "time": timestamps,
+            "gps_latitude": gps_latitude,
+            "gps_longitude": gps_longitude,
+            "gps_speed": (speed_mps * METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR),
             "t": elapsed_time,
             "x_true": x_true,
             "y_true": y_true,
@@ -66,7 +96,7 @@ def create_simulation_dataframe(simulator, random_seed=42, start_time=None):
             "theta": np.array(simulator.theta_all),
             "omega": np.array(simulator.omega_all),
             "radius": np.array(simulator.radius_all),
-            "v": simulator.v,
+            "v": speed_mps,
             "sigma": simulator.sigma,
             "simulation_running": np.array(simulator.motor_state_all),
         }
@@ -103,8 +133,15 @@ def save_trajectory_data(df, filename):
     else:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Save CSV without index and round floating-point values to three decimal places.
-    df.to_csv(output_path, index=False, float_format="%.3f")
+    export_data = df.copy()
+    for coordinate_column in ("gps_latitude", "gps_longitude"):
+        if coordinate_column in export_data.columns:
+            export_data[coordinate_column] = export_data[coordinate_column].map(
+                lambda value: f"{value:.8f}"
+            )
+
+    # Keep GPS precision while rounding other floating-point values to three decimals.
+    export_data.to_csv(output_path, index=False, float_format="%.3f")
 
     print(f"Saved simulated data to: {output_path}")
 

@@ -3,6 +3,7 @@
 import numpy as np
 
 from ship_trajectory_prediction.simulation.core import (
+    ShipSimulator,
     simulate_straight_trajectory,
 )
 
@@ -21,3 +22,14 @@ def test_straight_trajectory_moves_in_heading_direction():
 
     np.testing.assert_allclose(x_position, [0.0, 2.0, 4.0])
     np.testing.assert_allclose(y_position, [0.0, 0.0, 0.0], atol=1e-12)
+
+
+def test_simulator_stores_speed_for_each_step():
+    """Stored speed should reflect speed changes during a simulation."""
+    simulator = ShipSimulator(v=2.0)
+
+    simulator.step(omega=0.0, motor_running=True)
+    simulator.v = 3.0
+    simulator.step(omega=0.0, motor_running=True)
+
+    assert simulator.v_all == [2.0, 3.0]
