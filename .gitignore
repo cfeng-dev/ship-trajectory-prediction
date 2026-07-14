@@ -29,8 +29,10 @@ src/*.egg-info/
 # Windows
 Thumbs.db
 
-# Ignore all datasets
+# Ignore datasets by default
 data/**
 
-# Keep documentation
+# Keep documentation and simulated example data
 !data/README.md
+!data/simulated/
+!data/simulated/**
