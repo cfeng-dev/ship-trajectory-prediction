@@ -25,6 +25,24 @@ from ship_trajectory_prediction.trajectory.coordinates import (
 )
 
 
+def _parse_gps_start_position(latitude_text, longitude_text):
+    """Parse and validate a user-provided GPS start position."""
+    try:
+        latitude = float(latitude_text)
+        longitude = float(longitude_text)
+    except ValueError as error:
+        raise ValueError("Latitude and longitude must be numeric values.") from error
+
+    if not np.isfinite(latitude) or not np.isfinite(longitude):
+        raise ValueError("Latitude and longitude must be finite values.")
+    if not -90 < latitude < 90:
+        raise ValueError("Latitude must be greater than -90° and less than 90°.")
+    if not -180 <= longitude <= 180:
+        raise ValueError("Longitude must be between -180° and 180°.")
+
+    return latitude, longitude
+
+
 class ShipTrajectoryGUI:
     """
     GUI for interactively steering a 2D ship trajectory.
@@ -334,6 +352,15 @@ class ShipTrajectoryGUI:
         else:
             self.simulation_button.config(text="Start Simulation")
 
+        self.update_gps_start_position_controls()
+
+    def update_gps_start_position_controls(self):
+        """Lock the GPS origin while a simulation run is active."""
+        gps_input_state = tk.DISABLED if self.simulation_started else tk.NORMAL
+        self.gps_latitude_entry.config(state=gps_input_state)
+        self.gps_longitude_entry.config(state=gps_input_state)
+        self.gps_position_apply_button.config(state=gps_input_state)
+
     def toggle_simulation(self):
         """
         Start, pause, or continue the simulation.
@@ -348,6 +375,9 @@ class ShipTrajectoryGUI:
         Start the simulation for the first time or continue after pausing.
         """
         if not self.simulation_started:
+            if not self.apply_gps_start_position(show_confirmation=False):
+                return
+
             self.simulation_start_time = datetime.now(timezone.utc).replace(
                 microsecond=0
             )
@@ -381,6 +411,45 @@ class ShipTrajectoryGUI:
         self.coordinate_display_mode = self.coordinate_display_var.get()
         self.update_status()
         self.update_plot()
+
+    def apply_gps_start_position(self, show_confirmation=True):
+        """Validate and apply the GPS position of the local simulation origin."""
+        if self.simulation_started:
+            messagebox.showwarning(
+                "GPS Position Locked",
+                "Reset the simulation before changing the GPS start position.",
+            )
+            return False
+
+        try:
+            latitude, longitude = _parse_gps_start_position(
+                self.gps_latitude_var.get(),
+                self.gps_longitude_var.get(),
+            )
+        except ValueError as error:
+            messagebox.showerror(
+                "Invalid GPS Position",
+                str(error),
+            )
+            return False
+
+        self.reference_latitude = latitude
+        self.reference_longitude = longitude
+        self.gps_latitude_var.set(f"{latitude:.8f}")
+        self.gps_longitude_var.set(f"{longitude:.8f}")
+
+        self.update_status()
+        self.update_plot()
+
+        if show_confirmation:
+            messagebox.showinfo(
+                "GPS Position Applied",
+                "The local origin now represents:\n\n"
+                f"Latitude: {latitude:.4f}°\n"
+                f"Longitude: {longitude:.4f}°",
+            )
+
+        return True
 
     def save_csv(self):
         """

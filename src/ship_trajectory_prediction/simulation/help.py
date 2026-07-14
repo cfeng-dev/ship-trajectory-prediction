@@ -228,8 +228,12 @@ def show_help_window(
         ("Pause Simulation", "Pause the simulation without clearing data"),
         ("Continue Simulation", "Continue a paused simulation"),
         ("Save CSV", "Pause simulation and save trajectory data"),
-        ("Reset", "Stop simulation and clear trajectory"),
+        ("Reset", "Clear trajectory and unlock the GPS start position"),
         ("Center Steering", "Reset steering to 0 °/s"),
+        (
+            "Apply GPS Position",
+            "Use the entered latitude and longitude as the local origin",
+        ),
     ]
 
     _add_description_rows(
