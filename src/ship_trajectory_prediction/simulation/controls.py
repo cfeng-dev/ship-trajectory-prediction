@@ -310,7 +310,6 @@ def create_status_section(gui, parent):
     # This avoids cutting off long numbers when the position grows.
     gui.simulation_value_label = create_status_value_label(gui, status_frame)
     gui.position_value_label = create_status_value_label(gui, status_frame)
-    gui.position_value_label.configure(font=gui.status_position_font)
     gui.heading_value_label = create_status_value_label(gui, status_frame)
     gui.omega_value_label = create_status_value_label(gui, status_frame)
     gui.speed_value_label = create_status_value_label(gui, status_frame)

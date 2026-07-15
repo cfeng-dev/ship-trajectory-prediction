@@ -145,8 +145,7 @@ class GUIConfig:
     # Status display font and spacing
     # ==================================================
     status_label_font: tuple[str, int, str] = ("Arial", 9, "bold")
-    status_value_font: tuple[str, int] = ("Arial", 9)
-    status_position_font: tuple[str, int] = ("Courier", 9)
+    status_value_font: str = "TkFixedFont"
     status_row_padding_y: int = 1
 
     # Equal vertical spacing between control panel sections.
