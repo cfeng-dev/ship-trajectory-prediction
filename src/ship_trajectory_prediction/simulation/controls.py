@@ -126,7 +126,7 @@ def create_control_panel(gui, parent):
 def bind_mouse_wheel_to_canvas(container, canvas):
     """Scroll a canvas when the pointer is over its content widgets."""
 
-    def scroll_panel(event):
+    def scroll_panel_with_wheel(event):
         if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
             direction = -1
         else:
@@ -135,12 +135,39 @@ def bind_mouse_wheel_to_canvas(container, canvas):
         canvas.yview_scroll(direction, "units")
         return "break"
 
+    def scroll_panel_with_touchpad(event):
+        _delta_x, delta_y = canvas.tk.call(
+            "tk::PreciseScrollDeltas",
+            event.delta,
+        )
+        delta_y = float(delta_y)
+        scroll_region = canvas.bbox("all")
+
+        if delta_y == 0 or scroll_region is None:
+            return "break"
+
+        content_height = scroll_region[3] - scroll_region[1]
+        first, last = canvas.yview()
+
+        if content_height <= 0 or last - first >= 1:
+            return "break"
+
+        max_first = 1 - (last - first)
+        new_first = min(max(first - delta_y / content_height, 0), max_first)
+        canvas.yview_moveto(new_first)
+        return "break"
+
     widgets = [container]
     while widgets:
         widget = widgets.pop()
-        widget.bind("<MouseWheel>", scroll_panel, add="+")
-        widget.bind("<Button-4>", scroll_panel, add="+")
-        widget.bind("<Button-5>", scroll_panel, add="+")
+        widget.bind("<MouseWheel>", scroll_panel_with_wheel, add="+")
+        widget.bind("<Button-4>", scroll_panel_with_wheel, add="+")
+        widget.bind("<Button-5>", scroll_panel_with_wheel, add="+")
+        try:
+            widget.bind("<TouchpadScroll>", scroll_panel_with_touchpad, add="+")
+        except tk.TclError:
+            # TouchpadScroll was added in Tk 9.
+            pass
         widgets.extend(widget.winfo_children())
 
 
