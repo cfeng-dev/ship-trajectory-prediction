@@ -203,10 +203,14 @@ def show_help_window(
         ("File → Save CSV", "Pause simulation and save trajectory data"),
         ("File → Exit", "Close the application"),
         ("View", "Choose local meters, local kilometers, or GPS display"),
-        ("View → Toggle Full Screen", "Enter or leave full-screen mode"),
         ("Settings", "Configure the GPS start position before a run"),
         ("Help → Show Help", "Open this help window"),
     ]
+    if root.tk.call("tk", "windowingsystem") != "aqua":
+        menu_descriptions.insert(
+            3,
+            ("View → Toggle Full Screen", "Enter or leave full-screen mode"),
+        )
 
     _add_description_rows(
         parent=menu_frame,

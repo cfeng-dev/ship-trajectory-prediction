@@ -172,12 +172,13 @@ class ShipTrajectoryGUI:
                 value=mode,
                 command=self.change_coordinate_display,
             )
-        view_menu.add_separator()
-        view_menu.add_command(
-            label="Toggle Full Screen",
-            accelerator="F11",
-            command=self.toggle_fullscreen,
-        )
+        if self.root.tk.call("tk", "windowingsystem") != "aqua":
+            view_menu.add_separator()
+            view_menu.add_command(
+                label="Toggle Full Screen",
+                accelerator="F11",
+                command=self.toggle_fullscreen,
+            )
         menu_bar.add_cascade(label="View", menu=view_menu)
 
         # ==================================================
