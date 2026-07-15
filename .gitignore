@@ -35,4 +35,4 @@ data/**
 # Keep documentation and simulated example data
 !data/README.md
 !data/simulated/
-!data/simulated/**
+!data/simulated/example_simulated_trajectory.csv
