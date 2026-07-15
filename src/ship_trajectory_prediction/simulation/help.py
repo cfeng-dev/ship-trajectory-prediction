@@ -132,9 +132,9 @@ def show_help_window(
     help_window.resizable(False, False)
     help_window.configure(bg=app_background_color)
 
-    # Keep the help window above the main window.
+    # Keep the help window associated with the main window without making it
+    # modal, so the main application can still be closed while help is open.
     help_window.transient(root)
-    help_window.grab_set()
 
     main_frame = tk.Frame(help_window, bg=app_background_color)
     main_frame.pack(fill=tk.BOTH, expand=True)
