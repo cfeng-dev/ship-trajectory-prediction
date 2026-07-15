@@ -173,8 +173,6 @@ def show_help_window(
         ("↑ / ↓", "Increase / decrease speed"),
         ("← / →", "Steer left / right"),
         ("Space", "Start / pause / continue simulation"),
-        ("F11", "Toggle full-screen mode"),
-        ("Ctrl + Cmd + F", "Toggle full-screen mode on macOS"),
         ("Esc", "Exit full-screen mode"),
         ("Ctrl + S", "Save trajectory data as CSV"),
     ]

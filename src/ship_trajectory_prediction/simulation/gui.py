@@ -176,7 +176,6 @@ class ShipTrajectoryGUI:
             view_menu.add_separator()
             view_menu.add_command(
                 label="Toggle Full Screen",
-                accelerator="F11",
                 command=self.toggle_fullscreen,
             )
         menu_bar.add_cascade(label="View", menu=view_menu)
@@ -219,8 +218,6 @@ class ShipTrajectoryGUI:
         self.root.bind("<Left>", self.steer_left)
         self.root.bind("<Right>", self.steer_right)
         self.root.bind("<space>", self.toggle_simulation_with_keyboard)
-        self.root.bind("<F11>", self.toggle_fullscreen)
-        self.root.bind("<Control-Command-f>", self.toggle_fullscreen)
         self.root.bind("<Escape>", self.exit_fullscreen)
 
         # Save CSV with Ctrl + S.
