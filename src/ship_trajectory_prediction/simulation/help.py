@@ -128,6 +128,7 @@ def show_help_window(
     pause_callback()
 
     help_window = tk.Toplevel(root)
+    help_window.withdraw()
     help_window.title("Help")
     help_window.resizable(False, False)
     help_window.configure(bg=app_background_color)
@@ -313,3 +314,9 @@ def show_help_window(
 
     # Restore keyboard focus after closing the help window.
     help_window.protocol("WM_DELETE_WINDOW", close_help_window)
+
+    # Show the window only after its final layout has been calculated to avoid
+    # a visible resize immediately after opening.
+    help_window.update_idletasks()
+    help_window.deiconify()
+    help_window.focus_set()
