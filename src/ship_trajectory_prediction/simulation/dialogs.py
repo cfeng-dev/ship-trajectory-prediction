@@ -38,6 +38,7 @@ def show_gps_start_position_dialog(gui):
         messagebox.showwarning(
             "GPS Position Locked",
             "Reset the simulation before changing the GPS start position.",
+            parent=gui.root,
         )
         return
 
@@ -174,6 +175,14 @@ def apply_gps_start_position(gui, latitude_text, longitude_text, parent=None):
 
     gui.update_status()
     gui.update_plot()
+
+    messagebox.showinfo(
+        "GPS Position Updated",
+        "GPS start position updated successfully.\n\n"
+        f"Latitude: {latitude:.8f}°\n"
+        f"Longitude: {longitude:.8f}°",
+        parent=parent,
+    )
 
     return True
 

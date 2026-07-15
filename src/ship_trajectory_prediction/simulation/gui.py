@@ -1,6 +1,5 @@
 """Interactive GUI for steering, controlling, and exporting a 2D simulation."""
 
-import tkinter as tk
 from datetime import datetime, timezone
 
 import numpy as np
@@ -319,16 +318,6 @@ class ShipTrajectoryGUI:
             self.simulation_button.config(text="Continue Simulation")
         else:
             self.simulation_button.config(text="Start Simulation")
-
-        self.update_gps_start_position_menu()
-
-    def update_gps_start_position_menu(self):
-        """Lock the GPS origin setting while a simulation run is active."""
-        menu_state = tk.DISABLED if self.simulation_started else tk.NORMAL
-        self.settings_menu.entryconfig(
-            self.gps_position_menu_index,
-            state=menu_state,
-        )
 
     def toggle_simulation(self):
         """
