@@ -11,10 +11,6 @@ from ship_trajectory_prediction.simulation.controls import (
 )
 from ship_trajectory_prediction.simulation.controls import (
     create_gui_widgets,
-    update_status_display,
-)
-from ship_trajectory_prediction.simulation.controls import (
-    create_menu_bar as build_menu_bar,
 )
 from ship_trajectory_prediction.simulation.core import ShipSimulator
 from ship_trajectory_prediction.simulation.dialogs import (
@@ -29,6 +25,12 @@ from ship_trajectory_prediction.simulation.dialogs import (
 from ship_trajectory_prediction.simulation.help import show_help_window
 from ship_trajectory_prediction.simulation.plotting import (
     update_plot as draw_ship_plot,
+)
+from ship_trajectory_prediction.simulation.view import (
+    create_menu_bar as build_menu_bar,
+)
+from ship_trajectory_prediction.simulation.view import (
+    update_status_display,
 )
 
 

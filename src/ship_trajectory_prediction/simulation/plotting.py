@@ -1,6 +1,10 @@
 """Plotting utilities for the interactive ship trajectory GUI."""
 
+import tkinter as tk
+
 import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
@@ -10,6 +14,36 @@ from ship_trajectory_prediction.trajectory.coordinates import (
     METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )
+
+
+def create_plot_panel(gui, parent):
+    """Create the right plot panel and Matplotlib canvas."""
+    plot_frame = tk.Frame(
+        parent,
+        bg=gui.plot_panel_color,
+        padx=10,
+        pady=10,
+    )
+    plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=10)
+
+    gui.figure = Figure(
+        figsize=(gui.figure_width, gui.figure_height),
+        facecolor=gui.figure_background_color,
+    )
+    gui.figure.patch.set_facecolor(gui.figure_background_color)
+
+    gui.ax = gui.figure.add_subplot(111)
+    gui.ax.set_facecolor(gui.plot_background_color)
+
+    gui.canvas = FigureCanvasTkAgg(gui.figure, master=plot_frame)
+
+    canvas_widget = gui.canvas.get_tk_widget()
+    canvas_widget.configure(
+        bg=gui.plot_panel_color,
+        highlightbackground=gui.plot_panel_color,
+        highlightthickness=0,
+    )
+    canvas_widget.pack(fill=tk.BOTH, expand=True)
 
 
 def get_auto_tick_step(axis_range):
