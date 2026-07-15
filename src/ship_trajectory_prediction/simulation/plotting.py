@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 
 from ship_trajectory_prediction.trajectory.coordinates import (
     METERS_PER_KILOMETER,
@@ -334,6 +334,7 @@ def configure_coordinate_display(gui):
             )
             return f"{latitude[0]:.4f}"
 
+        gui.ax.xaxis.set_major_locator(MaxNLocator(nbins=8))
         gui.ax.xaxis.set_major_formatter(FuncFormatter(format_longitude))
         gui.ax.yaxis.set_major_formatter(FuncFormatter(format_latitude))
         gui.ax.set_xlabel("Longitude [°]")
