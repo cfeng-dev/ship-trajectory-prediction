@@ -488,6 +488,9 @@ class ShipTrajectoryGUI:
             insertbackground="black",
             selectbackground="#007aff",
             selectforeground="white",
+            relief=tk.SOLID,
+            borderwidth=1,
+            highlightthickness=0,
         )
         latitude_entry.grid(row=0, column=1, sticky="ew", pady=4)
 
@@ -508,6 +511,9 @@ class ShipTrajectoryGUI:
             insertbackground="black",
             selectbackground="#007aff",
             selectforeground="white",
+            relief=tk.SOLID,
+            borderwidth=1,
+            highlightthickness=0,
         )
         longitude_entry.grid(row=1, column=1, sticky="ew", pady=4)
 
