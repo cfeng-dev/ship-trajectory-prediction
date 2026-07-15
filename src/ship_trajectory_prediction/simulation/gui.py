@@ -483,6 +483,11 @@ class ShipTrajectoryGUI:
             textvariable=latitude_var,
             width=20,
             justify=tk.RIGHT,
+            bg="white",
+            fg="black",
+            insertbackground="black",
+            selectbackground="#007aff",
+            selectforeground="white",
         )
         latitude_entry.grid(row=0, column=1, sticky="ew", pady=4)
 
@@ -498,6 +503,11 @@ class ShipTrajectoryGUI:
             textvariable=longitude_var,
             width=20,
             justify=tk.RIGHT,
+            bg="white",
+            fg="black",
+            insertbackground="black",
+            selectbackground="#007aff",
+            selectforeground="white",
         )
         longitude_entry.grid(row=1, column=1, sticky="ew", pady=4)
 
