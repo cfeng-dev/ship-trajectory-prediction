@@ -158,7 +158,7 @@ class ShipTrajectoryGUI:
         # ==================================================
         # View menu
         # ==================================================
-        view_menu = tk.Menu(menu_bar, tearoff=0)
+        self.view_menu = tk.Menu(menu_bar, tearoff=0)
         self.coordinate_display_var = tk.StringVar(value=self.coordinate_display_mode)
         coordinate_display_modes = (
             ("Local [m]", "local"),
@@ -166,19 +166,21 @@ class ShipTrajectoryGUI:
             ("GPS [°]", "gps"),
         )
         for label, mode in coordinate_display_modes:
-            view_menu.add_radiobutton(
+            self.view_menu.add_radiobutton(
                 label=label,
                 variable=self.coordinate_display_var,
                 value=mode,
                 command=self.change_coordinate_display,
             )
+        self.fullscreen_menu_index = None
         if self.root.tk.call("tk", "windowingsystem") != "aqua":
-            view_menu.add_separator()
-            view_menu.add_command(
-                label="Toggle Full Screen",
+            self.view_menu.add_separator()
+            self.view_menu.add_command(
+                label="Enter Full Screen",
                 command=self.toggle_fullscreen,
             )
-        menu_bar.add_cascade(label="View", menu=view_menu)
+            self.fullscreen_menu_index = self.view_menu.index("end")
+        menu_bar.add_cascade(label="View", menu=self.view_menu)
 
         # ==================================================
         # Settings menu
@@ -314,14 +316,25 @@ class ShipTrajectoryGUI:
 
     def exit_fullscreen(self, event=None):
         """Leave full-screen mode when Escape is pressed."""
-        self.root.attributes("-fullscreen", False)
+        self.set_fullscreen(False)
         return "break"
 
     def toggle_fullscreen(self, event=None):
         """Toggle full-screen mode from the keyboard or View menu."""
         is_fullscreen = bool(self.root.attributes("-fullscreen"))
-        self.root.attributes("-fullscreen", not is_fullscreen)
+        self.set_fullscreen(not is_fullscreen)
         return "break"
+
+    def set_fullscreen(self, is_fullscreen):
+        """Set full-screen mode and update the corresponding menu label."""
+        self.root.attributes("-fullscreen", is_fullscreen)
+
+        if self.fullscreen_menu_index is not None:
+            menu_label = "Exit Full Screen" if is_fullscreen else "Enter Full Screen"
+            self.view_menu.entryconfigure(
+                self.fullscreen_menu_index,
+                label=menu_label,
+            )
 
     def get_omega_from_steering(self):
         """

@@ -207,7 +207,7 @@ def show_help_window(
     if root.tk.call("tk", "windowingsystem") != "aqua":
         menu_descriptions.insert(
             3,
-            ("View → Toggle Full Screen", "Enter or leave full-screen mode"),
+            ("View → Full Screen", "Enter or leave full-screen mode"),
         )
 
     _add_description_rows(
