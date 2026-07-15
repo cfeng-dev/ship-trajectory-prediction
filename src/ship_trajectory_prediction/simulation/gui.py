@@ -212,6 +212,7 @@ class ShipTrajectoryGUI:
         self.root.bind("<Left>", self.steer_left)
         self.root.bind("<Right>", self.steer_right)
         self.root.bind("<space>", self.toggle_simulation_with_keyboard)
+        self.root.bind("<Escape>", self.exit_fullscreen)
 
         # Save CSV with Ctrl + S.
         self.root.bind("<Control-s>", self.save_csv_with_keyboard)
@@ -303,6 +304,11 @@ class ShipTrajectoryGUI:
         self.save_csv()
 
         # Prevent other default Ctrl + S behavior.
+        return "break"
+
+    def exit_fullscreen(self, event=None):
+        """Leave full-screen mode when Escape is pressed."""
+        self.root.attributes("-fullscreen", False)
         return "break"
 
     def get_omega_from_steering(self):
