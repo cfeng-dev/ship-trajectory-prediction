@@ -2,7 +2,6 @@
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import ttk
 
 from ship_trajectory_prediction.simulation.controls import (
     bind_mouse_wheel_to_canvas,
@@ -58,7 +57,7 @@ def _create_scrollable_content(parent, background_color):
         borderwidth=0,
         highlightthickness=0,
     )
-    scrollbar = ttk.Scrollbar(
+    scrollbar = tk.Scrollbar(
         scroll_container,
         orient=tk.VERTICAL,
         command=canvas.yview,
