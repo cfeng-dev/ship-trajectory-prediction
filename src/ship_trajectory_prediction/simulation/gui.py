@@ -2,48 +2,34 @@
 
 import tkinter as tk
 from datetime import datetime, timezone
-from pathlib import Path
-from tkinter import filedialog, messagebox
 
 import numpy as np
 
 from ship_trajectory_prediction.simulation.config import GUIConfig
 from ship_trajectory_prediction.simulation.controls import (
+    bind_keyboard_controls as bind_gui_keyboard_controls,
+)
+from ship_trajectory_prediction.simulation.controls import (
     create_gui_widgets,
-    create_styled_button,
+    update_status_display,
+)
+from ship_trajectory_prediction.simulation.controls import (
+    create_menu_bar as build_menu_bar,
 )
 from ship_trajectory_prediction.simulation.core import ShipSimulator
-from ship_trajectory_prediction.simulation.help import show_help_window
-from ship_trajectory_prediction.simulation.io import (
-    DATA_DIR,
-    create_simulation_dataframe,
-    save_trajectory_data,
+from ship_trajectory_prediction.simulation.dialogs import (
+    apply_gps_start_position as apply_gps_position,
 )
+from ship_trajectory_prediction.simulation.dialogs import (
+    save_csv as save_trajectory_csv,
+)
+from ship_trajectory_prediction.simulation.dialogs import (
+    show_gps_start_position_dialog as open_gps_start_position_dialog,
+)
+from ship_trajectory_prediction.simulation.help import show_help_window
 from ship_trajectory_prediction.simulation.plotting import (
     update_plot as draw_ship_plot,
 )
-from ship_trajectory_prediction.trajectory.coordinates import (
-    METERS_PER_KILOMETER,
-    local_to_gps_coordinates,
-)
-
-
-def _parse_gps_start_position(latitude_text, longitude_text):
-    """Parse and validate a user-provided GPS start position."""
-    try:
-        latitude = float(latitude_text)
-        longitude = float(longitude_text)
-    except ValueError as error:
-        raise ValueError("Latitude and longitude must be numeric values.") from error
-
-    if not np.isfinite(latitude) or not np.isfinite(longitude):
-        raise ValueError("Latitude and longitude must be finite values.")
-    if not -90 < latitude < 90:
-        raise ValueError("Latitude must be greater than -90° and less than 90°.")
-    if not -180 <= longitude <= 180:
-        raise ValueError("Longitude must be between -180° and 180°.")
-
-    return latitude, longitude
 
 
 class ShipTrajectoryGUI:
@@ -134,76 +120,8 @@ class ShipTrajectoryGUI:
         self.root.geometry(f"{self.window_width}x{self.window_height}+{x}+{y}")
 
     def create_menu_bar(self):
-        """
-        Create the desktop-style application menu bar.
-        """
-        menu_bar = tk.Menu(self.root)
-
-        # ==================================================
-        # File menu
-        # ==================================================
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(
-            label="Save CSV",
-            accelerator="Ctrl+S",
-            command=self.save_csv,
-        )
-        file_menu.add_separator()
-        file_menu.add_command(
-            label="Exit",
-            command=self.root.destroy,
-        )
-        menu_bar.add_cascade(label="File", menu=file_menu)
-
-        # ==================================================
-        # View menu
-        # ==================================================
-        self.view_menu = tk.Menu(menu_bar, tearoff=0)
-        self.coordinate_display_var = tk.StringVar(value=self.coordinate_display_mode)
-        coordinate_display_modes = (
-            ("Local [m]", "local"),
-            ("Local [km]", "km"),
-            ("GPS [°]", "gps"),
-        )
-        for label, mode in coordinate_display_modes:
-            self.view_menu.add_radiobutton(
-                label=label,
-                variable=self.coordinate_display_var,
-                value=mode,
-                command=self.change_coordinate_display,
-            )
-        self.fullscreen_menu_index = None
-        if self.root.tk.call("tk", "windowingsystem") != "aqua":
-            self.view_menu.add_separator()
-            self.view_menu.add_command(
-                label="Enter Full Screen",
-                command=self.toggle_fullscreen,
-            )
-            self.fullscreen_menu_index = self.view_menu.index("end")
-        menu_bar.add_cascade(label="View", menu=self.view_menu)
-
-        # ==================================================
-        # Settings menu
-        # ==================================================
-        self.settings_menu = tk.Menu(menu_bar, tearoff=0)
-        self.settings_menu.add_command(
-            label="GPS Start Position...",
-            command=self.show_gps_start_position_dialog,
-        )
-        self.gps_position_menu_index = self.settings_menu.index("end")
-        menu_bar.add_cascade(label="Settings", menu=self.settings_menu)
-
-        # ==================================================
-        # Help menu
-        # ==================================================
-        help_menu = tk.Menu(menu_bar, tearoff=0)
-        help_menu.add_command(
-            label="Show Help",
-            command=self.show_help,
-        )
-        menu_bar.add_cascade(label="Help", menu=help_menu)
-
-        self.root.config(menu=menu_bar)
+        """Create the desktop-style application menu bar."""
+        build_menu_bar(self)
 
     def create_widgets(self):
         """
@@ -212,24 +130,8 @@ class ShipTrajectoryGUI:
         create_gui_widgets(self)
 
     def bind_keyboard_controls(self):
-        """
-        Bind keyboard keys to speed, steering, simulation controls, and CSV export.
-        """
-        self.root.bind("<Up>", self.increase_speed)
-        self.root.bind("<Down>", self.decrease_speed)
-        self.root.bind("<Left>", self.steer_left)
-        self.root.bind("<Right>", self.steer_right)
-        self.root.bind("<space>", self.toggle_simulation_with_keyboard)
-        self.root.bind("<Escape>", self.exit_fullscreen)
-
-        # Save CSV with Ctrl + S.
-        self.root.bind("<Control-s>", self.save_csv_with_keyboard)
-        self.root.bind("<Control-S>", self.save_csv_with_keyboard)
-        self.root.bind("<Command-s>", self.save_csv_with_keyboard)
-        self.root.bind("<Command-S>", self.save_csv_with_keyboard)
-
-        # Make sure the main window can receive keyboard input.
-        self.root.focus_set()
+        """Bind keyboard controls to the main window."""
+        bind_gui_keyboard_controls(self)
 
     def show_help(self):
         """
@@ -476,270 +378,20 @@ class ShipTrajectoryGUI:
 
     def show_gps_start_position_dialog(self):
         """Open a dialog for configuring the GPS position of the local origin."""
-        if self.simulation_started:
-            messagebox.showwarning(
-                "GPS Position Locked",
-                "Reset the simulation before changing the GPS start position.",
-            )
-            return
-
-        dialog = tk.Toplevel(self.root)
-        dialog.title("GPS Start Position")
-        dialog.resizable(False, False)
-        dialog.configure(bg=self.app_background_color)
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        form_frame = tk.Frame(
-            dialog,
-            bg=self.app_background_color,
-            padx=18,
-            pady=16,
-        )
-        form_frame.pack(fill=tk.BOTH, expand=True)
-        form_frame.columnconfigure(1, weight=1)
-
-        latitude_var = tk.StringVar(value=f"{self.reference_latitude:.8f}")
-        longitude_var = tk.StringVar(value=f"{self.reference_longitude:.8f}")
-
-        tk.Label(
-            form_frame,
-            text="Latitude [°]:",
-            anchor="w",
-            bg=self.app_background_color,
-            fg="black",
-        ).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
-        latitude_entry = tk.Entry(
-            form_frame,
-            textvariable=latitude_var,
-            width=20,
-            justify=tk.RIGHT,
-            bg="white",
-            fg="black",
-            insertbackground="black",
-            selectbackground="#007aff",
-            selectforeground="white",
-            relief=tk.SOLID,
-            borderwidth=1,
-            highlightthickness=0,
-        )
-        latitude_entry.grid(row=0, column=1, sticky="ew", pady=4)
-
-        tk.Label(
-            form_frame,
-            text="Longitude [°]:",
-            anchor="w",
-            bg=self.app_background_color,
-            fg="black",
-        ).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=4)
-        longitude_entry = tk.Entry(
-            form_frame,
-            textvariable=longitude_var,
-            width=20,
-            justify=tk.RIGHT,
-            bg="white",
-            fg="black",
-            insertbackground="black",
-            selectbackground="#007aff",
-            selectforeground="white",
-            relief=tk.SOLID,
-            borderwidth=1,
-            highlightthickness=0,
-        )
-        longitude_entry.grid(row=1, column=1, sticky="ew", pady=4)
-
-        button_frame = tk.Frame(form_frame, bg=self.app_background_color)
-        button_frame.grid(
-            row=2,
-            column=0,
-            columnspan=2,
-            sticky="e",
-            pady=(14, 0),
-        )
-
-        def apply_position():
-            if self.apply_gps_start_position(
-                latitude_var.get(),
-                longitude_var.get(),
-                parent=dialog,
-            ):
-                dialog.destroy()
-
-        create_styled_button(
-            button_frame,
-            text="Apply",
-            width=10,
-            command=apply_position,
-        ).pack(side=tk.LEFT, padx=(0, 8))
-        create_styled_button(
-            button_frame,
-            text="Cancel",
-            width=10,
-            command=dialog.destroy,
-        ).pack(side=tk.LEFT)
-
-        dialog.bind("<Return>", lambda _event: apply_position())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-
-        dialog.update_idletasks()
-        x = (
-            self.root.winfo_rootx()
-            + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        )
-        y = (
-            self.root.winfo_rooty()
-            + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        )
-        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
-        dialog.focus_set()
+        open_gps_start_position_dialog(self)
 
     def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
         """Validate and apply the GPS position of the local simulation origin."""
-        if self.simulation_started:
-            messagebox.showwarning(
-                "GPS Position Locked",
-                "Reset the simulation before changing the GPS start position.",
-                parent=parent,
-            )
-            return False
-
-        try:
-            latitude, longitude = _parse_gps_start_position(
-                latitude_text,
-                longitude_text,
-            )
-        except ValueError as error:
-            messagebox.showerror(
-                "Invalid GPS Position",
-                str(error),
-                parent=parent,
-            )
-            return False
-
-        self.reference_latitude = latitude
-        self.reference_longitude = longitude
-
-        self.update_status()
-        self.update_plot()
-
-        return True
+        return apply_gps_position(
+            self,
+            latitude_text,
+            longitude_text,
+            parent=parent,
+        )
 
     def save_csv(self):
-        """
-        Save the simulated trajectory as CSV.
-
-        The user can choose the output folder and filename.
-        By default, the file dialog opens in data/simulated.
-
-        The simulation is paused before opening the file dialog.
-        This prevents trajectory data from changing while the user is choosing
-        the output filename or folder.
-        """
-        if not self.simulator.has_data():
-            messagebox.showwarning(
-                "No Data",
-                "No trajectory data available. Please start the simulation first.",
-            )
-            return
-
-        # Pause simulation before saving so the data stays unchanged
-        # while the file dialog is open.
-        self.pause_simulation()
-
-        # Make sure the default data directory exists.
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-        output_path = filedialog.asksaveasfilename(
-            title="Save or append trajectory data",
-            initialdir=DATA_DIR,
-            initialfile=self.default_csv_filename,
-            defaultextension=".csv",
-            confirmoverwrite=False,
-            filetypes=[
-                ("CSV files", "*.csv"),
-                ("All files", "*.*"),
-            ],
-        )
-
-        # If the user cancels the dialog, do nothing.
-        if not output_path:
-            return
-
-        trajectory_df = create_simulation_dataframe(
-            simulator=self.simulator,
-            random_seed=42,
-            start_time=self.simulation_start_time,
-            reference_longitude=self.reference_longitude,
-            reference_latitude=self.reference_latitude,
-        )
-
-        resolved_output_path = Path(output_path).resolve()
-        saved_run_state = self.saved_run_states.get(resolved_output_path)
-        if (
-            not resolved_output_path.is_file()
-            or resolved_output_path.stat().st_size == 0
-        ):
-            saved_run_state = None
-
-        if saved_run_state is None:
-            existing_run_id = None
-            first_unsaved_sample = 0
-        else:
-            existing_run_id, first_unsaved_sample = saved_run_state
-
-        if first_unsaved_sample >= len(trajectory_df):
-            messagebox.showinfo(
-                "No New Data",
-                "No new trajectory samples are available.\n\n"
-                f"Run ID: {existing_run_id}\n"
-                f"File:\n{resolved_output_path}",
-            )
-            return
-
-        try:
-            save_result = save_trajectory_data(
-                df=trajectory_df.iloc[first_unsaved_sample:],
-                filename=output_path,
-                existing_run_id=existing_run_id,
-            )
-        except (OSError, ValueError) as error:
-            messagebox.showerror(
-                "Save Failed",
-                f"Could not save trajectory data:\n\n{error}",
-            )
-            return
-
-        self.saved_run_states[save_result.output_path.resolve()] = (
-            save_result.run_id,
-            len(trajectory_df),
-        )
-
-        if save_result.continued:
-            message_title = "Trajectory Updated"
-            message_text = (
-                "New samples appended to the current trajectory run.\n\n"
-                f"Run ID: {save_result.run_id}\n"
-                f"File:\n{save_result.output_path}"
-            )
-        elif save_result.appended:
-            message_title = "Trajectory Appended"
-            message_text = (
-                "New trajectory run appended to the existing CSV file.\n\n"
-                f"Run ID: {save_result.run_id}\n"
-                f"File:\n{save_result.output_path}"
-            )
-        else:
-            message_title = "Trajectory Saved"
-            message_text = (
-                "New CSV file created.\n\n"
-                f"Run ID: {save_result.run_id}\n"
-                f"File:\n{save_result.output_path}"
-            )
-
-        messagebox.showinfo(
-            message_title,
-            message_text,
-        )
+        """Save the simulated trajectory as CSV."""
+        save_trajectory_csv(self)
 
     def reset(self):
         """
@@ -766,62 +418,8 @@ class ShipTrajectoryGUI:
         self.update_plot()
 
     def update_status(self):
-        """
-        Update the status display.
-        """
-        heading_deg = np.rad2deg(self.simulator.theta_current)
-        omega = self.get_omega_from_steering()
-        omega_deg = np.rad2deg(omega)
-        speed = self.get_speed_from_slider()
-        simulation_state = self.get_simulation_state()
-
-        if abs(omega) < 1e-8:
-            radius_text = "∞"
-        else:
-            radius_text = f"{speed / omega:.2f} m"
-
-        if simulation_state == "running":
-            simulation_text = "Running"
-            simulation_color = "darkgreen"
-        elif simulation_state == "paused":
-            simulation_text = "Paused"
-            simulation_color = "orange"
-        else:
-            simulation_text = "Stopped"
-            simulation_color = "darkred"
-
-        self.simulation_value_label.config(
-            text=simulation_text,
-            fg=simulation_color,
-        )
-
-        if self.coordinate_display_mode == "gps":
-            longitude, latitude = local_to_gps_coordinates(
-                [self.simulator.x_current],
-                [self.simulator.y_current],
-                reference_longitude=self.reference_longitude,
-                reference_latitude=self.reference_latitude,
-            )
-            position_text = f"lon = {longitude[0]:.4f}°\nlat = {latitude[0]:.4f}°"
-        elif self.coordinate_display_mode == "km":
-            position_text = (
-                f"x = {self.simulator.x_current / METERS_PER_KILOMETER:.3f} km\n"
-                f"y = {self.simulator.y_current / METERS_PER_KILOMETER:.3f} km"
-            )
-        else:
-            position_text = (
-                f"x = {self.simulator.x_current:.2f} m\n"
-                f"y = {self.simulator.y_current:.2f} m"
-            )
-
-        self.position_value_label.config(
-            text=position_text,
-        )
-        self.heading_value_label.config(text=f"{heading_deg:.1f}°")
-        self.omega_value_label.config(text=f"{omega_deg:.1f}°/s")
-        self.speed_value_label.config(text=f"{speed:.2f} m/s")
-        self.radius_value_label.config(text=radius_text)
-        self.time_value_label.config(text=f"{self.simulator.current_time:.1f} s")
+        """Update the status display."""
+        update_status_display(self)
 
     def update_plot(self):
         """
