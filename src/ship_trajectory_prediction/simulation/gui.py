@@ -172,6 +172,12 @@ class ShipTrajectoryGUI:
                 value=mode,
                 command=self.change_coordinate_display,
             )
+        view_menu.add_separator()
+        view_menu.add_command(
+            label="Toggle Full Screen",
+            accelerator="F11",
+            command=self.toggle_fullscreen,
+        )
         menu_bar.add_cascade(label="View", menu=view_menu)
 
         # ==================================================
@@ -212,6 +218,8 @@ class ShipTrajectoryGUI:
         self.root.bind("<Left>", self.steer_left)
         self.root.bind("<Right>", self.steer_right)
         self.root.bind("<space>", self.toggle_simulation_with_keyboard)
+        self.root.bind("<F11>", self.toggle_fullscreen)
+        self.root.bind("<Control-Command-f>", self.toggle_fullscreen)
         self.root.bind("<Escape>", self.exit_fullscreen)
 
         # Save CSV with Ctrl + S.
@@ -309,6 +317,12 @@ class ShipTrajectoryGUI:
     def exit_fullscreen(self, event=None):
         """Leave full-screen mode when Escape is pressed."""
         self.root.attributes("-fullscreen", False)
+        return "break"
+
+    def toggle_fullscreen(self, event=None):
+        """Toggle full-screen mode from the keyboard or View menu."""
+        is_fullscreen = bool(self.root.attributes("-fullscreen"))
+        self.root.attributes("-fullscreen", not is_fullscreen)
         return "break"
 
     def get_omega_from_steering(self):
