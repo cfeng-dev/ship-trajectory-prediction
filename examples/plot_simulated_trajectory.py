@@ -1,15 +1,13 @@
 """Load, resample, and plot a saved simulated ship trajectory."""
 
-from pathlib import Path
-
+from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.io import (
     read_ship_data,
     resample_trajectory_data,
 )
 from ship_trajectory_prediction.trajectory.plotting import plot_ship_trajectory
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_FILE = PROJECT_ROOT / "data" / "simulated" / "example_simulated_trajectory.csv"
+DATA_FILE = project_path("data/simulated/example_simulated_trajectory.csv")
 
 # Select one simulation run and, optionally, a UTC time range from the CSV.
 # Keep START_TIME and END_TIME as None to use the complete selected run.

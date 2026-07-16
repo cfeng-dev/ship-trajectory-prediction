@@ -1,7 +1,6 @@
 """Explore and visualize recorded ship trajectory data."""
 
-from pathlib import Path
-
+from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.io import (
     print_ship_data_summary,
     read_ship_data,
@@ -11,12 +10,8 @@ from ship_trajectory_prediction.trajectory.plotting import (
     plot_ship_trajectory,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "raw"
-    / "processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+DATA_FILE = project_path(
+    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 # Data selection

@@ -1,12 +1,10 @@
 """Verify CmdStan by compiling and running a minimal model."""
 
-from pathlib import Path
-
 from cmdstanpy import CmdStanModel, cmdstan_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from ship_trajectory_prediction.paths import project_path
 
-STAN_FILE = PROJECT_ROOT / "stan" / "examples" / "test_cmdstan.stan"
+STAN_FILE = project_path("stan/examples/test_cmdstan.stan")
 
 
 def main():

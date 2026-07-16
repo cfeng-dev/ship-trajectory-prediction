@@ -1,14 +1,11 @@
 """Estimate a Bernoulli success probability with CmdStanPy."""
 
-from pathlib import Path
-
 from cmdstanpy import CmdStanModel
 
-# Project root directory
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from ship_trajectory_prediction.paths import project_path
 
 # Path to the Stan model
-STAN_FILE = PROJECT_ROOT / "stan" / "examples" / "bernoulli.stan"
+STAN_FILE = project_path("stan/examples/bernoulli.stan")
 
 
 def main():

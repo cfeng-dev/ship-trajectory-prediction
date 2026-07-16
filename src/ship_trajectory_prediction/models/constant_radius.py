@@ -7,13 +7,13 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel
 
+from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.coordinates import (
     gps_to_local_coordinates,
 )
 
 KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-STAN_FILE = PROJECT_ROOT / "stan" / "models" / "constant_radius.stan"
+STAN_FILE = project_path("stan/models/constant_radius.stan")
 
 
 @dataclass(frozen=True)
