@@ -1,4 +1,4 @@
-"""Bayesian constant-radius trajectory prediction with CmdStanPy."""
+"""Bayesian constant-turn-rate trajectory prediction with derived radius."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,9 +23,8 @@ class TrajectoryWindow:
     x_meters: np.ndarray
     y_meters: np.ndarray
     observation_count: int
-    speed_mps: float
-    initial_heading: float
-    turn_direction: int
+    speed_prior_median: float
+    heading_prior_mean: float
 
     @property
     def prediction_count(self):
@@ -50,21 +49,20 @@ def prepare_trajectory_window(
     *,
     start_index=0,
     speed_unit="km/h",
-    turn_direction=None,
 ):
-    """Prepare one real-data window for constant-radius inference.
+    """Prepare one real-data window for constant-turn-rate inference.
 
     The input must contain exactly one trajectory run. GPS coordinates are
     converted to local meters using the first selected position as origin.
-    Speed and initial heading are estimated from the observed part only; the
-    remaining positions are retained exclusively for evaluation.
+    Observed speed and initial heading provide prior centers; Stan estimates
+    the actual speed, heading, and signed turn rate. The remaining positions
+    are retained exclusively for evaluation.
     """
     _validate_window_arguments(
         observation_count,
         prediction_count,
         start_index,
         speed_unit,
-        turn_direction,
     )
 
     required_columns = {
@@ -118,43 +116,39 @@ def prepare_trajectory_window(
     )
 
     observed_slice = slice(0, observation_count)
-    speed_mps = _estimate_speed(
+    speed_prior_median = _estimate_speed(
         window_data["gps_speed"].iloc[observed_slice],
         speed_unit,
     )
-    initial_heading = _estimate_initial_heading(
+    heading_prior_mean = _estimate_initial_heading(
         x_meters[observed_slice],
         y_meters[observed_slice],
     )
-    if turn_direction is None:
-        turn_direction = _infer_turn_direction(
-            x_meters[observed_slice],
-            y_meters[observed_slice],
-        )
-
     return TrajectoryWindow(
         timestamps=timestamps,
         time_seconds=time_seconds,
         x_meters=x_meters,
         y_meters=y_meters,
         observation_count=observation_count,
-        speed_mps=speed_mps,
-        initial_heading=initial_heading,
-        turn_direction=turn_direction,
+        speed_prior_median=speed_prior_median,
+        heading_prior_mean=heading_prior_mean,
     )
 
 
 def build_stan_data(
     window,
     *,
-    radius_prior_median=500.0,
-    radius_prior_log_sd=1.0,
+    speed_prior_log_sd=0.5,
+    heading_prior_scale=0.5,
+    turn_rate_prior_scale=0.01,
     sigma_prior_scale=20.0,
 ):
     """Build the CmdStan data dictionary for a prepared trajectory window."""
     prior_values = {
-        "radius_prior_median": radius_prior_median,
-        "radius_prior_log_sd": radius_prior_log_sd,
+        "speed_prior_median": window.speed_prior_median,
+        "speed_prior_log_sd": speed_prior_log_sd,
+        "heading_prior_scale": heading_prior_scale,
+        "turn_rate_prior_scale": turn_rate_prior_scale,
         "sigma_prior_scale": sigma_prior_scale,
     }
     for name, value in prior_values.items():
@@ -172,9 +166,7 @@ def build_stan_data(
         "time_prediction": window.time_seconds[prediction],
         "x_initial": float(window.x_meters[0]),
         "y_initial": float(window.y_meters[0]),
-        "speed": window.speed_mps,
-        "heading_initial": window.initial_heading,
-        "turn_direction": window.turn_direction,
+        "heading_prior_mean": window.heading_prior_mean,
         **prior_values,
     }
 
@@ -190,8 +182,9 @@ def compile_constant_radius_model(stan_file=STAN_FILE):
 def fit_constant_radius_model(
     window,
     *,
-    radius_prior_median=500.0,
-    radius_prior_log_sd=1.0,
+    speed_prior_log_sd=0.5,
+    heading_prior_scale=0.5,
+    turn_rate_prior_scale=0.01,
     sigma_prior_scale=20.0,
     chains=4,
     parallel_chains=None,
@@ -201,11 +194,17 @@ def fit_constant_radius_model(
     show_progress=True,
     inits=None,
 ):
-    """Fit the Bayesian constant-radius model to a prepared window."""
+    """Estimate speed, heading, and signed turn rate for a prepared window.
+
+    Radius is derived for every posterior draw as ``speed / abs(turn_rate)``;
+    it is not sampled as an independent parameter. Positive turn rates denote
+    counterclockwise (left) turns and negative values clockwise (right) turns.
+    """
     stan_data = build_stan_data(
         window,
-        radius_prior_median=radius_prior_median,
-        radius_prior_log_sd=radius_prior_log_sd,
+        speed_prior_log_sd=speed_prior_log_sd,
+        heading_prior_scale=heading_prior_scale,
+        turn_rate_prior_scale=turn_rate_prior_scale,
         sigma_prior_scale=sigma_prior_scale,
     )
     model = compile_constant_radius_model()
@@ -213,7 +212,9 @@ def fit_constant_radius_model(
         parallel_chains = chains
     if inits is None:
         inits = {
-            "radius": radius_prior_median,
+            "speed": window.speed_prior_median,
+            "heading_initial": window.heading_prior_mean,
+            "turn_rate": 0.0,
             "sigma": sigma_prior_scale / 2,
         }
 
@@ -270,7 +271,7 @@ def _prediction_samples(fit, variable_name, prediction_count):
 
 
 def _estimate_speed(speed_values, speed_unit):
-    """Estimate constant positive speed from observed GPS speed values."""
+    """Estimate the speed-prior median from observed GPS speed values."""
     speed_values = pd.to_numeric(speed_values, errors="coerce").to_numpy(dtype=float)
     valid_speeds = speed_values[np.isfinite(speed_values) & (speed_values > 0)]
     if len(valid_speeds) == 0:
@@ -283,7 +284,7 @@ def _estimate_speed(speed_values, speed_unit):
 
 
 def _estimate_initial_heading(x_meters, y_meters):
-    """Estimate initial heading from the first few observed positions."""
+    """Estimate the heading-prior mean from the first observed positions."""
     endpoint = min(4, len(x_meters) - 1)
     while endpoint > 0:
         delta_x = x_meters[endpoint] - x_meters[0]
@@ -294,25 +295,11 @@ def _estimate_initial_heading(x_meters, y_meters):
     raise ValueError("Observed positions do not contain enough movement for heading.")
 
 
-def _infer_turn_direction(x_meters, y_meters):
-    """Infer clockwise or counterclockwise motion from observed headings."""
-    delta_x = np.diff(x_meters)
-    delta_y = np.diff(y_meters)
-    moving = np.hypot(delta_x, delta_y) > 1e-8
-    headings = np.unwrap(np.arctan2(delta_y[moving], delta_x[moving]))
-    if len(headings) < 2:
-        raise ValueError("Observed positions do not contain enough movement for turn.")
-
-    total_heading_change = float(headings[-1] - headings[0])
-    return -1 if total_heading_change < 0 else 1
-
-
 def _validate_window_arguments(
     observation_count,
     prediction_count,
     start_index,
     speed_unit,
-    turn_direction,
 ):
     """Validate trajectory window configuration."""
     integer_arguments = {
@@ -328,5 +315,3 @@ def _validate_window_arguments(
 
     if speed_unit not in {"km/h", "m/s"}:
         raise ValueError("speed_unit must be 'km/h' or 'm/s'.")
-    if turn_direction not in {None, -1, 1}:
-        raise ValueError("turn_direction must be -1, 1, or None.")

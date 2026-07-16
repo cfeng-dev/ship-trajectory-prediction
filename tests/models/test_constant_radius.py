@@ -1,4 +1,4 @@
-"""Tests for the Bayesian constant-radius trajectory model interface."""
+"""Tests for the Bayesian constant-turn-rate model interface."""
 
 import numpy as np
 import pandas as pd
@@ -44,8 +44,8 @@ def create_curved_trajectory_data(run_id=1):
     )
 
 
-def test_prepare_trajectory_window_uses_observed_data_only_for_parameters():
-    """Window preparation should recover speed and turn direction from history."""
+def test_prepare_trajectory_window_uses_observed_data_only_for_priors():
+    """Window preparation should derive prior centers from observed history."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -54,8 +54,8 @@ def test_prepare_trajectory_window_uses_observed_data_only_for_parameters():
 
     assert window.observation_count == 8
     assert window.prediction_count == 4
-    assert window.speed_mps == pytest.approx(5.0)
-    assert window.turn_direction == 1
+    assert window.speed_prior_median == pytest.approx(5.0)
+    assert window.heading_prior_mean == pytest.approx(0.5)
     assert window.x_meters[0] == pytest.approx(0.0)
     assert window.y_meters[0] == pytest.approx(0.0)
 
@@ -74,8 +74,37 @@ def test_build_stan_data_keeps_future_positions_held_out():
     assert stan_data["N_prediction"] == 4
     assert len(stan_data["x_observed"]) == 8
     assert len(stan_data["time_prediction"]) == 4
+    assert stan_data["speed_prior_median"] == pytest.approx(5.0)
+    assert stan_data["speed_prior_log_sd"] == pytest.approx(0.5)
+    assert stan_data["heading_prior_scale"] == pytest.approx(0.5)
+    assert stan_data["turn_rate_prior_scale"] == pytest.approx(0.01)
+    assert "speed" not in stan_data
+    assert "heading_initial" not in stan_data
+    assert "turn_direction" not in stan_data
+    assert "radius_prior_median" not in stan_data
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
+
+
+@pytest.mark.parametrize(
+    "prior_name",
+    [
+        "speed_prior_log_sd",
+        "heading_prior_scale",
+        "turn_rate_prior_scale",
+        "sigma_prior_scale",
+    ],
+)
+def test_build_stan_data_rejects_non_positive_prior_scales(prior_name):
+    """Every configurable prior scale should be positive."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    with pytest.raises(ValueError, match=prior_name):
+        build_stan_data(window, **{prior_name: 0.0})
 
 
 def test_prepare_trajectory_window_rejects_multiple_runs():
