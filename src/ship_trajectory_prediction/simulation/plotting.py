@@ -10,7 +10,7 @@ from matplotlib.patches import Polygon
 from matplotlib.path import Path
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 
-from ship_trajectory_prediction.simulation.coordinates import (
+from ship_trajectory_prediction.coordinates import (
     METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ship_trajectory_prediction.simulation.coordinates import (
+from ship_trajectory_prediction.coordinates import (
     local_to_gps_coordinates,
 )
 

@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.simulation.coordinates import (
+from ship_trajectory_prediction.coordinates import (
     local_to_gps_coordinates,
 )
+from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.simulation.core import add_observation_noise
 
 METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6

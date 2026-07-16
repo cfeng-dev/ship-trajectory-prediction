@@ -1,6 +1,6 @@
 """Real ship trajectory loading, transformation, and plotting."""
 
-from ship_trajectory_prediction.trajectory.coordinates import (
+from ship_trajectory_prediction.coordinates import (
     calculate_gps_distances,
     calculate_speed_from_gps,
     gps_to_local_coordinates,

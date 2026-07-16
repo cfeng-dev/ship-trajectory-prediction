@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
-from ship_trajectory_prediction.trajectory.coordinates import (
+from ship_trajectory_prediction.coordinates import (
     calculate_speed_from_gps,
     gps_to_local_coordinates,
 )

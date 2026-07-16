@@ -4,14 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
 from ship_trajectory_prediction.models.constant_radius import (
     STAN_FILE,
     build_stan_data,
     prepare_trajectory_window,
     summarize_predictions,
-)
-from ship_trajectory_prediction.simulation.coordinates import (
-    local_to_gps_coordinates,
 )
 from ship_trajectory_prediction.simulation.core import simulate_curved_trajectory
 

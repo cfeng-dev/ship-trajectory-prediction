@@ -1,4 +1,4 @@
-"""Coordinate and movement calculations for GPS trajectories."""
+"""Shared coordinate and movement calculations."""
 
 import numpy as np
 
