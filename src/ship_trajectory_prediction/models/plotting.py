@@ -9,7 +9,31 @@ def plot_constant_radius_prediction(
     fit,
     max_posterior_trajectories=100,
 ):
-    """Plot observed, held-out, and posterior constant-turn trajectories."""
+    """Plot observed, held-out, and posterior constant-radius trajectories."""
+    _plot_prediction(
+        window,
+        fit,
+        max_posterior_trajectories,
+        title="Bayesian Constant-Radius Prediction",
+    )
+
+
+def plot_constant_turn_rate_prediction(
+    window,
+    fit,
+    max_posterior_trajectories=100,
+):
+    """Plot observed, held-out, and posterior constant-turn-rate trajectories."""
+    _plot_prediction(
+        window,
+        fit,
+        max_posterior_trajectories,
+        title="Bayesian Constant-Turn-Rate Prediction",
+    )
+
+
+def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
+    """Plot one posterior trajectory prediction with the requested title."""
     observed = window.observed_slice
     prediction = window.prediction_slice
     x_samples = fit.stan_variable("x_prediction_mean")
@@ -63,7 +87,7 @@ def plot_constant_radius_prediction(
         label="Prediction start",
     )
 
-    axis.set_title("Bayesian Constant-Turn-Rate Prediction")
+    axis.set_title(title)
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_aspect("equal", adjustable="box")

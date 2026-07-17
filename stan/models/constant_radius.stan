@@ -1,37 +1,3 @@
-// Constant-turn-rate-and-velocity model in local meter coordinates.
-// Time is measured in seconds, speed in m/s, heading in radians, and signed
-// turn rate in rad/s (positive = left, negative = right). Turning radius is
-// derived from speed and turn rate rather than sampled independently.
-
-functions {
-    real stable_sinc(real value) {
-        // Keep the constant-turn formula finite and smooth near zero turn rate.
-        if (abs(value) < 1e-4) {
-            real value_squared = square(value);
-            return 1 - value_squared / 6 + square(value_squared) / 120;
-        }
-        return sin(value) / value;
-    }
-
-    vector constant_turn_position(
-        real time,
-        real x_initial,
-        real y_initial,
-        real speed,
-        real heading_initial,
-        real turn_rate
-    ) {
-        vector[2] position;
-        real half_turn = 0.5 * turn_rate * time;
-        real distance = speed * time * stable_sinc(half_turn);
-        real midpoint_heading = heading_initial + half_turn;
-
-        position[1] = x_initial + distance * cos(midpoint_heading);
-        position[2] = y_initial + distance * sin(midpoint_heading);
-        return position;
-    }
-}
-
 data {
     int<lower=3> N_observed;
     vector[N_observed] time_observed;
@@ -43,44 +9,37 @@ data {
 
     real x_initial;
     real y_initial;
-    real<lower=0> speed_prior_median;
-    real<lower=0> speed_prior_log_sd;
-    real heading_prior_mean;
-    real<lower=0> heading_prior_scale;
-    real<lower=0> turn_rate_prior_scale;
+    real<lower=0> speed;
+    real heading_initial;
+    int<lower=-1, upper=1> turn_direction;
+
+    real<lower=0> radius_prior_median;
+    real<lower=0> radius_prior_log_sd;
     real<lower=0> sigma_prior_scale;
 }
 
 parameters {
-    // Broad physical bounds prevent non-finite warmup proposals.
-    real<lower=0.001, upper=100> speed;
-    real heading_initial;
-    real<lower=-0.1, upper=0.1> turn_rate;
+    real<lower=1, upper=1000000> radius;
     real<lower=0.001> sigma;
 }
 
 transformed parameters {
     vector[N_observed] x_mean;
     vector[N_observed] y_mean;
+    real signed_radius = turn_direction * radius;
+    real angular_velocity = speed / signed_radius;
 
     for (n in 1:N_observed) {
-        vector[2] position = constant_turn_position(
-            time_observed[n],
-            x_initial,
-            y_initial,
-            speed,
-            heading_initial,
-            turn_rate
-        );
-        x_mean[n] = position[1];
-        y_mean[n] = position[2];
+        real heading = heading_initial + angular_velocity * time_observed[n];
+        x_mean[n] = x_initial + signed_radius
+            * (sin(heading) - sin(heading_initial));
+        y_mean[n] = y_initial - signed_radius
+            * (cos(heading) - cos(heading_initial));
     }
 }
 
 model {
-    speed ~ lognormal(log(speed_prior_median), speed_prior_log_sd);
-    heading_initial ~ normal(heading_prior_mean, heading_prior_scale);
-    turn_rate ~ normal(0, turn_rate_prior_scale);
+    radius ~ lognormal(log(radius_prior_median), radius_prior_log_sd);
     sigma ~ normal(0, sigma_prior_scale);
 
     x_observed ~ normal(x_mean, sigma);
@@ -88,8 +47,6 @@ model {
 }
 
 generated quantities {
-    // Radius is reported only; near-zero turn rate represents straight motion.
-    real radius = speed / fmax(abs(turn_rate), 1e-12);
     vector[N_prediction] x_prediction_mean;
     vector[N_prediction] y_prediction_mean;
     vector[N_prediction] x_prediction;
@@ -97,16 +54,11 @@ generated quantities {
     vector[2 * N_observed] log_likelihood;
 
     for (n in 1:N_prediction) {
-        vector[2] position = constant_turn_position(
-            time_prediction[n],
-            x_initial,
-            y_initial,
-            speed,
-            heading_initial,
-            turn_rate
-        );
-        x_prediction_mean[n] = position[1];
-        y_prediction_mean[n] = position[2];
+        real heading = heading_initial + angular_velocity * time_prediction[n];
+        x_prediction_mean[n] = x_initial + signed_radius
+            * (sin(heading) - sin(heading_initial));
+        y_prediction_mean[n] = y_initial - signed_radius
+            * (cos(heading) - cos(heading_initial));
         x_prediction[n] = normal_rng(x_prediction_mean[n], sigma);
         y_prediction[n] = normal_rng(y_prediction_mean[n], sigma);
     }
