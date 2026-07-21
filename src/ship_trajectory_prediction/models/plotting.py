@@ -46,6 +46,20 @@ def plot_constant_turn_rate_acceleration_prediction(
     )
 
 
+def plot_time_varying_motion_prediction(
+    window,
+    fit,
+    max_posterior_trajectories=100,
+):
+    """Plot observed, held-out, and posterior time-varying trajectories."""
+    _plot_prediction(
+        window,
+        fit,
+        max_posterior_trajectories,
+        title="Bayesian Time-Varying Motion Prediction",
+    )
+
+
 def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
     """Plot one posterior trajectory prediction with the requested title."""
     observed = window.observed_slice
