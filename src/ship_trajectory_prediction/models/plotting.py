@@ -32,6 +32,20 @@ def plot_constant_turn_rate_prediction(
     )
 
 
+def plot_constant_turn_rate_acceleration_prediction(
+    window,
+    fit,
+    max_posterior_trajectories=100,
+):
+    """Plot observed, held-out, and posterior CTRA trajectories."""
+    _plot_prediction(
+        window,
+        fit,
+        max_posterior_trajectories,
+        title="Bayesian Constant-Turn-Rate-and-Acceleration Prediction",
+    )
+
+
 def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
     """Plot one posterior trajectory prediction with the requested title."""
     observed = window.observed_slice
