@@ -18,6 +18,20 @@ def plot_constant_radius_prediction(
     )
 
 
+def plot_time_varying_radius_prediction(
+    window,
+    fit,
+    max_posterior_trajectories=100,
+):
+    """Plot observed, held-out, and posterior varying-radius trajectories."""
+    _plot_prediction(
+        window,
+        fit,
+        max_posterior_trajectories,
+        title="Bayesian Time-Varying-Radius Prediction",
+    )
+
+
 def plot_constant_turn_rate_prediction(
     window,
     fit,
