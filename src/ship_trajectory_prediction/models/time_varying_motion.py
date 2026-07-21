@@ -26,6 +26,7 @@ class TrajectoryWindow:
     observation_count: int
     speed_prior_median: float
     heading_prior_mean: float
+    turn_rate_level: float
 
     @property
     def prediction_count(self):
@@ -122,6 +123,11 @@ def prepare_trajectory_window(
         x_meters[observed],
         y_meters[observed],
     )
+    turn_rate_level = _estimate_turn_rate_level(
+        time_seconds[observed],
+        x_meters[observed],
+        y_meters[observed],
+    )
 
     return TrajectoryWindow(
         timestamps=timestamps,
@@ -132,6 +138,7 @@ def prepare_trajectory_window(
         observation_count=observation_count,
         speed_prior_median=speed_prior_median,
         heading_prior_mean=heading_prior_mean,
+        turn_rate_level=turn_rate_level,
     )
 
 
@@ -141,11 +148,11 @@ def build_stan_data(
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
     acceleration_initial_scale=0.1,
-    acceleration_state_scale=0.05,
+    acceleration_state_scale=0.02,
     acceleration_decay_time=60.0,
     turn_rate_initial_scale=0.01,
-    turn_rate_state_scale=0.01,
-    turn_rate_decay_time=120.0,
+    turn_rate_state_scale=0.003,
+    turn_rate_decay_time=600.0,
     sigma_position=5.0,
     sigma_speed=0.2,
 ):
@@ -180,6 +187,7 @@ def build_stan_data(
         "y_initial": float(window.y_meters[0]),
         "speed_prior_median": window.speed_prior_median,
         "heading_prior_mean": window.heading_prior_mean,
+        "turn_rate_level": window.turn_rate_level,
         **positive_values,
     }
 
@@ -198,11 +206,11 @@ def fit_time_varying_motion_model(
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
     acceleration_initial_scale=0.1,
-    acceleration_state_scale=0.05,
+    acceleration_state_scale=0.02,
     acceleration_decay_time=60.0,
     turn_rate_initial_scale=0.01,
-    turn_rate_state_scale=0.01,
-    turn_rate_decay_time=120.0,
+    turn_rate_state_scale=0.003,
+    turn_rate_decay_time=600.0,
     sigma_position=5.0,
     sigma_speed=0.2,
     chains=4,
@@ -245,7 +253,7 @@ def fit_time_varying_motion_model(
             "heading_initial": window.heading_prior_mean,
             "acceleration_initial": 0.0,
             "acceleration_innovation": np.zeros(innovation_count),
-            "turn_rate_initial": 0.0,
+            "turn_rate_initial": window.turn_rate_level,
             "turn_rate_innovation": np.zeros(innovation_count),
         }
 
@@ -349,6 +357,20 @@ def _estimate_initial_heading(x_meters, y_meters):
             return float(np.arctan2(delta_y, delta_x))
         endpoint -= 1
     raise ValueError("Observed positions do not contain enough movement for heading.")
+
+
+def _estimate_turn_rate_level(time_seconds, x_meters, y_meters):
+    """Estimate the persistent turn-rate trend from observed course changes."""
+    delta_x = np.diff(x_meters)
+    delta_y = np.diff(y_meters)
+    moving = np.hypot(delta_x, delta_y) > 1e-8
+    if np.count_nonzero(moving) < 2:
+        raise ValueError("Observed positions do not contain enough movement for turn.")
+
+    segment_time = 0.5 * (time_seconds[:-1] + time_seconds[1:])
+    heading = np.unwrap(np.arctan2(delta_y[moving], delta_x[moving]))
+    turn_rate = float(np.polyfit(segment_time[moving], heading, 1)[0])
+    return float(np.clip(turn_rate, -0.1, 0.1))
 
 
 def _validate_window_arguments(

@@ -55,6 +55,7 @@ def test_prepare_trajectory_window_keeps_speed_values_in_meters_per_second():
     assert window.prediction_count == 4
     assert window.speed_mps == pytest.approx(np.full(12, 5.0))
     assert window.speed_prior_median == pytest.approx(5.0)
+    assert window.turn_rate_level == pytest.approx(0.025, abs=1e-6)
 
 
 def test_build_stan_data_holds_out_future_positions_and_speeds():
@@ -71,9 +72,34 @@ def test_build_stan_data_holds_out_future_positions_and_speeds():
     assert len(stan_data["y_observed"]) == 8
     assert len(stan_data["speed_observed"]) == 8
     assert len(stan_data["time_prediction"]) == 4
+    assert stan_data["turn_rate_level"] == pytest.approx(window.turn_rate_level)
+    assert stan_data["acceleration_state_scale"] == pytest.approx(0.02)
+    assert stan_data["turn_rate_state_scale"] == pytest.approx(0.003)
+    assert stan_data["turn_rate_decay_time"] == pytest.approx(600.0)
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
     assert "speed_prediction" not in stan_data
+
+
+def test_turn_rate_level_uses_observed_positions_only():
+    """Changing held-out positions must not alter the turn-rate level."""
+    data = create_curved_trajectory_data()
+    reference = prepare_trajectory_window(
+        data,
+        observation_count=8,
+        prediction_count=4,
+    )
+    changed_future = data.copy()
+    changed_future.loc[8:, "gps_longitude"] += 1.0
+    changed_future.loc[8:, "gps_latitude"] -= 1.0
+
+    changed = prepare_trajectory_window(
+        changed_future,
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    assert changed.turn_rate_level == pytest.approx(reference.turn_rate_level)
 
 
 @pytest.mark.parametrize(

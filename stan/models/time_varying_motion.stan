@@ -68,6 +68,7 @@ data {
     real<lower=0> speed_prior_log_sd;
     real heading_prior_mean;
     real<lower=0> heading_prior_scale;
+    real<lower=-0.1, upper=0.1> turn_rate_level;
 
     real<lower=0> acceleration_initial_scale;
     real<lower=0> acceleration_state_scale;
@@ -110,7 +111,8 @@ transformed parameters {
             + acceleration_state_scale
             * sqrt(fmax(1e-12, 1 - square(acceleration_decay)))
             * acceleration_innovation[n - 1];
-        turn_rate_state[n] = turn_rate_decay * turn_rate_state[n - 1]
+        turn_rate_state[n] = turn_rate_level
+            + turn_rate_decay * (turn_rate_state[n - 1] - turn_rate_level)
             + turn_rate_state_scale
             * sqrt(fmax(1e-12, 1 - square(turn_rate_decay)))
             * turn_rate_innovation[n - 1];
@@ -151,7 +153,7 @@ model {
     heading_initial ~ normal(heading_prior_mean, heading_prior_scale);
     acceleration_initial ~ normal(0, acceleration_initial_scale);
     acceleration_innovation ~ std_normal();
-    turn_rate_initial ~ normal(0, turn_rate_initial_scale);
+    turn_rate_initial ~ normal(turn_rate_level, turn_rate_initial_scale);
     turn_rate_innovation ~ std_normal();
 
     x_observed[2:N_observed] ~ normal(x_mean[2:N_observed], sigma_position);
@@ -208,8 +210,12 @@ generated quantities {
         fmax(
             -0.1,
             normal_rng(
-                exp(-last_state_time_step / turn_rate_decay_time)
-                    * turn_rate_state[N_observed - 1],
+                turn_rate_level
+                    + exp(-last_state_time_step / turn_rate_decay_time)
+                    * (
+                        turn_rate_state[N_observed - 1]
+                            - turn_rate_level
+                    ),
                 turn_rate_state_scale * sqrt(
                     fmax(
                         1e-12,
@@ -286,8 +292,9 @@ generated quantities {
                 fmax(
                     -0.1,
                     normal_rng(
-                        exp(-time_step / turn_rate_decay_time)
-                            * turn_rate_current,
+                        turn_rate_level
+                            + exp(-time_step / turn_rate_decay_time)
+                            * (turn_rate_current - turn_rate_level),
                         turn_rate_state_scale * sqrt(
                             fmax(
                                 1e-12,

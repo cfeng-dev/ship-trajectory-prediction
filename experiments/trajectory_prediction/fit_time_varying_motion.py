@@ -25,11 +25,11 @@ PREDICTION_COUNT = 10
 SPEED_PRIOR_LOG_SD = 0.5
 HEADING_PRIOR_SCALE = 0.5
 ACCELERATION_INITIAL_SCALE = 0.1
-ACCELERATION_STATE_SCALE = 0.05
+ACCELERATION_STATE_SCALE = 0.02
 ACCELERATION_DECAY_TIME = 60.0
 TURN_RATE_INITIAL_SCALE = 0.01
-TURN_RATE_STATE_SCALE = 0.01
-TURN_RATE_DECAY_TIME = 120.0
+TURN_RATE_STATE_SCALE = 0.003
+TURN_RATE_DECAY_TIME = 600.0
 SIGMA_POSITION = 5.0
 SIGMA_SPEED = 0.2
 
@@ -51,6 +51,7 @@ def main():
     print(f"Run ID             : {RUN_ID}")
     print(f"Observed positions : {window.observation_count}")
     print(f"Predicted positions: {window.prediction_count}")
+    print(f"Turn-rate level     : {window.turn_rate_level:.5f} rad/s")
     print(f"Position noise     : {SIGMA_POSITION:.2f} m")
     print(f"Speed noise        : {SIGMA_SPEED:.2f} m/s")
 
