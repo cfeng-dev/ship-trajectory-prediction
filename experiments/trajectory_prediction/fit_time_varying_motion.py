@@ -2,13 +2,16 @@
 
 import numpy as np
 
+from ship_trajectory_prediction.models.evaluation import (
+    evaluate_position_predictions,
+    print_position_evaluation,
+)
 from ship_trajectory_prediction.models.plotting import (
     plot_time_varying_motion_prediction,
 )
 from ship_trajectory_prediction.models.time_varying_motion import (
     fit_time_varying_motion_model,
     prepare_trajectory_window,
-    summarize_predictions,
 )
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.io import read_ship_data
@@ -101,17 +104,8 @@ def main():
         f"{np.median(speed_state[:, -1]):.3f}"
     )
 
-    prediction_summary = summarize_predictions(fit, window)
-    position_error = np.hypot(
-        prediction_summary["x_median"] - prediction_summary["x_actual"],
-        prediction_summary["y_median"] - prediction_summary["y_actual"],
-    )
-    print("\nHeld-out position errors:")
-    print(f"Mean error : {position_error.mean():.2f} m")
-    print(f"Final error: {position_error.iloc[-1]:.2f} m")
-
-    print("\nPosterior prediction summary:")
-    print(prediction_summary.to_string(index=False))
+    evaluation = evaluate_position_predictions(fit, window)
+    print_position_evaluation(evaluation)
 
     plot_time_varying_motion_prediction(window, fit)
 

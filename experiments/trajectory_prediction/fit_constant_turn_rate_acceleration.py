@@ -5,7 +5,10 @@ import numpy as np
 from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
     fit_constant_turn_rate_acceleration_model,
     prepare_trajectory_window,
-    summarize_predictions,
+)
+from ship_trajectory_prediction.models.evaluation import (
+    evaluate_position_predictions,
+    print_position_evaluation,
 )
 from ship_trajectory_prediction.models.plotting import (
     plot_constant_turn_rate_acceleration_prediction,
@@ -76,9 +79,8 @@ def main():
     print(f"Left-turn probability   : {np.mean(turn_rate_samples > 0):.1%}")
     print(f"Right-turn probability  : {np.mean(turn_rate_samples < 0):.1%}")
 
-    prediction_summary = summarize_predictions(fit, window)
-    print("\nPosterior prediction summary:")
-    print(prediction_summary.to_string(index=False))
+    evaluation = evaluate_position_predictions(fit, window)
+    print_position_evaluation(evaluation)
 
     plot_constant_turn_rate_acceleration_prediction(window, fit)
 

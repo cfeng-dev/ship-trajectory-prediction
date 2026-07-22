@@ -5,7 +5,10 @@ import numpy as np
 from ship_trajectory_prediction.models.constant_turn_rate import (
     fit_constant_turn_rate_model,
     prepare_trajectory_window,
-    summarize_predictions,
+)
+from ship_trajectory_prediction.models.evaluation import (
+    evaluate_position_predictions,
+    print_position_evaluation,
 )
 from ship_trajectory_prediction.models.plotting import (
     plot_constant_turn_rate_prediction,
@@ -73,9 +76,8 @@ def main():
         f"(90% interval: {radius_lower:.1f} to {radius_upper:.1f} m)"
     )
 
-    prediction_summary = summarize_predictions(fit, window)
-    print("\nPosterior prediction summary:")
-    print(prediction_summary.to_string(index=False))
+    evaluation = evaluate_position_predictions(fit, window)
+    print_position_evaluation(evaluation)
 
     plot_constant_turn_rate_prediction(window, fit)
 

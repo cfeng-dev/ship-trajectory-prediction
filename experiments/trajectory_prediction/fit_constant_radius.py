@@ -3,7 +3,10 @@
 from ship_trajectory_prediction.models.constant_radius import (
     fit_constant_radius_model,
     prepare_trajectory_window,
-    summarize_predictions,
+)
+from ship_trajectory_prediction.models.evaluation import (
+    evaluate_position_predictions,
+    print_position_evaluation,
 )
 from ship_trajectory_prediction.models.plotting import (
     plot_constant_radius_prediction,
@@ -54,9 +57,8 @@ def main():
     print("\nPosterior parameter summary:")
     print(fit.summary().loc[["radius", "sigma"]])
 
-    prediction_summary = summarize_predictions(fit, window)
-    print("\nPosterior prediction summary:")
-    print(prediction_summary.to_string(index=False))
+    evaluation = evaluate_position_predictions(fit, window)
+    print_position_evaluation(evaluation)
 
     plot_constant_radius_prediction(window, fit)
 
