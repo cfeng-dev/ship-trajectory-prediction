@@ -1,4 +1,8 @@
-"""Shared preparation of observed and held-out trajectory windows."""
+"""Prepare model-neutral trajectory data for motion models.
+
+This module converts CSV values to SI units, separates observed and held-out
+points, and estimates basic initial motion values.
+"""
 
 from dataclasses import dataclass
 
