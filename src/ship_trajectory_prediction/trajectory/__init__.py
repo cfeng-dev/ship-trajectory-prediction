@@ -11,11 +11,13 @@ from ship_trajectory_prediction.trajectory.io import (
     resample_trajectory_data,
 )
 from ship_trajectory_prediction.trajectory.window import (
+    DEFAULT_GPS_SPEED_UNIT,
     TrajectoryWindowData,
     prepare_trajectory_window,
 )
 
 __all__ = [
+    "DEFAULT_GPS_SPEED_UNIT",
     "calculate_gps_distances",
     "calculate_speed_from_gps",
     "gps_to_local_coordinates",

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from ship_trajectory_prediction.trajectory import (
+    DEFAULT_GPS_SPEED_UNIT,
     TrajectoryWindowData,
     prepare_trajectory_window,
 )
@@ -60,6 +61,22 @@ def test_prepare_trajectory_window_sorts_slices_and_converts_values():
     assert window.prediction_count == 2
     assert window.observed_slice == slice(0, 3)
     assert window.prediction_slice == slice(3, None)
+    assert DEFAULT_GPS_SPEED_UNIT == "km/h"
+
+
+def test_prepare_trajectory_window_accepts_speed_values_in_meters_per_second():
+    """An explicit m/s input unit should leave numeric speed values unchanged."""
+    window = prepare_trajectory_window(
+        create_trajectory_data(),
+        observation_count=3,
+        prediction_count=2,
+        start_index=1,
+        gps_speed_unit="m/s",
+    )
+
+    assert window.gps_speed_mps[:2] == pytest.approx([18.0, -3.6])
+    assert np.isnan(window.gps_speed_mps[2])
+    assert window.gps_speed_mps[3:] == pytest.approx([36.0, 54.0])
 
 
 @pytest.mark.parametrize(
@@ -69,7 +86,7 @@ def test_prepare_trajectory_window_sorts_slices_and_converts_values():
         ("observation_count", True),
         ("prediction_count", 0),
         ("start_index", -1),
-        ("speed_unit", "knots"),
+        ("gps_speed_unit", "knots"),
     ],
 )
 def test_prepare_trajectory_window_rejects_invalid_arguments(argument, value):
@@ -78,7 +95,7 @@ def test_prepare_trajectory_window_rejects_invalid_arguments(argument, value):
         "observation_count": 3,
         "prediction_count": 2,
         "start_index": 0,
-        "speed_unit": "km/h",
+        "gps_speed_unit": DEFAULT_GPS_SPEED_UNIT,
     }
     arguments[argument] = value
 

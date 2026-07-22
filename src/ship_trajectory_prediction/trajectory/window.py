@@ -7,6 +7,8 @@ import pandas as pd
 
 from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 
+# Default unit expected for values in the CSV column ``gps_speed``.
+DEFAULT_GPS_SPEED_UNIT = "km/h"
 KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
 
 
@@ -43,20 +45,20 @@ def prepare_trajectory_window(
     prediction_count=10,
     *,
     start_index=0,
-    speed_unit="km/h",
+    gps_speed_unit=DEFAULT_GPS_SPEED_UNIT,
 ) -> TrajectoryWindowData:
     """Prepare one model-neutral trajectory window in SI units.
 
-    Position and time values are validated centrally. GPS speeds are converted
-    to numeric values in meters per second, while non-numeric and negative
-    values are retained as ``NaN`` and negative values respectively. Individual
-    models remain responsible for applying their own speed requirements.
+    Position and time values are validated centrally. GPS speeds are interpreted
+    according to ``gps_speed_unit`` and stored in meters per second, while
+    non-numeric and negative values are retained as ``NaN`` and negative values
+    respectively. Individual models apply their own speed requirements.
     """
     _validate_window_arguments(
         observation_count,
         prediction_count,
         start_index,
-        speed_unit,
+        gps_speed_unit,
     )
 
     required_columns = {
@@ -112,7 +114,7 @@ def prepare_trajectory_window(
         window_data["gps_speed"],
         errors="coerce",
     ).to_numpy(dtype=float)
-    if speed_unit == "km/h":
+    if gps_speed_unit == "km/h":
         gps_speed_mps *= KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
 
     return TrajectoryWindowData(
@@ -181,7 +183,7 @@ def _validate_window_arguments(
     observation_count,
     prediction_count,
     start_index,
-    speed_unit,
+    gps_speed_unit,
 ):
     """Validate shared trajectory-window configuration."""
     integer_arguments = {
@@ -195,5 +197,5 @@ def _validate_window_arguments(
                 f"{name} must be an integer greater than or equal to {minimum}."
             )
 
-    if speed_unit not in {"km/h", "m/s"}:
-        raise ValueError("speed_unit must be 'km/h' or 'm/s'.")
+    if gps_speed_unit not in {"km/h", "m/s"}:
+        raise ValueError("gps_speed_unit must be 'km/h' or 'm/s'.")
