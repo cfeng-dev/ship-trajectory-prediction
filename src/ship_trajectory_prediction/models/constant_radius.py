@@ -7,10 +7,15 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel
 
-from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory.window import (
+    estimate_initial_heading,
+    estimate_positive_speed_median,
+)
+from ship_trajectory_prediction.trajectory.window import (
+    prepare_trajectory_window as _prepare_base_trajectory_window,
+)
 
-KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
 STAN_FILE = project_path("stan/models/constant_radius.stan")
 
 
@@ -59,85 +64,40 @@ def prepare_trajectory_window(
     Speed and initial heading are estimated from the observed part only; the
     remaining positions are retained exclusively for evaluation.
     """
-    _validate_window_arguments(
-        observation_count,
-        prediction_count,
-        start_index,
-        speed_unit,
-        turn_direction,
+    if turn_direction not in {None, -1, 1}:
+        raise ValueError("turn_direction must be -1, 1, or None.")
+
+    base_window = _prepare_base_trajectory_window(
+        data,
+        observation_count=observation_count,
+        prediction_count=prediction_count,
+        start_index=start_index,
+        speed_unit=speed_unit,
     )
 
-    required_columns = {
-        "time",
-        "run_id",
-        "gps_latitude",
-        "gps_longitude",
-        "gps_speed",
-    }
-    missing_columns = sorted(required_columns.difference(data.columns))
-    if missing_columns:
-        raise ValueError(f"Missing required columns: {missing_columns}")
-
-    if data["run_id"].nunique(dropna=False) != 1:
-        raise ValueError("Trajectory data must contain exactly one run_id.")
-
-    prepared_data = data.copy()
-    prepared_data["time"] = pd.to_datetime(
-        prepared_data["time"],
-        utc=True,
-        format="mixed",
-    )
-    prepared_data = prepared_data.sort_values("time").reset_index(drop=True)
-
-    window_size = observation_count + prediction_count
-    stop_index = start_index + window_size
-    if stop_index > len(prepared_data):
+    observed = base_window.observed_slice
+    try:
+        speed_mps = estimate_positive_speed_median(base_window.gps_speed_mps[observed])
+    except ValueError as error:
         raise ValueError(
-            "Not enough trajectory rows for the requested observation and "
-            "prediction window."
-        )
-
-    window_data = prepared_data.iloc[start_index:stop_index].copy()
-    timestamps = pd.DatetimeIndex(window_data["time"])
-    time_seconds = (timestamps - timestamps[0]).total_seconds().to_numpy(dtype=float)
-    if np.any(np.diff(time_seconds) <= 0):
-        raise ValueError("Trajectory timestamps must be strictly increasing.")
-
-    longitude = pd.to_numeric(
-        window_data["gps_longitude"],
-        errors="coerce",
-    ).to_numpy(dtype=float)
-    latitude = pd.to_numeric(
-        window_data["gps_latitude"],
-        errors="coerce",
-    ).to_numpy(dtype=float)
-    x_meters, y_meters = gps_to_local_coordinates(
-        longitude,
-        latitude,
-        unit="m",
-    )
-
-    observed_slice = slice(0, observation_count)
-    speed_mps = _estimate_speed(
-        window_data["gps_speed"].iloc[observed_slice],
-        speed_unit,
-    )
-    initial_heading = _estimate_initial_heading(
-        x_meters[observed_slice],
-        y_meters[observed_slice],
+            "Observed gps_speed must contain positive finite values."
+        ) from error
+    initial_heading = estimate_initial_heading(
+        base_window.x_meters[observed],
+        base_window.y_meters[observed],
     )
     if turn_direction is None:
         turn_direction = _infer_turn_direction(
-            x_meters[observed_slice],
-            y_meters[observed_slice],
+            base_window.x_meters[observed],
+            base_window.y_meters[observed],
         )
 
     return TrajectoryWindow(
-        timestamps=timestamps,
-        time_seconds=time_seconds,
-        x_meters=x_meters,
-        y_meters=y_meters,
-        observation_count=observation_count,
+        timestamps=base_window.timestamps,
+        time_seconds=base_window.time_seconds,
+        x_meters=base_window.x_meters,
+        y_meters=base_window.y_meters,
+        observation_count=base_window.observation_count,
         speed_mps=speed_mps,
         initial_heading=initial_heading,
         turn_direction=turn_direction,
@@ -269,31 +229,6 @@ def _prediction_samples(fit, variable_name, prediction_count):
     return samples
 
 
-def _estimate_speed(speed_values, speed_unit):
-    """Estimate constant positive speed from observed GPS speed values."""
-    speed_values = pd.to_numeric(speed_values, errors="coerce").to_numpy(dtype=float)
-    valid_speeds = speed_values[np.isfinite(speed_values) & (speed_values > 0)]
-    if len(valid_speeds) == 0:
-        raise ValueError("Observed gps_speed must contain positive finite values.")
-
-    speed = float(np.median(valid_speeds))
-    if speed_unit == "km/h":
-        speed *= KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
-    return speed
-
-
-def _estimate_initial_heading(x_meters, y_meters):
-    """Estimate initial heading from the first few observed positions."""
-    endpoint = min(4, len(x_meters) - 1)
-    while endpoint > 0:
-        delta_x = x_meters[endpoint] - x_meters[0]
-        delta_y = y_meters[endpoint] - y_meters[0]
-        if np.hypot(delta_x, delta_y) > 1e-8:
-            return float(np.arctan2(delta_y, delta_x))
-        endpoint -= 1
-    raise ValueError("Observed positions do not contain enough movement for heading.")
-
-
 def _infer_turn_direction(x_meters, y_meters):
     """Infer clockwise or counterclockwise motion from observed headings."""
     delta_x = np.diff(x_meters)
@@ -305,28 +240,3 @@ def _infer_turn_direction(x_meters, y_meters):
 
     total_heading_change = float(headings[-1] - headings[0])
     return -1 if total_heading_change < 0 else 1
-
-
-def _validate_window_arguments(
-    observation_count,
-    prediction_count,
-    start_index,
-    speed_unit,
-    turn_direction,
-):
-    """Validate trajectory window configuration."""
-    integer_arguments = {
-        "observation_count": (observation_count, 3),
-        "prediction_count": (prediction_count, 1),
-        "start_index": (start_index, 0),
-    }
-    for name, (value, minimum) in integer_arguments.items():
-        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-            raise ValueError(
-                f"{name} must be an integer greater than or equal to {minimum}."
-            )
-
-    if speed_unit not in {"km/h", "m/s"}:
-        raise ValueError("speed_unit must be 'km/h' or 'm/s'.")
-    if turn_direction not in {None, -1, 1}:
-        raise ValueError("turn_direction must be -1, 1, or None.")

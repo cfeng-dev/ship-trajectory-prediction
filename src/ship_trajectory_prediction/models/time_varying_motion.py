@@ -7,10 +7,14 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel
 
-from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory.window import (
+    estimate_initial_heading,
+)
+from ship_trajectory_prediction.trajectory.window import (
+    prepare_trajectory_window as _prepare_base_trajectory_window,
+)
 
-KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
 STAN_FILE = project_path("stan/models/time_varying_motion.stan")
 
 
@@ -58,84 +62,37 @@ def prepare_trajectory_window(
     Future positions and speeds remain held out and are retained exclusively
     for evaluating the posterior predictions.
     """
-    _validate_window_arguments(
-        observation_count,
-        prediction_count,
-        start_index,
-        speed_unit,
+    base_window = _prepare_base_trajectory_window(
+        data,
+        observation_count=observation_count,
+        prediction_count=prediction_count,
+        start_index=start_index,
+        speed_unit=speed_unit,
     )
 
-    required_columns = {
-        "time",
-        "run_id",
-        "gps_latitude",
-        "gps_longitude",
-        "gps_speed",
-    }
-    missing_columns = sorted(required_columns.difference(data.columns))
-    if missing_columns:
-        raise ValueError(f"Missing required columns: {missing_columns}")
-    if data["run_id"].nunique(dropna=False) != 1:
-        raise ValueError("Trajectory data must contain exactly one run_id.")
+    speed_mps = base_window.gps_speed_mps
+    if not np.all(np.isfinite(speed_mps)) or np.any(speed_mps < 0):
+        raise ValueError("gps_speed must contain finite non-negative values.")
 
-    prepared_data = data.copy()
-    prepared_data["time"] = pd.to_datetime(
-        prepared_data["time"],
-        utc=True,
-        format="mixed",
-    )
-    prepared_data = prepared_data.sort_values("time").reset_index(drop=True)
-
-    window_size = observation_count + prediction_count
-    stop_index = start_index + window_size
-    if stop_index > len(prepared_data):
-        raise ValueError(
-            "Not enough trajectory rows for the requested observation and "
-            "prediction window."
-        )
-
-    window_data = prepared_data.iloc[start_index:stop_index].copy()
-    timestamps = pd.DatetimeIndex(window_data["time"])
-    time_seconds = (timestamps - timestamps[0]).total_seconds().to_numpy(dtype=float)
-    if np.any(np.diff(time_seconds) <= 0):
-        raise ValueError("Trajectory timestamps must be strictly increasing.")
-
-    longitude = pd.to_numeric(
-        window_data["gps_longitude"],
-        errors="coerce",
-    ).to_numpy(dtype=float)
-    latitude = pd.to_numeric(
-        window_data["gps_latitude"],
-        errors="coerce",
-    ).to_numpy(dtype=float)
-    if not np.all(np.isfinite(longitude)) or not np.all(np.isfinite(latitude)):
-        raise ValueError("GPS coordinates must contain only finite values.")
-    x_meters, y_meters = gps_to_local_coordinates(
-        longitude,
-        latitude,
-        unit="m",
-    )
-
-    speed_mps = _convert_speed_values(window_data["gps_speed"], speed_unit)
-    observed = slice(0, observation_count)
+    observed = base_window.observed_slice
     speed_prior_median = _estimate_initial_speed_prior(speed_mps[observed])
-    heading_prior_mean = _estimate_initial_heading(
-        x_meters[observed],
-        y_meters[observed],
+    heading_prior_mean = estimate_initial_heading(
+        base_window.x_meters[observed],
+        base_window.y_meters[observed],
     )
     turn_rate_level = _estimate_turn_rate_level(
-        time_seconds[observed],
-        x_meters[observed],
-        y_meters[observed],
+        base_window.time_seconds[observed],
+        base_window.x_meters[observed],
+        base_window.y_meters[observed],
     )
 
     return TrajectoryWindow(
-        timestamps=timestamps,
-        time_seconds=time_seconds,
-        x_meters=x_meters,
-        y_meters=y_meters,
+        timestamps=base_window.timestamps,
+        time_seconds=base_window.time_seconds,
+        x_meters=base_window.x_meters,
+        y_meters=base_window.y_meters,
         speed_mps=speed_mps,
-        observation_count=observation_count,
+        observation_count=base_window.observation_count,
         speed_prior_median=speed_prior_median,
         heading_prior_mean=heading_prior_mean,
         turn_rate_level=turn_rate_level,
@@ -329,34 +286,12 @@ def _prediction_samples(fit, variable_name, prediction_count):
     return samples
 
 
-def _convert_speed_values(speed_values, speed_unit):
-    """Convert finite non-negative GPS speed observations to m/s."""
-    speed = pd.to_numeric(speed_values, errors="coerce").to_numpy(dtype=float)
-    if not np.all(np.isfinite(speed)) or np.any(speed < 0):
-        raise ValueError("gps_speed must contain finite non-negative values.")
-    if speed_unit == "km/h":
-        speed *= KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
-    return speed
-
-
 def _estimate_initial_speed_prior(speed_values):
     """Estimate a robust initial-speed prior from the first moving samples."""
     positive = speed_values[speed_values > 0]
     if len(positive) == 0:
         raise ValueError("Observed gps_speed must contain positive values.")
     return float(np.median(positive[: min(3, len(positive))]))
-
-
-def _estimate_initial_heading(x_meters, y_meters):
-    """Estimate the heading-prior mean from the first observed positions."""
-    endpoint = min(4, len(x_meters) - 1)
-    while endpoint > 0:
-        delta_x = x_meters[endpoint] - x_meters[0]
-        delta_y = y_meters[endpoint] - y_meters[0]
-        if np.hypot(delta_x, delta_y) > 1e-8:
-            return float(np.arctan2(delta_y, delta_x))
-        endpoint -= 1
-    raise ValueError("Observed positions do not contain enough movement for heading.")
 
 
 def _estimate_turn_rate_level(time_seconds, x_meters, y_meters):
@@ -371,24 +306,3 @@ def _estimate_turn_rate_level(time_seconds, x_meters, y_meters):
     heading = np.unwrap(np.arctan2(delta_y[moving], delta_x[moving]))
     turn_rate = float(np.polyfit(segment_time[moving], heading, 1)[0])
     return float(np.clip(turn_rate, -0.1, 0.1))
-
-
-def _validate_window_arguments(
-    observation_count,
-    prediction_count,
-    start_index,
-    speed_unit,
-):
-    """Validate trajectory window configuration."""
-    integer_arguments = {
-        "observation_count": (observation_count, 3),
-        "prediction_count": (prediction_count, 1),
-        "start_index": (start_index, 0),
-    }
-    for name, (value, minimum) in integer_arguments.items():
-        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-            raise ValueError(
-                f"{name} must be an integer greater than or equal to {minimum}."
-            )
-    if speed_unit not in {"km/h", "m/s"}:
-        raise ValueError("speed_unit must be 'km/h' or 'm/s'.")
