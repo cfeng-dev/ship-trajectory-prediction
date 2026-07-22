@@ -6,9 +6,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.evaluation.plotting import (
-    plot_time_varying_radius_prediction,
-)
+from ship_trajectory_prediction.evaluation.plotting import plot_prediction
 from ship_trajectory_prediction.models.time_varying_radius import (
     fit_time_varying_radius_model,
     prepare_trajectory_window,
@@ -91,7 +89,7 @@ def main():
     evaluation = evaluate_position_predictions(fit, window)
     print_position_evaluation(evaluation)
 
-    plot_time_varying_radius_prediction(window, fit)
+    plot_prediction(window, fit, model_name="Time-Varying-Radius")
 
 
 if __name__ == "__main__":

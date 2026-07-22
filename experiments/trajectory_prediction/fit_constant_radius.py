@@ -4,9 +4,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.evaluation.plotting import (
-    plot_constant_radius_prediction,
-)
+from ship_trajectory_prediction.evaluation.plotting import plot_prediction
 from ship_trajectory_prediction.models.constant_radius import (
     fit_constant_radius_model,
     prepare_trajectory_window,
@@ -60,7 +58,7 @@ def main():
     evaluation = evaluate_position_predictions(fit, window)
     print_position_evaluation(evaluation)
 
-    plot_constant_radius_prediction(window, fit)
+    plot_prediction(window, fit, model_name="Constant-Radius")
 
 
 if __name__ == "__main__":

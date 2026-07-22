@@ -4,78 +4,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_constant_radius_prediction(
+def plot_prediction(
     window,
     fit,
+    *,
+    model_name,
     max_posterior_trajectories=100,
 ):
-    """Plot observed, held-out, and posterior constant-radius trajectories."""
-    _plot_prediction(
-        window,
-        fit,
-        max_posterior_trajectories,
-        title="Bayesian Constant-Radius Prediction",
-    )
+    """Plot observed, held-out, and posterior trajectories for any model."""
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("model_name must be a non-empty string.")
 
-
-def plot_time_varying_radius_prediction(
-    window,
-    fit,
-    max_posterior_trajectories=100,
-):
-    """Plot observed, held-out, and posterior varying-radius trajectories."""
-    _plot_prediction(
-        window,
-        fit,
-        max_posterior_trajectories,
-        title="Bayesian Time-Varying-Radius Prediction",
-    )
-
-
-def plot_constant_turn_rate_prediction(
-    window,
-    fit,
-    max_posterior_trajectories=100,
-):
-    """Plot observed, held-out, and posterior constant-turn-rate trajectories."""
-    _plot_prediction(
-        window,
-        fit,
-        max_posterior_trajectories,
-        title="Bayesian Constant-Turn-Rate Prediction",
-    )
-
-
-def plot_constant_turn_rate_acceleration_prediction(
-    window,
-    fit,
-    max_posterior_trajectories=100,
-):
-    """Plot observed, held-out, and posterior CTRA trajectories."""
-    _plot_prediction(
-        window,
-        fit,
-        max_posterior_trajectories,
-        title="Bayesian Constant-Turn-Rate-and-Acceleration Prediction",
-    )
-
-
-def plot_time_varying_motion_prediction(
-    window,
-    fit,
-    max_posterior_trajectories=100,
-):
-    """Plot observed, held-out, and posterior time-varying trajectories."""
-    _plot_prediction(
-        window,
-        fit,
-        max_posterior_trajectories,
-        title="Bayesian Time-Varying Motion Prediction",
-    )
-
-
-def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
-    """Plot one posterior trajectory prediction with the requested title."""
     observed = window.observed_slice
     prediction = window.prediction_slice
     x_samples = fit.stan_variable("x_prediction_mean")
@@ -129,7 +68,7 @@ def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
         label="Prediction start",
     )
 
-    axis.set_title(title)
+    axis.set_title(f"Bayesian {model_name.strip()} Prediction")
     axis.set_xlabel("x [m]")
     axis.set_ylabel("y [m]")
     axis.set_aspect("equal", adjustable="box")
@@ -137,3 +76,4 @@ def _plot_prediction(window, fit, max_posterior_trajectories, *, title):
     axis.legend()
     figure.tight_layout()
     plt.show()
+    return figure, axis
