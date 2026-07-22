@@ -5,13 +5,15 @@ import pandas as pd
 import pytest
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
+from ship_trajectory_prediction.models import constant_radius as model_module
 from ship_trajectory_prediction.models.constant_radius import (
     STAN_FILE,
     build_stan_data,
-    prepare_trajectory_window,
+    fit_constant_radius_model,
     summarize_predictions,
 )
 from ship_trajectory_prediction.simulation.core import simulate_curved_trajectory
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 
 def create_curved_trajectory_data(run_id=1):
@@ -44,18 +46,20 @@ def create_curved_trajectory_data(run_id=1):
     )
 
 
-def test_prepare_trajectory_window_uses_observed_data_only_for_parameters():
-    """Window preparation should recover speed and turn direction from history."""
+def test_build_stan_data_derives_motion_values_from_observed_history():
+    """Stan data should derive fixed motion values from observed history."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
         prediction_count=4,
     )
+    stan_data = build_stan_data(window)
 
     assert window.observation_count == 8
     assert window.prediction_count == 4
-    assert window.speed_mps == pytest.approx(5.0)
-    assert window.turn_direction == 1
+    assert stan_data["speed"] == pytest.approx(5.0)
+    assert stan_data["heading_initial"] == pytest.approx(0.5)
+    assert stan_data["turn_direction"] == 1
     assert window.x_meters[0] == pytest.approx(0.0)
     assert window.y_meters[0] == pytest.approx(0.0)
 
@@ -76,6 +80,57 @@ def test_build_stan_data_keeps_future_positions_held_out():
     assert len(stan_data["time_prediction"]) == 4
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
+
+
+def test_build_stan_data_accepts_explicit_turn_direction():
+    """An explicit direction should override the observed course change."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    stan_data = build_stan_data(window, turn_direction=-1)
+
+    assert stan_data["turn_direction"] == -1
+
+
+@pytest.mark.parametrize("turn_direction", [True, 0, 2])
+def test_build_stan_data_rejects_invalid_turn_direction(turn_direction):
+    """Only signed unit directions or automatic inference are valid."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    with pytest.raises(ValueError, match="turn_direction"):
+        build_stan_data(window, turn_direction=turn_direction)
+
+
+def test_fit_model_forwards_explicit_turn_direction(monkeypatch):
+    """The fitting API should pass an explicit direction into Stan data."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_constant_radius_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_constant_radius_model(
+        window,
+        turn_direction=-1,
+        chains=1,
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments["data"]["turn_direction"] == -1
 
 
 def test_prepare_trajectory_window_rejects_multiple_runs():
@@ -136,3 +191,16 @@ class FakeFit:
     def stan_variable(self, name):
         """Return one stored fake posterior variable."""
         return self.variables[name]
+
+
+class FakeModel:
+    """Minimal CmdStan model replacement for checking sampling arguments."""
+
+    def __init__(self):
+        self.result = object()
+        self.sample_arguments = None
+
+    def sample(self, **kwargs):
+        """Capture sampling arguments and return a stable sentinel."""
+        self.sample_arguments = kwargs
+        return self.result

@@ -2,11 +2,9 @@
 
 from ship_trajectory_prediction.models.constant_radius import (
     STAN_FILE,
-    TrajectoryWindow,
     build_stan_data,
     compile_constant_radius_model,
     fit_constant_radius_model,
-    prepare_trajectory_window,
     summarize_predictions,
 )
 from ship_trajectory_prediction.models.constant_turn_rate import (
@@ -16,12 +14,10 @@ from ship_trajectory_prediction.models.constant_turn_rate import (
 
 __all__ = [
     "STAN_FILE",
-    "TrajectoryWindow",
     "build_stan_data",
     "compile_constant_radius_model",
     "compile_constant_turn_rate_model",
     "fit_constant_radius_model",
     "fit_constant_turn_rate_model",
-    "prepare_trajectory_window",
     "summarize_predictions",
 ]

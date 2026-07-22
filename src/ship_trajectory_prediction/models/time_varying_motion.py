@@ -1,6 +1,5 @@
 """Bayesian trajectory prediction with time-varying motion states."""
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -8,99 +7,16 @@ import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel
 
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 from ship_trajectory_prediction.trajectory.window import (
     estimate_initial_heading,
-)
-from ship_trajectory_prediction.trajectory.window import (
-    prepare_trajectory_window as _prepare_base_trajectory_window,
 )
 
 STAN_FILE = project_path("stan/models/time_varying_motion.stan")
 
 
-@dataclass(frozen=True)
-class TrajectoryWindow:
-    """Prepared observation and evaluation window for one ship trajectory."""
-
-    timestamps: pd.DatetimeIndex
-    time_seconds: np.ndarray
-    x_meters: np.ndarray
-    y_meters: np.ndarray
-    speed_mps: np.ndarray
-    observation_count: int
-    speed_prior_median: float
-    heading_prior_mean: float
-    turn_rate_level: float
-
-    @property
-    def prediction_count(self):
-        """Return the number of held-out future observations."""
-        return len(self.time_seconds) - self.observation_count
-
-    @property
-    def observed_slice(self):
-        """Return the slice selecting observations used for inference."""
-        return slice(0, self.observation_count)
-
-    @property
-    def prediction_slice(self):
-        """Return the slice selecting held-out observations."""
-        return slice(self.observation_count, None)
-
-
-def prepare_trajectory_window(
-    data,
-    observation_count=20,
-    prediction_count=10,
-    *,
-    start_index=0,
-    speed_unit="km/h",
-):
-    """Prepare real positions and GPS speeds for state-space inference.
-
-    Only the observed portion supplies Stan with positions and speed values.
-    Future positions and speeds remain held out and are retained exclusively
-    for evaluating the posterior predictions.
-    """
-    base_window = _prepare_base_trajectory_window(
-        data,
-        observation_count=observation_count,
-        prediction_count=prediction_count,
-        start_index=start_index,
-        speed_unit=speed_unit,
-    )
-
-    speed_mps = base_window.gps_speed_mps
-    if not np.all(np.isfinite(speed_mps)) or np.any(speed_mps < 0):
-        raise ValueError("gps_speed must contain finite non-negative values.")
-
-    observed = base_window.observed_slice
-    speed_prior_median = _estimate_initial_speed_prior(speed_mps[observed])
-    heading_prior_mean = estimate_initial_heading(
-        base_window.x_meters[observed],
-        base_window.y_meters[observed],
-    )
-    turn_rate_level = _estimate_turn_rate_level(
-        base_window.time_seconds[observed],
-        base_window.x_meters[observed],
-        base_window.y_meters[observed],
-    )
-
-    return TrajectoryWindow(
-        timestamps=base_window.timestamps,
-        time_seconds=base_window.time_seconds,
-        x_meters=base_window.x_meters,
-        y_meters=base_window.y_meters,
-        speed_mps=speed_mps,
-        observation_count=base_window.observation_count,
-        speed_prior_median=speed_prior_median,
-        heading_prior_mean=heading_prior_mean,
-        turn_rate_level=turn_rate_level,
-    )
-
-
 def build_stan_data(
-    window,
+    window: TrajectoryWindowData,
     *,
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
@@ -130,21 +46,35 @@ def build_stan_data(
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a positive finite value.")
 
+    speed_mps = window.gps_speed_mps
+    if not np.all(np.isfinite(speed_mps)) or np.any(speed_mps < 0):
+        raise ValueError("gps_speed must contain finite non-negative values.")
+
     observed = window.observed_slice
     prediction = window.prediction_slice
+    speed_prior_median = _estimate_initial_speed_prior(speed_mps[observed])
+    heading_prior_mean = estimate_initial_heading(
+        window.x_meters[observed],
+        window.y_meters[observed],
+    )
+    turn_rate_level = _estimate_turn_rate_level(
+        window.time_seconds[observed],
+        window.x_meters[observed],
+        window.y_meters[observed],
+    )
     return {
         "N_observed": window.observation_count,
         "time_observed": window.time_seconds[observed],
         "x_observed": window.x_meters[observed],
         "y_observed": window.y_meters[observed],
-        "speed_observed": window.speed_mps[observed],
+        "speed_observed": speed_mps[observed],
         "N_prediction": window.prediction_count,
         "time_prediction": window.time_seconds[prediction],
         "x_initial": float(window.x_meters[0]),
         "y_initial": float(window.y_meters[0]),
-        "speed_prior_median": window.speed_prior_median,
-        "heading_prior_mean": window.heading_prior_mean,
-        "turn_rate_level": window.turn_rate_level,
+        "speed_prior_median": speed_prior_median,
+        "heading_prior_mean": heading_prior_mean,
+        "turn_rate_level": turn_rate_level,
         **positive_values,
     }
 
@@ -158,7 +88,7 @@ def compile_time_varying_motion_model(stan_file=STAN_FILE):
 
 
 def fit_time_varying_motion_model(
-    window,
+    window: TrajectoryWindowData,
     *,
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
@@ -204,13 +134,13 @@ def fit_time_varying_motion_model(
     if parallel_chains is None:
         parallel_chains = chains
     if inits is None:
-        innovation_count = window.observation_count - 2
+        innovation_count = stan_data["N_observed"] - 2
         inits = {
-            "speed_initial": window.speed_prior_median,
-            "heading_initial": window.heading_prior_mean,
+            "speed_initial": stan_data["speed_prior_median"],
+            "heading_initial": stan_data["heading_prior_mean"],
             "acceleration_initial": 0.0,
             "acceleration_innovation": np.zeros(innovation_count),
-            "turn_rate_initial": window.turn_rate_level,
+            "turn_rate_initial": stan_data["turn_rate_level"],
             "turn_rate_innovation": np.zeros(innovation_count),
         }
 
@@ -229,7 +159,7 @@ def fit_time_varying_motion_model(
     )
 
 
-def summarize_predictions(fit, window, credible_interval=0.9):
+def summarize_predictions(fit, window: TrajectoryWindowData, credible_interval=0.9):
     """Summarize position and speed predictions against held-out data."""
     if not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
@@ -251,7 +181,7 @@ def summarize_predictions(fit, window, credible_interval=0.9):
             "t": window.time_seconds[prediction],
             "x_actual": window.x_meters[prediction],
             "y_actual": window.y_meters[prediction],
-            "speed_actual": window.speed_mps[prediction],
+            "speed_actual": window.gps_speed_mps[prediction],
             "x_median": np.median(x_samples, axis=0),
             "y_median": np.median(y_samples, axis=0),
             "speed_median": np.median(speed_samples, axis=0),

@@ -8,10 +8,11 @@ from ship_trajectory_prediction.evaluation.metrics import (
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
 from ship_trajectory_prediction.models.time_varying_radius import (
+    build_stan_data,
     fit_time_varying_radius_model,
-    prepare_trajectory_window,
 )
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 from ship_trajectory_prediction.trajectory.io import read_ship_data
 
 DATA_FILE = project_path(
@@ -39,6 +40,14 @@ def main():
         prediction_count=PREDICTION_COUNT,
         start_index=START_INDEX,
     )
+    model_kwargs = {
+        "radius_prior_median": RADIUS_PRIOR_MEDIAN,
+        "curvature_initial_prior_scale": CURVATURE_INITIAL_PRIOR_SCALE,
+        "curvature_rate_prior_scale": CURVATURE_RATE_PRIOR_SCALE,
+        "sigma_prior_scale": SIGMA_PRIOR_SCALE,
+        "integration_substeps": INTEGRATION_SUBSTEPS,
+    }
+    stan_data = build_stan_data(window, **model_kwargs)
 
     print("=" * 62)
     print("Bayesian Time-Varying-Radius Prediction")
@@ -47,17 +56,11 @@ def main():
     print(f"Run ID             : {RUN_ID}")
     print(f"Observed positions : {window.observation_count}")
     print(f"Predicted positions: {window.prediction_count}")
-    print(f"Fixed speed        : {window.speed_mps:.2f} m/s")
-    print(f"Turn direction     : {window.turn_direction:+d}")
+    print(f"Fixed speed        : {stan_data['speed']:.2f} m/s")
+    direction = np.sign(stan_data["curvature_prior_mean"])
+    print(f"Turn direction     : {direction:+.0f}")
 
-    fit = fit_time_varying_radius_model(
-        window,
-        radius_prior_median=RADIUS_PRIOR_MEDIAN,
-        curvature_initial_prior_scale=CURVATURE_INITIAL_PRIOR_SCALE,
-        curvature_rate_prior_scale=CURVATURE_RATE_PRIOR_SCALE,
-        sigma_prior_scale=SIGMA_PRIOR_SCALE,
-        integration_substeps=INTEGRATION_SUBSTEPS,
-    )
+    fit = fit_time_varying_radius_model(window, **model_kwargs)
 
     print("\nPosterior parameter summary:")
     print(

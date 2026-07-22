@@ -6,30 +6,27 @@ import numpy as np
 from cmdstanpy import CmdStanModel
 
 from ship_trajectory_prediction.models.constant_turn_rate import (
-    TrajectoryWindow,
-    prepare_trajectory_window,
-    summarize_predictions,
-)
-from ship_trajectory_prediction.models.constant_turn_rate import (
     build_stan_data as _build_constant_turn_rate_stan_data,
 )
+from ship_trajectory_prediction.models.constant_turn_rate import (
+    summarize_predictions,
+)
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 
 STAN_FILE = project_path("stan/models/constant_turn_rate_acceleration.stan")
 
 __all__ = [
     "STAN_FILE",
-    "TrajectoryWindow",
     "build_stan_data",
     "compile_constant_turn_rate_acceleration_model",
     "fit_constant_turn_rate_acceleration_model",
-    "prepare_trajectory_window",
     "summarize_predictions",
 ]
 
 
 def build_stan_data(
-    window,
+    window: TrajectoryWindowData,
     *,
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
@@ -62,7 +59,7 @@ def compile_constant_turn_rate_acceleration_model(stan_file=STAN_FILE):
 
 
 def fit_constant_turn_rate_acceleration_model(
-    window,
+    window: TrajectoryWindowData,
     *,
     speed_prior_log_sd=0.5,
     heading_prior_scale=0.5,
@@ -98,11 +95,11 @@ def fit_constant_turn_rate_acceleration_model(
         parallel_chains = chains
     if inits is None:
         inits = {
-            "speed_initial": window.speed_prior_median,
+            "speed_initial": stan_data["speed_prior_median"],
             "acceleration": 0.0,
-            "heading_initial": window.heading_prior_mean,
+            "heading_initial": stan_data["heading_prior_mean"],
             "turn_rate": 0.0,
-            "sigma": sigma_prior_scale / 2,
+            "sigma": stan_data["sigma_prior_scale"] / 2,
         }
 
     return model.sample(

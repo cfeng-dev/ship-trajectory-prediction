@@ -4,7 +4,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-import numpy as np
 import pandas as pd
 
 from ship_trajectory_prediction.evaluation.metrics import (
@@ -13,34 +12,20 @@ from ship_trajectory_prediction.evaluation.metrics import (
 from ship_trajectory_prediction.models.constant_radius import (
     fit_constant_radius_model,
 )
-from ship_trajectory_prediction.models.constant_radius import (
-    prepare_trajectory_window as prepare_constant_radius_window,
-)
 from ship_trajectory_prediction.models.constant_turn_rate import (
     fit_constant_turn_rate_model,
-)
-from ship_trajectory_prediction.models.constant_turn_rate import (
-    prepare_trajectory_window as prepare_constant_turn_rate_window,
 )
 from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
     fit_constant_turn_rate_acceleration_model,
 )
-from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
-    prepare_trajectory_window as prepare_constant_turn_rate_acceleration_window,
-)
 from ship_trajectory_prediction.models.time_varying_motion import (
     fit_time_varying_motion_model,
-)
-from ship_trajectory_prediction.models.time_varying_motion import (
-    prepare_trajectory_window as prepare_time_varying_motion_window,
 )
 from ship_trajectory_prediction.models.time_varying_radius import (
     fit_time_varying_radius_model,
 )
-from ship_trajectory_prediction.models.time_varying_radius import (
-    prepare_trajectory_window as prepare_time_varying_radius_window,
-)
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 from ship_trajectory_prediction.trajectory.io import read_ship_data
 
 DATA_FILE = project_path(
@@ -56,10 +41,9 @@ CREDIBLE_INTERVAL = 0.9
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """Adapter describing how one model prepares and fits the shared window."""
+    """Adapter describing how one model fits the shared trajectory window."""
 
     name: str
-    prepare_window: Callable
     fit_model: Callable
     fit_kwargs: Mapping[str, object] = field(default_factory=dict)
 
@@ -75,7 +59,6 @@ class ModelSpec:
 MODEL_SPECS = (
     ModelSpec(
         name="Constant Radius",
-        prepare_window=prepare_constant_radius_window,
         fit_model=fit_constant_radius_model,
         fit_kwargs={
             "radius_prior_median": 500.0,
@@ -85,7 +68,6 @@ MODEL_SPECS = (
     ),
     ModelSpec(
         name="Constant Turn Rate",
-        prepare_window=prepare_constant_turn_rate_window,
         fit_model=fit_constant_turn_rate_model,
         fit_kwargs={
             "speed_prior_log_sd": 0.5,
@@ -96,7 +78,6 @@ MODEL_SPECS = (
     ),
     ModelSpec(
         name="Constant Turn Rate and Acceleration",
-        prepare_window=prepare_constant_turn_rate_acceleration_window,
         fit_model=fit_constant_turn_rate_acceleration_model,
         fit_kwargs={
             "speed_prior_log_sd": 0.5,
@@ -108,7 +89,6 @@ MODEL_SPECS = (
     ),
     ModelSpec(
         name="Time-Varying Radius",
-        prepare_window=prepare_time_varying_radius_window,
         fit_model=fit_time_varying_radius_model,
         fit_kwargs={
             "radius_prior_median": 500.0,
@@ -120,7 +100,6 @@ MODEL_SPECS = (
     ),
     ModelSpec(
         name="Time-Varying Motion",
-        prepare_window=prepare_time_varying_motion_window,
         fit_model=fit_time_varying_motion_model,
         fit_kwargs={
             "speed_prior_log_sd": 0.5,
@@ -149,22 +128,17 @@ def evaluate_models(
     show_progress=False,
 ):
     """Fit and evaluate every model on the exact same held-out timestamps."""
+    window = prepare_trajectory_window(
+        trajectory_data,
+        observation_count=observation_count,
+        prediction_count=prediction_count,
+        start_index=start_index,
+    )
     summary_rows = []
     horizon_tables = []
-    reference_window = None
 
     for model_spec in model_specs:
         print(f"Fitting {model_spec.name} ...")
-        window = model_spec.prepare_window(
-            trajectory_data,
-            observation_count=observation_count,
-            prediction_count=prediction_count,
-            start_index=start_index,
-        )
-        if reference_window is None:
-            reference_window = window
-        else:
-            _validate_shared_window(reference_window, window, model_spec.name)
         fit = model_spec.fit_model(
             window,
             show_progress=show_progress,
@@ -200,28 +174,6 @@ def evaluate_models(
         horizon_tables.append(horizon_table)
 
     return pd.DataFrame(summary_rows), pd.concat(horizon_tables, ignore_index=True)
-
-
-def _validate_shared_window(reference, candidate, model_name):
-    """Reject an adapter that changes the held-out comparison window."""
-    same_counts = (
-        reference.observation_count == candidate.observation_count
-        and reference.prediction_count == candidate.prediction_count
-    )
-    same_timestamps = np.array_equal(
-        np.asarray(reference.timestamps),
-        np.asarray(candidate.timestamps),
-    )
-    same_time = np.array_equal(reference.time_seconds, candidate.time_seconds)
-    same_positions = np.allclose(
-        reference.x_meters,
-        candidate.x_meters,
-    ) and np.allclose(
-        reference.y_meters,
-        candidate.y_meters,
-    )
-    if not (same_counts and same_timestamps and same_time and same_positions):
-        raise ValueError(f"{model_name} did not prepare the shared comparison window.")
 
 
 def main():

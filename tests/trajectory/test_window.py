@@ -11,6 +11,7 @@ from ship_trajectory_prediction.trajectory import (
 from ship_trajectory_prediction.trajectory.window import (
     estimate_initial_heading,
     estimate_positive_speed_median,
+    estimate_turn_direction,
 )
 
 
@@ -136,6 +137,20 @@ def test_shared_estimators_match_existing_model_conventions():
     assert estimate_positive_speed_median(
         np.array([np.nan, -1.0, 0.0, 2.0, 4.0])
     ) == pytest.approx(3.0)
+    assert (
+        estimate_turn_direction(
+            np.array([0.0, 1.0, 1.0]),
+            np.array([0.0, 0.0, 1.0]),
+        )
+        == 1
+    )
+    assert (
+        estimate_turn_direction(
+            np.array([0.0, 1.0, 1.0]),
+            np.array([0.0, 0.0, -1.0]),
+        )
+        == -1
+    )
 
     with pytest.raises(ValueError, match="positive finite"):
         estimate_positive_speed_median(np.array([np.nan, -1.0, 0.0]))

@@ -1,6 +1,5 @@
 """Bayesian constant-radius trajectory prediction with CmdStanPy."""
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -8,108 +7,23 @@ import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel
 
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 from ship_trajectory_prediction.trajectory.window import (
     estimate_initial_heading,
     estimate_positive_speed_median,
-)
-from ship_trajectory_prediction.trajectory.window import (
-    prepare_trajectory_window as _prepare_base_trajectory_window,
+    estimate_turn_direction,
 )
 
 STAN_FILE = project_path("stan/models/constant_radius.stan")
 
 
-@dataclass(frozen=True)
-class TrajectoryWindow:
-    """Prepared observation and evaluation window for one ship trajectory."""
-
-    timestamps: pd.DatetimeIndex
-    time_seconds: np.ndarray
-    x_meters: np.ndarray
-    y_meters: np.ndarray
-    observation_count: int
-    speed_mps: float
-    initial_heading: float
-    turn_direction: int
-
-    @property
-    def prediction_count(self):
-        """Return the number of held-out future observations."""
-        return len(self.time_seconds) - self.observation_count
-
-    @property
-    def observed_slice(self):
-        """Return the slice selecting observations used for inference."""
-        return slice(0, self.observation_count)
-
-    @property
-    def prediction_slice(self):
-        """Return the slice selecting held-out observations."""
-        return slice(self.observation_count, None)
-
-
-def prepare_trajectory_window(
-    data,
-    observation_count=20,
-    prediction_count=10,
-    *,
-    start_index=0,
-    speed_unit="km/h",
-    turn_direction=None,
-):
-    """Prepare one real-data window for constant-radius inference.
-
-    The input must contain exactly one trajectory run. GPS coordinates are
-    converted to local meters using the first selected position as origin.
-    Speed and initial heading are estimated from the observed part only; the
-    remaining positions are retained exclusively for evaluation.
-    """
-    if turn_direction not in {None, -1, 1}:
-        raise ValueError("turn_direction must be -1, 1, or None.")
-
-    base_window = _prepare_base_trajectory_window(
-        data,
-        observation_count=observation_count,
-        prediction_count=prediction_count,
-        start_index=start_index,
-        speed_unit=speed_unit,
-    )
-
-    observed = base_window.observed_slice
-    try:
-        speed_mps = estimate_positive_speed_median(base_window.gps_speed_mps[observed])
-    except ValueError as error:
-        raise ValueError(
-            "Observed gps_speed must contain positive finite values."
-        ) from error
-    initial_heading = estimate_initial_heading(
-        base_window.x_meters[observed],
-        base_window.y_meters[observed],
-    )
-    if turn_direction is None:
-        turn_direction = _infer_turn_direction(
-            base_window.x_meters[observed],
-            base_window.y_meters[observed],
-        )
-
-    return TrajectoryWindow(
-        timestamps=base_window.timestamps,
-        time_seconds=base_window.time_seconds,
-        x_meters=base_window.x_meters,
-        y_meters=base_window.y_meters,
-        observation_count=base_window.observation_count,
-        speed_mps=speed_mps,
-        initial_heading=initial_heading,
-        turn_direction=turn_direction,
-    )
-
-
 def build_stan_data(
-    window,
+    window: TrajectoryWindowData,
     *,
     radius_prior_median=500.0,
     radius_prior_log_sd=1.0,
     sigma_prior_scale=20.0,
+    turn_direction=None,
 ):
     """Build the CmdStan data dictionary for a prepared trajectory window."""
     prior_values = {
@@ -120,9 +34,22 @@ def build_stan_data(
     for name, value in prior_values.items():
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a positive finite value.")
+    if isinstance(turn_direction, bool) or turn_direction not in {None, -1, 1}:
+        raise ValueError("turn_direction must be -1, 1, or None.")
 
     observed = window.observed_slice
     prediction = window.prediction_slice
+    speed_mps = estimate_positive_speed_median(window.gps_speed_mps[observed])
+    initial_heading = estimate_initial_heading(
+        window.x_meters[observed],
+        window.y_meters[observed],
+    )
+    if turn_direction is None:
+        turn_direction = estimate_turn_direction(
+            window.x_meters[observed],
+            window.y_meters[observed],
+        )
+
     return {
         "N_observed": window.observation_count,
         "time_observed": window.time_seconds[observed],
@@ -132,9 +59,9 @@ def build_stan_data(
         "time_prediction": window.time_seconds[prediction],
         "x_initial": float(window.x_meters[0]),
         "y_initial": float(window.y_meters[0]),
-        "speed": window.speed_mps,
-        "heading_initial": window.initial_heading,
-        "turn_direction": window.turn_direction,
+        "speed": speed_mps,
+        "heading_initial": initial_heading,
+        "turn_direction": turn_direction,
         **prior_values,
     }
 
@@ -148,11 +75,12 @@ def compile_constant_radius_model(stan_file=STAN_FILE):
 
 
 def fit_constant_radius_model(
-    window,
+    window: TrajectoryWindowData,
     *,
     radius_prior_median=500.0,
     radius_prior_log_sd=1.0,
     sigma_prior_scale=20.0,
+    turn_direction=None,
     chains=4,
     parallel_chains=None,
     iter_warmup=500,
@@ -167,6 +95,7 @@ def fit_constant_radius_model(
         radius_prior_median=radius_prior_median,
         radius_prior_log_sd=radius_prior_log_sd,
         sigma_prior_scale=sigma_prior_scale,
+        turn_direction=turn_direction,
     )
     model = compile_constant_radius_model()
     if parallel_chains is None:
@@ -189,7 +118,7 @@ def fit_constant_radius_model(
     )
 
 
-def summarize_predictions(fit, window, credible_interval=0.9):
+def summarize_predictions(fit, window: TrajectoryWindowData, credible_interval=0.9):
     """Summarize posterior predictive positions against held-out observations."""
     if not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
@@ -227,16 +156,3 @@ def _prediction_samples(fit, variable_name, prediction_count):
             f"Posterior variable {variable_name!r} has an unexpected shape."
         )
     return samples
-
-
-def _infer_turn_direction(x_meters, y_meters):
-    """Infer clockwise or counterclockwise motion from observed headings."""
-    delta_x = np.diff(x_meters)
-    delta_y = np.diff(y_meters)
-    moving = np.hypot(delta_x, delta_y) > 1e-8
-    headings = np.unwrap(np.arctan2(delta_y[moving], delta_x[moving]))
-    if len(headings) < 2:
-        raise ValueError("Observed positions do not contain enough movement for turn.")
-
-    total_heading_change = float(headings[-1] - headings[0])
-    return -1 if total_heading_change < 0 else 1

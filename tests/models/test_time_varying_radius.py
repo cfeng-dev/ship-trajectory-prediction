@@ -10,10 +10,10 @@ from ship_trajectory_prediction.models.time_varying_radius import (
     STAN_FILE,
     build_stan_data,
     fit_time_varying_radius_model,
-    prepare_trajectory_window,
     summarize_predictions,
 )
 from ship_trajectory_prediction.simulation.core import simulate_curved_trajectory
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 
 def create_curved_trajectory_data():
@@ -61,6 +61,8 @@ def test_build_stan_data_keeps_future_positions_held_out():
     assert len(stan_data["y_observed"]) == 8
     assert len(stan_data["time_prediction"]) == 4
     assert stan_data["speed"] == pytest.approx(5.0)
+    assert stan_data["heading_initial"] == pytest.approx(0.5)
+    assert stan_data["curvature_prior_mean"] == pytest.approx(1 / 500)
     assert stan_data["integration_substeps"] == 4
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
@@ -68,26 +70,33 @@ def test_build_stan_data_keeps_future_positions_held_out():
 
 def test_build_stan_data_uses_signed_curvature_prior():
     """The inferred turn direction should sign the initial curvature prior."""
-    data = create_curved_trajectory_data()
-    left_window = prepare_trajectory_window(
-        data,
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
         observation_count=8,
         prediction_count=4,
-        turn_direction=1,
-    )
-    right_window = prepare_trajectory_window(
-        data,
-        observation_count=8,
-        prediction_count=4,
-        turn_direction=-1,
     )
 
-    assert build_stan_data(left_window)["curvature_prior_mean"] == pytest.approx(
-        1 / 500
+    assert build_stan_data(
+        window,
+        turn_direction=1,
+    )["curvature_prior_mean"] == pytest.approx(1 / 500)
+    assert build_stan_data(
+        window,
+        turn_direction=-1,
+    )["curvature_prior_mean"] == pytest.approx(-1 / 500)
+
+
+@pytest.mark.parametrize("turn_direction", [True, 0, 2])
+def test_build_stan_data_rejects_invalid_turn_direction(turn_direction):
+    """Only signed unit directions or automatic inference are valid."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
     )
-    assert build_stan_data(right_window)["curvature_prior_mean"] == pytest.approx(
-        -1 / 500
-    )
+
+    with pytest.raises(ValueError, match="turn_direction"):
+        build_stan_data(window, turn_direction=turn_direction)
 
 
 @pytest.mark.parametrize(
@@ -142,12 +151,16 @@ def test_fit_model_uses_prior_centered_default_initialization(monkeypatch):
 
     fit = fit_time_varying_radius_model(
         window,
+        turn_direction=-1,
         chains=1,
         show_progress=False,
     )
 
     assert fit is fake_model.result
     assert fake_model.sample_arguments["parallel_chains"] == 1
+    assert fake_model.sample_arguments["data"]["curvature_prior_mean"] == pytest.approx(
+        -1 / 500
+    )
     assert fake_model.sample_arguments["inits"] == {
         "curvature_initial_raw": 0.0,
         "curvature_rate_raw": 0.0,

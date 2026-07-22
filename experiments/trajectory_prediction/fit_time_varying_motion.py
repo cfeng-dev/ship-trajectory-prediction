@@ -8,10 +8,11 @@ from ship_trajectory_prediction.evaluation.metrics import (
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
 from ship_trajectory_prediction.models.time_varying_motion import (
+    build_stan_data,
     fit_time_varying_motion_model,
-    prepare_trajectory_window,
 )
 from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 from ship_trajectory_prediction.trajectory.io import read_ship_data
 
 DATA_FILE = project_path(
@@ -44,6 +45,19 @@ def main():
         prediction_count=PREDICTION_COUNT,
         start_index=START_INDEX,
     )
+    model_kwargs = {
+        "speed_prior_log_sd": SPEED_PRIOR_LOG_SD,
+        "heading_prior_scale": HEADING_PRIOR_SCALE,
+        "acceleration_initial_scale": ACCELERATION_INITIAL_SCALE,
+        "acceleration_state_scale": ACCELERATION_STATE_SCALE,
+        "acceleration_decay_time": ACCELERATION_DECAY_TIME,
+        "turn_rate_initial_scale": TURN_RATE_INITIAL_SCALE,
+        "turn_rate_state_scale": TURN_RATE_STATE_SCALE,
+        "turn_rate_decay_time": TURN_RATE_DECAY_TIME,
+        "sigma_position": SIGMA_POSITION,
+        "sigma_speed": SIGMA_SPEED,
+    }
+    stan_data = build_stan_data(window, **model_kwargs)
 
     print("=" * 62)
     print("Bayesian Time-Varying Motion Prediction")
@@ -52,23 +66,11 @@ def main():
     print(f"Run ID             : {RUN_ID}")
     print(f"Observed positions : {window.observation_count}")
     print(f"Predicted positions: {window.prediction_count}")
-    print(f"Turn-rate level     : {window.turn_rate_level:.5f} rad/s")
+    print(f"Turn-rate level     : {stan_data['turn_rate_level']:.5f} rad/s")
     print(f"Position noise     : {SIGMA_POSITION:.2f} m")
     print(f"Speed noise        : {SIGMA_SPEED:.2f} m/s")
 
-    fit = fit_time_varying_motion_model(
-        window,
-        speed_prior_log_sd=SPEED_PRIOR_LOG_SD,
-        heading_prior_scale=HEADING_PRIOR_SCALE,
-        acceleration_initial_scale=ACCELERATION_INITIAL_SCALE,
-        acceleration_state_scale=ACCELERATION_STATE_SCALE,
-        acceleration_decay_time=ACCELERATION_DECAY_TIME,
-        turn_rate_initial_scale=TURN_RATE_INITIAL_SCALE,
-        turn_rate_state_scale=TURN_RATE_STATE_SCALE,
-        turn_rate_decay_time=TURN_RATE_DECAY_TIME,
-        sigma_position=SIGMA_POSITION,
-        sigma_speed=SIGMA_SPEED,
-    )
+    fit = fit_time_varying_motion_model(window, **model_kwargs)
 
     print("\nPosterior initial-state summary:")
     print(

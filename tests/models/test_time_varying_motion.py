@@ -5,13 +5,15 @@ import pandas as pd
 import pytest
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
+from ship_trajectory_prediction.models import time_varying_motion as model_module
 from ship_trajectory_prediction.models.time_varying_motion import (
     STAN_FILE,
     build_stan_data,
-    prepare_trajectory_window,
+    fit_time_varying_motion_model,
     summarize_predictions,
 )
 from ship_trajectory_prediction.simulation.core import simulate_curved_trajectory
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 
 def create_curved_trajectory_data():
@@ -43,8 +45,8 @@ def create_curved_trajectory_data():
     )
 
 
-def test_prepare_trajectory_window_keeps_speed_values_in_meters_per_second():
-    """GPS speed should be converted and retained for evaluation."""
+def test_shared_trajectory_window_keeps_speed_values_in_meters_per_second():
+    """The common window should retain converted GPS speeds for evaluation."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -53,9 +55,7 @@ def test_prepare_trajectory_window_keeps_speed_values_in_meters_per_second():
 
     assert window.observation_count == 8
     assert window.prediction_count == 4
-    assert window.speed_mps == pytest.approx(np.full(12, 5.0))
-    assert window.speed_prior_median == pytest.approx(5.0)
-    assert window.turn_rate_level == pytest.approx(0.025, abs=1e-6)
+    assert window.gps_speed_mps == pytest.approx(np.full(12, 5.0))
 
 
 def test_build_stan_data_holds_out_future_positions_and_speeds():
@@ -72,7 +72,9 @@ def test_build_stan_data_holds_out_future_positions_and_speeds():
     assert len(stan_data["y_observed"]) == 8
     assert len(stan_data["speed_observed"]) == 8
     assert len(stan_data["time_prediction"]) == 4
-    assert stan_data["turn_rate_level"] == pytest.approx(window.turn_rate_level)
+    assert stan_data["speed_prior_median"] == pytest.approx(5.0)
+    assert stan_data["heading_prior_mean"] == pytest.approx(0.5, abs=1e-6)
+    assert stan_data["turn_rate_level"] == pytest.approx(0.025, abs=1e-6)
     assert stan_data["acceleration_state_scale"] == pytest.approx(0.02)
     assert stan_data["turn_rate_state_scale"] == pytest.approx(0.003)
     assert stan_data["turn_rate_decay_time"] == pytest.approx(600.0)
@@ -84,22 +86,39 @@ def test_build_stan_data_holds_out_future_positions_and_speeds():
 def test_turn_rate_level_uses_observed_positions_only():
     """Changing held-out positions must not alter the turn-rate level."""
     data = create_curved_trajectory_data()
-    reference = prepare_trajectory_window(
-        data,
-        observation_count=8,
-        prediction_count=4,
+    reference_window = prepare_trajectory_window(
+        data, observation_count=8, prediction_count=4
     )
     changed_future = data.copy()
     changed_future.loc[8:, "gps_longitude"] += 1.0
     changed_future.loc[8:, "gps_latitude"] -= 1.0
 
-    changed = prepare_trajectory_window(
+    changed_window = prepare_trajectory_window(
         changed_future,
         observation_count=8,
         prediction_count=4,
     )
 
-    assert changed.turn_rate_level == pytest.approx(reference.turn_rate_level)
+    reference_data = build_stan_data(reference_window)
+    changed_data = build_stan_data(changed_window)
+    assert changed_data["turn_rate_level"] == pytest.approx(
+        reference_data["turn_rate_level"]
+    )
+
+
+def test_speed_prior_uses_first_three_positive_observed_values():
+    """Later observed speeds should not shift the initial-speed prior."""
+    data = create_curved_trajectory_data()
+    data.loc[:7, "gps_speed"] = [0.0, 3.6, 7.2, 10.8, 180.0, 180.0, 180.0, 180.0]
+    window = prepare_trajectory_window(
+        data,
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    stan_data = build_stan_data(window)
+
+    assert stan_data["speed_prior_median"] == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize(
@@ -129,17 +148,48 @@ def test_build_stan_data_rejects_non_positive_scales(value_name):
         build_stan_data(window, **{value_name: 0.0})
 
 
-def test_prepare_trajectory_window_rejects_invalid_speed_values():
-    """The speed likelihood requires finite non-negative observations."""
+@pytest.mark.parametrize(("index", "value"), [(3, np.nan), (10, -1.0)])
+def test_build_stan_data_rejects_invalid_speed_values(index, value):
+    """The speed likelihood requires a valid complete evaluation window."""
     data = create_curved_trajectory_data()
-    data.loc[3, "gps_speed"] = np.nan
+    data.loc[index, "gps_speed"] = value
+    window = prepare_trajectory_window(
+        data,
+        observation_count=8,
+        prediction_count=4,
+    )
 
     with pytest.raises(ValueError, match="gps_speed"):
-        prepare_trajectory_window(
-            data,
-            observation_count=8,
-            prediction_count=4,
-        )
+        build_stan_data(window)
+
+
+def test_fit_uses_stan_data_priors_for_default_initialization(monkeypatch):
+    """Default sampler initials should reuse the observed-only Stan values."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_time_varying_motion_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_time_varying_motion_model(
+        window,
+        chains=1,
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    inits = fake_model.sample_arguments["inits"]
+    assert inits["speed_initial"] == pytest.approx(5.0)
+    assert inits["heading_initial"] == pytest.approx(0.5, abs=1e-6)
+    assert inits["turn_rate_initial"] == pytest.approx(0.025, abs=1e-6)
+    assert inits["acceleration_innovation"] == pytest.approx(np.zeros(6))
+    assert inits["turn_rate_innovation"] == pytest.approx(np.zeros(6))
 
 
 def test_summarize_predictions_includes_speed_intervals():
@@ -160,6 +210,7 @@ def test_summarize_predictions_includes_speed_intervals():
 
     assert summary["x_median"].tolist() == [1.0, 2.0, 3.0, 4.0]
     assert summary["speed_median"].tolist() == [5.0, 6.0, 7.0, 8.0]
+    assert summary["speed_actual"].tolist() == pytest.approx([5.0] * 4)
     assert len(summary) == window.prediction_count
 
 
@@ -177,3 +228,16 @@ class FakeFit:
     def stan_variable(self, name):
         """Return one stored fake posterior variable."""
         return self.variables[name]
+
+
+class FakeModel:
+    """Minimal CmdStan replacement for inspecting sampling arguments."""
+
+    def __init__(self):
+        self.result = object()
+        self.sample_arguments = None
+
+    def sample(self, **kwargs):
+        """Capture sampler arguments and return a stable sentinel."""
+        self.sample_arguments = kwargs
+        return self.result
