@@ -2,11 +2,11 @@
 
 import numpy as np
 
-from ship_trajectory_prediction.models.evaluation import (
+from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.models.plotting import (
+from ship_trajectory_prediction.evaluation.plotting import (
     plot_time_varying_motion_prediction,
 )
 from ship_trajectory_prediction.models.time_varying_motion import (

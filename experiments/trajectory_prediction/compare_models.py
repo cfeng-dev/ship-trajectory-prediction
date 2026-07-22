@@ -7,6 +7,9 @@ from types import MappingProxyType
 import numpy as np
 import pandas as pd
 
+from ship_trajectory_prediction.evaluation.metrics import (
+    evaluate_position_predictions,
+)
 from ship_trajectory_prediction.models.constant_radius import (
     fit_constant_radius_model,
 )
@@ -24,9 +27,6 @@ from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
 )
 from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
     prepare_trajectory_window as prepare_constant_turn_rate_acceleration_window,
-)
-from ship_trajectory_prediction.models.evaluation import (
-    evaluate_position_predictions,
 )
 from ship_trajectory_prediction.models.time_varying_motion import (
     fit_time_varying_motion_model,

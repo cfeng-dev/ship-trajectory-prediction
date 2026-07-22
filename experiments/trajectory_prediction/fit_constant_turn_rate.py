@@ -2,16 +2,16 @@
 
 import numpy as np
 
-from ship_trajectory_prediction.models.constant_turn_rate import (
-    fit_constant_turn_rate_model,
-    prepare_trajectory_window,
-)
-from ship_trajectory_prediction.models.evaluation import (
+from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.models.plotting import (
+from ship_trajectory_prediction.evaluation.plotting import (
     plot_constant_turn_rate_prediction,
+)
+from ship_trajectory_prediction.models.constant_turn_rate import (
+    fit_constant_turn_rate_model,
+    prepare_trajectory_window,
 )
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.io import read_ship_data

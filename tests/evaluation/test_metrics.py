@@ -1,10 +1,10 @@
-"""Tests for shared posterior trajectory evaluation metrics."""
+"""Tests for shared posterior trajectory metrics."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from ship_trajectory_prediction.models.evaluation import (
+from ship_trajectory_prediction.evaluation.metrics import (
     PositionEvaluation,
     evaluate_position_predictions,
     format_position_evaluation,

@@ -1,15 +1,15 @@
 """Fit the Bayesian constant-radius model to one recorded trajectory window."""
 
-from ship_trajectory_prediction.models.constant_radius import (
-    fit_constant_radius_model,
-    prepare_trajectory_window,
-)
-from ship_trajectory_prediction.models.evaluation import (
+from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.models.plotting import (
+from ship_trajectory_prediction.evaluation.plotting import (
     plot_constant_radius_prediction,
+)
+from ship_trajectory_prediction.models.constant_radius import (
+    fit_constant_radius_model,
+    prepare_trajectory_window,
 )
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory.io import read_ship_data

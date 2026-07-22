@@ -1,4 +1,4 @@
-"""Plotting utilities for Bayesian trajectory predictions."""
+"""Plotting utilities for Bayesian trajectory evaluation."""
 
 import matplotlib.pyplot as plt
 import numpy as np

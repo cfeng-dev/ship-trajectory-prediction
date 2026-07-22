@@ -1,4 +1,4 @@
-"""Shared accuracy metrics for posterior ship-trajectory predictions."""
+"""Accuracy metrics for posterior ship-trajectory predictions."""
 
 from dataclasses import dataclass
 
