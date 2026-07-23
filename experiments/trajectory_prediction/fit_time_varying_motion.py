@@ -7,6 +7,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.models.time_varying_motion import (
     build_stan_data,
     fit_time_varying_motion_model,
@@ -59,16 +60,17 @@ def main():
     }
     stan_data = build_stan_data(window, **model_kwargs)
 
-    print("=" * 62)
-    print("Bayesian Time-Varying Motion Prediction")
-    print("=" * 62)
-    print(f"Data file          : {DATA_FILE}")
-    print(f"Run ID             : {RUN_ID}")
-    print(f"Observed positions : {window.observation_count}")
-    print(f"Predicted positions: {window.prediction_count}")
-    print(f"Turn-rate level     : {stan_data['turn_rate_level']:.5f} rad/s")
-    print(f"Position noise     : {SIGMA_POSITION:.2f} m")
-    print(f"Speed noise        : {SIGMA_SPEED:.2f} m/s")
+    print_prediction_setup(
+        "Bayesian Time-Varying Motion Prediction",
+        data_file=DATA_FILE,
+        run_id=RUN_ID,
+        window=window,
+        extra_rows=[
+            ("Turn-rate level", f"{stan_data['turn_rate_level']:.5f} rad/s"),
+            ("Position noise", f"{SIGMA_POSITION:.2f} m"),
+            ("Speed noise", f"{SIGMA_SPEED:.2f} m/s"),
+        ],
+    )
 
     fit = fit_time_varying_motion_model(window, **model_kwargs)
 

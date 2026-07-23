@@ -7,6 +7,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
     build_stan_data,
     fit_constant_turn_rate_acceleration_model,
@@ -48,14 +49,18 @@ def main():
     }
     stan_data = build_stan_data(window, **model_kwargs)
 
-    print("=" * 68)
-    print("Bayesian Constant-Turn-Rate-and-Acceleration Prediction")
-    print("=" * 68)
-    print(f"Data file          : {DATA_FILE}")
-    print(f"Run ID             : {RUN_ID}")
-    print(f"Observed positions : {window.observation_count}")
-    print(f"Predicted positions: {window.prediction_count}")
-    print(f"Speed prior median : {stan_data['speed_prior_median']:.2f} m/s")
+    print_prediction_setup(
+        "Bayesian Constant-Turn-Rate-and-Acceleration Prediction",
+        data_file=DATA_FILE,
+        run_id=RUN_ID,
+        window=window,
+        extra_rows=[
+            (
+                "Speed prior median",
+                f"{stan_data['speed_prior_median']:.2f} m/s",
+            )
+        ],
+    )
 
     fit = fit_constant_turn_rate_acceleration_model(window, **model_kwargs)
 

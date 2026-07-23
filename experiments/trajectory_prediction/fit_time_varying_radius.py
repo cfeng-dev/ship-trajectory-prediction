@@ -7,6 +7,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.models.time_varying_radius import (
     build_stan_data,
     fit_time_varying_radius_model,
@@ -49,16 +50,17 @@ def main():
     }
     stan_data = build_stan_data(window, **model_kwargs)
 
-    print("=" * 62)
-    print("Bayesian Time-Varying-Radius Prediction")
-    print("=" * 62)
-    print(f"Data file          : {DATA_FILE}")
-    print(f"Run ID             : {RUN_ID}")
-    print(f"Observed positions : {window.observation_count}")
-    print(f"Predicted positions: {window.prediction_count}")
-    print(f"Fixed speed        : {stan_data['speed']:.2f} m/s")
     direction = np.sign(stan_data["curvature_prior_mean"])
-    print(f"Turn direction     : {direction:+.0f}")
+    print_prediction_setup(
+        "Bayesian Time-Varying-Radius Prediction",
+        data_file=DATA_FILE,
+        run_id=RUN_ID,
+        window=window,
+        extra_rows=[
+            ("Fixed speed", f"{stan_data['speed']:.2f} m/s"),
+            ("Turn direction", f"{direction:+.0f}"),
+        ],
+    )
 
     fit = fit_time_varying_radius_model(window, **model_kwargs)
 

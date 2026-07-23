@@ -5,6 +5,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.models.constant_radius import (
     build_stan_data,
     fit_constant_radius_model,
@@ -42,15 +43,16 @@ def main():
     }
     stan_data = build_stan_data(window, **model_kwargs)
 
-    print("=" * 60)
-    print("Bayesian Constant-Radius Trajectory Prediction")
-    print("=" * 60)
-    print(f"Data file          : {DATA_FILE}")
-    print(f"Run ID             : {RUN_ID}")
-    print(f"Observed positions : {window.observation_count}")
-    print(f"Predicted positions: {window.prediction_count}")
-    print(f"Estimated speed    : {stan_data['speed']:.2f} m/s")
-    print(f"Turn direction     : {stan_data['turn_direction']:+d}")
+    print_prediction_setup(
+        "Bayesian Constant-Radius Trajectory Prediction",
+        data_file=DATA_FILE,
+        run_id=RUN_ID,
+        window=window,
+        extra_rows=[
+            ("Estimated speed", f"{stan_data['speed']:.2f} m/s"),
+            ("Turn direction", f"{stan_data['turn_direction']:+d}"),
+        ],
+    )
 
     fit = fit_constant_radius_model(window, **model_kwargs)
 
