@@ -13,7 +13,6 @@ from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 from ship_trajectory_prediction.trajectory.window import (
     estimate_initial_heading,
     estimate_positive_speed_median,
-    estimate_turn_direction,
 )
 
 STAN_FILE = project_path("stan/models/time_varying_radius.stan")
@@ -30,21 +29,18 @@ __all__ = [
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
-    radius_prior_median=500.0,
     curvature_initial_prior_scale=0.002,
     curvature_rate_prior_scale=5e-6,
     sigma_prior_scale=20.0,
     integration_substeps=4,
-    turn_direction=None,
 ):
-    """Build CmdStan data for a linearly changing signed curvature.
+    """Build data for a linearly changing signed curvature.
 
-    Curvature is measured in 1/m and its rate in 1/(m s). The prior mean
-    converts the familiar radius prior into signed curvature by using the turn
-    direction inferred exclusively from the observed trajectory.
+    Curvature is measured in 1/m and its rate in 1/(m s). A zero-centered
+    initial-curvature prior leaves left and right motion equally likely before
+    the observed positions update the posterior.
     """
     positive_values = {
-        "radius_prior_median": radius_prior_median,
         "curvature_initial_prior_scale": curvature_initial_prior_scale,
         "curvature_rate_prior_scale": curvature_rate_prior_scale,
         "sigma_prior_scale": sigma_prior_scale,
@@ -59,8 +55,6 @@ def build_stan_data(
         or integration_substeps < 1
     ):
         raise ValueError("integration_substeps must be an integer of at least 1.")
-    if isinstance(turn_direction, bool) or turn_direction not in {None, -1, 1}:
-        raise ValueError("turn_direction must be -1, 1, or None.")
 
     observed = window.observed_slice
     prediction = window.prediction_slice
@@ -69,11 +63,6 @@ def build_stan_data(
         window.x_meters[observed],
         window.y_meters[observed],
     )
-    if turn_direction is None:
-        turn_direction = estimate_turn_direction(
-            window.x_meters[observed],
-            window.y_meters[observed],
-        )
 
     return {
         "N_observed": window.observation_count,
@@ -86,7 +75,6 @@ def build_stan_data(
         "y_initial": float(window.y_meters[0]),
         "speed": speed_mps,
         "heading_initial": initial_heading,
-        "curvature_prior_mean": turn_direction / radius_prior_median,
         "curvature_initial_prior_scale": curvature_initial_prior_scale,
         "curvature_rate_prior_scale": curvature_rate_prior_scale,
         "sigma_prior_scale": sigma_prior_scale,
@@ -105,12 +93,10 @@ def compile_time_varying_radius_model(stan_file=STAN_FILE):
 def fit_time_varying_radius_model(
     window: TrajectoryWindowData,
     *,
-    radius_prior_median=500.0,
     curvature_initial_prior_scale=0.002,
     curvature_rate_prior_scale=5e-6,
     sigma_prior_scale=20.0,
     integration_substeps=4,
-    turn_direction=None,
     chains=4,
     parallel_chains=None,
     iter_warmup=500,
@@ -130,12 +116,10 @@ def fit_time_varying_radius_model(
     """
     stan_data = build_stan_data(
         window,
-        radius_prior_median=radius_prior_median,
         curvature_initial_prior_scale=curvature_initial_prior_scale,
         curvature_rate_prior_scale=curvature_rate_prior_scale,
         sigma_prior_scale=sigma_prior_scale,
         integration_substeps=integration_substeps,
-        turn_direction=turn_direction,
     )
     model = compile_time_varying_radius_model()
     if parallel_chains is None:

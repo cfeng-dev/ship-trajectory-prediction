@@ -62,54 +62,43 @@ def test_build_stan_data_keeps_future_positions_held_out():
     assert len(stan_data["time_prediction"]) == 4
     assert stan_data["speed"] == pytest.approx(5.0)
     assert stan_data["heading_initial"] == pytest.approx(0.5)
-    assert stan_data["curvature_prior_mean"] == pytest.approx(1 / 500)
+    assert "curvature_prior_mean" not in stan_data
+    assert "turn_direction" not in stan_data
     assert stan_data["integration_substeps"] == 4
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
 
 
-def test_build_stan_data_uses_signed_curvature_prior():
-    """The inferred turn direction should sign the initial curvature prior."""
+@pytest.mark.parametrize(
+    ("legacy_name", "legacy_value"),
+    [("turn_direction", 1), ("radius_prior_median", 500.0)],
+)
+def test_build_stan_data_rejects_legacy_direction_priors(
+    legacy_name,
+    legacy_value,
+):
+    """The interface should not accept values that predefine direction."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
         prediction_count=4,
     )
 
-    assert build_stan_data(
-        window,
-        turn_direction=1,
-    )["curvature_prior_mean"] == pytest.approx(1 / 500)
-    assert build_stan_data(
-        window,
-        turn_direction=-1,
-    )["curvature_prior_mean"] == pytest.approx(-1 / 500)
-
-
-@pytest.mark.parametrize("turn_direction", [True, 0, 2])
-def test_build_stan_data_rejects_invalid_turn_direction(turn_direction):
-    """Only signed unit directions or automatic inference are valid."""
-    window = prepare_trajectory_window(
-        create_curved_trajectory_data(),
-        observation_count=8,
-        prediction_count=4,
-    )
-
-    with pytest.raises(ValueError, match="turn_direction"):
-        build_stan_data(window, turn_direction=turn_direction)
+    with pytest.raises(TypeError, match=legacy_name):
+        build_stan_data(window, **{legacy_name: legacy_value})
 
 
 @pytest.mark.parametrize(
     "value_name",
     [
-        "radius_prior_median",
         "curvature_initial_prior_scale",
         "curvature_rate_prior_scale",
         "sigma_prior_scale",
     ],
 )
-def test_build_stan_data_rejects_non_positive_scales(value_name):
-    """Every configurable positive model value should be validated."""
+@pytest.mark.parametrize("invalid_value", [0.0, np.nan])
+def test_build_stan_data_rejects_invalid_scales(value_name, invalid_value):
+    """Every configurable scale should be positive and finite."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -117,7 +106,7 @@ def test_build_stan_data_rejects_non_positive_scales(value_name):
     )
 
     with pytest.raises(ValueError, match=value_name):
-        build_stan_data(window, **{value_name: 0.0})
+        build_stan_data(window, **{value_name: invalid_value})
 
 
 @pytest.mark.parametrize("integration_substeps", [True, 1.5, 0, -1])
@@ -135,8 +124,8 @@ def test_build_stan_data_rejects_invalid_integration_substeps(
         build_stan_data(window, integration_substeps=integration_substeps)
 
 
-def test_fit_model_uses_prior_centered_default_initialization(monkeypatch):
-    """Default initial values should represent no curvature change."""
+def test_fit_model_uses_direction_neutral_default_initialization(monkeypatch):
+    """Default initial values should not prefer either turn direction."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -151,16 +140,13 @@ def test_fit_model_uses_prior_centered_default_initialization(monkeypatch):
 
     fit = fit_time_varying_radius_model(
         window,
-        turn_direction=-1,
         chains=1,
         show_progress=False,
     )
 
     assert fit is fake_model.result
     assert fake_model.sample_arguments["parallel_chains"] == 1
-    assert fake_model.sample_arguments["data"]["curvature_prior_mean"] == pytest.approx(
-        -1 / 500
-    )
+    assert "curvature_prior_mean" not in fake_model.sample_arguments["data"]
     assert fake_model.sample_arguments["inits"] == {
         "curvature_initial_raw": 0.0,
         "curvature_rate_raw": 0.0,

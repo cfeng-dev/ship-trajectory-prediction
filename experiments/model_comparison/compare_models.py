@@ -90,7 +90,6 @@ MODEL_SPECS = (
         name="Time-Varying Radius",
         fit_model=fit_time_varying_radius_model,
         fit_kwargs={
-            "radius_prior_median": 500.0,
             "curvature_initial_prior_scale": 0.002,
             "curvature_rate_prior_scale": 5e-6,
             "sigma_prior_scale": 20.0,

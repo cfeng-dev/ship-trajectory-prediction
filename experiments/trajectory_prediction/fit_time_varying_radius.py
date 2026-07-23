@@ -25,7 +25,6 @@ START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
 
-RADIUS_PRIOR_MEDIAN = 500.0
 CURVATURE_INITIAL_PRIOR_SCALE = 0.002
 CURVATURE_RATE_PRIOR_SCALE = 5e-6
 SIGMA_PRIOR_SCALE = 20.0
@@ -42,7 +41,6 @@ def main():
         start_index=START_INDEX,
     )
     model_kwargs = {
-        "radius_prior_median": RADIUS_PRIOR_MEDIAN,
         "curvature_initial_prior_scale": CURVATURE_INITIAL_PRIOR_SCALE,
         "curvature_rate_prior_scale": CURVATURE_RATE_PRIOR_SCALE,
         "sigma_prior_scale": SIGMA_PRIOR_SCALE,
@@ -50,7 +48,6 @@ def main():
     }
     stan_data = build_stan_data(window, **model_kwargs)
 
-    direction = np.sign(stan_data["curvature_prior_mean"])
     print_prediction_setup(
         "Bayesian Time-Varying-Radius Prediction",
         data_file=DATA_FILE,
@@ -58,7 +55,6 @@ def main():
         window=window,
         extra_rows=[
             ("Fixed speed", f"{stan_data['speed']:.2f} m/s"),
-            ("Turn direction", f"{direction:+.0f}"),
         ],
     )
 
@@ -77,8 +73,21 @@ def main():
         ]
     )
 
+    curvature_initial = fit.stan_variable("curvature_initial")
     curvature_prediction = fit.stan_variable("curvature_prediction")
     radius_prediction = fit.stan_variable("radius_prediction")
+    initial_left_probability = float(np.mean(curvature_initial > 0))
+    horizon_left_probability = float(np.mean(curvature_prediction[:, -1] > 0))
+    print("\nPosterior turn direction:")
+    print(
+        "Initial left / right : "
+        f"{initial_left_probability:.1%} / {1 - initial_left_probability:.1%}"
+    )
+    print(
+        "Horizon left / right : "
+        f"{horizon_left_probability:.1%} / {1 - horizon_left_probability:.1%}"
+    )
+
     print("\nPosterior median development:")
     print(
         "Curvature [1/m]: "

@@ -72,7 +72,6 @@ data {
     real y_initial;
     real<lower=0> speed;
     real heading_initial;
-    real curvature_prior_mean;
     real<lower=0> curvature_initial_prior_scale;
     real<lower=0> curvature_rate_prior_scale;
     real<lower=0> sigma_prior_scale;
@@ -86,8 +85,8 @@ parameters {
 }
 
 transformed parameters {
-    real curvature_initial = curvature_prior_mean
-        + curvature_initial_prior_scale * curvature_initial_raw;
+    real curvature_initial = curvature_initial_prior_scale
+        * curvature_initial_raw;
     real curvature_rate = curvature_rate_prior_scale * curvature_rate_raw;
     vector[N_observed] curvature_observed;
     vector[N_observed] radius_observed;
