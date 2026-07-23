@@ -1,4 +1,4 @@
-"""Bayesian constant-radius trajectory prediction with CmdStanPy."""
+"""Bayesian constant-radius prediction with inferred turn direction."""
 
 from pathlib import Path
 
@@ -11,7 +11,6 @@ from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 from ship_trajectory_prediction.trajectory.window import (
     estimate_initial_heading,
     estimate_positive_speed_median,
-    estimate_turn_direction,
 )
 
 STAN_FILE = project_path("stan/models/constant_radius.stan")
@@ -20,22 +19,22 @@ STAN_FILE = project_path("stan/models/constant_radius.stan")
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
-    radius_prior_median=500.0,
-    radius_prior_log_sd=1.0,
+    curvature_prior_scale=0.002,
     sigma_prior_scale=20.0,
-    turn_direction=None,
 ):
-    """Build the CmdStan data dictionary for a prepared trajectory window."""
+    """Build data for constant signed-curvature inference.
+
+    Curvature uses 1/m and has a zero-centered prior, allowing its posterior
+    sign to determine left or right motion. Radius is derived in Stan as the
+    inverse absolute curvature.
+    """
     prior_values = {
-        "radius_prior_median": radius_prior_median,
-        "radius_prior_log_sd": radius_prior_log_sd,
+        "curvature_prior_scale": curvature_prior_scale,
         "sigma_prior_scale": sigma_prior_scale,
     }
     for name, value in prior_values.items():
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a positive finite value.")
-    if isinstance(turn_direction, bool) or turn_direction not in {None, -1, 1}:
-        raise ValueError("turn_direction must be -1, 1, or None.")
 
     observed = window.observed_slice
     prediction = window.prediction_slice
@@ -44,11 +43,6 @@ def build_stan_data(
         window.x_meters[observed],
         window.y_meters[observed],
     )
-    if turn_direction is None:
-        turn_direction = estimate_turn_direction(
-            window.x_meters[observed],
-            window.y_meters[observed],
-        )
 
     return {
         "N_observed": window.observation_count,
@@ -61,7 +55,6 @@ def build_stan_data(
         "y_initial": float(window.y_meters[0]),
         "speed": speed_mps,
         "heading_initial": initial_heading,
-        "turn_direction": turn_direction,
         **prior_values,
     }
 
@@ -77,10 +70,8 @@ def compile_constant_radius_model(stan_file=STAN_FILE):
 def fit_constant_radius_model(
     window: TrajectoryWindowData,
     *,
-    radius_prior_median=500.0,
-    radius_prior_log_sd=1.0,
+    curvature_prior_scale=0.002,
     sigma_prior_scale=20.0,
-    turn_direction=None,
     chains=4,
     parallel_chains=None,
     iter_warmup=500,
@@ -89,20 +80,18 @@ def fit_constant_radius_model(
     show_progress=True,
     inits=None,
 ):
-    """Fit the Bayesian constant-radius model to a prepared window."""
+    """Fit constant curvature while inferring turn direction from its sign."""
     stan_data = build_stan_data(
         window,
-        radius_prior_median=radius_prior_median,
-        radius_prior_log_sd=radius_prior_log_sd,
+        curvature_prior_scale=curvature_prior_scale,
         sigma_prior_scale=sigma_prior_scale,
-        turn_direction=turn_direction,
     )
     model = compile_constant_radius_model()
     if parallel_chains is None:
         parallel_chains = chains
     if inits is None:
         inits = {
-            "radius": radius_prior_median,
+            "curvature": 0.0,
             "sigma": sigma_prior_scale / 2,
         }
 

@@ -46,8 +46,8 @@ def create_curved_trajectory_data(run_id=1):
     )
 
 
-def test_build_stan_data_derives_motion_values_from_observed_history():
-    """Stan data should derive fixed motion values from observed history."""
+def test_build_stan_data_derives_fixed_motion_values_without_turn_direction():
+    """Stan data should not preclassify the observed turn direction."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -59,7 +59,8 @@ def test_build_stan_data_derives_motion_values_from_observed_history():
     assert window.prediction_count == 4
     assert stan_data["speed"] == pytest.approx(5.0)
     assert stan_data["heading_initial"] == pytest.approx(0.5)
-    assert stan_data["turn_direction"] == 1
+    assert stan_data["curvature_prior_scale"] == pytest.approx(0.002)
+    assert "turn_direction" not in stan_data
     assert window.x_meters[0] == pytest.approx(0.0)
     assert window.y_meters[0] == pytest.approx(0.0)
 
@@ -82,34 +83,28 @@ def test_build_stan_data_keeps_future_positions_held_out():
     assert "y_prediction" not in stan_data
 
 
-def test_build_stan_data_accepts_explicit_turn_direction():
-    """An explicit direction should override the observed course change."""
+@pytest.mark.parametrize(
+    "value_name",
+    ["curvature_prior_scale", "sigma_prior_scale"],
+)
+@pytest.mark.parametrize("invalid_value", [0.0, np.nan])
+def test_build_stan_data_rejects_invalid_prior_scales(
+    value_name,
+    invalid_value,
+):
+    """Every configurable prior scale should be positive and finite."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
         prediction_count=4,
     )
 
-    stan_data = build_stan_data(window, turn_direction=-1)
-
-    assert stan_data["turn_direction"] == -1
-
-
-@pytest.mark.parametrize("turn_direction", [True, 0, 2])
-def test_build_stan_data_rejects_invalid_turn_direction(turn_direction):
-    """Only signed unit directions or automatic inference are valid."""
-    window = prepare_trajectory_window(
-        create_curved_trajectory_data(),
-        observation_count=8,
-        prediction_count=4,
-    )
-
-    with pytest.raises(ValueError, match="turn_direction"):
-        build_stan_data(window, turn_direction=turn_direction)
+    with pytest.raises(ValueError, match=value_name):
+        build_stan_data(window, **{value_name: invalid_value})
 
 
-def test_fit_model_forwards_explicit_turn_direction(monkeypatch):
-    """The fitting API should pass an explicit direction into Stan data."""
+def test_fit_model_uses_direction_neutral_curvature_initialization(monkeypatch):
+    """Sampling should start at zero curvature without fixing its sign."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -124,13 +119,20 @@ def test_fit_model_forwards_explicit_turn_direction(monkeypatch):
 
     fit = fit_constant_radius_model(
         window,
-        turn_direction=-1,
+        curvature_prior_scale=0.003,
         chains=1,
         show_progress=False,
     )
 
     assert fit is fake_model.result
-    assert fake_model.sample_arguments["data"]["turn_direction"] == -1
+    assert fake_model.sample_arguments["parallel_chains"] == 1
+    assert fake_model.sample_arguments["data"][
+        "curvature_prior_scale"
+    ] == pytest.approx(0.003)
+    assert fake_model.sample_arguments["inits"] == {
+        "curvature": 0.0,
+        "sigma": 10.0,
+    }
 
 
 def test_prepare_trajectory_window_rejects_multiple_runs():

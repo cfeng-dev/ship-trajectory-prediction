@@ -1,5 +1,7 @@
 """Fit the Bayesian constant-radius model to one recorded trajectory window."""
 
+import numpy as np
+
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
@@ -22,8 +24,7 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
-RADIUS_PRIOR_MEDIAN = 500.0
-RADIUS_PRIOR_LOG_SD = 1.0
+CURVATURE_PRIOR_SCALE = 0.002
 SIGMA_PRIOR_SCALE = 20.0
 
 
@@ -37,8 +38,7 @@ def main():
         start_index=START_INDEX,
     )
     model_kwargs = {
-        "radius_prior_median": RADIUS_PRIOR_MEDIAN,
-        "radius_prior_log_sd": RADIUS_PRIOR_LOG_SD,
+        "curvature_prior_scale": CURVATURE_PRIOR_SCALE,
         "sigma_prior_scale": SIGMA_PRIOR_SCALE,
     }
     stan_data = build_stan_data(window, **model_kwargs)
@@ -49,15 +49,20 @@ def main():
         run_id=RUN_ID,
         window=window,
         extra_rows=[
-            ("Estimated speed", f"{stan_data['speed']:.2f} m/s"),
-            ("Turn direction", f"{stan_data['turn_direction']:+d}"),
+            ("Fixed speed", f"{stan_data['speed']:.2f} m/s"),
         ],
     )
 
     fit = fit_constant_radius_model(window, **model_kwargs)
 
     print("\nPosterior parameter summary:")
-    print(fit.summary().loc[["radius", "sigma"]])
+    print(fit.summary().loc[["curvature", "turn_rate", "radius", "sigma"]])
+
+    curvature_samples = fit.stan_variable("curvature")
+    left_probability = float(np.mean(curvature_samples > 0))
+    print("\nPosterior turn direction:")
+    print(f"Left / counterclockwise : {left_probability:.1%}")
+    print(f"Right / clockwise       : {1 - left_probability:.1%}")
 
     evaluation = evaluate_position_predictions(fit, window)
     print_position_evaluation(evaluation)

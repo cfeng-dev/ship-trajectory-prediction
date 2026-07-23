@@ -61,8 +61,7 @@ MODEL_SPECS = (
         name="Constant Radius",
         fit_model=fit_constant_radius_model,
         fit_kwargs={
-            "radius_prior_median": 500.0,
-            "radius_prior_log_sd": 1.0,
+            "curvature_prior_scale": 0.002,
             "sigma_prior_scale": 20.0,
         },
     ),
