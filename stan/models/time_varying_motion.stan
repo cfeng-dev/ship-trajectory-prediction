@@ -180,8 +180,9 @@ generated quantities {
     real turn_rate_current;
     real speed_previous = speed_state[N_observed];
     real heading_previous = heading_state[N_observed];
-    real x_previous = x_mean[N_observed];
-    real y_previous = y_mean[N_observed];
+    // Continue the inferred motion states from the final measured position.
+    real x_previous = x_observed[N_observed];
+    real y_previous = y_observed[N_observed];
     real time_previous = time_observed[N_observed];
 
     acceleration_current = fmin(

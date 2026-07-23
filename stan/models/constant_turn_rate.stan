@@ -95,14 +95,20 @@ generated quantities {
     vector[N_prediction] x_prediction;
     vector[N_prediction] y_prediction;
     vector[2 * N_observed] log_likelihood;
+    real time_prediction_start = time_observed[N_observed];
+    real heading_prediction_start = heading_initial
+        + turn_rate * time_prediction_start;
+    real x_prediction_start = x_observed[N_observed];
+    real y_prediction_start = y_observed[N_observed];
 
     for (n in 1:N_prediction) {
+        real elapsed_time = time_prediction[n] - time_prediction_start;
         vector[2] position = constant_turn_position(
-            time_prediction[n],
-            x_initial,
-            y_initial,
+            elapsed_time,
+            x_prediction_start,
+            y_prediction_start,
             speed,
-            heading_initial,
+            heading_prediction_start,
             turn_rate
         );
         x_prediction_mean[n] = position[1];
