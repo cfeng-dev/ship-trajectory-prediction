@@ -52,13 +52,22 @@ generated quantities {
     vector[N_prediction] x_prediction;
     vector[N_prediction] y_prediction;
     vector[2 * N_observed] log_likelihood;
+    // Continue the fitted circle from the final measured position instead of
+    // leaving a residual-sized gap between the observation and forecast.
+    real time_prediction_start = time_observed[N_observed];
+    real heading_prediction_start = heading_initial
+        + angular_velocity * time_prediction_start;
+    real x_prediction_start = x_observed[N_observed];
+    real y_prediction_start = y_observed[N_observed];
 
     for (n in 1:N_prediction) {
-        real heading = heading_initial + angular_velocity * time_prediction[n];
-        x_prediction_mean[n] = x_initial + signed_radius
-            * (sin(heading) - sin(heading_initial));
-        y_prediction_mean[n] = y_initial - signed_radius
-            * (cos(heading) - cos(heading_initial));
+        real elapsed_time = time_prediction[n] - time_prediction_start;
+        real heading = heading_prediction_start
+            + angular_velocity * elapsed_time;
+        x_prediction_mean[n] = x_prediction_start + signed_radius
+            * (sin(heading) - sin(heading_prediction_start));
+        y_prediction_mean[n] = y_prediction_start - signed_radius
+            * (cos(heading) - cos(heading_prediction_start));
         x_prediction[n] = normal_rng(x_prediction_mean[n], sigma);
         y_prediction[n] = normal_rng(y_prediction_mean[n], sigma);
     }

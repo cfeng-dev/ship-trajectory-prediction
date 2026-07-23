@@ -25,6 +25,26 @@ def test_plot_prediction_uses_the_requested_model_name(monkeypatch):
     plt.close(figure)
 
 
+def test_plot_prediction_connects_future_trajectories_to_prediction_start(
+    monkeypatch,
+):
+    """Held-out and posterior paths should start at the final observation."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        model_name="Constant Radius",
+        max_posterior_trajectories=2,
+    )
+
+    expected_start = (1.0, 0.5)
+    for line in axis.lines[1:]:
+        assert line.get_xdata()[0] == expected_start[0]
+        assert line.get_ydata()[0] == expected_start[1]
+    plt.close(figure)
+
+
 @pytest.mark.parametrize("model_name", [None, "", "   "])
 def test_plot_prediction_rejects_empty_model_name(model_name):
     """A model name is required to create a meaningful title."""

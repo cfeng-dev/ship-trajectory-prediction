@@ -19,6 +19,17 @@ def plot_prediction(
     prediction = window.prediction_slice
     x_samples = fit.stan_variable("x_prediction_mean")
     y_samples = fit.stan_variable("y_prediction_mean")
+    prediction_start_index = window.observation_count - 1
+    prediction_start_x = window.x_meters[prediction_start_index]
+    prediction_start_y = window.y_meters[prediction_start_index]
+    held_out_x = np.concatenate(([prediction_start_x], window.x_meters[prediction]))
+    held_out_y = np.concatenate(([prediction_start_y], window.y_meters[prediction]))
+    connected_x_samples = np.column_stack(
+        (np.full(len(x_samples), prediction_start_x), x_samples)
+    )
+    connected_y_samples = np.column_stack(
+        (np.full(len(y_samples), prediction_start_y), y_samples)
+    )
 
     figure, axis = plt.subplots(figsize=(10, 7))
     axis.plot(
@@ -29,8 +40,8 @@ def plot_prediction(
         label="Observed trajectory",
     )
     axis.plot(
-        window.x_meters[prediction],
-        window.y_meters[prediction],
+        held_out_x,
+        held_out_y,
         color="black",
         linestyle="--",
         linewidth=2,
@@ -46,23 +57,23 @@ def plot_prediction(
     )
     for sample_index in sample_indices:
         axis.plot(
-            x_samples[sample_index],
-            y_samples[sample_index],
+            connected_x_samples[sample_index],
+            connected_y_samples[sample_index],
             color="tab:red",
             alpha=0.05,
             linewidth=1,
         )
 
     axis.plot(
-        np.median(x_samples, axis=0),
-        np.median(y_samples, axis=0),
+        np.median(connected_x_samples, axis=0),
+        np.median(connected_y_samples, axis=0),
         color="tab:red",
         linewidth=2,
         label="Posterior median",
     )
     axis.scatter(
-        window.x_meters[window.observation_count - 1],
-        window.y_meters[window.observation_count - 1],
+        prediction_start_x,
+        prediction_start_y,
         color="tab:blue",
         zorder=3,
         label="Prediction start",
