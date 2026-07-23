@@ -150,8 +150,10 @@ generated quantities {
     vector[2 * N_observed] log_likelihood;
 
     real time_previous = time_observed[N_observed];
-    real x_previous = x_mean[N_observed];
-    real y_previous = y_mean[N_observed];
+    // Rebase the forecast at the final measured position while continuing the
+    // fitted heading and linearly changing curvature without interruption.
+    real x_previous = x_observed[N_observed];
+    real y_previous = y_observed[N_observed];
     real heading_previous = heading_mean[N_observed];
 
     for (n in 1:N_prediction) {
