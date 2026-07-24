@@ -3,6 +3,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_variable_samples,
+)
+
 
 def plot_prediction(
     window,
@@ -17,8 +21,8 @@ def plot_prediction(
 
     observed = window.observed_slice
     prediction = window.prediction_slice
-    x_samples = fit.stan_variable("x_prediction_mean")
-    y_samples = fit.stan_variable("y_prediction_mean")
+    x_samples = posterior_variable_samples(fit, "x_prediction_mean")
+    y_samples = posterior_variable_samples(fit, "y_prediction_mean")
     prediction_start_index = window.observation_count - 1
     prediction_start_x = window.x_meters[prediction_start_index]
     prediction_start_y = window.y_meters[prediction_start_index]

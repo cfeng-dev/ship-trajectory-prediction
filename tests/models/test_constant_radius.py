@@ -130,9 +130,50 @@ def test_fit_model_uses_direction_neutral_curvature_initialization(monkeypatch):
         "curvature_prior_scale"
     ] == pytest.approx(0.003)
     assert fake_model.sample_arguments["inits"] == {
-        "curvature": 0.0,
+        "curvature_raw": 0.0,
         "sigma": 10.0,
     }
+
+
+def test_fit_model_supports_variational_inference(monkeypatch):
+    """VI should reuse model data and initials while forwarding its options."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_constant_radius_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_constant_radius_model(
+        window,
+        inference_method="vi",
+        variational_options={"algorithm": "fullrank", "iter": 250},
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments is None
+    assert fake_model.variational_arguments["algorithm"] == "fullrank"
+    assert fake_model.variational_arguments["iter"] == 250
+    assert fake_model.variational_arguments["show_console"] is False
+    assert fake_model.variational_arguments["inits"]["curvature_raw"] == 0.0
+
+
+def test_fit_model_rejects_unknown_inference_method():
+    """The public fit API should fail clearly for unsupported methods."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+
+    with pytest.raises(ValueError, match="inference_method"):
+        fit_constant_radius_model(window, inference_method="laplace")
 
 
 def test_prepare_trajectory_window_rejects_multiple_runs():
@@ -201,8 +242,14 @@ class FakeModel:
     def __init__(self):
         self.result = object()
         self.sample_arguments = None
+        self.variational_arguments = None
 
     def sample(self, **kwargs):
         """Capture sampling arguments and return a stable sentinel."""
         self.sample_arguments = kwargs
+        return self.result
+
+    def variational(self, **kwargs):
+        """Capture variational arguments and return a stable sentinel."""
+        self.variational_arguments = kwargs
         return self.result

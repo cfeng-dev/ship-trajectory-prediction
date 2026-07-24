@@ -1,5 +1,6 @@
 """Compare all Bayesian trajectory models on one shared held-out window."""
 
+import argparse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -37,6 +38,10 @@ START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
 CREDIBLE_INTERVAL = 0.9
+VI_ITER = 20_000
+VI_DRAWS = 1_000
+VI_TOL_REL_OBJ = 0.05
+VI_EVAL_ELBO = 100
 
 
 @dataclass(frozen=True)
@@ -124,8 +129,13 @@ def evaluate_models(
     start_index=START_INDEX,
     credible_interval=CREDIBLE_INTERVAL,
     show_progress=False,
+    inference_method="mcmc",
+    variational_options=None,
 ):
     """Fit and evaluate every model on the exact same held-out timestamps."""
+    if inference_method not in {"mcmc", "vi"}:
+        raise ValueError("inference_method must be 'mcmc' or 'vi'.")
+
     window = prepare_trajectory_window(
         trajectory_data,
         observation_count=observation_count,
@@ -140,6 +150,8 @@ def evaluate_models(
         fit = model_spec.fit_model(
             window,
             show_progress=show_progress,
+            inference_method=inference_method,
+            variational_options=variational_options,
             **model_spec.fit_kwargs,
         )
         evaluation = evaluate_position_predictions(
@@ -174,20 +186,49 @@ def evaluate_models(
     return pd.DataFrame(summary_rows), pd.concat(horizon_tables, ignore_index=True)
 
 
-def main():
+def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
     """Run and print the shared one-window model comparison."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
-    summary, per_horizon = evaluate_models(trajectory_data)
+    variational_options = {
+        "algorithm": vi_algorithm,
+        "iter": VI_ITER,
+        "draws": VI_DRAWS,
+        "tol_rel_obj": VI_TOL_REL_OBJ,
+        "eval_elbo": VI_EVAL_ELBO,
+    }
+    summary, per_horizon = evaluate_models(
+        trajectory_data,
+        inference_method=inference_method,
+        variational_options=variational_options,
+    )
 
     print(
         "\nAll models are scored on identical held-out positions; their fitted "
         "inputs and motion assumptions remain model-specific."
     )
+    print(f"Inference method: {inference_method.upper()}")
+    if inference_method == "vi":
+        print(f"VI algorithm    : {vi_algorithm}")
     print("\nModel comparison (sorted by ADE):")
     print(summary.sort_values("ade_m").round(3).to_string(index=False))
     print("\nPer-horizon comparison:")
     print(per_horizon.round(3).to_string(index=False))
 
 
+def _parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default="meanfield",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    arguments = _parse_arguments()
+    main(
+        inference_method=arguments.inference,
+        vi_algorithm=arguments.vi_algorithm,
+    )

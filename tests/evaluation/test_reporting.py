@@ -1,6 +1,17 @@
 """Tests for shared trajectory experiment console reporting."""
 
-from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_parameter_summary,
+    posterior_variable_samples,
+    print_prediction_setup,
+    print_variational_diagnostics,
+    variational_elbo_history,
+)
 
 
 class FakeWindow:
@@ -50,3 +61,65 @@ def test_print_prediction_setup_expands_separator_for_long_title(capsys):
 
     assert lines[0] == "=" * len(title)
     assert lines[2] == lines[0]
+
+
+def test_posterior_variable_samples_requests_all_variational_draws():
+    """CmdStanVB requires mean=False to expose uncertainty instead of its mean."""
+    fit = FakeVariationalFit(curvature=np.array([-0.1, 0.0, 0.2]))
+
+    samples = posterior_variable_samples(fit, "curvature")
+
+    assert samples == pytest.approx([-0.1, 0.0, 0.2])
+    assert fit.requested_mean is False
+
+
+def test_posterior_parameter_summary_uses_variational_draws():
+    """VI parameter tables should report quantiles without MCMC-only fields."""
+    fit = FakeVariationalFit(curvature=np.array([-1.0, 0.0, 1.0]))
+
+    summary = posterior_parameter_summary(fit, ["curvature"], credible_interval=0.8)
+
+    assert summary.loc["curvature", "Mean"] == pytest.approx(0.0)
+    assert summary.loc["curvature", "50%"] == pytest.approx(0.0)
+    assert summary.loc["curvature", "10%"] == pytest.approx(-0.8)
+    assert summary.loc["curvature", "90%"] == pytest.approx(0.8)
+
+
+def test_variational_elbo_history_and_console_report(tmp_path, capsys):
+    """The CmdStan progress table should become reusable convergence data."""
+    stdout_file = tmp_path / "variational-stdout.txt"
+    stdout_file.write_text(
+        """Begin stochastic gradient ascent.
+  iter             ELBO   delta_ELBO_mean   delta_ELBO_med   notes
+   100          -20.000             1.000            1.000
+   200          -10.000             0.500            0.500
+COMPLETED.
+""",
+        encoding="utf-8",
+    )
+    fit = FakeVariationalFit(curvature=np.array([0.0]))
+    fit.runset = SimpleNamespace(stdout_files=[str(stdout_file)])
+
+    history = variational_elbo_history(fit)
+    print_variational_diagnostics(fit)
+
+    assert history["iteration"].tolist() == [100, 200]
+    assert history["elbo"].tolist() == [-20.0, -10.0]
+    output = capsys.readouterr().out
+    assert "Final iteration   : 200" in output
+    assert "Final ELBO        : -10.000" in output
+
+
+class FakeVariationalFit:
+    """Small CmdStanVB-like result exposing variational draws."""
+
+    variational_sample = np.empty((0, 0))
+
+    def __init__(self, **variables):
+        self.variables = variables
+        self.requested_mean = None
+
+    def stan_variable(self, name, *, mean=None):
+        """Record whether the caller requested all approximate draws."""
+        self.requested_mean = mean
+        return self.variables[name]

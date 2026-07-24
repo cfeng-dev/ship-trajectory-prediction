@@ -144,11 +144,6 @@ transformed parameters {
 }
 
 model {
-    // Reject trajectories that imply backward or implausibly fast motion.
-    if (min(speed_state) <= 0.001 || max(speed_state) > 100) {
-        target += negative_infinity();
-    }
-
     speed_initial ~ lognormal(log(speed_prior_median), speed_prior_log_sd);
     heading_initial ~ normal(heading_prior_mean, heading_prior_scale);
     acceleration_initial ~ normal(0, acceleration_initial_scale);

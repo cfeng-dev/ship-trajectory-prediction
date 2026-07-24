@@ -52,11 +52,12 @@ data {
 }
 
 parameters {
-    real curvature;
+    real curvature_raw;
     real<lower=0.001> sigma;
 }
 
 transformed parameters {
+    real curvature = curvature_prior_scale * curvature_raw;
     real turn_rate = speed * curvature;
     vector[N_observed] x_mean;
     vector[N_observed] y_mean;
@@ -76,7 +77,7 @@ transformed parameters {
 }
 
 model {
-    curvature ~ normal(0, curvature_prior_scale);
+    curvature_raw ~ std_normal();
     sigma ~ normal(0, sigma_prior_scale);
 
     x_observed ~ normal(x_mean, sigma);

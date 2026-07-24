@@ -5,10 +5,18 @@ import pandas as pd
 import pytest
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
+from ship_trajectory_prediction.models import constant_turn_rate as model_module
+from ship_trajectory_prediction.models import (
+    constant_turn_rate_acceleration as ctra_model_module,
+)
 from ship_trajectory_prediction.models.constant_turn_rate import (
     STAN_FILE,
     build_stan_data,
+    fit_constant_turn_rate_model,
     summarize_predictions,
+)
+from ship_trajectory_prediction.models.constant_turn_rate_acceleration import (
+    fit_constant_turn_rate_acceleration_model,
 )
 from ship_trajectory_prediction.simulation.core import simulate_curved_trajectory
 from ship_trajectory_prediction.trajectory import prepare_trajectory_window
@@ -122,6 +130,63 @@ def test_prepare_trajectory_window_rejects_multiple_runs():
         )
 
 
+def test_constant_turn_rate_fit_supports_variational_inference(monkeypatch):
+    """CTRV should forward VI options and observed-only initial values."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_constant_turn_rate_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_constant_turn_rate_model(
+        window,
+        inference_method="vi",
+        variational_options={"algorithm": "meanfield", "draws": 300},
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments is None
+    assert fake_model.variational_arguments["draws"] == 300
+    assert fake_model.variational_arguments["show_console"] is False
+    assert fake_model.variational_arguments["inits"]["turn_rate"] == 0.0
+
+
+def test_ctra_fit_supports_variational_inference(monkeypatch):
+    """CTRA should expose the same VI selection as every other model."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        ctra_model_module,
+        "compile_constant_turn_rate_acceleration_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_constant_turn_rate_acceleration_model(
+        window,
+        inference_method="vi",
+        variational_options={"algorithm": "fullrank", "iter": 400},
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments is None
+    assert fake_model.variational_arguments["algorithm"] == "fullrank"
+    assert fake_model.variational_arguments["iter"] == 400
+    inits = fake_model.variational_arguments["inits"]
+    assert inits["speed_horizon"] == pytest.approx(inits["speed_initial"])
+
+
 def test_summarize_predictions_uses_posterior_draws():
     """Prediction summaries should contain medians and credible intervals."""
     window = prepare_trajectory_window(
@@ -167,3 +232,22 @@ class FakeFit:
     def stan_variable(self, name):
         """Return one stored fake posterior variable."""
         return self.variables[name]
+
+
+class FakeModel:
+    """Minimal CmdStan replacement for both supported inference methods."""
+
+    def __init__(self):
+        self.result = object()
+        self.sample_arguments = None
+        self.variational_arguments = None
+
+    def sample(self, **kwargs):
+        """Capture sampling arguments and return a stable sentinel."""
+        self.sample_arguments = kwargs
+        return self.result
+
+    def variational(self, **kwargs):
+        """Capture variational arguments and return a stable sentinel."""
+        self.variational_arguments = kwargs
+        return self.result

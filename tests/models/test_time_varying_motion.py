@@ -192,6 +192,37 @@ def test_fit_uses_stan_data_priors_for_default_initialization(monkeypatch):
     assert inits["turn_rate_innovation"] == pytest.approx(np.zeros(6))
 
 
+def test_fit_supports_variational_inference(monkeypatch):
+    """VI should use all time-varying initial states and requested options."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_time_varying_motion_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_time_varying_motion_model(
+        window,
+        inference_method="vi",
+        variational_options={"algorithm": "fullrank", "iter": 500},
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments is None
+    assert fake_model.variational_arguments["algorithm"] == "fullrank"
+    assert fake_model.variational_arguments["iter"] == 500
+    assert fake_model.variational_arguments["show_console"] is False
+    inits = fake_model.variational_arguments["inits"]
+    assert inits["acceleration_innovation"] == pytest.approx(np.zeros(6))
+    assert inits["turn_rate_innovation"] == pytest.approx(np.zeros(6))
+
+
 def test_summarize_predictions_includes_speed_intervals():
     """Prediction summaries should cover positions and GPS speed."""
     window = prepare_trajectory_window(
@@ -236,8 +267,14 @@ class FakeModel:
     def __init__(self):
         self.result = object()
         self.sample_arguments = None
+        self.variational_arguments = None
 
     def sample(self, **kwargs):
         """Capture sampler arguments and return a stable sentinel."""
         self.sample_arguments = kwargs
+        return self.result
+
+    def variational(self, **kwargs):
+        """Capture variational arguments and return a stable sentinel."""
+        self.variational_arguments = kwargs
         return self.result

@@ -4,8 +4,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from cmdstanpy import CmdStanMCMC, CmdStanModel
+from cmdstanpy import CmdStanModel
 
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_variable_samples,
+)
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 from ship_trajectory_prediction.trajectory.window import (
@@ -79,8 +82,13 @@ def fit_constant_radius_model(
     seed=42,
     show_progress=True,
     inits=None,
+    inference_method="mcmc",
+    variational_options=None,
 ):
-    """Fit constant curvature while inferring turn direction from its sign."""
+    """Fit constant curvature with MCMC or variational inference."""
+    if inference_method not in {"mcmc", "vi"}:
+        raise ValueError("inference_method must be 'mcmc' or 'vi'.")
+
     stan_data = build_stan_data(
         window,
         curvature_prior_scale=curvature_prior_scale,
@@ -91,9 +99,28 @@ def fit_constant_radius_model(
         parallel_chains = chains
     if inits is None:
         inits = {
-            "curvature": 0.0,
+            "curvature_raw": 0.0,
             "sigma": sigma_prior_scale / 2,
         }
+
+    if inference_method == "vi":
+        options = dict(variational_options or {})
+        conflicting = {"data", "seed", "inits"}.intersection(options)
+        if conflicting:
+            names = ", ".join(sorted(conflicting))
+            raise ValueError(f"variational_options must not override: {names}.")
+        options.setdefault("algorithm", "meanfield")
+        options.setdefault("iter", 20_000)
+        options.setdefault("draws", 1_000)
+        options.setdefault("tol_rel_obj", 0.05)
+        options.setdefault("eval_elbo", 100)
+        options.setdefault("show_console", show_progress)
+        return model.variational(
+            data=stan_data,
+            seed=seed,
+            inits=inits,
+            **options,
+        )
 
     return model.sample(
         data=stan_data,
@@ -136,10 +163,7 @@ def summarize_predictions(fit, window: TrajectoryWindowData, credible_interval=0
 
 def _prediction_samples(fit, variable_name, prediction_count):
     """Extract and validate one posterior prediction matrix."""
-    if not isinstance(fit, CmdStanMCMC) and not hasattr(fit, "stan_variable"):
-        raise TypeError("fit must provide CmdStan-style posterior variables.")
-
-    samples = np.asarray(fit.stan_variable(variable_name), dtype=float)
+    samples = posterior_variable_samples(fit, variable_name)
     if samples.ndim != 2 or samples.shape[1] != prediction_count:
         raise ValueError(
             f"Posterior variable {variable_name!r} has an unexpected shape."

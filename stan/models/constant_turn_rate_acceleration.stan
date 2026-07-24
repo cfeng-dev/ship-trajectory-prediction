@@ -61,7 +61,7 @@ data {
 
     int<lower=1> N_prediction;
     vector[N_prediction] time_prediction;
-    real<lower=0> time_horizon;
+    real<lower=1e-9> time_horizon;
 
     real x_initial;
     real y_initial;
@@ -75,16 +75,16 @@ data {
 }
 
 parameters {
-    // Broad physical bounds prevent non-finite warmup proposals.
+    // Positive endpoint speeds keep the full linear speed path positive.
     real<lower=0.001, upper=100> speed_initial;
-    real<lower=-1, upper=1> acceleration;
+    real<lower=0.001> speed_horizon;
     real heading_initial;
     real<lower=-0.1, upper=0.1> turn_rate;
     real<lower=0.001> sigma;
 }
 
 transformed parameters {
-    real speed_horizon = speed_initial + acceleration * time_horizon;
+    real acceleration = (speed_horizon - speed_initial) / time_horizon;
     vector[N_observed] x_mean;
     vector[N_observed] y_mean;
 
@@ -104,12 +104,6 @@ transformed parameters {
 }
 
 model {
-    // Linear speed is monotonic, so a positive horizon speed keeps it positive
-    // throughout the complete observation and prediction interval.
-    if (speed_horizon <= 0.001) {
-        target += negative_infinity();
-    }
-
     speed_initial ~ lognormal(log(speed_prior_median), speed_prior_log_sd);
     acceleration ~ normal(0, acceleration_prior_scale);
     heading_initial ~ normal(heading_prior_mean, heading_prior_scale);

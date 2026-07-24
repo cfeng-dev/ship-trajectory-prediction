@@ -1,5 +1,7 @@
 """Fit the Bayesian time-varying motion model to one trajectory window."""
 
+import argparse
+
 import numpy as np
 
 from ship_trajectory_prediction.evaluation.metrics import (
@@ -7,7 +9,12 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
-from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_parameter_summary,
+    posterior_variable_samples,
+    print_prediction_setup,
+    print_variational_diagnostics,
+)
 from ship_trajectory_prediction.models.time_varying_motion import (
     build_stan_data,
     fit_time_varying_motion_model,
@@ -35,9 +42,13 @@ TURN_RATE_STATE_SCALE = 0.003
 TURN_RATE_DECAY_TIME = 600.0
 SIGMA_POSITION = 5.0
 SIGMA_SPEED = 0.2
+VI_ITER = 20_000
+VI_DRAWS = 1_000
+VI_TOL_REL_OBJ = 0.05
+VI_EVAL_ELBO = 100
 
 
-def main():
+def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
     """Fit the model and evaluate posterior predictions on held-out data."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     window = prepare_trajectory_window(
@@ -58,6 +69,13 @@ def main():
         "sigma_position": SIGMA_POSITION,
         "sigma_speed": SIGMA_SPEED,
     }
+    variational_options = {
+        "algorithm": vi_algorithm,
+        "iter": VI_ITER,
+        "draws": VI_DRAWS,
+        "tol_rel_obj": VI_TOL_REL_OBJ,
+        "eval_elbo": VI_EVAL_ELBO,
+    }
     stan_data = build_stan_data(window, **model_kwargs)
 
     print_prediction_setup(
@@ -66,29 +84,41 @@ def main():
         run_id=RUN_ID,
         window=window,
         extra_rows=[
+            ("Inference method", inference_method.upper()),
+            ("VI algorithm", vi_algorithm if inference_method == "vi" else "-"),
             ("Turn-rate level", f"{stan_data['turn_rate_level']:.5f} rad/s"),
             ("Position noise", f"{SIGMA_POSITION:.2f} m"),
             ("Speed noise", f"{SIGMA_SPEED:.2f} m/s"),
         ],
     )
 
-    fit = fit_time_varying_motion_model(window, **model_kwargs)
+    fit = fit_time_varying_motion_model(
+        window,
+        **model_kwargs,
+        inference_method=inference_method,
+        variational_options=variational_options,
+    )
+
+    if inference_method == "vi":
+        print_variational_diagnostics(fit)
 
     print("\nPosterior initial-state summary:")
     print(
-        fit.summary().loc[
+        posterior_parameter_summary(
+            fit,
             [
                 "speed_initial",
                 "heading_initial",
                 "acceleration_initial",
                 "turn_rate_initial",
-            ]
-        ]
+            ],
+        )
     )
 
-    acceleration_state = fit.stan_variable("acceleration_state")
-    turn_rate_state = fit.stan_variable("turn_rate_state")
-    speed_state = fit.stan_variable("speed_state")
+    acceleration_state = posterior_variable_samples(fit, "acceleration_state")
+    turn_rate_state = posterior_variable_samples(fit, "turn_rate_state")
+    speed_state = posterior_variable_samples(fit, "speed_state")
+    speed_prediction = posterior_variable_samples(fit, "speed_prediction_mean")
     print("\nPosterior state medians:")
     print(
         "Acceleration [m/s^2]: "
@@ -105,6 +135,11 @@ def main():
         f"{np.median(speed_state[:, 0]):.3f} -> "
         f"{np.median(speed_state[:, -1]):.3f}"
     )
+    physically_valid_speed = np.all(
+        (speed_state > 0.001) & (speed_state <= 100),
+        axis=1,
+    ) & np.all((speed_prediction > 0.001) & (speed_prediction <= 100), axis=1)
+    print(f"Physically valid speed paths: {np.mean(physically_valid_speed):.1%}")
 
     evaluation = evaluate_position_predictions(fit, window)
     print_position_evaluation(evaluation)
@@ -112,5 +147,20 @@ def main():
     plot_prediction(window, fit, model_name="Time-Varying Motion")
 
 
+def _parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default="meanfield",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    arguments = _parse_arguments()
+    main(
+        inference_method=arguments.inference,
+        vi_algorithm=arguments.vi_algorithm,
+    )

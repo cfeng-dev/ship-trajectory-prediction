@@ -154,6 +154,34 @@ def test_fit_model_uses_direction_neutral_default_initialization(monkeypatch):
     }
 
 
+def test_fit_model_supports_variational_inference(monkeypatch):
+    """VI should receive the same neutral initial state as MCMC."""
+    window = prepare_trajectory_window(
+        create_curved_trajectory_data(),
+        observation_count=8,
+        prediction_count=4,
+    )
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_time_varying_radius_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_time_varying_radius_model(
+        window,
+        inference_method="vi",
+        variational_options={"algorithm": "meanfield", "draws": 250},
+        show_progress=False,
+    )
+
+    assert fit is fake_model.result
+    assert fake_model.sample_arguments is None
+    assert fake_model.variational_arguments["draws"] == 250
+    assert fake_model.variational_arguments["show_console"] is False
+    assert fake_model.variational_arguments["inits"]["curvature_initial_raw"] == 0.0
+
+
 def test_summarize_predictions_uses_posterior_draws():
     """Prediction summaries should contain medians and credible intervals."""
     window = prepare_trajectory_window(
@@ -196,10 +224,16 @@ class FakeModel:
     def __init__(self):
         self.result = object()
         self.sample_arguments = None
+        self.variational_arguments = None
 
     def sample(self, **kwargs):
         """Capture sampling arguments and return a stable sentinel."""
         self.sample_arguments = kwargs
+        return self.result
+
+    def variational(self, **kwargs):
+        """Capture variational arguments and return a stable sentinel."""
+        self.variational_arguments = kwargs
         return self.result
 
 

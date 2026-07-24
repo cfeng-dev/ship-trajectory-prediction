@@ -1,5 +1,7 @@
 """Fit the Bayesian time-varying-radius model to one trajectory window."""
 
+import argparse
+
 import numpy as np
 
 from ship_trajectory_prediction.evaluation.metrics import (
@@ -7,7 +9,12 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
-from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_parameter_summary,
+    posterior_variable_samples,
+    print_prediction_setup,
+    print_variational_diagnostics,
+)
 from ship_trajectory_prediction.models.time_varying_radius import (
     build_stan_data,
     fit_time_varying_radius_model,
@@ -29,9 +36,13 @@ CURVATURE_INITIAL_PRIOR_SCALE = 0.002
 CURVATURE_RATE_PRIOR_SCALE = 5e-6
 SIGMA_PRIOR_SCALE = 20.0
 INTEGRATION_SUBSTEPS = 4
+VI_ITER = 20_000
+VI_DRAWS = 1_000
+VI_TOL_REL_OBJ = 0.05
+VI_EVAL_ELBO = 100
 
 
-def main():
+def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
     """Fit the model and evaluate posterior predictions on held-out data."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     window = prepare_trajectory_window(
@@ -46,6 +57,13 @@ def main():
         "sigma_prior_scale": SIGMA_PRIOR_SCALE,
         "integration_substeps": INTEGRATION_SUBSTEPS,
     }
+    variational_options = {
+        "algorithm": vi_algorithm,
+        "iter": VI_ITER,
+        "draws": VI_DRAWS,
+        "tol_rel_obj": VI_TOL_REL_OBJ,
+        "eval_elbo": VI_EVAL_ELBO,
+    }
     stan_data = build_stan_data(window, **model_kwargs)
 
     print_prediction_setup(
@@ -54,28 +72,39 @@ def main():
         run_id=RUN_ID,
         window=window,
         extra_rows=[
+            ("Inference method", inference_method.upper()),
+            ("VI algorithm", vi_algorithm if inference_method == "vi" else "-"),
             ("Fixed speed", f"{stan_data['speed']:.2f} m/s"),
         ],
     )
 
-    fit = fit_time_varying_radius_model(window, **model_kwargs)
+    fit = fit_time_varying_radius_model(
+        window,
+        **model_kwargs,
+        inference_method=inference_method,
+        variational_options=variational_options,
+    )
+
+    if inference_method == "vi":
+        print_variational_diagnostics(fit)
 
     print("\nPosterior parameter summary:")
     print(
-        fit.summary().loc[
+        posterior_parameter_summary(
+            fit,
             [
                 "curvature_initial",
                 "curvature_rate",
                 "radius_initial",
                 "radius_horizon",
                 "sigma",
-            ]
-        ]
+            ],
+        )
     )
 
-    curvature_initial = fit.stan_variable("curvature_initial")
-    curvature_prediction = fit.stan_variable("curvature_prediction")
-    radius_prediction = fit.stan_variable("radius_prediction")
+    curvature_initial = posterior_variable_samples(fit, "curvature_initial")
+    curvature_prediction = posterior_variable_samples(fit, "curvature_prediction")
+    radius_prediction = posterior_variable_samples(fit, "radius_prediction")
     initial_left_probability = float(np.mean(curvature_initial > 0))
     horizon_left_probability = float(np.mean(curvature_prediction[:, -1] > 0))
     print("\nPosterior turn direction:")
@@ -106,5 +135,20 @@ def main():
     plot_prediction(window, fit, model_name="Time-Varying-Radius")
 
 
+def _parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default="meanfield",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    arguments = _parse_arguments()
+    main(
+        inference_method=arguments.inference,
+        vi_algorithm=arguments.vi_algorithm,
+    )

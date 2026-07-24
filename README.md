@@ -202,6 +202,29 @@ uv run python src/ship_trajectory_prediction/simulation/cli.py
 
 The project environment must be synchronized first with `uv sync --locked`.
 
+### Trajectory inference
+
+Every trajectory experiment supports MCMC and variational inference with the
+same Stan motion model. MCMC remains the default:
+
+```bash
+uv run python experiments/trajectory_prediction/fit_constant_radius.py --inference mcmc
+```
+
+Select mean-field or full-rank ADVI with:
+
+```bash
+uv run python experiments/trajectory_prediction/fit_time_varying_motion.py --inference vi --vi-algorithm meanfield
+```
+
+The variational experiment output includes the final ELBO convergence values.
+Because VI approximates the posterior, compare its uncertainty and held-out
+prediction metrics against MCMC. The shared comparison accepts the same options:
+
+```bash
+uv run python experiments/model_comparison/compare_models.py --inference vi --vi-algorithm meanfield
+```
+
 ---
 
 ## Code Quality and Tests

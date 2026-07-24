@@ -73,15 +73,19 @@ def fit_constant_turn_rate_acceleration_model(
     seed=42,
     show_progress=True,
     inits=None,
+    inference_method="mcmc",
+    variational_options=None,
 ):
-    """Estimate a CTRA trajectory for one prepared observation window.
+    """Estimate a CTRA trajectory with MCMC or variational inference.
 
     ``speed_initial`` is the speed at the first position and ``acceleration``
     is a constant tangential acceleration in m/s^2. ``turn_rate`` remains
-    constant, so the instantaneous radius changes with speed. The model rejects
-    posterior proposals whose speed becomes non-positive before the final
-    prediction time.
+    constant, so the instantaneous radius changes with speed. Positive endpoint
+    speeds keep the linear speed path positive across the complete horizon.
     """
+    if inference_method not in {"mcmc", "vi"}:
+        raise ValueError("inference_method must be 'mcmc' or 'vi'.")
+
     stan_data = build_stan_data(
         window,
         speed_prior_log_sd=speed_prior_log_sd,
@@ -96,11 +100,30 @@ def fit_constant_turn_rate_acceleration_model(
     if inits is None:
         inits = {
             "speed_initial": stan_data["speed_prior_median"],
-            "acceleration": 0.0,
+            "speed_horizon": stan_data["speed_prior_median"],
             "heading_initial": stan_data["heading_prior_mean"],
             "turn_rate": 0.0,
             "sigma": stan_data["sigma_prior_scale"] / 2,
         }
+
+    if inference_method == "vi":
+        options = dict(variational_options or {})
+        conflicting = {"data", "seed", "inits"}.intersection(options)
+        if conflicting:
+            names = ", ".join(sorted(conflicting))
+            raise ValueError(f"variational_options must not override: {names}.")
+        options.setdefault("algorithm", "meanfield")
+        options.setdefault("iter", 20_000)
+        options.setdefault("draws", 1_000)
+        options.setdefault("tol_rel_obj", 0.05)
+        options.setdefault("eval_elbo", 100)
+        options.setdefault("show_console", show_progress)
+        return model.variational(
+            data=stan_data,
+            seed=seed,
+            inits=inits,
+            **options,
+        )
 
     return model.sample(
         data=stan_data,

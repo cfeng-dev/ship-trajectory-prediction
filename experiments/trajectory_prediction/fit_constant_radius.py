@@ -1,5 +1,7 @@
 """Fit the Bayesian constant-radius model to one recorded trajectory window."""
 
+import argparse
+
 import numpy as np
 
 from ship_trajectory_prediction.evaluation.metrics import (
@@ -7,7 +9,12 @@ from ship_trajectory_prediction.evaluation.metrics import (
     print_position_evaluation,
 )
 from ship_trajectory_prediction.evaluation.plotting import plot_prediction
-from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_parameter_summary,
+    posterior_variable_samples,
+    print_prediction_setup,
+    print_variational_diagnostics,
+)
 from ship_trajectory_prediction.models.constant_radius import (
     build_stan_data,
     fit_constant_radius_model,
@@ -26,9 +33,13 @@ OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
 CURVATURE_PRIOR_SCALE = 0.002
 SIGMA_PRIOR_SCALE = 20.0
+VI_ITER = 20_000
+VI_DRAWS = 1_000
+VI_TOL_REL_OBJ = 0.05
+VI_EVAL_ELBO = 100
 
 
-def main():
+def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
     """Fit the model and plot posterior trajectories against held-out data."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     window = prepare_trajectory_window(
@@ -41,6 +52,13 @@ def main():
         "curvature_prior_scale": CURVATURE_PRIOR_SCALE,
         "sigma_prior_scale": SIGMA_PRIOR_SCALE,
     }
+    variational_options = {
+        "algorithm": vi_algorithm,
+        "iter": VI_ITER,
+        "draws": VI_DRAWS,
+        "tol_rel_obj": VI_TOL_REL_OBJ,
+        "eval_elbo": VI_EVAL_ELBO,
+    }
     stan_data = build_stan_data(window, **model_kwargs)
 
     print_prediction_setup(
@@ -49,16 +67,31 @@ def main():
         run_id=RUN_ID,
         window=window,
         extra_rows=[
+            ("Inference method", inference_method.upper()),
+            ("VI algorithm", vi_algorithm if inference_method == "vi" else "-"),
             ("Fixed speed", f"{stan_data['speed']:.2f} m/s"),
         ],
     )
 
-    fit = fit_constant_radius_model(window, **model_kwargs)
+    fit = fit_constant_radius_model(
+        window,
+        **model_kwargs,
+        inference_method=inference_method,
+        variational_options=variational_options,
+    )
+
+    if inference_method == "vi":
+        print_variational_diagnostics(fit)
 
     print("\nPosterior parameter summary:")
-    print(fit.summary().loc[["curvature", "turn_rate", "radius", "sigma"]])
+    print(
+        posterior_parameter_summary(
+            fit,
+            ["curvature", "turn_rate", "radius", "sigma"],
+        )
+    )
 
-    curvature_samples = fit.stan_variable("curvature")
+    curvature_samples = posterior_variable_samples(fit, "curvature")
     left_probability = float(np.mean(curvature_samples > 0))
     print("\nPosterior turn direction:")
     print(f"Left / counterclockwise : {left_probability:.1%}")
@@ -70,5 +103,20 @@ def main():
     plot_prediction(window, fit, model_name="Constant-Radius")
 
 
+def _parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default="meanfield",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    arguments = _parse_arguments()
+    main(
+        inference_method=arguments.inference,
+        vi_algorithm=arguments.vi_algorithm,
+    )
