@@ -82,7 +82,7 @@ def fit_constant_radius_model(
     seed=42,
     show_progress=True,
     inits=None,
-    inference_method="mcmc",
+    inference_method="vi",
     variational_options=None,
 ):
     """Fit constant curvature with MCMC or variational inference."""

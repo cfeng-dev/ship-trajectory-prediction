@@ -142,6 +142,7 @@ def test_fit_model_uses_direction_neutral_default_initialization(monkeypatch):
         window,
         chains=1,
         show_progress=False,
+        inference_method="mcmc",
     )
 
     assert fit is fake_model.result
@@ -154,8 +155,8 @@ def test_fit_model_uses_direction_neutral_default_initialization(monkeypatch):
     }
 
 
-def test_fit_model_supports_variational_inference(monkeypatch):
-    """VI should receive the same neutral initial state as MCMC."""
+def test_fit_model_defaults_to_variational_inference(monkeypatch):
+    """Default VI should receive the same neutral initial state as MCMC."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -170,7 +171,6 @@ def test_fit_model_supports_variational_inference(monkeypatch):
 
     fit = fit_time_varying_radius_model(
         window,
-        inference_method="vi",
         variational_options={"algorithm": "meanfield", "draws": 250},
         show_progress=False,
     )

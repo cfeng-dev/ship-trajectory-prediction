@@ -73,7 +73,7 @@ def fit_constant_turn_rate_acceleration_model(
     seed=42,
     show_progress=True,
     inits=None,
-    inference_method="mcmc",
+    inference_method="vi",
     variational_options=None,
 ):
     """Estimate a CTRA trajectory with MCMC or variational inference.

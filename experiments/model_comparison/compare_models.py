@@ -129,7 +129,7 @@ def evaluate_models(
     start_index=START_INDEX,
     credible_interval=CREDIBLE_INTERVAL,
     show_progress=False,
-    inference_method="mcmc",
+    inference_method="vi",
     variational_options=None,
 ):
     """Fit and evaluate every model on the exact same held-out timestamps."""
@@ -186,7 +186,7 @@ def evaluate_models(
     return pd.DataFrame(summary_rows), pd.concat(horizon_tables, ignore_index=True)
 
 
-def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
+def main(*, inference_method="vi", vi_algorithm="meanfield"):
     """Run and print the shared one-window model comparison."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     variational_options = {
@@ -217,7 +217,7 @@ def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
 
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="vi")
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),

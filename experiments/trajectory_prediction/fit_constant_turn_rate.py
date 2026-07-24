@@ -41,7 +41,7 @@ VI_TOL_REL_OBJ = 0.05
 VI_EVAL_ELBO = 100
 
 
-def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
+def main(*, inference_method="vi", vi_algorithm="meanfield"):
     """Fit the model and plot posterior trajectories against held-out data."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     window = prepare_trajectory_window(
@@ -120,7 +120,7 @@ def main(*, inference_method="mcmc", vi_algorithm="meanfield"):
 
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inference", choices=("mcmc", "vi"), default="mcmc")
+    parser.add_argument("--inference", choices=("mcmc", "vi"), default="vi")
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),

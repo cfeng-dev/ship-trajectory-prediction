@@ -130,8 +130,8 @@ def test_prepare_trajectory_window_rejects_multiple_runs():
         )
 
 
-def test_constant_turn_rate_fit_supports_variational_inference(monkeypatch):
-    """CTRV should forward VI options and observed-only initial values."""
+def test_constant_turn_rate_fit_defaults_to_variational_inference(monkeypatch):
+    """CTRV should use VI by default and forward observed-only initial values."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -146,7 +146,6 @@ def test_constant_turn_rate_fit_supports_variational_inference(monkeypatch):
 
     fit = fit_constant_turn_rate_model(
         window,
-        inference_method="vi",
         variational_options={"algorithm": "meanfield", "draws": 300},
         show_progress=False,
     )
@@ -158,8 +157,8 @@ def test_constant_turn_rate_fit_supports_variational_inference(monkeypatch):
     assert fake_model.variational_arguments["inits"]["turn_rate"] == 0.0
 
 
-def test_ctra_fit_supports_variational_inference(monkeypatch):
-    """CTRA should expose the same VI selection as every other model."""
+def test_ctra_fit_defaults_to_variational_inference(monkeypatch):
+    """CTRA should use the same VI default as every other model."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -174,7 +173,6 @@ def test_ctra_fit_supports_variational_inference(monkeypatch):
 
     fit = fit_constant_turn_rate_acceleration_model(
         window,
-        inference_method="vi",
         variational_options={"algorithm": "fullrank", "iter": 400},
         show_progress=False,
     )

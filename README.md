@@ -205,16 +205,22 @@ The project environment must be synchronized first with `uv sync --locked`.
 ### Trajectory inference
 
 Every trajectory experiment supports MCMC and variational inference with the
-same Stan motion model. MCMC remains the default:
+same Stan motion model. Mean-field VI is the default:
 
 ```bash
-uv run python experiments/trajectory_prediction/fit_constant_radius.py --inference mcmc
+uv run python experiments/trajectory_prediction/fit_constant_radius.py
 ```
 
 Select mean-field or full-rank ADVI with:
 
 ```bash
 uv run python experiments/trajectory_prediction/fit_time_varying_motion.py --inference vi --vi-algorithm meanfield
+```
+
+Keep MCMC available as the reference inference method with:
+
+```bash
+uv run python experiments/trajectory_prediction/fit_time_varying_motion.py --inference mcmc
 ```
 
 The variational experiment output includes the final ELBO convergence values.

@@ -122,6 +122,7 @@ def test_fit_model_uses_direction_neutral_curvature_initialization(monkeypatch):
         curvature_prior_scale=0.003,
         chains=1,
         show_progress=False,
+        inference_method="mcmc",
     )
 
     assert fit is fake_model.result
@@ -135,8 +136,8 @@ def test_fit_model_uses_direction_neutral_curvature_initialization(monkeypatch):
     }
 
 
-def test_fit_model_supports_variational_inference(monkeypatch):
-    """VI should reuse model data and initials while forwarding its options."""
+def test_fit_model_defaults_to_variational_inference(monkeypatch):
+    """Default VI should reuse model data and forward its options."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -151,7 +152,6 @@ def test_fit_model_supports_variational_inference(monkeypatch):
 
     fit = fit_constant_radius_model(
         window,
-        inference_method="vi",
         variational_options={"algorithm": "fullrank", "iter": 250},
         show_progress=False,
     )

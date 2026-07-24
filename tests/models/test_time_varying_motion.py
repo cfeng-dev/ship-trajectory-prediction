@@ -181,6 +181,7 @@ def test_fit_uses_stan_data_priors_for_default_initialization(monkeypatch):
         window,
         chains=1,
         show_progress=False,
+        inference_method="mcmc",
     )
 
     assert fit is fake_model.result
@@ -192,8 +193,8 @@ def test_fit_uses_stan_data_priors_for_default_initialization(monkeypatch):
     assert inits["turn_rate_innovation"] == pytest.approx(np.zeros(6))
 
 
-def test_fit_supports_variational_inference(monkeypatch):
-    """VI should use all time-varying initial states and requested options."""
+def test_fit_defaults_to_variational_inference(monkeypatch):
+    """Default VI should use all initial states and requested options."""
     window = prepare_trajectory_window(
         create_curved_trajectory_data(),
         observation_count=8,
@@ -208,7 +209,6 @@ def test_fit_supports_variational_inference(monkeypatch):
 
     fit = fit_time_varying_motion_model(
         window,
-        inference_method="vi",
         variational_options={"algorithm": "fullrank", "iter": 500},
         show_progress=False,
     )

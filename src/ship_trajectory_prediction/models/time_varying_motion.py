@@ -113,7 +113,7 @@ def fit_time_varying_motion_model(
     adapt_delta=0.95,
     max_treedepth=12,
     inits=None,
-    inference_method="mcmc",
+    inference_method="vi",
     variational_options=None,
 ):
     """Fit varying motion states with MCMC or variational inference.
