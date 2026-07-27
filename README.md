@@ -150,31 +150,6 @@ uv run python src/ship_trajectory_prediction/simulation/cli.py
 
 The project environment must be synchronized first with `uv sync --locked`.
 
-### Trajectory prediction
-
-Run the deterministic CTRV baseline on one recorded trajectory window:
-
-```bash
-uv run python experiments/trajectory_prediction/predict_ctrv.py
-```
-
-Fit the Bayesian CTRV state-space model with mean-field VI and plot its
-held-out predictions:
-
-```bash
-uv run python experiments/trajectory_prediction/fit_bayesian_ctrv.py
-```
-
-Use the separate synthetic experiment for multi-seed recovery and full-rank
-sensitivity checks:
-
-```bash
-uv run python experiments/trajectory_prediction/validate_bayesian_ctrv_synthetic.py
-```
-
-The variational output includes the final ELBO values and an explicit CmdStan
-convergence status. Treat plots from non-converged runs as preliminary.
-
 ---
 
 ## Code Quality and Tests
