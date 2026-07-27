@@ -151,6 +151,21 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
 
 
+def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
+    """A stationary window should remain fit-ready without a false GPS course."""
+    window = create_synthetic_window()
+    stationary_window = replace(
+        window,
+        x_meters=np.zeros_like(window.x_meters),
+        y_meters=np.zeros_like(window.y_meters),
+    )
+
+    stan_data = build_stan_data(stationary_window)
+
+    assert stan_data["heading_initial_prior_mean"] == 0.0
+    assert stan_data["turn_rate_initial_prior_mean"] == 0.0
+
+
 @pytest.mark.parametrize("invalid_speed", [np.nan, -0.1])
 def test_build_stan_data_rejects_invalid_observed_speed(invalid_speed):
     """The GPS speed likelihood requires finite non-negative history."""
@@ -236,6 +251,29 @@ def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):
     assert first_arguments["algorithm"] == "fullrank"
     for name, first_value in first_arguments["inits"].items():
         assert second_arguments["inits"][name] == pytest.approx(first_value)
+
+
+@pytest.mark.parametrize("observed_speed", [0.0, 150.0])
+def test_fit_initializes_speed_strictly_inside_stan_bounds(
+    monkeypatch,
+    observed_speed,
+):
+    """Zero or extreme GPS speeds must not initialize on a Stan boundary."""
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: fake_model,
+    )
+    window = create_synthetic_window()
+    speed = window.gps_speed_mps.copy()
+    speed[2] = observed_speed
+
+    fit_bayesian_ctrv_model(replace(window, gps_speed_mps=speed), seed=71)
+
+    initial_speed = fake_model.arguments["inits"]["speed_state"]
+    assert np.all(initial_speed > 0.001)
+    assert np.all(initial_speed < 100)
 
 
 @pytest.mark.parametrize(

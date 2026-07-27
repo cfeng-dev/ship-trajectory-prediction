@@ -1,0 +1,360 @@
+"""Evaluate Bayesian CTRV forecasts over a complete recorded trajectory."""
+
+import argparse
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from ship_trajectory_prediction.coordinates import (
+    gps_to_local_coordinates,
+    local_to_gps_coordinates,
+)
+from ship_trajectory_prediction.evaluation import (
+    build_rolling_window_specs,
+    evaluate_position_predictions,
+    summarize_rolling_predictions,
+)
+from ship_trajectory_prediction.evaluation import (
+    plot_prediction as plot_window_prediction,
+)
+from ship_trajectory_prediction.models.bayesian_ctrv import (
+    fit_bayesian_ctrv_model,
+    variational_converged,
+)
+from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.trajectory import (
+    prepare_trajectory_window,
+    read_ship_data,
+)
+
+DATA_FILE = project_path(
+    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+)
+
+RUN_ID = 2
+OBSERVATION_COUNT = 20
+PREDICTION_COUNT = 5
+CREDIBLE_INTERVAL = 0.9
+
+
+def main(
+    *,
+    window_mode="sliding",
+    observation_count=OBSERVATION_COUNT,
+    prediction_count=PREDICTION_COUNT,
+    stride=None,
+    vi_algorithm="meanfield",
+    seed=42,
+    require_converged=False,
+    max_windows=None,
+    plot_each_window=False,
+):
+    """Fit and evaluate rolling CTRV forecasts across one complete run."""
+    trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
+    trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
+    if trajectory_data.empty:
+        raise ValueError(f"No trajectory rows found for run_id={RUN_ID}.")
+
+    windows = build_rolling_window_specs(
+        len(trajectory_data),
+        initial_observation_count=observation_count,
+        prediction_count=prediction_count,
+        stride=stride,
+        window_mode=window_mode,
+    )
+    if max_windows is not None:
+        if isinstance(max_windows, bool) or max_windows < 1:
+            raise ValueError("max_windows must be a positive integer or None.")
+        windows = windows[:max_windows]
+
+    route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    effective_stride = prediction_count if stride is None else stride
+    print("=" * 72)
+    print("Bayesian CTRV Rolling-Window Evaluation")
+    print("=" * 72)
+    print(f"Data file             : {DATA_FILE}")
+    print(f"Run ID                : {RUN_ID}")
+    print(f"Window mode           : {window_mode}")
+    print(f"Initial observations  : {observation_count}")
+    print(f"Prediction horizon    : {prediction_count}")
+    print(f"Stride                : {effective_stride}")
+    print(f"Rolling windows       : {len(windows)}")
+    print(f"VI algorithm          : {vi_algorithm}")
+    print(f"Plot each window      : {plot_each_window}")
+
+    prediction_tables = []
+    for number, specification in enumerate(windows, start=1):
+        window_seed = seed + specification.window_index
+        print(
+            f"\nWindow {number}/{len(windows)}: "
+            f"observations={specification.observation_count}, "
+            f"predictions={specification.prediction_count}, seed={window_seed}"
+        )
+        window = prepare_trajectory_window(
+            trajectory_data,
+            observation_count=specification.observation_count,
+            prediction_count=specification.prediction_count,
+            start_index=specification.start_index,
+        )
+        fit = fit_bayesian_ctrv_model(
+            window,
+            algorithm=vi_algorithm,
+            seed=window_seed,
+            require_converged=require_converged,
+        )
+        converged = variational_converged(fit)
+        evaluation = evaluate_position_predictions(
+            fit,
+            window,
+            credible_interval=CREDIBLE_INTERVAL,
+        )
+        table = _build_route_prediction_table(
+            evaluation.prediction_table,
+            specification=specification,
+            window=window,
+            route_x=route_x,
+            route_y=route_y,
+            longitude=longitude,
+            latitude=latitude,
+            converged=converged,
+        )
+        prediction_tables.append(table)
+        print(
+            f"ADE={evaluation.ade_m:.2f} m, "
+            f"FDE={evaluation.fde_m:.2f} m, "
+            f"converged={converged}"
+        )
+        if plot_each_window:
+            figure, _ = plot_window_prediction(
+                window,
+                fit,
+                model_name=f"CTRV Rolling Window {number}/{len(windows)}",
+            )
+            plt.close(figure)
+
+    predictions = pd.concat(prediction_tables, ignore_index=True)
+    summary = summarize_rolling_predictions(predictions)
+    _print_summary(summary, credible_interval=CREDIBLE_INTERVAL)
+    plot_rolling_predictions(
+        route_x,
+        route_y,
+        predictions,
+        initial_observation_count=observation_count,
+        window_mode=window_mode,
+    )
+    return predictions, summary
+
+
+def plot_rolling_predictions(
+    route_x,
+    route_y,
+    predictions,
+    *,
+    initial_observation_count,
+    window_mode,
+):
+    """Plot the complete recorded route and every rolling posterior median."""
+    figure, axis = plt.subplots(figsize=(11, 8))
+    axis.plot(
+        route_x,
+        route_y,
+        color="black",
+        linestyle="--",
+        linewidth=1.5,
+        label="Recorded trajectory",
+    )
+    axis.plot(
+        route_x[:initial_observation_count],
+        route_y[:initial_observation_count],
+        color="tab:blue",
+        linewidth=2.5,
+        label="Initial observations",
+    )
+
+    for plot_index, (_, forecast) in enumerate(
+        predictions.groupby("window_index", sort=True)
+    ):
+        x_values = np.concatenate(
+            ([forecast["forecast_origin_x_route"].iloc[0]], forecast["x_median_route"])
+        )
+        y_values = np.concatenate(
+            ([forecast["forecast_origin_y_route"].iloc[0]], forecast["y_median_route"])
+        )
+        axis.plot(
+            x_values,
+            y_values,
+            color="tab:red",
+            alpha=0.35,
+            linewidth=1.5,
+            label="Rolling posterior medians" if plot_index == 0 else None,
+        )
+
+    axis.set_title(f"Bayesian CTRV Rolling Prediction ({window_mode.title()} Window)")
+    axis.set_xlabel("x [m]")
+    axis.set_ylabel("y [m]")
+    axis.set_aspect("equal", adjustable="box")
+    axis.grid(alpha=0.3)
+    axis.legend()
+    figure.tight_layout()
+    plt.show()
+    return figure, axis
+
+
+def _build_route_prediction_table(
+    prediction_table,
+    *,
+    specification,
+    window,
+    route_x,
+    route_y,
+    longitude,
+    latitude,
+    converged,
+):
+    """Add rolling metadata and one route-wide coordinate frame."""
+    table = prediction_table.copy()
+    target_indices = np.arange(
+        specification.forecast_start_index,
+        specification.forecast_start_index + specification.prediction_count,
+    )
+    reference_index = specification.start_index
+    predicted_longitude, predicted_latitude = local_to_gps_coordinates(
+        table["x_median"],
+        table["y_median"],
+        reference_longitude=longitude[reference_index],
+        reference_latitude=latitude[reference_index],
+        unit="m",
+    )
+    x_median_route, y_median_route = _gps_to_route_coordinates(
+        predicted_longitude,
+        predicted_latitude,
+        reference_longitude=longitude[0],
+        reference_latitude=latitude[0],
+    )
+    forecast_origin_index = specification.forecast_start_index - 1
+
+    table.insert(0, "window_index", specification.window_index)
+    table.insert(1, "window_start_index", specification.start_index)
+    table.insert(2, "forecast_start_index", specification.forecast_start_index)
+    table.insert(3, "target_index", target_indices)
+    table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
+    table["observation_count"] = specification.observation_count
+    table["prediction_count"] = specification.prediction_count
+    table["converged"] = converged
+    table["forecast_origin_time"] = window.timestamps[
+        specification.observation_count - 1
+    ]
+    table["forecast_origin_x_route"] = route_x[forecast_origin_index]
+    table["forecast_origin_y_route"] = route_y[forecast_origin_index]
+    table["x_actual_route"] = route_x[target_indices]
+    table["y_actual_route"] = route_y[target_indices]
+    table["x_median_route"] = x_median_route
+    table["y_median_route"] = y_median_route
+    return table
+
+
+def _prepare_route_coordinates(trajectory_data):
+    """Return the complete run in one common local east/north frame."""
+    longitude = pd.to_numeric(
+        trajectory_data["gps_longitude"], errors="coerce"
+    ).to_numpy(dtype=float)
+    latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    route_x, route_y = gps_to_local_coordinates(longitude, latitude, unit="m")
+    return route_x, route_y, longitude, latitude
+
+
+def _gps_to_route_coordinates(
+    longitude,
+    latitude,
+    *,
+    reference_longitude,
+    reference_latitude,
+):
+    """Convert GPS points to the local coordinate frame of the complete run."""
+    longitude_with_reference = np.concatenate(([reference_longitude], longitude))
+    latitude_with_reference = np.concatenate(([reference_latitude], latitude))
+    x_route, y_route = gps_to_local_coordinates(
+        longitude_with_reference,
+        latitude_with_reference,
+        unit="m",
+    )
+    return x_route[1:], y_route[1:]
+
+
+def _print_summary(summary, *, credible_interval):
+    """Print aggregate and horizon-specific rolling metrics."""
+    print("\n" + "=" * 72)
+    print("Complete rolling evaluation")
+    print("=" * 72)
+    print(f"Evaluated windows        : {summary.window_count}")
+    print(f"Forecasted positions     : {summary.forecast_count}")
+    print(f"Overall ADE              : {summary.ade_m:.2f} m")
+    print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
+    print(
+        f"Radial {100 * credible_interval:g}% coverage   : "
+        f"{summary.radial_coverage:.1%}"
+    )
+    print(f"Mean prediction radius   : {summary.mean_prediction_radius_m:.2f} m")
+    print(f"Mean marginal width     : {summary.mean_marginal_interval_width_m:.2f} m")
+    print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")
+    print("\nPer-horizon evaluation:")
+    print(summary.per_horizon_table.round(3).to_string(index=False))
+
+
+def _parse_arguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--window-mode",
+        choices=("sliding", "expanding"),
+        default="sliding",
+        help="Keep a fixed history or expand it from the beginning of the run.",
+    )
+    parser.add_argument("--observations", type=int, default=OBSERVATION_COUNT)
+    parser.add_argument("--predictions", type=int, default=PREDICTION_COUNT)
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=None,
+        help="Forecast-origin step; defaults to the prediction horizon.",
+    )
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default="meanfield",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--require-converged",
+        action="store_true",
+        help="Abort when any rolling VI fit misses its convergence criterion.",
+    )
+    parser.add_argument(
+        "--max-windows",
+        type=int,
+        default=None,
+        help="Optional smoke-test limit; omit it to evaluate the complete run.",
+    )
+    parser.add_argument(
+        "--plot-each-window",
+        action="store_true",
+        help="Show each fitted window and continue after its plot is closed.",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    arguments = _parse_arguments()
+    main(
+        window_mode=arguments.window_mode,
+        observation_count=arguments.observations,
+        prediction_count=arguments.predictions,
+        stride=arguments.stride,
+        vi_algorithm=arguments.vi_algorithm,
+        seed=arguments.seed,
+        require_converged=arguments.require_converged,
+        max_windows=arguments.max_windows,
+        plot_each_window=arguments.plot_each_window,
+    )

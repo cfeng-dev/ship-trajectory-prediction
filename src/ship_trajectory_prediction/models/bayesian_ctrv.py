@@ -26,6 +26,9 @@ from ship_trajectory_prediction.trajectory.window import (
 
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
+SPEED_STATE_INITIAL_LOWER = 0.01
+SPEED_STATE_INITIAL_UPPER = 99.99
+
 NOISE_PARAMETER_NAMES = (
     "sigma_position_gps",
     "sigma_speed_gps",
@@ -106,15 +109,23 @@ def build_stan_data(
         raise ValueError("Observed gps_speed must contain positive values.")
     initial_speed_count = min(3, positive_speeds.size)
     speed_initial_prior_mean = float(np.median(positive_speeds[:initial_speed_count]))
-    heading_initial_prior_mean = estimate_initial_heading(
-        x_observed,
-        y_observed,
-    )
-    turn_rate_initial_prior_mean = _estimate_turn_rate_prior_mean(
-        time_observed,
-        x_observed,
-        y_observed,
-    )
+    try:
+        heading_initial_prior_mean = estimate_initial_heading(
+            x_observed,
+            y_observed,
+        )
+    except ValueError:
+        # Heading and turn rate are not identifiable while the ship is
+        # stationary. Neutral centers keep such windows valid without deriving
+        # arbitrary motion from GPS jitter.
+        heading_initial_prior_mean = 0.0
+        turn_rate_initial_prior_mean = 0.0
+    else:
+        turn_rate_initial_prior_mean = _estimate_turn_rate_prior_mean(
+            time_observed,
+            x_observed,
+            y_observed,
+        )
 
     return {
         "N_observed": window.observation_count,
@@ -406,8 +417,8 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "y_state": y_observed + generator.normal(0, x_jitter, state_count),
         "speed_state": np.clip(
             speed_observed + generator.normal(0, speed_jitter, state_count),
-            0.001,
-            100,
+            SPEED_STATE_INITIAL_LOWER,
+            SPEED_STATE_INITIAL_UPPER,
         ),
         "heading_initial": float(stan_data["heading_initial_prior_mean"])
         + generator.normal(0, 0.01),
