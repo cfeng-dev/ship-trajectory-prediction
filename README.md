@@ -202,34 +202,30 @@ uv run python src/ship_trajectory_prediction/simulation/cli.py
 
 The project environment must be synchronized first with `uv sync --locked`.
 
-### Trajectory inference
+### Trajectory prediction
 
-Every trajectory experiment supports MCMC and variational inference with the
-same Stan motion model. Mean-field VI is the default:
-
-```bash
-uv run python experiments/trajectory_prediction/fit_constant_radius.py
-```
-
-Select mean-field or full-rank ADVI with:
+Run the deterministic CTRV baseline on one recorded trajectory window:
 
 ```bash
-uv run python experiments/trajectory_prediction/fit_time_varying_motion.py --inference vi --vi-algorithm meanfield
+uv run python experiments/trajectory_prediction/predict_ctrv.py
 ```
 
-Keep MCMC available as the reference inference method with:
+Fit the Bayesian CTRV state-space model with mean-field VI and plot its
+held-out predictions:
 
 ```bash
-uv run python experiments/trajectory_prediction/fit_time_varying_motion.py --inference mcmc
+uv run python experiments/trajectory_prediction/fit_bayesian_ctrv.py
 ```
 
-The variational experiment output includes the final ELBO convergence values.
-Because VI approximates the posterior, compare its uncertainty and held-out
-prediction metrics against MCMC. The shared comparison accepts the same options:
+Use the separate synthetic experiment for multi-seed recovery and full-rank
+sensitivity checks:
 
 ```bash
-uv run python experiments/model_comparison/compare_models.py --inference vi --vi-algorithm meanfield
+uv run python experiments/trajectory_prediction/validate_bayesian_ctrv_synthetic.py
 ```
+
+The variational output includes the final ELBO values and an explicit CmdStan
+convergence status. Treat plots from non-converged runs as preliminary.
 
 ---
 
