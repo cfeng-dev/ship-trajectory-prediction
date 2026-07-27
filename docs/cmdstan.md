@@ -1,6 +1,36 @@
-# CmdStan Troubleshooting
+# CmdStan Setup
 
-## Installation fails on Windows
+## Verify the installation
+
+Start the Python interpreter in the project environment:
+
+```bash
+uv run python
+```
+
+Then execute:
+
+```python
+import cmdstanpy
+
+print(cmdstanpy.cmdstan_path())
+```
+
+A valid installation path, for example
+
+```text
+C:\Users\<username>\.cmdstan\cmdstan-2.39.0
+```
+
+confirms that CmdStan has been installed successfully.
+
+Exit the Python interpreter:
+
+```python
+exit()
+```
+
+## Troubleshoot installation on Windows
 
 If the installation fails because commands such as `mingw32-make` or `cut`
 cannot be found, ensure that the following directories are included in the user

@@ -103,38 +103,8 @@ Download and install the latest supported version of CmdStan:
 uv run python -m cmdstanpy.install_cmdstan
 ```
 
-If the installation fails, see the
-[CmdStan troubleshooting guide](docs/cmdstan-troubleshooting.md).
-
-### 7. Verify the Installation
-
-Start the Python interpreter in the project environment:
-
-```bash
-uv run python
-```
-
-Then execute:
-
-```python
-import cmdstanpy
-
-print(cmdstanpy.cmdstan_path())
-```
-
-A valid installation path, for example
-
-```text
-C:\Users\<username>\.cmdstan\cmdstan-2.39.0
-```
-
-confirms that CmdStan has been installed successfully.
-
-Exit the Python interpreter:
-
-```python
-exit()
-```
+For verification and Windows installation problems, see the
+[CmdStan setup guide](docs/cmdstan.md).
 
 ---
 
