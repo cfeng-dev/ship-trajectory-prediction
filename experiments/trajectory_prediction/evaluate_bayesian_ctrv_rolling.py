@@ -32,23 +32,31 @@ DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
+# Experiment configuration used by the VS Code run button.
 RUN_ID = 2
+WINDOW_MODE = "sliding"
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
+STRIDE = None
 CREDIBLE_INTERVAL = 0.9
+VI_ALGORITHM = "meanfield"
+SEED = 42
+REQUIRE_CONVERGED = False
+MAX_WINDOWS = None
+PLOT_EACH_WINDOW = False
 
 
 def main(
     *,
-    window_mode="sliding",
+    window_mode=WINDOW_MODE,
     observation_count=OBSERVATION_COUNT,
     prediction_count=PREDICTION_COUNT,
-    stride=None,
-    vi_algorithm="meanfield",
-    seed=42,
-    require_converged=False,
-    max_windows=None,
-    plot_each_window=False,
+    stride=STRIDE,
+    vi_algorithm=VI_ALGORITHM,
+    seed=SEED,
+    require_converged=REQUIRE_CONVERGED,
+    max_windows=MAX_WINDOWS,
+    plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
@@ -309,7 +317,7 @@ def _parse_arguments():
     parser.add_argument(
         "--window-mode",
         choices=("sliding", "expanding"),
-        default="sliding",
+        default=WINDOW_MODE,
         help="Keep a fixed history or expand it from the beginning of the run.",
     )
     parser.add_argument("--observations", type=int, default=OBSERVATION_COUNT)
@@ -317,29 +325,31 @@ def _parse_arguments():
     parser.add_argument(
         "--stride",
         type=int,
-        default=None,
+        default=STRIDE,
         help="Forecast-origin step; defaults to the prediction horizon.",
     )
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default="meanfield",
+        default=VI_ALGORITHM,
     )
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
         "--require-converged",
         action="store_true",
+        default=REQUIRE_CONVERGED,
         help="Abort when any rolling VI fit misses its convergence criterion.",
     )
     parser.add_argument(
         "--max-windows",
         type=int,
-        default=None,
+        default=MAX_WINDOWS,
         help="Optional smoke-test limit; omit it to evaluate the complete run.",
     )
     parser.add_argument(
         "--plot-each-window",
         action="store_true",
+        default=PLOT_EACH_WINDOW,
         help="Show each fitted window and continue after its plot is closed.",
     )
     return parser.parse_args()
