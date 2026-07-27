@@ -6,6 +6,7 @@ import pytest
 
 from ship_trajectory_prediction.trajectory import (
     DEFAULT_GPS_SPEED_UNIT,
+    DEFAULT_MAX_TIME_GAP_SECONDS,
     TrajectoryWindowData,
     prepare_trajectory_window,
 )
@@ -62,6 +63,7 @@ def test_prepare_trajectory_window_sorts_slices_and_converts_values():
     assert window.observed_slice == slice(0, 3)
     assert window.prediction_slice == slice(3, None)
     assert DEFAULT_GPS_SPEED_UNIT == "km/h"
+    assert DEFAULT_MAX_TIME_GAP_SECONDS == pytest.approx(15.0)
 
 
 def test_prepare_trajectory_window_accepts_speed_values_in_meters_per_second():
@@ -87,6 +89,10 @@ def test_prepare_trajectory_window_accepts_speed_values_in_meters_per_second():
         ("prediction_count", 0),
         ("start_index", -1),
         ("gps_speed_unit", "knots"),
+        ("max_time_gap_seconds", 0.0),
+        ("max_time_gap_seconds", np.inf),
+        ("max_time_gap_seconds", np.nan),
+        ("max_time_gap_seconds", True),
     ],
 )
 def test_prepare_trajectory_window_rejects_invalid_arguments(argument, value):
@@ -96,11 +102,38 @@ def test_prepare_trajectory_window_rejects_invalid_arguments(argument, value):
         "prediction_count": 2,
         "start_index": 0,
         "gps_speed_unit": DEFAULT_GPS_SPEED_UNIT,
+        "max_time_gap_seconds": DEFAULT_MAX_TIME_GAP_SECONDS,
     }
     arguments[argument] = value
 
     with pytest.raises(ValueError, match=argument):
         prepare_trajectory_window(create_trajectory_data(), **arguments)
+
+
+def test_prepare_trajectory_window_rejects_excessive_time_gap():
+    """A model window must not cross an unobserved period silently."""
+    data = create_trajectory_data()
+    gap_start = pd.Timestamp("2026-01-10 08:00:30", tz="UTC")
+    data["time"] = [
+        timestamp + np.timedelta64(30, "s") if timestamp >= gap_start else timestamp
+        for timestamp in data["time"]
+    ]
+
+    with pytest.raises(ValueError, match="time gap.*max_time_gap_seconds"):
+        prepare_trajectory_window(
+            data,
+            observation_count=3,
+            prediction_count=2,
+        )
+
+    window = prepare_trajectory_window(
+        data,
+        observation_count=3,
+        prediction_count=2,
+        max_time_gap_seconds=45.0,
+    )
+
+    assert np.diff(window.time_seconds).tolist() == [10.0, 10.0, 40.0, 10.0]
 
 
 def test_prepare_trajectory_window_rejects_missing_columns_and_multiple_runs():

@@ -12,12 +12,14 @@ from ship_trajectory_prediction.trajectory.io import (
 )
 from ship_trajectory_prediction.trajectory.window import (
     DEFAULT_GPS_SPEED_UNIT,
+    DEFAULT_MAX_TIME_GAP_SECONDS,
     TrajectoryWindowData,
     prepare_trajectory_window,
 )
 
 __all__ = [
     "DEFAULT_GPS_SPEED_UNIT",
+    "DEFAULT_MAX_TIME_GAP_SECONDS",
     "calculate_gps_distances",
     "calculate_speed_from_gps",
     "gps_to_local_coordinates",

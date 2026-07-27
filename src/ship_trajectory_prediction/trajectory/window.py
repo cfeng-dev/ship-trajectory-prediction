@@ -13,6 +13,7 @@ from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 
 # Default unit expected for values in the CSV column ``gps_speed``.
 DEFAULT_GPS_SPEED_UNIT = "km/h"
+DEFAULT_MAX_TIME_GAP_SECONDS = 15.0
 KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
 
 
@@ -50,19 +51,23 @@ def prepare_trajectory_window(
     *,
     start_index=0,
     gps_speed_unit=DEFAULT_GPS_SPEED_UNIT,
+    max_time_gap_seconds=DEFAULT_MAX_TIME_GAP_SECONDS,
 ) -> TrajectoryWindowData:
     """Prepare one model-neutral trajectory window in SI units.
 
     Position and time values are validated centrally. GPS speeds are interpreted
     according to ``gps_speed_unit`` and stored in meters per second, while
     non-numeric and negative values are retained as ``NaN`` and negative values
-    respectively. Individual models apply their own speed requirements.
+    respectively. Individual models apply their own speed requirements. The
+    selected window is rejected if consecutive timestamps are separated by more
+    than ``max_time_gap_seconds``; gaps are never interpolated or split silently.
     """
-    _validate_window_arguments(
+    max_time_gap_seconds = _validate_window_arguments(
         observation_count,
         prediction_count,
         start_index,
         gps_speed_unit,
+        max_time_gap_seconds,
     )
 
     required_columns = {
@@ -97,8 +102,16 @@ def prepare_trajectory_window(
     window_data = prepared_data.iloc[start_index:stop_index]
     timestamps = pd.DatetimeIndex(window_data["time"])
     time_seconds = (timestamps - timestamps[0]).total_seconds().to_numpy(dtype=float)
-    if np.any(np.diff(time_seconds) <= 0):
+    time_steps = np.diff(time_seconds)
+    if np.any(time_steps <= 0):
         raise ValueError("Trajectory timestamps must be strictly increasing.")
+    if np.any(time_steps > max_time_gap_seconds):
+        largest_gap = float(np.max(time_steps))
+        raise ValueError(
+            "Trajectory window contains a time gap of "
+            f"{largest_gap:g} seconds, exceeding max_time_gap_seconds="
+            f"{max_time_gap_seconds:g}."
+        )
 
     longitude = pd.to_numeric(
         window_data["gps_longitude"],
@@ -188,8 +201,9 @@ def _validate_window_arguments(
     prediction_count,
     start_index,
     gps_speed_unit,
+    max_time_gap_seconds,
 ):
-    """Validate shared trajectory-window configuration."""
+    """Validate shared configuration and return the normalized gap limit."""
     integer_arguments = {
         "observation_count": (observation_count, 3),
         "prediction_count": (prediction_count, 1),
@@ -203,3 +217,15 @@ def _validate_window_arguments(
 
     if gps_speed_unit not in {"km/h", "m/s"}:
         raise ValueError("gps_speed_unit must be 'km/h' or 'm/s'.")
+
+    if isinstance(max_time_gap_seconds, (bool, str, bytes)):
+        raise ValueError("max_time_gap_seconds must be a positive finite number.")
+    try:
+        max_time_gap_seconds = float(max_time_gap_seconds)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            "max_time_gap_seconds must be a positive finite number."
+        ) from error
+    if not np.isfinite(max_time_gap_seconds) or max_time_gap_seconds <= 0:
+        raise ValueError("max_time_gap_seconds must be a positive finite number.")
+    return max_time_gap_seconds
