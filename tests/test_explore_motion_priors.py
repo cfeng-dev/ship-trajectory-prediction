@@ -90,7 +90,7 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     assert all(figure._suptitle is None for figure in figures)
     assert len({id(figure) for figure in figures}) == 4
     assert {axis.get_title() for axis in axes} == {
-        "GPS-Geschwindigkeit",
+        "GPS-Geschwindigkeit des Schiffs",
         "Drehrate",
         "Prozessinnovationen der Drehrate",
         "CTRV-Positionsresiduen (Ein-Schritt)",

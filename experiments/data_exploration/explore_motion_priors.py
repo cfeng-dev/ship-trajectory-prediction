@@ -34,7 +34,7 @@ MAX_TIME_GAP_SECONDS = 15.0
 TURN_RATE_LIMIT_RAD_S = DEFAULT_TURN_RATE_LIMIT
 PLOT_CENTRAL_QUANTILE = 0.995
 PLOT_TITLE_PAD = 16
-PLOT_TITLE_FONT_SIZE = 16
+PLOT_TITLE_FONT_SIZE = 13
 PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
@@ -467,7 +467,7 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
         label="Empirische Dichte",
     )
     axis.set_title(
-        "GPS-Geschwindigkeit",
+        "GPS-Geschwindigkeit des Schiffs",
         pad=PLOT_TITLE_PAD,
         fontsize=PLOT_TITLE_FONT_SIZE,
         fontweight=PLOT_TITLE_FONT_WEIGHT,
