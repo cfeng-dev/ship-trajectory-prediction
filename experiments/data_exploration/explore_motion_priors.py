@@ -39,6 +39,8 @@ PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
 HISTOGRAM_MODE = "density"  # Use "density" for normalized densities or "frequency" for absolute counts.
+HISTOGRAM_EDGE_COLOR = "black"
+HISTOGRAM_EDGE_LINE_WIDTH = 0.5
 PRINT_PER_RUN_SUMMARY = False
 
 
@@ -467,6 +469,8 @@ def _plot_speed_distribution(axis, values, *, central_quantile, histogram_mode):
         density=histogram_mode == "density",
         alpha=0.45,
         color="tab:blue",
+        edgecolor=HISTOGRAM_EDGE_COLOR,
+        linewidth=HISTOGRAM_EDGE_LINE_WIDTH,
         label="Empirische Dichte",
     )
     axis.set_title(
@@ -498,6 +502,8 @@ def _plot_signed_distribution(
         density=histogram_mode == "density",
         alpha=0.45,
         color="tab:blue",
+        edgecolor=HISTOGRAM_EDGE_COLOR,
+        linewidth=HISTOGRAM_EDGE_LINE_WIDTH,
         label="Empirische Dichte",
     )
     axis.axvline(

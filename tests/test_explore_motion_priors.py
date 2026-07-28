@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
+    HISTOGRAM_EDGE_LINE_WIDTH,
     PLOT_TITLE_FONT_SIZE,
     PLOT_TITLE_FONT_WEIGHT,
     collect_motion_prior_samples,
@@ -118,6 +119,11 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     )
     assert axes[1].child_axes[0].xaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE
     assert len(axes[0].lines) == 0
+    assert all(
+        patch.get_linewidth() == HISTOGRAM_EDGE_LINE_WIDTH
+        for axis in axes
+        for patch in axis.patches
+    )
     assert [text.get_text() for text in axes[0].get_legend().get_texts()] == [
         "Empirische Dichte"
     ]
