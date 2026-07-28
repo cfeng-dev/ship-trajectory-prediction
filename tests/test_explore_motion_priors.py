@@ -87,6 +87,7 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     assert all(
         axis.figure is figure for figure, axis in zip(figures, axes, strict=True)
     )
+    assert all(figure._suptitle is None for figure in figures)
     assert len({id(figure) for figure in figures}) == 4
     assert {axis.get_title() for axis in axes} == {
         "GPS speed",
@@ -94,6 +95,8 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
         "Turn-rate process innovations",
         "One-step CTRV position innovations",
     }
+    assert all(axis.title.get_fontsize() == 16 for axis in axes)
+    assert all(axis.title.get_fontweight() == "bold" for axis in axes)
     assert all(axis.xaxis.label.get_fontsize() == 13 for axis in axes)
     assert all(axis.yaxis.label.get_fontsize() == 13 for axis in axes)
     assert all(

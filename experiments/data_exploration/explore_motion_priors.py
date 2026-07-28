@@ -33,6 +33,9 @@ MIN_COURSE_DISPLACEMENT_METERS = 1.0
 MAX_TIME_GAP_SECONDS = 15.0
 TURN_RATE_LIMIT_RAD_S = DEFAULT_TURN_RATE_LIMIT
 PLOT_CENTRAL_QUANTILE = 0.995
+PLOT_TITLE_PAD = 16
+PLOT_TITLE_FONT_SIZE = 16
+PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
 PRINT_PER_RUN_SUMMARY = False
@@ -226,10 +229,6 @@ def plot_motion_prior_distributions(
             },
         ),
     )
-    run_values = samples.per_run_summary["run_id"].tolist()
-    figure_title = (
-        f"Motion distributions for prior design ({_format_run_selection(run_values)})"
-    )
     figures = []
     axes = []
     for plot_index, (plot_function, plot_arguments) in enumerate(plot_specs):
@@ -250,7 +249,6 @@ def plot_motion_prior_distributions(
         axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
         axis.grid(alpha=0.25)
         axis.legend()
-        figure.suptitle(figure_title)
         figure.tight_layout()
         figures.append(figure)
         axes.append(axis)
@@ -468,7 +466,12 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
         color="tab:blue",
         label="Empirical density",
     )
-    axis.set_title("GPS speed")
+    axis.set_title(
+        "GPS speed",
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
     axis.set_xlabel("speed [m/s]")
     axis.set_ylabel("density")
 
@@ -505,7 +508,12 @@ def _plot_signed_normal_candidate(
         )
     axis.axvline(center, color="black", linestyle=":", label="Robust center")
     axis.set_xlim(-absolute_limit, absolute_limit)
-    axis.set_title(title)
+    axis.set_title(
+        title,
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
     axis.set_xlabel(xlabel)
     axis.set_ylabel("density")
 
