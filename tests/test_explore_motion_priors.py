@@ -90,11 +90,19 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     assert all(figure._suptitle is None for figure in figures)
     assert len({id(figure) for figure in figures}) == 4
     assert {axis.get_title() for axis in axes} == {
-        "GPS speed",
-        "Signed turn rate",
-        "Turn-rate process innovations",
-        "One-step CTRV position innovations",
+        "GPS-Geschwindigkeit",
+        "Drehrate",
+        "Prozessinnovationen der Drehrate",
+        "CTRV-Positionsresiduen (Ein-Schritt)",
     }
+    assert [axis.get_xlabel() for axis in axes] == [
+        "Geschwindigkeit [m/s]",
+        "Drehrate [rad/s]",
+        "Drehratenänderung / √Δt [rad/s/√s]",
+        "Positionsresiduum / √Δt [m/√s]",
+    ]
+    assert all(axis.get_ylabel() == "Dichte" for axis in axes)
+    assert axes[1].child_axes[0].get_xlabel() == "Drehrate [°/s]"
     assert all(axis.title.get_fontsize() == 16 for axis in axes)
     assert all(axis.title.get_fontweight() == "bold" for axis in axes)
     assert all(axis.xaxis.label.get_fontsize() == 13 for axis in axes)
@@ -107,15 +115,15 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     assert axes[1].child_axes[0].xaxis.label.get_fontsize() == 13
     assert len(axes[0].lines) == 0
     assert [text.get_text() for text in axes[0].get_legend().get_texts()] == [
-        "Empirical density"
+        "Empirische Dichte"
     ]
     legend_labels = [
         text.get_text() for axis in axes for text in axis.get_legend().get_texts()
     ]
-    assert "Candidate state prior" in legend_labels
-    assert "Normal innovation model" in legend_labels
-    assert "Normal residual model" in legend_labels
-    assert "Current turn-rate limits" not in legend_labels
+    assert "Kandidat für Drehratenprior" in legend_labels
+    assert "Robuster Median" in legend_labels
+    assert "Normalmodell der Innovationen" in legend_labels
+    assert "Normalmodell der Residuen" in legend_labels
     for figure in figures:
         plt.close(figure)
 

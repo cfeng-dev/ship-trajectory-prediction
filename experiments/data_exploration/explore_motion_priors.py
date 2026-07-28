@@ -198,10 +198,10 @@ def plot_motion_prior_distributions(
                 "values": samples.turn_rate_rad_s,
                 "center": suggestions.turn_rate_center_rad_s,
                 "scale": suggestions.turn_rate_state_prior_scale_rad_s,
-                "title": "Signed turn rate",
-                "xlabel": "turn rate [rad/s]",
+                "title": "Drehrate",
+                "xlabel": "Drehrate [rad/s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Candidate state prior",
+                "candidate_label": "Kandidat für Drehratenprior",
             },
         ),
         (
@@ -210,10 +210,10 @@ def plot_motion_prior_distributions(
                 "values": samples.turn_rate_innovation,
                 "center": 0.0,
                 "scale": suggestions.turn_rate_process_scale,
-                "title": "Turn-rate process innovations",
-                "xlabel": "delta turn rate / sqrt(dt) [rad/s/sqrt(s)]",
+                "title": "Prozessinnovationen der Drehrate",
+                "xlabel": "Drehratenänderung / √Δt [rad/s/√s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Normal innovation model",
+                "candidate_label": "Normalmodell der Innovationen",
             },
         ),
         (
@@ -222,10 +222,10 @@ def plot_motion_prior_distributions(
                 "values": samples.position_innovation,
                 "center": 0.0,
                 "scale": suggestions.position_process_scale,
-                "title": "One-step CTRV position innovations",
-                "xlabel": "position residual / sqrt(dt) [m/sqrt(s)]",
+                "title": "CTRV-Positionsresiduen (Ein-Schritt)",
+                "xlabel": "Positionsresiduum / √Δt [m/√s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Normal residual model",
+                "candidate_label": "Normalmodell der Residuen",
             },
         ),
     )
@@ -240,7 +240,7 @@ def plot_motion_prior_distributions(
                 functions=(np.degrees, np.radians),
             )
             secondary_axis.set_xlabel(
-                "turn rate [deg/s]",
+                "Drehrate [°/s]",
                 fontsize=AXIS_LABEL_FONT_SIZE,
             )
             secondary_axis.tick_params(axis="x", labelsize=AXIS_TICK_FONT_SIZE)
@@ -464,16 +464,16 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
         density=True,
         alpha=0.45,
         color="tab:blue",
-        label="Empirical density",
+        label="Empirische Dichte",
     )
     axis.set_title(
-        "GPS speed",
+        "GPS-Geschwindigkeit",
         pad=PLOT_TITLE_PAD,
         fontsize=PLOT_TITLE_FONT_SIZE,
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
-    axis.set_xlabel("speed [m/s]")
-    axis.set_ylabel("density")
+    axis.set_xlabel("Geschwindigkeit [m/s]")
+    axis.set_ylabel("Dichte")
 
 
 def _plot_signed_normal_candidate(
@@ -497,7 +497,7 @@ def _plot_signed_normal_candidate(
         density=True,
         alpha=0.45,
         color="tab:blue",
-        label="Empirical density",
+        label="Empirische Dichte",
     )
     if scale > 0:
         axis.plot(
@@ -506,7 +506,7 @@ def _plot_signed_normal_candidate(
             color="tab:red",
             label=candidate_label,
         )
-    axis.axvline(center, color="black", linestyle=":", label="Robust center")
+    axis.axvline(center, color="black", linestyle=":", label="Robuster Median")
     axis.set_xlim(-absolute_limit, absolute_limit)
     axis.set_title(
         title,
@@ -515,7 +515,7 @@ def _plot_signed_normal_candidate(
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
     axis.set_xlabel(xlabel)
-    axis.set_ylabel("density")
+    axis.set_ylabel("Dichte")
 
 
 def _central_values(values, quantile, *, nonnegative=False):
