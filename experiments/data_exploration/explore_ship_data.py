@@ -6,6 +6,7 @@ from ship_trajectory_prediction.trajectory.io import (
     read_ship_data,
 )
 from ship_trajectory_prediction.trajectory.plotting import (
+    ShipDataPlotStyle,
     plot_ship_speeds,
     plot_ship_trajectory,
 )
@@ -19,10 +20,26 @@ RUN_ID = 1
 START_TIME = None
 END_TIME = None
 
-# Plot settings
+# Plot data settings
 TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
 SPEED_UNIT = "km/h"  # "m/s" or "km/h"
 PROPULSION_SPEED_UNIT = "rpm"
+
+# Plot appearance
+PLOT_STYLE = ShipDataPlotStyle(
+    trajectory_figure_size=(8, 6),
+    speed_figure_size=(10, 6),
+    title_pad=16,
+    title_font_size=13,
+    title_font_weight="bold",
+    axis_label_font_size=13,
+    axis_tick_font_size=11,
+    time_tick_format="%d.%m.%Y\n%H:%M",
+    recorded_data_color="#4C78A8",
+    derived_data_color="#F58518",
+    calculated_speed_line_width=1.5,
+    calculated_speed_alpha=0.75,
+)
 
 
 def main() -> None:
@@ -38,11 +55,13 @@ def main() -> None:
     plot_ship_trajectory(
         ship_data,
         coordinate_unit=TRAJECTORY_COORDINATE_UNIT,
+        plot_style=PLOT_STYLE,
     )
     plot_ship_speeds(
         ship_data,
         speed_unit=SPEED_UNIT,
         propulsion_speed_unit=PROPULSION_SPEED_UNIT,
+        plot_style=PLOT_STYLE,
     )
 
 
