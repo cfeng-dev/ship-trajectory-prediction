@@ -9,12 +9,21 @@ from ship_trajectory_prediction.coordinates import (
     calculate_speed_from_gps,
     gps_to_local_coordinates,
 )
+from ship_trajectory_prediction.trajectory.window import (
+    KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
+)
 
 # ==================================================
 # Plot settings
 # ==================================================
 TRAJECTORY_FIGURE_SIZE = (8, 6)
 SPEED_FIGURE_SIZE = (10, 6)
+
+PLOT_TITLE_PAD = 16
+PLOT_TITLE_FONT_SIZE = 13
+PLOT_TITLE_FONT_WEIGHT = "bold"
+AXIS_LABEL_FONT_SIZE = 13
+AXIS_TICK_FONT_SIZE = 11
 
 DEFAULT_ARROW_STEP = 18  # 18 points = about 3 minutes if data interval is 10 s
 
@@ -122,8 +131,8 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
     else:
         x_coordinates = longitude
         y_coordinates = latitude
-        x_label = "Longitude [deg]"
-        y_label = "Latitude [deg]"
+        x_label = "Längengrad [°]"
+        y_label = "Breitengrad [°]"
 
     plt.figure(figsize=TRAJECTORY_FIGURE_SIZE)
 
@@ -135,7 +144,7 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
         marker="o",
         markersize=TRAJECTORY_MARKER_SIZE,
         linewidth=TRAJECTORY_LINE_WIDTH,
-        label="Ship trajectory",
+        label="Schiffstrajektorie",
     )[0]
 
     # Start point
@@ -157,7 +166,7 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
         color=END_COLOR,
         alpha=END_ALPHA,
         marker="X",
-        label="End",
+        label="Ende",
         zorder=5,
     )
 
@@ -200,20 +209,26 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
             color=DIRECTION_COLOR,
             linewidth=DIRECTION_LINE_WIDTH,
             mutation_scale=ARROW_MUTATION_SCALE,
-            label="Direction",
+            label="Fahrtrichtung",
         )
 
         legend_handles.append(direction_handle)
         legend_handler_map[FancyArrowPatch] = HandlerDirectionArrow()
 
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.title("Ship Trajectory with Direction")
+    plt.xlabel(x_label, fontsize=AXIS_LABEL_FONT_SIZE)
+    plt.ylabel(y_label, fontsize=AXIS_LABEL_FONT_SIZE)
+    plt.title(
+        "Schiffstrajektorie mit Fahrtrichtung",
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
     plt.grid(True)
     plt.axis("equal")
 
     ax = plt.gca()
     ax.set_aspect("equal", adjustable="box")
+    ax.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
 
     if coordinate_unit in {"km", "m"}:
         x_center = (x_coordinates.min() + x_coordinates.max()) / 2
@@ -237,50 +252,94 @@ def plot_ship_trajectory(data, arrow_step=DEFAULT_ARROW_STEP, coordinate_unit="g
     plt.show()
 
 
-def plot_ship_speeds(data):
+def plot_ship_speeds(data, speed_unit="km/h", propulsion_speed_unit="rpm"):
     """
-    Plot ship speed signals and speed calculated from GPS positions over time.
+    Plot ship and propulsion speeds in two separate figures.
 
     The calculated ship speed is the distance between two consecutive GPS
-    positions divided by their actual time difference. With the current data,
-    this time difference is normally 10 seconds.
+    positions divided by their actual time difference. Recorded ``gps_speed``
+    values are interpreted as kilometers per hour and converted for display
+    when ``speed_unit`` is ``"m/s"``.
 
     Parameters
     ----------
     data : pandas.DataFrame
         Ship trajectory data containing time, gps_speed,
         shaft_speed, and thruster_speed.
+    speed_unit : {"m/s", "km/h"}, optional
+        Display unit for recorded and position-derived ship speed.
+    propulsion_speed_unit : str, optional
+        Display unit for shaft and thruster speed. No conversion is applied.
+
+    Returns
+    -------
+    tuple
+        Two figures and their corresponding axes.
     """
     if data.empty:
         raise ValueError("The input data is empty.")
+    if speed_unit not in {"m/s", "km/h"}:
+        raise ValueError("speed_unit must be 'm/s' or 'km/h'.")
 
-    calculated_speed_kmh = calculate_speed_from_gps(data, unit="km/h")
+    recorded_gps_speed = np.asarray(data["gps_speed"], dtype=float)
+    if speed_unit == "m/s":
+        recorded_gps_speed = (
+            recorded_gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+        )
+    calculated_speed = calculate_speed_from_gps(data, unit=speed_unit)
 
-    figure, (speed_axis, propulsion_axis) = plt.subplots(
-        2,
-        1,
-        figsize=SPEED_FIGURE_SIZE,
-        sharex=True,
-    )
+    speed_figure, speed_axis = plt.subplots(figsize=SPEED_FIGURE_SIZE)
 
-    speed_axis.plot(data["time"], data["gps_speed"], label="GPS speed")
+    speed_axis.plot(data["time"], recorded_gps_speed, label="GPS-Geschwindigkeit")
     speed_axis.plot(
         data["time"],
-        calculated_speed_kmh,
-        label="Calculated from GPS positions",
+        calculated_speed,
+        label="Aus GPS-Positionen berechnet",
         linewidth=2,
     )
-    speed_axis.set_ylabel("Ship speed [km/h]")
-    speed_axis.set_title("Ship Speed Over Time")
+    speed_axis.set_xlabel("Zeit", fontsize=AXIS_LABEL_FONT_SIZE)
+    speed_axis.set_ylabel(
+        f"Schiffsgeschwindigkeit [{speed_unit}]",
+        fontsize=AXIS_LABEL_FONT_SIZE,
+    )
+    speed_axis.set_title(
+        "Schiffsgeschwindigkeit",
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
+    speed_axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
     speed_axis.grid(True)
     speed_axis.legend()
+    speed_figure.tight_layout()
+    plt.show()
 
-    propulsion_axis.plot(data["time"], data["shaft_speed"], label="Shaft speed")
-    propulsion_axis.plot(data["time"], data["thruster_speed"], label="Thruster speed")
-    propulsion_axis.set_xlabel("Time")
-    propulsion_axis.set_ylabel("Propulsion speed")
+    propulsion_figure, propulsion_axis = plt.subplots(figsize=SPEED_FIGURE_SIZE)
+    propulsion_axis.plot(
+        data["time"],
+        data["shaft_speed"],
+        label="Wellendrehzahl",
+    )
+    propulsion_axis.plot(
+        data["time"],
+        data["thruster_speed"],
+        label="Strahlruderdrehzahl",
+    )
+    propulsion_axis.set_xlabel("Zeit", fontsize=AXIS_LABEL_FONT_SIZE)
+    propulsion_axis.set_ylabel(
+        f"Antriebsdrehzahl [{propulsion_speed_unit}]",
+        fontsize=AXIS_LABEL_FONT_SIZE,
+    )
+    propulsion_axis.set_title(
+        "Antriebsdrehzahlen",
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
+    propulsion_axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
     propulsion_axis.grid(True)
     propulsion_axis.legend()
-
-    figure.tight_layout()
+    propulsion_figure.tight_layout()
     plt.show()
+
+    return (speed_figure, propulsion_figure), (speed_axis, propulsion_axis)

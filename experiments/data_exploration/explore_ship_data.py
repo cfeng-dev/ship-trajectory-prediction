@@ -18,7 +18,11 @@ DATA_FILE = project_path(
 RUN_ID = 1
 START_TIME = None
 END_TIME = None
+
+# Plot settings
 TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
+SPEED_UNIT = "km/h"  # "m/s" or "km/h"
+PROPULSION_SPEED_UNIT = "rpm"
 
 
 def main() -> None:
@@ -35,7 +39,11 @@ def main() -> None:
         ship_data,
         coordinate_unit=TRAJECTORY_COORDINATE_UNIT,
     )
-    plot_ship_speeds(ship_data)
+    plot_ship_speeds(
+        ship_data,
+        speed_unit=SPEED_UNIT,
+        propulsion_speed_unit=PROPULSION_SPEED_UNIT,
+    )
 
 
 if __name__ == "__main__":
