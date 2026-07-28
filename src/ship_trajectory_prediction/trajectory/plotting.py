@@ -47,7 +47,8 @@ class ShipDataPlotStyle:
     title_font_weight: str = "bold"
     axis_label_font_size: float = 13
     axis_tick_font_size: float = 11
-    time_tick_format: str = "%d.%m.%Y\n%H:%M"
+    time_tick_format: str = "%H:%M"
+    time_range_format: str = "%d.%m.%Y %H:%M:%S %Z"
     recorded_data_color: str = "#4C78A8"
     derived_data_color: str = "#F58518"
     calculated_speed_line_width: float = 1.5
@@ -331,7 +332,14 @@ def plot_ship_speeds(
         label="Aus GPS-Positionen berechnet",
         linewidth=plot_style.calculated_speed_line_width,
     )
-    speed_axis.set_xlabel("Zeit", fontsize=plot_style.axis_label_font_size)
+    time_axis_label = _format_time_axis_label(
+        data["time"],
+        time_range_format=plot_style.time_range_format,
+    )
+    speed_axis.set_xlabel(
+        time_axis_label,
+        fontsize=plot_style.axis_label_font_size,
+    )
     speed_axis.set_ylabel(
         f"Schiffsgeschwindigkeit [{speed_unit}]",
         fontsize=plot_style.axis_label_font_size,
@@ -364,7 +372,10 @@ def plot_ship_speeds(
         data["thruster_speed"],
         label="Strahlruderdrehzahl",
     )
-    propulsion_axis.set_xlabel("Zeit", fontsize=plot_style.axis_label_font_size)
+    propulsion_axis.set_xlabel(
+        time_axis_label,
+        fontsize=plot_style.axis_label_font_size,
+    )
     propulsion_axis.set_ylabel(
         f"Antriebsdrehzahl [{propulsion_speed_unit}]",
         fontsize=plot_style.axis_label_font_size,
@@ -388,3 +399,12 @@ def plot_ship_speeds(
     plt.show()
 
     return (speed_figure, propulsion_figure), (speed_axis, propulsion_axis)
+
+
+def _format_time_axis_label(time_values, *, time_range_format):
+    """Return a compact axis label with the exact observation time range."""
+    start_time = time_values.min()
+    end_time = time_values.max()
+    start_label = start_time.strftime(time_range_format).strip()
+    end_label = end_time.strftime(time_range_format).strip()
+    return f"Zeit\nStart: {start_label}   Ende: {end_label}"
