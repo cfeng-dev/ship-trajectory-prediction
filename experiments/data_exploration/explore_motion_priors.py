@@ -28,11 +28,12 @@ DATA_FILE = project_path(
 
 # Treat these runs as prior-calibration data, not independent evaluation data.
 # Set to None only for a descriptive overview of the complete dataset.
-CALIBRATION_RUN_IDS = (1, 2)
+CALIBRATION_RUN_IDS = None
 MIN_COURSE_DISPLACEMENT_METERS = 1.0
 MAX_TIME_GAP_SECONDS = 15.0
 TURN_RATE_LIMIT_RAD_S = DEFAULT_TURN_RATE_LIMIT
 PLOT_CENTRAL_QUANTILE = 0.995
+PRINT_PER_RUN_SUMMARY = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,11 @@ def main():
         max_time_gap_s=MAX_TIME_GAP_SECONDS,
     )
     suggestions = suggest_prior_scales(samples)
-    _print_report(samples, suggestions)
+    _print_report(
+        samples,
+        suggestions,
+        print_per_run_summary=PRINT_PER_RUN_SUMMARY,
+    )
     figure, axes = plot_motion_prior_distributions(
         samples,
         suggestions,
@@ -191,6 +196,7 @@ def plot_motion_prior_distributions(
         title="Signed turn rate",
         xlabel="turn rate [rad/s]",
         central_quantile=central_quantile,
+        candidate_label="Candidate state prior",
         reference_limit=turn_rate_limit_rad_s,
     )
     axes[0, 1].secondary_xaxis(
@@ -205,6 +211,7 @@ def plot_motion_prior_distributions(
         title="Turn-rate process innovations",
         xlabel="delta turn rate / sqrt(dt) [rad/s/sqrt(s)]",
         central_quantile=central_quantile,
+        candidate_label="Normal innovation model",
     )
     _plot_signed_normal_candidate(
         axes[1, 1],
@@ -214,17 +221,15 @@ def plot_motion_prior_distributions(
         title="One-step CTRV position innovations",
         xlabel="position residual / sqrt(dt) [m/sqrt(s)]",
         central_quantile=central_quantile,
+        candidate_label="Normal residual model",
     )
     for axis in axes.flat:
         axis.grid(alpha=0.25)
         axis.legend()
     run_values = samples.per_run_summary["run_id"].tolist()
-    selected_runs = (
-        ", ".join(str(value) for value in run_values)
-        if len(run_values) <= 12
-        else f"{len(run_values)} selected runs"
+    figure.suptitle(
+        f"Motion distributions for prior design ({_format_run_selection(run_values)})"
     )
-    figure.suptitle(f"Motion distributions for prior design (runs {selected_runs})")
     figure.tight_layout()
     return figure, axes
 
@@ -382,19 +387,25 @@ def _summarize_run(
     }
 
 
-def _print_report(samples, suggestions):
-    """Print per-run evidence and clearly labelled prior candidates."""
+def _print_report(samples, suggestions, *, print_per_run_summary):
+    """Print compact evidence and optionally the complete per-run table."""
+    run_values = samples.per_run_summary["run_id"].tolist()
     print("=" * 78)
     print("Motion Prior Exploration")
     print("=" * 78)
     print(f"Data file             : {DATA_FILE}")
+    print(f"Calibration runs      : {_format_run_selection(run_values)}")
     print(
-        "Calibration run IDs   : "
-        + ", ".join(str(value) for value in samples.per_run_summary["run_id"])
+        "Usable samples        : "
+        f"speed={len(samples.speed_mps)}, "
+        f"turn rate={len(samples.turn_rate_rad_s)}, "
+        f"turn innovation={len(samples.turn_rate_innovation)}, "
+        f"position innovation={len(samples.position_innovation)}"
     )
     print("IMPORTANT             : Keep these runs separate from final evaluation.")
-    print("\nPer-run empirical summary:")
-    print(samples.per_run_summary.round(6).to_string(index=False))
+    if print_per_run_summary:
+        print("\nPer-run empirical summary:")
+        print(samples.per_run_summary.round(6).to_string(index=False))
     print("\nRobust prior candidates (not applied automatically):")
     print(f"Speed center          : {suggestions.speed_median_mps:.4f} m/s")
     print(f"Speed robust scale    : {suggestions.speed_robust_scale_mps:.4f} m/s")
@@ -470,6 +481,7 @@ def _plot_signed_normal_candidate(
     title,
     xlabel,
     central_quantile,
+    candidate_label,
     reference_limit=None,
 ):
     """Plot one signed empirical distribution and a Normal candidate."""
@@ -491,7 +503,7 @@ def _plot_signed_normal_candidate(
             x_values,
             _normal_pdf(x_values, center, scale),
             color="tab:red",
-            label="Normal prior candidate",
+            label=candidate_label,
         )
     axis.axvline(center, color="black", linestyle=":", label="Robust center")
     if reference_limit is not None:
@@ -560,6 +572,15 @@ def _wrap_angle(values):
 def _histogram_bin_count(values):
     """Keep density plots legible for both short and long calibration runs."""
     return int(np.clip(np.sqrt(len(values)), 12, 60))
+
+
+def _format_run_selection(run_values):
+    """Return one compact run label for figures and terminal output."""
+    if len(run_values) == 1:
+        return f"run {run_values[0]}"
+    if len(run_values) <= 12:
+        return "run IDs " + ", ".join(str(value) for value in run_values)
+    return f"{len(run_values)} selected runs"
 
 
 def _safe_quantile(values, probability):

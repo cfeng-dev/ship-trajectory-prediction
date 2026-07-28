@@ -88,6 +88,12 @@ def test_plot_motion_prior_distributions_returns_four_labelled_axes():
         "Turn-rate process innovations",
         "One-step CTRV position innovations",
     }
+    legend_labels = [
+        text.get_text() for axis in axes.flat for text in axis.get_legend().get_texts()
+    ]
+    assert "Candidate state prior" in legend_labels
+    assert "Normal innovation model" in legend_labels
+    assert "Normal residual model" in legend_labels
     figure.clear()
 
 
