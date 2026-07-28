@@ -6,6 +6,8 @@ import pytest
 
 matplotlib.use("Agg")
 
+import matplotlib.pyplot as plt  # noqa: E402
+
 from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
     collect_motion_prior_samples,
     plot_motion_prior_distributions,
@@ -74,31 +76,63 @@ def test_prior_suggestions_use_robust_turn_rate_scale_floor():
     assert suggestions.position_process_scale == pytest.approx(0.0, abs=1e-5)
 
 
-def test_plot_motion_prior_distributions_returns_four_labelled_axes():
-    """The exploration figure should expose every prior evidence source."""
+def test_plot_motion_prior_distributions_returns_four_separate_figures():
+    """Each prior evidence source should have its own labelled figure."""
     samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
     suggestions = suggest_prior_scales(samples)
 
-    figure, axes = plot_motion_prior_distributions(samples, suggestions)
+    figures, axes = plot_motion_prior_distributions(samples, suggestions)
 
-    assert axes.shape == (2, 2)
-    assert {axis.get_title() for axis in axes.flat} == {
+    assert len(figures) == len(axes) == 4
+    assert all(
+        axis.figure is figure for figure, axis in zip(figures, axes, strict=True)
+    )
+    assert len({id(figure) for figure in figures}) == 4
+    assert {axis.get_title() for axis in axes} == {
         "GPS speed",
         "Signed turn rate",
         "Turn-rate process innovations",
         "One-step CTRV position innovations",
     }
-    assert len(axes[0, 0].lines) == 0
-    assert [text.get_text() for text in axes[0, 0].get_legend().get_texts()] == [
+    assert len(axes[0].lines) == 0
+    assert [text.get_text() for text in axes[0].get_legend().get_texts()] == [
         "Empirical density"
     ]
     legend_labels = [
-        text.get_text() for axis in axes.flat for text in axis.get_legend().get_texts()
+        text.get_text() for axis in axes for text in axis.get_legend().get_texts()
     ]
     assert "Candidate state prior" in legend_labels
     assert "Normal innovation model" in legend_labels
     assert "Normal residual model" in legend_labels
-    figure.clear()
+    assert "Current turn-rate limits" not in legend_labels
+    for figure in figures:
+        plt.close(figure)
+
+
+def test_plot_motion_prior_distributions_can_show_one_figure_at_a_time(monkeypatch):
+    """Sequential display should never register more than one open figure."""
+    samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
+    suggestions = suggest_prior_scales(samples)
+    open_figure_counts = []
+    blocking_values = []
+    plt.close("all")
+
+    def record_show(*, block):
+        open_figure_counts.append(len(plt.get_fignums()))
+        blocking_values.append(block)
+
+    monkeypatch.setattr(plt, "show", record_show)
+
+    figures, axes = plot_motion_prior_distributions(
+        samples,
+        suggestions,
+        show_sequentially=True,
+    )
+
+    assert len(figures) == len(axes) == 4
+    assert open_figure_counts == [1, 1, 1, 1]
+    assert blocking_values == [True, True, True, True]
+    assert plt.get_fignums() == []
 
 
 @pytest.mark.parametrize(

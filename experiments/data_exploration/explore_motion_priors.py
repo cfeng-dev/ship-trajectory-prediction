@@ -75,14 +75,13 @@ def main():
         suggestions,
         print_per_run_summary=PRINT_PER_RUN_SUMMARY,
     )
-    figure, axes = plot_motion_prior_distributions(
+    figures, axes = plot_motion_prior_distributions(
         samples,
         suggestions,
-        turn_rate_limit_rad_s=TURN_RATE_LIMIT_RAD_S,
         central_quantile=PLOT_CENTRAL_QUANTILE,
+        show_sequentially=True,
     )
-    plt.show()
-    return samples, suggestions, figure, axes
+    return samples, suggestions, figures, axes
 
 
 def collect_motion_prior_samples(
@@ -173,65 +172,82 @@ def plot_motion_prior_distributions(
     samples: MotionPriorSamples,
     suggestions: PriorSuggestions,
     *,
-    turn_rate_limit_rad_s=TURN_RATE_LIMIT_RAD_S,
     central_quantile=PLOT_CENTRAL_QUANTILE,
+    show_sequentially=False,
 ):
-    """Plot empirical densities with transparent distribution candidates."""
-    if not np.isfinite(turn_rate_limit_rad_s) or turn_rate_limit_rad_s <= 0:
-        raise ValueError("turn_rate_limit_rad_s must be positive and finite.")
+    """Create four figures and optionally display them one after another."""
     if not np.isfinite(central_quantile) or not 0.5 < central_quantile <= 1:
         raise ValueError("central_quantile must be in the interval (0.5, 1].")
 
-    figure, axes = plt.subplots(2, 2, figsize=(14, 9))
-    _plot_speed_distribution(
-        axes[0, 0],
-        samples.speed_mps,
-        central_quantile=central_quantile,
+    plot_specs = (
+        (
+            _plot_speed_distribution,
+            {
+                "values": samples.speed_mps,
+                "central_quantile": central_quantile,
+            },
+        ),
+        (
+            _plot_signed_normal_candidate,
+            {
+                "values": samples.turn_rate_rad_s,
+                "center": suggestions.turn_rate_center_rad_s,
+                "scale": suggestions.turn_rate_state_prior_scale_rad_s,
+                "title": "Signed turn rate",
+                "xlabel": "turn rate [rad/s]",
+                "central_quantile": central_quantile,
+                "candidate_label": "Candidate state prior",
+            },
+        ),
+        (
+            _plot_signed_normal_candidate,
+            {
+                "values": samples.turn_rate_innovation,
+                "center": 0.0,
+                "scale": suggestions.turn_rate_process_scale,
+                "title": "Turn-rate process innovations",
+                "xlabel": "delta turn rate / sqrt(dt) [rad/s/sqrt(s)]",
+                "central_quantile": central_quantile,
+                "candidate_label": "Normal innovation model",
+            },
+        ),
+        (
+            _plot_signed_normal_candidate,
+            {
+                "values": samples.position_innovation,
+                "center": 0.0,
+                "scale": suggestions.position_process_scale,
+                "title": "One-step CTRV position innovations",
+                "xlabel": "position residual / sqrt(dt) [m/sqrt(s)]",
+                "central_quantile": central_quantile,
+                "candidate_label": "Normal residual model",
+            },
+        ),
     )
-    _plot_signed_normal_candidate(
-        axes[0, 1],
-        samples.turn_rate_rad_s,
-        center=suggestions.turn_rate_center_rad_s,
-        scale=suggestions.turn_rate_state_prior_scale_rad_s,
-        title="Signed turn rate",
-        xlabel="turn rate [rad/s]",
-        central_quantile=central_quantile,
-        candidate_label="Candidate state prior",
-        reference_limit=turn_rate_limit_rad_s,
-    )
-    axes[0, 1].secondary_xaxis(
-        "top",
-        functions=(np.degrees, np.radians),
-    ).set_xlabel("turn rate [deg/s]")
-    _plot_signed_normal_candidate(
-        axes[1, 0],
-        samples.turn_rate_innovation,
-        center=0.0,
-        scale=suggestions.turn_rate_process_scale,
-        title="Turn-rate process innovations",
-        xlabel="delta turn rate / sqrt(dt) [rad/s/sqrt(s)]",
-        central_quantile=central_quantile,
-        candidate_label="Normal innovation model",
-    )
-    _plot_signed_normal_candidate(
-        axes[1, 1],
-        samples.position_innovation,
-        center=0.0,
-        scale=suggestions.position_process_scale,
-        title="One-step CTRV position innovations",
-        xlabel="position residual / sqrt(dt) [m/sqrt(s)]",
-        central_quantile=central_quantile,
-        candidate_label="Normal residual model",
-    )
-    for axis in axes.flat:
-        axis.grid(alpha=0.25)
-        axis.legend()
     run_values = samples.per_run_summary["run_id"].tolist()
-    figure.suptitle(
+    figure_title = (
         f"Motion distributions for prior design ({_format_run_selection(run_values)})"
     )
-    figure.tight_layout()
-    return figure, axes
+    figures = []
+    axes = []
+    for plot_index, (plot_function, plot_arguments) in enumerate(plot_specs):
+        figure, axis = plt.subplots(figsize=(8, 5))
+        plot_function(axis, **plot_arguments)
+        if plot_index == 1:
+            axis.secondary_xaxis(
+                "top",
+                functions=(np.degrees, np.radians),
+            ).set_xlabel("turn rate [deg/s]")
+        axis.grid(alpha=0.25)
+        axis.legend()
+        figure.suptitle(figure_title)
+        figure.tight_layout()
+        figures.append(figure)
+        axes.append(axis)
+        if show_sequentially:
+            plt.show(block=True)
+            plt.close(figure)
+    return tuple(figures), tuple(axes)
 
 
 def _derive_run_samples(
@@ -457,13 +473,10 @@ def _plot_signed_normal_candidate(
     xlabel,
     central_quantile,
     candidate_label,
-    reference_limit=None,
 ):
     """Plot one signed empirical distribution and a Normal candidate."""
     plotted = _central_values(values, central_quantile)
     absolute_limit = max(float(np.max(np.abs(plotted))), 4 * scale, 1e-12)
-    if reference_limit is not None:
-        absolute_limit = max(absolute_limit, 1.15 * reference_limit)
     x_values = np.linspace(-absolute_limit, absolute_limit, 500)
     axis.hist(
         plotted,
@@ -481,14 +494,6 @@ def _plot_signed_normal_candidate(
             label=candidate_label,
         )
     axis.axvline(center, color="black", linestyle=":", label="Robust center")
-    if reference_limit is not None:
-        axis.axvline(
-            -reference_limit,
-            color="tab:purple",
-            linestyle="--",
-            label="Current turn-rate limits",
-        )
-        axis.axvline(reference_limit, color="tab:purple", linestyle="--")
     axis.set_xlim(-absolute_limit, absolute_limit)
     axis.set_title(title)
     axis.set_xlabel(xlabel)
