@@ -88,6 +88,10 @@ def test_plot_motion_prior_distributions_returns_four_labelled_axes():
         "Turn-rate process innovations",
         "One-step CTRV position innovations",
     }
+    assert len(axes[0, 0].lines) == 0
+    assert [text.get_text() for text in axes[0, 0].get_legend().get_texts()] == [
+        "Empirical density"
+    ]
     legend_labels = [
         text.get_text() for axis in axes.flat for text in axis.get_legend().get_texts()
     ]

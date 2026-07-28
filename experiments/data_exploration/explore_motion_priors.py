@@ -432,7 +432,7 @@ def _print_report(samples, suggestions, *, print_per_run_summary):
 
 
 def _plot_speed_distribution(axis, values, *, central_quantile):
-    """Plot empirical speed with Normal and Lognormal fitted candidates."""
+    """Plot the empirical speed distribution without a parametric fit."""
     plotted = _central_values(values, central_quantile, nonnegative=True)
     axis.hist(
         plotted,
@@ -442,31 +442,6 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
         color="tab:blue",
         label="Empirical density",
     )
-    x_values = np.linspace(0, max(float(np.max(plotted)), 1e-6), 500)
-    mean = float(np.mean(values))
-    standard_deviation = float(np.std(values, ddof=1))
-    if standard_deviation > 0:
-        axis.plot(
-            x_values,
-            _normal_pdf(x_values, mean, standard_deviation),
-            color="tab:orange",
-            label="Normal fit",
-        )
-    positive = values[values > 0]
-    if positive.size > 1:
-        log_values = np.log(positive)
-        log_scale = float(np.std(log_values, ddof=1))
-        if log_scale > 0:
-            axis.plot(
-                x_values,
-                _lognormal_pdf(
-                    x_values,
-                    float(np.mean(log_values)),
-                    log_scale,
-                ),
-                color="tab:green",
-                label="Lognormal fit",
-            )
     axis.set_title("GPS speed")
     axis.set_xlabel("speed [m/s]")
     axis.set_ylabel("density")
@@ -549,19 +524,6 @@ def _normal_pdf(values, mean, standard_deviation):
     values = np.asarray(values, dtype=float)
     coefficient = 1 / (standard_deviation * np.sqrt(2 * np.pi))
     return coefficient * np.exp(-0.5 * ((values - mean) / standard_deviation) ** 2)
-
-
-def _lognormal_pdf(values, log_mean, log_standard_deviation):
-    """Evaluate a Lognormal density with zero density outside its support."""
-    values = np.asarray(values, dtype=float)
-    density = np.zeros_like(values)
-    positive = values > 0
-    positive_values = values[positive]
-    coefficient = 1 / (positive_values * log_standard_deviation * np.sqrt(2 * np.pi))
-    density[positive] = coefficient * np.exp(
-        -0.5 * ((np.log(positive_values) - log_mean) / log_standard_deviation) ** 2
-    )
-    return density
 
 
 def _wrap_angle(values):
