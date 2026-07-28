@@ -33,6 +33,8 @@ MIN_COURSE_DISPLACEMENT_METERS = 1.0
 MAX_TIME_GAP_SECONDS = 15.0
 TURN_RATE_LIMIT_RAD_S = DEFAULT_TURN_RATE_LIMIT
 PLOT_CENTRAL_QUANTILE = 0.995
+AXIS_LABEL_FONT_SIZE = 13
+AXIS_TICK_FONT_SIZE = 11
 PRINT_PER_RUN_SUMMARY = False
 
 
@@ -234,10 +236,18 @@ def plot_motion_prior_distributions(
         figure, axis = plt.subplots(figsize=(8, 5))
         plot_function(axis, **plot_arguments)
         if plot_index == 1:
-            axis.secondary_xaxis(
+            secondary_axis = axis.secondary_xaxis(
                 "top",
                 functions=(np.degrees, np.radians),
-            ).set_xlabel("turn rate [deg/s]")
+            )
+            secondary_axis.set_xlabel(
+                "turn rate [deg/s]",
+                fontsize=AXIS_LABEL_FONT_SIZE,
+            )
+            secondary_axis.tick_params(axis="x", labelsize=AXIS_TICK_FONT_SIZE)
+        axis.xaxis.label.set_fontsize(AXIS_LABEL_FONT_SIZE)
+        axis.yaxis.label.set_fontsize(AXIS_LABEL_FONT_SIZE)
+        axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
         axis.grid(alpha=0.25)
         axis.legend()
         figure.suptitle(figure_title)

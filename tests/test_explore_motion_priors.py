@@ -94,6 +94,14 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
         "Turn-rate process innovations",
         "One-step CTRV position innovations",
     }
+    assert all(axis.xaxis.label.get_fontsize() == 13 for axis in axes)
+    assert all(axis.yaxis.label.get_fontsize() == 13 for axis in axes)
+    assert all(
+        tick.get_fontsize() == 11
+        for axis in axes
+        for tick in (*axis.get_xticklabels(), *axis.get_yticklabels())
+    )
+    assert axes[1].child_axes[0].xaxis.label.get_fontsize() == 13
     assert len(axes[0].lines) == 0
     assert [text.get_text() for text in axes[0].get_legend().get_texts()] == [
         "Empirical density"
