@@ -159,6 +159,38 @@ def test_plot_motion_prior_distributions_can_show_one_figure_at_a_time(monkeypat
     assert plt.get_fignums() == []
 
 
+def test_plot_motion_prior_distributions_can_show_absolute_frequencies():
+    """Frequency mode should use counts and label every y-axis accordingly."""
+    samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
+    suggestions = suggest_prior_scales(samples)
+
+    figures, axes = plot_motion_prior_distributions(
+        samples,
+        suggestions,
+        histogram_mode="frequency",
+    )
+
+    assert all(axis.get_ylabel() == "Häufigkeit" for axis in axes)
+    assert sum(patch.get_height() for patch in axes[0].patches) == pytest.approx(
+        len(samples.speed_mps)
+    )
+    for figure in figures:
+        plt.close(figure)
+
+
+def test_plot_motion_prior_distributions_rejects_invalid_histogram_mode():
+    """Unknown histogram modes should fail with a focused message."""
+    samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
+    suggestions = suggest_prior_scales(samples)
+
+    with pytest.raises(ValueError, match="histogram_mode"):
+        plot_motion_prior_distributions(
+            samples,
+            suggestions,
+            histogram_mode="unknown",
+        )
+
+
 @pytest.mark.parametrize(
     ("options", "message"),
     [

@@ -38,6 +38,7 @@ PLOT_TITLE_FONT_SIZE = 13
 PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
+HISTOGRAM_MODE = "density"  # Use "density" for normalized densities or "frequency" for absolute counts.
 PRINT_PER_RUN_SUMMARY = False
 
 
@@ -84,6 +85,7 @@ def main():
         samples,
         suggestions,
         central_quantile=PLOT_CENTRAL_QUANTILE,
+        histogram_mode=HISTOGRAM_MODE,
         show_sequentially=True,
     )
     return samples, suggestions, figures, axes
@@ -178,11 +180,14 @@ def plot_motion_prior_distributions(
     suggestions: PriorSuggestions,
     *,
     central_quantile=PLOT_CENTRAL_QUANTILE,
+    histogram_mode=HISTOGRAM_MODE,
     show_sequentially=False,
 ):
     """Create four figures and optionally display them one after another."""
     if not np.isfinite(central_quantile) or not 0.5 < central_quantile <= 1:
         raise ValueError("central_quantile must be in the interval (0.5, 1].")
+    if histogram_mode not in {"density", "frequency"}:
+        raise ValueError("histogram_mode must be 'density' or 'frequency'.")
 
     plot_specs = (
         (
@@ -190,6 +195,7 @@ def plot_motion_prior_distributions(
             {
                 "values": samples.speed_mps,
                 "central_quantile": central_quantile,
+                "histogram_mode": histogram_mode,
             },
         ),
         (
@@ -199,6 +205,7 @@ def plot_motion_prior_distributions(
                 "title": "Drehrate",
                 "xlabel": "Drehrate [rad/s]",
                 "central_quantile": central_quantile,
+                "histogram_mode": histogram_mode,
                 "reference_center": suggestions.turn_rate_center_rad_s,
             },
         ),
@@ -209,6 +216,7 @@ def plot_motion_prior_distributions(
                 "title": "Prozessinnovationen der Drehrate",
                 "xlabel": "Drehratenänderung / √Δt [rad/s/√s]",
                 "central_quantile": central_quantile,
+                "histogram_mode": histogram_mode,
                 "reference_center": 0.0,
             },
         ),
@@ -219,6 +227,7 @@ def plot_motion_prior_distributions(
                 "title": "CTRV-Positionsresiduen (Ein-Schritt)",
                 "xlabel": "Positionsresiduum / √Δt [m/√s]",
                 "central_quantile": central_quantile,
+                "histogram_mode": histogram_mode,
                 "reference_center": 0.0,
             },
         ),
@@ -449,13 +458,13 @@ def _print_report(samples, suggestions, *, print_per_run_summary):
     )
 
 
-def _plot_speed_distribution(axis, values, *, central_quantile):
+def _plot_speed_distribution(axis, values, *, central_quantile, histogram_mode):
     """Plot the empirical speed distribution without a parametric fit."""
     plotted = _central_values(values, central_quantile, nonnegative=True)
     axis.hist(
         plotted,
         bins=_histogram_bin_count(plotted),
-        density=True,
+        density=histogram_mode == "density",
         alpha=0.45,
         color="tab:blue",
         label="Empirische Dichte",
@@ -467,7 +476,7 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
     axis.set_xlabel("Geschwindigkeit [m/s]")
-    axis.set_ylabel("Dichte")
+    axis.set_ylabel(_histogram_y_label(histogram_mode))
 
 
 def _plot_signed_distribution(
@@ -477,6 +486,7 @@ def _plot_signed_distribution(
     title,
     xlabel,
     central_quantile,
+    histogram_mode,
     reference_center,
 ):
     """Plot one signed empirical distribution and an unlabelled reference."""
@@ -485,7 +495,7 @@ def _plot_signed_distribution(
     axis.hist(
         plotted,
         bins=_histogram_bin_count(plotted),
-        density=True,
+        density=histogram_mode == "density",
         alpha=0.45,
         color="tab:blue",
         label="Empirische Dichte",
@@ -504,7 +514,7 @@ def _plot_signed_distribution(
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
     axis.set_xlabel(xlabel)
-    axis.set_ylabel("Dichte")
+    axis.set_ylabel(_histogram_y_label(histogram_mode))
 
 
 def _central_values(values, quantile, *, nonnegative=False):
@@ -539,6 +549,11 @@ def _wrap_angle(values):
 def _histogram_bin_count(values):
     """Keep density plots legible for both short and long calibration runs."""
     return int(np.clip(np.sqrt(len(values)), 12, 60))
+
+
+def _histogram_y_label(histogram_mode):
+    """Return the German y-axis label for one histogram mode."""
+    return "Dichte" if histogram_mode == "density" else "Häufigkeit"
 
 
 def _format_run_selection(run_values):
