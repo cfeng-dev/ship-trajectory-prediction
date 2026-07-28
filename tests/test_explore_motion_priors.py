@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
+    HISTOGRAM_ALPHA,
+    HISTOGRAM_COLOR,
+    HISTOGRAM_EDGE_COLOR,
     HISTOGRAM_EDGE_LINE_WIDTH,
     PLOT_TITLE_FONT_SIZE,
     PLOT_TITLE_FONT_WEIGHT,
@@ -121,6 +124,20 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     assert len(axes[0].lines) == 0
     assert all(
         patch.get_linewidth() == HISTOGRAM_EDGE_LINE_WIDTH
+        for axis in axes
+        for patch in axis.patches
+    )
+    assert all(
+        patch.get_facecolor()
+        == pytest.approx(matplotlib.colors.to_rgba(HISTOGRAM_COLOR, HISTOGRAM_ALPHA))
+        for axis in axes
+        for patch in axis.patches
+    )
+    assert all(
+        patch.get_edgecolor()
+        == pytest.approx(
+            matplotlib.colors.to_rgba(HISTOGRAM_EDGE_COLOR, HISTOGRAM_ALPHA)
+        )
         for axis in axes
         for patch in axis.patches
     )

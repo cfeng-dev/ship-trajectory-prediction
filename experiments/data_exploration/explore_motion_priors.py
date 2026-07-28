@@ -10,7 +10,6 @@ import pandas as pd
 
 from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_TURN_RATE_LIMIT,
     MAX_TURN_RATE_PRIOR_SCALE,
     MIN_TURN_RATE_PRIOR_SCALE,
     TURN_RATE_PRIOR_SCALE_MULTIPLIER,
@@ -26,22 +25,32 @@ DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
-# Treat these runs as prior-calibration data, not independent evaluation data.
-# Set to None only for a descriptive overview of the complete dataset.
+# Data selection and preprocessing
+# Keep calibration runs separate from the final evaluation. ``None`` selects
+# every run and should therefore only be used for a descriptive overview.
 CALIBRATION_RUN_IDS = None
 MIN_COURSE_DISPLACEMENT_METERS = 1.0
 MAX_TIME_GAP_SECONDS = 15.0
-TURN_RATE_LIMIT_RAD_S = DEFAULT_TURN_RATE_LIMIT
+
+# Terminal report
+PRINT_PER_RUN_SUMMARY = False
+
+# Histogram data display
 PLOT_CENTRAL_QUANTILE = 0.995
+HISTOGRAM_MODE = "density"  # Choose "density" or "frequency".
+
+# Plot typography
 PLOT_TITLE_PAD = 16
 PLOT_TITLE_FONT_SIZE = 13
 PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
-HISTOGRAM_MODE = "density"  # Use "density" for normalized densities or "frequency" for absolute counts.
-HISTOGRAM_EDGE_COLOR = "black"
+
+# Histogram appearance
+HISTOGRAM_COLOR = "#4C78A8"
+HISTOGRAM_ALPHA = 0.75
+HISTOGRAM_EDGE_COLOR = "#2F3E46"
 HISTOGRAM_EDGE_LINE_WIDTH = 0.5
-PRINT_PER_RUN_SUMMARY = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,7 +455,6 @@ def _print_report(samples, suggestions, *, print_per_run_summary):
         "State-prior scale     : "
         f"{suggestions.turn_rate_state_prior_scale_rad_s:.6f} rad/s"
     )
-    print(f"Current physical limit: +/-{TURN_RATE_LIMIT_RAD_S:.5f} rad/s")
     print(
         "Turn process scale    : "
         f"{suggestions.turn_rate_process_scale:.6f} rad/s/sqrt(s)"
@@ -467,8 +475,8 @@ def _plot_speed_distribution(axis, values, *, central_quantile, histogram_mode):
         plotted,
         bins=_histogram_bin_count(plotted),
         density=histogram_mode == "density",
-        alpha=0.45,
-        color="tab:blue",
+        alpha=HISTOGRAM_ALPHA,
+        color=HISTOGRAM_COLOR,
         edgecolor=HISTOGRAM_EDGE_COLOR,
         linewidth=HISTOGRAM_EDGE_LINE_WIDTH,
         label="Empirische Dichte",
@@ -500,8 +508,8 @@ def _plot_signed_distribution(
         plotted,
         bins=_histogram_bin_count(plotted),
         density=histogram_mode == "density",
-        alpha=0.45,
-        color="tab:blue",
+        alpha=HISTOGRAM_ALPHA,
+        color=HISTOGRAM_COLOR,
         edgecolor=HISTOGRAM_EDGE_COLOR,
         linewidth=HISTOGRAM_EDGE_LINE_WIDTH,
         label="Empirische Dichte",
