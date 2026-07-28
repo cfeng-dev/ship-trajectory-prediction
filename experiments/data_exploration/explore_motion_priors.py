@@ -193,39 +193,33 @@ def plot_motion_prior_distributions(
             },
         ),
         (
-            _plot_signed_normal_candidate,
+            _plot_signed_distribution,
             {
                 "values": samples.turn_rate_rad_s,
-                "center": suggestions.turn_rate_center_rad_s,
-                "scale": suggestions.turn_rate_state_prior_scale_rad_s,
                 "title": "Drehrate",
                 "xlabel": "Drehrate [rad/s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Kandidat für Drehratenprior",
+                "reference_center": suggestions.turn_rate_center_rad_s,
             },
         ),
         (
-            _plot_signed_normal_candidate,
+            _plot_signed_distribution,
             {
                 "values": samples.turn_rate_innovation,
-                "center": 0.0,
-                "scale": suggestions.turn_rate_process_scale,
                 "title": "Prozessinnovationen der Drehrate",
                 "xlabel": "Drehratenänderung / √Δt [rad/s/√s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Normalmodell der Innovationen",
+                "reference_center": 0.0,
             },
         ),
         (
-            _plot_signed_normal_candidate,
+            _plot_signed_distribution,
             {
                 "values": samples.position_innovation,
-                "center": 0.0,
-                "scale": suggestions.position_process_scale,
                 "title": "CTRV-Positionsresiduen (Ein-Schritt)",
                 "xlabel": "Positionsresiduum / √Δt [m/√s]",
                 "central_quantile": central_quantile,
-                "candidate_label": "Normalmodell der Residuen",
+                "reference_center": 0.0,
             },
         ),
     )
@@ -476,21 +470,18 @@ def _plot_speed_distribution(axis, values, *, central_quantile):
     axis.set_ylabel("Dichte")
 
 
-def _plot_signed_normal_candidate(
+def _plot_signed_distribution(
     axis,
     values,
     *,
-    center,
-    scale,
     title,
     xlabel,
     central_quantile,
-    candidate_label,
+    reference_center,
 ):
-    """Plot one signed empirical distribution and a Normal candidate."""
+    """Plot one signed empirical distribution and an unlabelled reference."""
     plotted = _central_values(values, central_quantile)
-    absolute_limit = max(float(np.max(np.abs(plotted))), 4 * scale, 1e-12)
-    x_values = np.linspace(-absolute_limit, absolute_limit, 500)
+    absolute_limit = max(float(np.max(np.abs(plotted))), 1e-12)
     axis.hist(
         plotted,
         bins=_histogram_bin_count(plotted),
@@ -499,14 +490,12 @@ def _plot_signed_normal_candidate(
         color="tab:blue",
         label="Empirische Dichte",
     )
-    if scale > 0:
-        axis.plot(
-            x_values,
-            _normal_pdf(x_values, center, scale),
-            color="tab:red",
-            label=candidate_label,
-        )
-    axis.axvline(center, color="black", linestyle=":", label="Robuster Median")
+    axis.axvline(
+        reference_center,
+        color="black",
+        linestyle=":",
+        label="_nolegend_",
+    )
     axis.set_xlim(-absolute_limit, absolute_limit)
     axis.set_title(
         title,
@@ -540,13 +529,6 @@ def _robust_location_scale(values):
     median = float(np.median(values))
     scale = float(1.4826 * np.median(np.abs(values - median)))
     return median, scale
-
-
-def _normal_pdf(values, mean, standard_deviation):
-    """Evaluate a Normal density without an additional SciPy dependency."""
-    values = np.asarray(values, dtype=float)
-    coefficient = 1 / (standard_deviation * np.sqrt(2 * np.pi))
-    return coefficient * np.exp(-0.5 * ((values - mean) / standard_deviation) ** 2)
 
 
 def _wrap_angle(values):

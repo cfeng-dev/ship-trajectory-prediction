@@ -9,6 +9,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
+    AXIS_LABEL_FONT_SIZE,
+    AXIS_TICK_FONT_SIZE,
+    PLOT_TITLE_FONT_SIZE,
+    PLOT_TITLE_FONT_WEIGHT,
     collect_motion_prior_samples,
     plot_motion_prior_distributions,
     suggest_prior_scales,
@@ -103,16 +107,16 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     ]
     assert all(axis.get_ylabel() == "Dichte" for axis in axes)
     assert axes[1].child_axes[0].get_xlabel() == "Drehrate [°/s]"
-    assert all(axis.title.get_fontsize() == 16 for axis in axes)
-    assert all(axis.title.get_fontweight() == "bold" for axis in axes)
-    assert all(axis.xaxis.label.get_fontsize() == 13 for axis in axes)
-    assert all(axis.yaxis.label.get_fontsize() == 13 for axis in axes)
+    assert all(axis.title.get_fontsize() == PLOT_TITLE_FONT_SIZE for axis in axes)
+    assert all(axis.title.get_fontweight() == PLOT_TITLE_FONT_WEIGHT for axis in axes)
+    assert all(axis.xaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE for axis in axes)
+    assert all(axis.yaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE for axis in axes)
     assert all(
-        tick.get_fontsize() == 11
+        tick.get_fontsize() == AXIS_TICK_FONT_SIZE
         for axis in axes
         for tick in (*axis.get_xticklabels(), *axis.get_yticklabels())
     )
-    assert axes[1].child_axes[0].xaxis.label.get_fontsize() == 13
+    assert axes[1].child_axes[0].xaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE
     assert len(axes[0].lines) == 0
     assert [text.get_text() for text in axes[0].get_legend().get_texts()] == [
         "Empirische Dichte"
@@ -120,10 +124,11 @@ def test_plot_motion_prior_distributions_returns_four_separate_figures():
     legend_labels = [
         text.get_text() for axis in axes for text in axis.get_legend().get_texts()
     ]
-    assert "Kandidat für Drehratenprior" in legend_labels
-    assert "Robuster Median" in legend_labels
-    assert "Normalmodell der Innovationen" in legend_labels
-    assert "Normalmodell der Residuen" in legend_labels
+    assert legend_labels == ["Empirische Dichte"] * 4
+    assert all(
+        [line.get_label() for line in axis.lines] == ["_nolegend_"] for axis in axes[1:]
+    )
+    assert all(axis.lines[0].get_color() == "black" for axis in axes[1:])
     for figure in figures:
         plt.close(figure)
 
