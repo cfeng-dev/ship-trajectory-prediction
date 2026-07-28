@@ -9,11 +9,6 @@ import numpy as np
 import pandas as pd
 
 from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
-from ship_trajectory_prediction.models.bayesian_ctrv import (
-    MAX_TURN_RATE_PRIOR_SCALE,
-    MIN_TURN_RATE_PRIOR_SCALE,
-    TURN_RATE_PRIOR_SCALE_MULTIPLIER,
-)
 from ship_trajectory_prediction.models.ctrv import CTRVState, ctrv_step
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import read_ship_data
@@ -72,7 +67,6 @@ class PriorSuggestions:
     speed_robust_scale_mps: float
     turn_rate_center_rad_s: float
     turn_rate_robust_scale_rad_s: float
-    turn_rate_state_prior_scale_rad_s: float
     turn_rate_process_scale: float
     position_process_scale: float
 
@@ -168,19 +162,11 @@ def suggest_prior_scales(samples: MotionPriorSamples) -> PriorSuggestions:
     turn_center, turn_scale = _robust_location_scale(samples.turn_rate_rad_s)
     _, turn_process_scale = _robust_location_scale(samples.turn_rate_innovation)
     _, position_process_scale = _robust_location_scale(samples.position_innovation)
-    turn_prior_scale = float(
-        np.clip(
-            TURN_RATE_PRIOR_SCALE_MULTIPLIER * turn_scale,
-            MIN_TURN_RATE_PRIOR_SCALE,
-            MAX_TURN_RATE_PRIOR_SCALE,
-        )
-    )
     return PriorSuggestions(
         speed_median_mps=speed_center,
         speed_robust_scale_mps=speed_scale,
         turn_rate_center_rad_s=turn_center,
         turn_rate_robust_scale_rad_s=turn_scale,
-        turn_rate_state_prior_scale_rad_s=turn_prior_scale,
         turn_rate_process_scale=turn_process_scale,
         position_process_scale=position_process_scale,
     )
@@ -450,10 +436,6 @@ def _print_report(samples, suggestions, *, print_per_run_summary):
     print(f"Turn-rate center      : {suggestions.turn_rate_center_rad_s:+.6f} rad/s")
     print(
         f"Turn-rate robust scale: {suggestions.turn_rate_robust_scale_rad_s:.6f} rad/s"
-    )
-    print(
-        "State-prior scale     : "
-        f"{suggestions.turn_rate_state_prior_scale_rad_s:.6f} rad/s"
     )
     print(
         "Turn process scale    : "

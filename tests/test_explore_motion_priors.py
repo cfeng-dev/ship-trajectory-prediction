@@ -79,7 +79,6 @@ def test_prior_suggestions_use_robust_turn_rate_scale_floor():
 
     assert suggestions.speed_median_mps == pytest.approx(3.0)
     assert suggestions.turn_rate_center_rad_s == pytest.approx(0.012, abs=1e-7)
-    assert suggestions.turn_rate_state_prior_scale_rad_s == pytest.approx(0.002)
     assert suggestions.turn_rate_process_scale == pytest.approx(0.0, abs=1e-8)
     assert suggestions.position_process_scale == pytest.approx(0.0, abs=1e-5)
 
