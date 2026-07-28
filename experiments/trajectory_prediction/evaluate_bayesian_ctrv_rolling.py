@@ -18,7 +18,13 @@ from ship_trajectory_prediction.evaluation import (
 from ship_trajectory_prediction.evaluation import (
     plot_prediction as plot_window_prediction,
 )
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_variable_samples,
+)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_TURN_RATE_LIMIT,
+    NOISE_PARAMETER_NAMES,
+    diagnose_observed_turn_rate,
     fit_bayesian_ctrv_model,
     variational_converged,
 )
@@ -33,13 +39,15 @@ DATA_FILE = project_path(
 )
 
 # Experiment configuration used by the VS Code run button.
-RUN_ID = 2
+RUN_ID = 1
 WINDOW_MODE = "sliding"
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
 STRIDE = None
 CREDIBLE_INTERVAL = 0.9
 VI_ALGORITHM = "meanfield"
+TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
+TURN_RATE_STATE_PRIOR_SCALE = None
 SEED = 42
 REQUIRE_CONVERGED = False
 MAX_WINDOWS = None
@@ -53,6 +61,8 @@ def main(
     prediction_count=PREDICTION_COUNT,
     stride=STRIDE,
     vi_algorithm=VI_ALGORITHM,
+    turn_rate_limit=TURN_RATE_LIMIT,
+    turn_rate_state_prior_scale=TURN_RATE_STATE_PRIOR_SCALE,
     seed=SEED,
     require_converged=REQUIRE_CONVERGED,
     max_windows=MAX_WINDOWS,
@@ -89,6 +99,15 @@ def main(
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
     print(f"VI algorithm          : {vi_algorithm}")
+    print(f"Turn-rate limit       : {turn_rate_limit:.5f} rad/s")
+    print(
+        "Turn-rate prior scale : "
+        + (
+            "data-derived"
+            if turn_rate_state_prior_scale is None
+            else f"{turn_rate_state_prior_scale:.5f} rad/s"
+        )
+    )
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
@@ -105,13 +124,21 @@ def main(
             prediction_count=specification.prediction_count,
             start_index=specification.start_index,
         )
+        observed_turn_rate = diagnose_observed_turn_rate(
+            window,
+            turn_rate_limit=turn_rate_limit,
+            turn_rate_state_prior_scale=turn_rate_state_prior_scale,
+        )
         fit = fit_bayesian_ctrv_model(
             window,
             algorithm=vi_algorithm,
             seed=window_seed,
             require_converged=require_converged,
+            turn_rate_limit=turn_rate_limit,
+            turn_rate_state_prior_scale=turn_rate_state_prior_scale,
         )
         converged = variational_converged(fit)
+        posterior_diagnostics = _posterior_window_diagnostics(fit)
         evaluation = evaluate_position_predictions(
             fit,
             window,
@@ -126,12 +153,17 @@ def main(
             longitude=longitude,
             latitude=latitude,
             converged=converged,
+            observed_turn_rate=observed_turn_rate,
+            posterior_diagnostics=posterior_diagnostics,
         )
         prediction_tables.append(table)
         print(
             f"ADE={evaluation.ade_m:.2f} m, "
             f"FDE={evaluation.fde_m:.2f} m, "
-            f"converged={converged}"
+            f"turn-rate observed/posterior="
+            f"{observed_turn_rate.median_rad_s:+.5f}/"
+            f"{posterior_diagnostics['posterior_origin_turn_rate_median_rad_s']:+.5f} "
+            f"rad/s, converged={converged}"
         )
         if plot_each_window:
             figure, _ = plot_window_prediction(
@@ -144,6 +176,7 @@ def main(
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = summarize_rolling_predictions(predictions)
     _print_summary(summary, credible_interval=CREDIBLE_INTERVAL)
+    _print_turn_rate_and_noise_summary(predictions)
     plot_rolling_predictions(
         route_x,
         route_y,
@@ -219,6 +252,8 @@ def _build_route_prediction_table(
     longitude,
     latitude,
     converged,
+    observed_turn_rate,
+    posterior_diagnostics,
 ):
     """Add rolling metadata and one route-wide coordinate frame."""
     table = prediction_table.copy()
@@ -250,6 +285,18 @@ def _build_route_prediction_table(
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
     table["converged"] = converged
+    table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
+    table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
+    table["observed_turn_rate_robust_scale_rad_s"] = (
+        observed_turn_rate.robust_scale_rad_s
+    )
+    table["observed_turn_rate_q90_absolute_rad_s"] = (
+        observed_turn_rate.q90_absolute_rad_s
+    )
+    table["turn_rate_prior_scale_rad_s"] = observed_turn_rate.prior_scale_rad_s
+    table["turn_rate_limit_rad_s"] = observed_turn_rate.limit_rad_s
+    for name, value in posterior_diagnostics.items():
+        table[name] = value
     table["forecast_origin_time"] = window.timestamps[
         specification.observation_count - 1
     ]
@@ -260,6 +307,26 @@ def _build_route_prediction_table(
     table["x_median_route"] = x_median_route
     table["y_median_route"] = y_median_route
     return table
+
+
+def _posterior_window_diagnostics(fit):
+    """Return turn-rate and noise medians for one fitted rolling window."""
+    turn_rate_state = posterior_variable_samples(fit, "turn_rate_state")
+    heading_state = posterior_variable_samples(fit, "heading_state")
+    heading_prediction = posterior_variable_samples(fit, "heading_prediction")
+    diagnostics = {
+        "posterior_origin_turn_rate_median_rad_s": float(
+            np.median(turn_rate_state[:, -1])
+        ),
+        "posterior_heading_change_median_rad": float(
+            np.median(heading_prediction[:, -1] - heading_state[:, -1])
+        ),
+    }
+    for name in NOISE_PARAMETER_NAMES:
+        diagnostics[f"posterior_{name}_median"] = float(
+            np.median(posterior_variable_samples(fit, name))
+        )
+    return diagnostics
 
 
 def _prepare_route_coordinates(trajectory_data):
@@ -312,6 +379,34 @@ def _print_summary(summary, *, credible_interval):
     print(summary.per_horizon_table.round(3).to_string(index=False))
 
 
+def _print_turn_rate_and_noise_summary(predictions):
+    """Print one-row-per-window diagnostics for model identifiability."""
+    windows = predictions.groupby("window_index", sort=True).first()
+    near_limit = (
+        windows["posterior_origin_turn_rate_median_rad_s"].abs()
+        >= 0.8 * windows["turn_rate_limit_rad_s"]
+    )
+    print("\nTurn-rate and process-noise diagnostics:")
+    print(
+        "Median absolute observed turn rate : "
+        f"{windows['observed_turn_rate_median_rad_s'].abs().median():.5f} rad/s"
+    )
+    print(
+        "Maximum posterior origin turn rate : "
+        f"{windows['posterior_origin_turn_rate_median_rad_s'].abs().max():.5f} rad/s"
+    )
+    print(f"Windows near turn-rate limit        : {int(near_limit.sum())}")
+    print(
+        "Median position process sigma      : "
+        f"{windows['posterior_sigma_position_process_median'].median():.3f} m/sqrt(s)"
+    )
+    print(
+        "Median turn-rate process sigma     : "
+        f"{windows['posterior_sigma_turn_rate_process_median'].median():.6f} "
+        "rad/s/sqrt(s)"
+    )
+
+
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -332,6 +427,18 @@ def _parse_arguments():
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
         default=VI_ALGORITHM,
+    )
+    parser.add_argument(
+        "--turn-rate-limit",
+        type=float,
+        default=TURN_RATE_LIMIT,
+        help="Physical absolute turn-rate limit in rad/s.",
+    )
+    parser.add_argument(
+        "--turn-rate-prior-scale",
+        type=float,
+        default=TURN_RATE_STATE_PRIOR_SCALE,
+        help="Optional fixed state-prior scale; defaults to observed-history MAD.",
     )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
@@ -363,6 +470,8 @@ if __name__ == "__main__":
         prediction_count=arguments.predictions,
         stride=arguments.stride,
         vi_algorithm=arguments.vi_algorithm,
+        turn_rate_limit=arguments.turn_rate_limit,
+        turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
         seed=arguments.seed,
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,

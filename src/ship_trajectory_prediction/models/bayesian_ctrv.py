@@ -28,6 +28,13 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.01
 SPEED_STATE_INITIAL_UPPER = 99.99
+# At 10-second sampling, 0.02 rad/s permits at most 11.46 degrees per step.
+DEFAULT_TURN_RATE_LIMIT = 0.02
+# Robust window-specific scales are kept informative but not degenerate.
+MIN_TURN_RATE_PRIOR_SCALE = 0.002
+MAX_TURN_RATE_PRIOR_SCALE = 0.01
+TURN_RATE_PRIOR_SCALE_MULTIPLIER = 2.0
+MIN_COURSE_DISPLACEMENT_METERS = 1.0
 
 NOISE_PARAMETER_NAMES = (
     "sigma_position_gps",
@@ -49,13 +56,26 @@ class VIRunResult:
     converged: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class TurnRateDiagnostics:
+    """Robust observed-history diagnostics used to regularize turn rate."""
+
+    sample_count: int
+    median_rad_s: float
+    robust_scale_rad_s: float
+    q90_absolute_rad_s: float
+    prior_scale_rad_s: float
+    limit_rad_s: float
+
+
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
     position_initial_prior_scale: float = 5.0,
     speed_initial_prior_scale: float = 0.75,
     heading_initial_prior_scale: float = 0.35,
-    turn_rate_initial_prior_scale: float = 0.01,
+    turn_rate_state_prior_scale: float | None = None,
+    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     sigma_position_gps_prior_scale: float = 5.0,
     sigma_speed_gps_prior_scale: float = 0.5,
     sigma_position_process_prior_scale: float = 0.5,
@@ -70,11 +90,16 @@ def build_stan_data(
     standard deviations are multiplied by ``sqrt(dt)`` in Stan. Their units are
     therefore state units per square-root second.
     """
+    turn_rate_diagnostics = diagnose_observed_turn_rate(
+        window,
+        turn_rate_state_prior_scale=turn_rate_state_prior_scale,
+        turn_rate_limit=turn_rate_limit,
+    )
     prior_scales = {
         "position_initial_prior_scale": position_initial_prior_scale,
         "speed_initial_prior_scale": speed_initial_prior_scale,
         "heading_initial_prior_scale": heading_initial_prior_scale,
-        "turn_rate_initial_prior_scale": turn_rate_initial_prior_scale,
+        "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
         "sigma_position_gps_prior_scale": sigma_position_gps_prior_scale,
         "sigma_speed_gps_prior_scale": sigma_speed_gps_prior_scale,
         "sigma_position_process_prior_scale": (sigma_position_process_prior_scale),
@@ -121,11 +146,7 @@ def build_stan_data(
         heading_initial_prior_mean = 0.0
         turn_rate_initial_prior_mean = 0.0
     else:
-        turn_rate_initial_prior_mean = _estimate_turn_rate_prior_mean(
-            time_observed,
-            x_observed,
-            y_observed,
-        )
+        turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
 
     return {
         "N_observed": window.observation_count,
@@ -140,6 +161,7 @@ def build_stan_data(
         "speed_initial_prior_mean": speed_initial_prior_mean,
         "heading_initial_prior_mean": heading_initial_prior_mean,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
+        "turn_rate_limit": turn_rate_diagnostics.limit_rad_s,
         **prior_scales,
     }
 
@@ -364,6 +386,61 @@ def variational_converged(fit: Any) -> bool:
     )
 
 
+def diagnose_observed_turn_rate(
+    window: TrajectoryWindowData,
+    *,
+    turn_rate_state_prior_scale: float | None = None,
+    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
+) -> TurnRateDiagnostics:
+    """Summarize course-derived turn rates from observed positions only.
+
+    The median supplies the signed prior center. A MAD-based robust scale keeps
+    isolated GPS course changes from making the state prior arbitrarily wide.
+    The held-out part of ``window`` is never inspected.
+    """
+    _validate_positive_finite("turn_rate_limit", turn_rate_limit)
+    if turn_rate_state_prior_scale is not None:
+        _validate_positive_finite(
+            "turn_rate_state_prior_scale",
+            turn_rate_state_prior_scale,
+        )
+
+    observed = window.observed_slice
+    rates = _observed_turn_rates(
+        np.asarray(window.time_seconds[observed], dtype=float),
+        np.asarray(window.x_meters[observed], dtype=float),
+        np.asarray(window.y_meters[observed], dtype=float),
+    )
+    if rates.size == 0:
+        median = 0.0
+        robust_scale = 0.0
+        q90_absolute = 0.0
+    else:
+        median = float(np.median(rates))
+        median_absolute_deviation = float(np.median(np.abs(rates - median)))
+        robust_scale = 1.4826 * median_absolute_deviation
+        q90_absolute = float(np.quantile(np.abs(rates), 0.9))
+
+    prior_scale = turn_rate_state_prior_scale
+    if prior_scale is None:
+        prior_scale = float(
+            np.clip(
+                TURN_RATE_PRIOR_SCALE_MULTIPLIER * robust_scale,
+                MIN_TURN_RATE_PRIOR_SCALE,
+                MAX_TURN_RATE_PRIOR_SCALE,
+            )
+        )
+    center_limit = 0.95 * turn_rate_limit
+    return TurnRateDiagnostics(
+        sample_count=int(rates.size),
+        median_rad_s=float(np.clip(median, -center_limit, center_limit)),
+        robust_scale_rad_s=robust_scale,
+        q90_absolute_rad_s=q90_absolute,
+        prior_scale_rad_s=prior_scale,
+        limit_rad_s=float(turn_rate_limit),
+    )
+
+
 def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):
     """Extract and validate one finite posterior prediction matrix."""
     samples = posterior_variable_samples(fit, variable_name)
@@ -378,13 +455,13 @@ def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):
     return samples
 
 
-def _estimate_turn_rate_prior_mean(time_seconds, x_meters, y_meters) -> float:
-    """Estimate signed turn rate from observed course changes only."""
+def _observed_turn_rates(time_seconds, x_meters, y_meters) -> np.ndarray:
+    """Return signed course changes from sufficiently separated GPS points."""
     delta_x = np.diff(x_meters)
     delta_y = np.diff(y_meters)
-    moving = np.hypot(delta_x, delta_y) > 1e-8
+    moving = np.hypot(delta_x, delta_y) >= MIN_COURSE_DISPLACEMENT_METERS
     if np.count_nonzero(moving) < 2:
-        return 0.0
+        return np.asarray([], dtype=float)
 
     segment_times = 0.5 * (time_seconds[:-1] + time_seconds[1:])
     moving_times = segment_times[moving]
@@ -392,9 +469,9 @@ def _estimate_turn_rate_prior_mean(time_seconds, x_meters, y_meters) -> float:
     time_differences = np.diff(moving_times)
     valid = time_differences > 0
     if not np.any(valid):
-        return 0.0
+        return np.asarray([], dtype=float)
     rates = np.diff(headings)[valid] / time_differences[valid]
-    return float(np.clip(np.median(rates), -0.1, 0.1))
+    return rates[np.isfinite(rates)]
 
 
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
@@ -410,7 +487,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     speed_jitter = min(0.02, 0.02 * stan_data["speed_initial_prior_scale"])
     turn_jitter = min(
         1e-4,
-        0.02 * stan_data["turn_rate_initial_prior_scale"],
+        0.02 * stan_data["turn_rate_state_prior_scale"],
     )
     return {
         "x_state": x_observed + generator.normal(0, x_jitter, state_count),
@@ -424,8 +501,8 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         + generator.normal(0, 0.01),
         "turn_rate_state": np.clip(
             turn_rate_center + generator.normal(0, turn_jitter, state_count),
-            -0.099,
-            0.099,
+            -0.99 * stan_data["turn_rate_limit"],
+            0.99 * stan_data["turn_rate_limit"],
         ),
         "sigma_position_gps": max(
             1e-3,

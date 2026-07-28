@@ -11,11 +11,13 @@ import pytest
 
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
     VIRunResult,
     build_stan_data,
     compare_vi_runs,
+    diagnose_observed_turn_rate,
     fit_bayesian_ctrv_model,
     summarize_predictions,
     variational_converged,
@@ -78,6 +80,8 @@ def test_build_stan_data_contains_observed_states_future_times_and_si_units():
         0.012,
         abs=1e-8,
     )
+    assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
+    assert stan_data["turn_rate_limit"] == pytest.approx(DEFAULT_TURN_RATE_LIMIT)
     assert "x_prediction" not in stan_data
     assert "y_prediction" not in stan_data
     assert "speed_prediction" not in stan_data
@@ -115,7 +119,7 @@ def test_build_stan_data_does_not_use_held_out_measurements():
         "position_initial_prior_scale",
         "speed_initial_prior_scale",
         "heading_initial_prior_scale",
-        "turn_rate_initial_prior_scale",
+        "turn_rate_state_prior_scale",
         "sigma_position_gps_prior_scale",
         "sigma_speed_gps_prior_scale",
         "sigma_position_process_prior_scale",
@@ -149,6 +153,38 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     stan_data = build_stan_data(create_synthetic_window(turn_rate=0.0))
 
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_turn_rate_diagnostics_are_robust_and_configurable():
+    """Observed course changes should set a bounded robust state prior."""
+    window = create_synthetic_window(turn_rate=0.012)
+
+    derived = diagnose_observed_turn_rate(window)
+    configured = diagnose_observed_turn_rate(
+        window,
+        turn_rate_state_prior_scale=0.004,
+        turn_rate_limit=0.015,
+    )
+
+    assert derived.sample_count == 5
+    assert derived.median_rad_s == pytest.approx(0.012, abs=1e-8)
+    assert derived.q90_absolute_rad_s == pytest.approx(0.012, abs=1e-8)
+    assert derived.prior_scale_rad_s == pytest.approx(0.002)
+    assert configured.prior_scale_rad_s == pytest.approx(0.004)
+    assert configured.limit_rad_s == pytest.approx(0.015)
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"turn_rate_state_prior_scale": 0.0}, "turn_rate_state_prior_scale"),
+        ({"turn_rate_limit": 0.0}, "turn_rate_limit"),
+    ],
+)
+def test_turn_rate_diagnostics_reject_invalid_regularization(options, message):
+    """Turn-rate regularization controls must remain positive and finite."""
+    with pytest.raises(ValueError, match=message):
+        diagnose_observed_turn_rate(create_synthetic_window(), **options)
 
 
 def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
@@ -430,6 +466,9 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "y + speed * dt * sin(heading)" in source
     assert "sigma_speed_process * sqrt(dt)" in source
     assert "sigma_turn_rate_process * sqrt(dt)" in source
+    assert "lower=-turn_rate_limit" in source
+    assert "upper=turn_rate_limit" in source
+    assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_observed[N_observed]" in source
     assert "real y_previous = y_observed[N_observed]" in source
 

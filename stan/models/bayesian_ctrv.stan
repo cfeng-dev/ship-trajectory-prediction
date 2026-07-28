@@ -42,7 +42,8 @@ data {
   real heading_initial_prior_mean;
   real<lower=0> heading_initial_prior_scale;
   real turn_rate_initial_prior_mean;
-  real<lower=0> turn_rate_initial_prior_scale;
+  real<lower=0> turn_rate_state_prior_scale;
+  real<lower=0> turn_rate_limit;
 
   real<lower=0> sigma_position_gps_prior_scale;
   real<lower=0> sigma_speed_gps_prior_scale;
@@ -72,7 +73,8 @@ parameters {
   vector[N_observed] y_state;
   vector<lower=0.001, upper=100>[N_observed] speed_state;
   real heading_initial;
-  vector<lower=-0.1, upper=0.1>[N_observed] turn_rate_state;
+  vector<lower=-turn_rate_limit,
+         upper=turn_rate_limit>[N_observed] turn_rate_state;
 
   real<lower=1e-6> sigma_position_gps;
   real<lower=1e-6> sigma_speed_gps;
@@ -97,8 +99,11 @@ model {
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
   heading_initial ~ normal(heading_initial_prior_mean,
                            heading_initial_prior_scale);
-  turn_rate_state[1] ~ normal(turn_rate_initial_prior_mean,
-                              turn_rate_initial_prior_scale);
+  // Regularize the complete latent path, not only its first element. This
+  // prevents process noise from supporting implausible full rotations while
+  // retaining the local random-walk transition below.
+  turn_rate_state ~ normal(turn_rate_initial_prior_mean,
+                           turn_rate_state_prior_scale);
 
   sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
   sigma_speed_gps ~ normal(0, sigma_speed_gps_prior_scale);
@@ -176,8 +181,8 @@ generated quantities {
              normal_rng(speed_previous, sigma_speed_process * sqrt(dt))));
     real heading_current = heading_previous + turn_rate_previous * dt;
     real turn_rate_current = fmin(
-        0.1,
-        fmax(-0.1,
+        turn_rate_limit,
+        fmax(-turn_rate_limit,
              normal_rng(turn_rate_previous,
                         sigma_turn_rate_process * sqrt(dt))));
 

@@ -82,6 +82,11 @@ def main(
                 "Initial turn-rate center",
                 f"{stan_data['turn_rate_initial_prior_mean']:.5f} rad/s",
             ),
+            (
+                "Turn-rate state prior scale",
+                f"{stan_data['turn_rate_state_prior_scale']:.5f} rad/s",
+            ),
+            ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
             ("VI tolerance", VI_TOL_REL_OBJ),
         ],
     )
