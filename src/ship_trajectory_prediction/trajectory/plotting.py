@@ -2,6 +2,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import dates as mdates
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
@@ -24,13 +25,14 @@ PLOT_TITLE_FONT_SIZE = 13
 PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
+TIME_TICK_FORMAT = "%d.%m.%Y\n%H:%M"
 
 DEFAULT_ARROW_STEP = 18  # 18 points = about 3 minutes if data interval is 10 s
 
-TRAJECTORY_COLOR = "tab:blue"
+TRAJECTORY_COLOR = "#4C78A8"
 START_COLOR = "black"
 END_COLOR = "green"
-DIRECTION_COLOR = "darkorange"
+DIRECTION_COLOR = "#F58518"
 
 TRAJECTORY_MARKER_SIZE = 3
 START_MARKER_SIZE = 45
@@ -38,6 +40,8 @@ END_MARKER_SIZE = 110
 
 TRAJECTORY_LINE_WIDTH = 1.8
 DIRECTION_LINE_WIDTH = 1.5
+CALCULATED_SPEED_LINE_WIDTH = 1.5
+CALCULATED_SPEED_ALPHA = 0.75
 
 END_ALPHA = 0.45
 ARROW_MUTATION_SCALE = 14
@@ -290,12 +294,19 @@ def plot_ship_speeds(data, speed_unit="km/h", propulsion_speed_unit="rpm"):
 
     speed_figure, speed_axis = plt.subplots(figsize=SPEED_FIGURE_SIZE)
 
-    speed_axis.plot(data["time"], recorded_gps_speed, label="GPS-Geschwindigkeit")
+    speed_axis.plot(
+        data["time"],
+        recorded_gps_speed,
+        color=TRAJECTORY_COLOR,
+        label="GPS-Geschwindigkeit",
+    )
     speed_axis.plot(
         data["time"],
         calculated_speed,
+        color=DIRECTION_COLOR,
+        alpha=CALCULATED_SPEED_ALPHA,
         label="Aus GPS-Positionen berechnet",
-        linewidth=2,
+        linewidth=CALCULATED_SPEED_LINE_WIDTH,
     )
     speed_axis.set_xlabel("Zeit", fontsize=AXIS_LABEL_FONT_SIZE)
     speed_axis.set_ylabel(
@@ -309,6 +320,7 @@ def plot_ship_speeds(data, speed_unit="km/h", propulsion_speed_unit="rpm"):
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
     speed_axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
+    speed_axis.xaxis.set_major_formatter(mdates.DateFormatter(TIME_TICK_FORMAT))
     speed_axis.grid(True)
     speed_axis.legend()
     speed_figure.tight_layout()
@@ -337,6 +349,7 @@ def plot_ship_speeds(data, speed_unit="km/h", propulsion_speed_unit="rpm"):
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
     propulsion_axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
+    propulsion_axis.xaxis.set_major_formatter(mdates.DateFormatter(TIME_TICK_FORMAT))
     propulsion_axis.grid(True)
     propulsion_axis.legend()
     propulsion_figure.tight_layout()
