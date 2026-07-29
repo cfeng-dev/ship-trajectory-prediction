@@ -4,6 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from ship_trajectory_prediction.trajectory.window import (
+    KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
+)
+
+DEFAULT_SUMMARY_LABEL_WIDTH = 20
+
 
 def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
     """
@@ -143,7 +149,13 @@ def _resample_trajectory_group(data, interval):
     return resampled_data.reset_index(drop=True)[data.columns]
 
 
-def print_ship_data_summary(data):
+def print_ship_data_summary(
+    data,
+    label_width=DEFAULT_SUMMARY_LABEL_WIDTH,
+    *,
+    gps_speed_unit="km/h",
+    propulsion_speed_unit="rpm",
+):
     """
     Print a short summary of the loaded ship trajectory data.
 
@@ -151,29 +163,81 @@ def print_ship_data_summary(data):
     ----------
     data : pandas.DataFrame
         Ship trajectory data.
+    label_width : int, optional
+        Shared width for labels before the value separator.
+    gps_speed_unit : {"m/s", "km/h"}, optional
+        Display unit for GPS speed. Source values are interpreted as km/h and
+        converted when m/s is selected.
+    propulsion_speed_unit : str, optional
+        Display unit for shaft and thruster speed. No conversion is applied.
     """
+    if gps_speed_unit not in {"m/s", "km/h"}:
+        raise ValueError("gps_speed_unit must be 'm/s' or 'km/h'.")
+
+    speed_labels = (
+        f"GPS speed [{gps_speed_unit}]",
+        f"Shaft speed [{propulsion_speed_unit}]",
+        f"Thruster speed [{propulsion_speed_unit}]",
+    )
+    label_width = max(
+        label_width,
+        len("Longitude [deg]"),
+        *(len(label) for label in speed_labels),
+    )
+
     print("Ship data summary")
     print("=" * 50)
 
-    print(f"Number of rows: {len(data)}")
+    _print_summary_row("Number of rows", len(data), label_width=label_width)
 
     if data.empty:
         print("No data available for the selected filters.")
         return
 
-    print(f"Number of runs: {data['run_id'].nunique()}")
+    _print_summary_row(
+        "Number of runs",
+        data["run_id"].nunique(),
+        label_width=label_width,
+    )
 
     print("\nTime range:")
-    print(f"Start: {data['time'].min()}")
-    print(f"End:   {data['time'].max()}")
+    _print_summary_row("Start", data["time"].min(), label_width=label_width)
+    _print_summary_row("End", data["time"].max(), label_width=label_width)
 
     print("\nGPS position range:")
-    print(f"Latitude:  {data['gps_latitude'].min()} to {data['gps_latitude'].max()}")
-    print(f"Longitude: {data['gps_longitude'].min()} to {data['gps_longitude'].max()}")
+    _print_summary_row(
+        "Latitude [deg]",
+        f"{data['gps_latitude'].min()} to {data['gps_latitude'].max()}",
+        label_width=label_width,
+    )
+    _print_summary_row(
+        "Longitude [deg]",
+        f"{data['gps_longitude'].min()} to {data['gps_longitude'].max()}",
+        label_width=label_width,
+    )
+
+    gps_speed = data["gps_speed"]
+    if gps_speed_unit == "m/s":
+        gps_speed = gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
 
     print("\nSpeed range:")
-    print(f"GPS speed:      {data['gps_speed'].min()} to {data['gps_speed'].max()}")
-    print(f"Shaft speed:    {data['shaft_speed'].min()} to {data['shaft_speed'].max()}")
-    print(
-        f"Thruster speed: {data['thruster_speed'].min()} to {data['thruster_speed'].max()}"
+    _print_summary_row(
+        speed_labels[0],
+        f"{gps_speed.min()} to {gps_speed.max()}",
+        label_width=label_width,
     )
+    _print_summary_row(
+        speed_labels[1],
+        f"{data['shaft_speed'].min()} to {data['shaft_speed'].max()}",
+        label_width=label_width,
+    )
+    _print_summary_row(
+        speed_labels[2],
+        f"{data['thruster_speed'].min()} to {data['thruster_speed'].max()}",
+        label_width=label_width,
+    )
+
+
+def _print_summary_row(label, value, *, label_width):
+    """Print one summary row with a shared label width."""
+    print(f"{label:<{label_width}}: {value}")

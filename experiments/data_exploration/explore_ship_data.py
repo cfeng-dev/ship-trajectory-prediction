@@ -21,6 +21,9 @@ RUN_ID = 1
 START_TIME = None
 END_TIME = None
 
+# Terminal report
+SUMMARY_LABEL_WIDTH = 20
+
 # Plot data settings
 TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
 SPEED_UNIT = "km/h"  # "m/s" or "km/h"
@@ -61,7 +64,12 @@ def main() -> None:
         end_time=END_TIME,
     )
 
-    print_ship_data_summary(ship_data)
+    print_ship_data_summary(
+        ship_data,
+        label_width=SUMMARY_LABEL_WIDTH,
+        gps_speed_unit=SPEED_UNIT,
+        propulsion_speed_unit=PROPULSION_SPEED_UNIT,
+    )
     plot_ship_trajectory(
         ship_data,
         coordinate_unit=TRAJECTORY_COORDINATE_UNIT,

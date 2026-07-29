@@ -3,6 +3,7 @@
 import pandas as pd
 
 from ship_trajectory_prediction.trajectory.io import (
+    print_ship_data_summary,
     read_ship_data,
     resample_trajectory_data,
 )
@@ -103,3 +104,36 @@ def test_resample_trajectory_data_supports_simulation_data_without_run_id():
     result = resample_trajectory_data(data, interval_seconds=10)
 
     assert result["t"].tolist() == [0.0, 10.0]
+
+
+def test_ship_data_summary_aligns_units_and_converts_gps_speed(capsys):
+    """Summary rows should align units and convert displayed GPS speed."""
+    data = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z"]),
+            "run_id": [1, 1],
+            "gps_latitude": [47.0, 47.1],
+            "gps_longitude": [8.0, 8.1],
+            "gps_speed": [3.6, 7.2],
+            "shaft_speed": [100.0, 200.0],
+            "thruster_speed": [-10.0, 10.0],
+        }
+    )
+
+    print_ship_data_summary(
+        data,
+        label_width=20,
+        gps_speed_unit="m/s",
+        propulsion_speed_unit="rpm",
+    )
+
+    output = capsys.readouterr().out
+    report_lines = [line for line in output.splitlines() if ": " in line]
+    assert report_lines
+    assert {line.index(":") for line in report_lines} == {20}
+    assert "Latitude [deg]" in output
+    assert "Longitude [deg]" in output
+    assert "GPS speed [m/s]" in output
+    assert "GPS speed [m/s]     : 1.0 to 2.0" in output
+    assert "Shaft speed [rpm]" in output
+    assert "Thruster speed [rpm]" in output
