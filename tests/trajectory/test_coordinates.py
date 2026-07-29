@@ -6,6 +6,7 @@ import pytest
 
 from ship_trajectory_prediction.coordinates import (
     calculate_gps_distances,
+    calculate_signed_curvature_from_gps,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
     local_to_gps_coordinates,
@@ -132,8 +133,78 @@ def test_non_positive_time_interval_produces_nan_speed():
     assert np.isnan(speed[1])
 
 
+def test_straight_trajectory_has_zero_signed_curvature():
+    """A straight sequence of equal segments should have zero curvature."""
+    data = _trajectory_data_from_local_coordinates([0, 10, 20], [0, 0, 0])
+
+    curvature = calculate_signed_curvature_from_gps(data)
+
+    assert np.isnan(curvature[0])
+    assert curvature[1] == pytest.approx(0.0, abs=1e-10)
+    assert np.isnan(curvature[2])
+
+
+@pytest.mark.parametrize(("final_y", "expected_sign"), [(10, 1), (-10, -1)])
+def test_signed_curvature_preserves_turn_direction(final_y, expected_sign):
+    """Left and right quarter turns should have opposite curvature signs."""
+    data = _trajectory_data_from_local_coordinates(
+        [0, 10, 10],
+        [0, 0, final_y],
+    )
+
+    curvature = calculate_signed_curvature_from_gps(data)
+
+    assert np.sign(curvature[1]) == expected_sign
+    assert abs(curvature[1]) == pytest.approx(np.pi / 20, rel=1e-5)
+
+
+def test_curvature_ignores_short_gps_segments():
+    """Small displacements should not create unstable curvature estimates."""
+    data = _trajectory_data_from_local_coordinates([0, 1, 1], [0, 0, 1])
+
+    curvature = calculate_signed_curvature_from_gps(
+        data,
+        min_displacement_m=2.0,
+    )
+
+    assert np.all(np.isnan(curvature))
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"min_displacement_m": 0.0}, "min_displacement_m"),
+        ({"max_time_gap_s": 0.0}, "max_time_gap_s"),
+    ],
+)
+def test_curvature_rejects_invalid_filter_settings(options, message):
+    """Curvature filters should require positive finite values."""
+    data = _trajectory_data_from_local_coordinates([0, 10, 20], [0, 0, 0])
+
+    with pytest.raises(ValueError, match=message):
+        calculate_signed_curvature_from_gps(data, **options)
+
+
 @pytest.mark.parametrize("unit", ["miles", "knots", "degrees"])
 def test_invalid_coordinate_unit_is_rejected(unit):
     """Unsupported coordinate units should raise a clear error."""
     with pytest.raises(ValueError, match="unit must be"):
         gps_to_local_coordinates([8.0], [47.0], unit=unit)
+
+
+def _trajectory_data_from_local_coordinates(x_coordinates, y_coordinates):
+    """Create timestamped GPS test data from local meter coordinates."""
+    longitude, latitude = local_to_gps_coordinates(
+        x_coordinates,
+        y_coordinates,
+        reference_longitude=8.3122,
+        reference_latitude=47.0515,
+        unit="m",
+    )
+    return pd.DataFrame(
+        {
+            "time": pd.date_range("2026-01-01", periods=len(longitude), freq="10s"),
+            "gps_longitude": longitude,
+            "gps_latitude": latitude,
+        }
+    )

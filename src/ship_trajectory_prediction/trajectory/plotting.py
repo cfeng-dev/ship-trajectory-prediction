@@ -9,6 +9,7 @@ from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
 from ship_trajectory_prediction.coordinates import (
+    calculate_signed_curvature_from_gps,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
 )
@@ -42,6 +43,7 @@ class ShipDataPlotStyle:
 
     trajectory_figure_size: tuple[float, float] = (8, 6)
     speed_figure_size: tuple[float, float] = (10, 6)
+    curvature_figure_size: tuple[float, float] = (10, 6)
     title_pad: float = 16
     title_font_size: float = 13
     title_font_weight: str = "bold"
@@ -53,6 +55,8 @@ class ShipDataPlotStyle:
     derived_data_color: str = "#F58518"
     calculated_speed_line_width: float = 1.5
     calculated_speed_alpha: float = 0.75
+    curvature_line_width: float = 1.5
+    curvature_alpha: float = 0.85
 
 
 DEFAULT_SHIP_DATA_PLOT_STYLE = ShipDataPlotStyle()
@@ -399,6 +403,56 @@ def plot_ship_speeds(
     plt.show()
 
     return (speed_figure, propulsion_figure), (speed_axis, propulsion_axis)
+
+
+def plot_ship_curvature(
+    data,
+    *,
+    min_displacement_m=2.0,
+    max_time_gap_s=15.0,
+    plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
+):
+    """Plot signed GPS-derived trajectory curvature over the complete run."""
+    if data.empty:
+        raise ValueError("The input data is empty.")
+
+    curvature = calculate_signed_curvature_from_gps(
+        data,
+        min_displacement_m=min_displacement_m,
+        max_time_gap_s=max_time_gap_s,
+    )
+    figure, axis = plt.subplots(figsize=plot_style.curvature_figure_size)
+    axis.plot(
+        data["time"],
+        curvature,
+        color=plot_style.derived_data_color,
+        linewidth=plot_style.curvature_line_width,
+        alpha=plot_style.curvature_alpha,
+    )
+    axis.axhline(0.0, color="black", linewidth=1.0, alpha=0.5)
+    axis.set_xlabel(
+        _format_time_axis_label(
+            data["time"],
+            time_range_format=plot_style.time_range_format,
+        ),
+        fontsize=plot_style.axis_label_font_size,
+    )
+    axis.set_ylabel(
+        "Vorzeichenbehaftete Krümmung κ [1/m]",
+        fontsize=plot_style.axis_label_font_size,
+    )
+    axis.set_title(
+        "Krümmung der Schiffstrajektorie",
+        pad=plot_style.title_pad,
+        fontsize=plot_style.title_font_size,
+        fontweight=plot_style.title_font_weight,
+    )
+    axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
+    axis.xaxis.set_major_formatter(mdates.DateFormatter(plot_style.time_tick_format))
+    axis.grid(True)
+    figure.tight_layout()
+    plt.show()
+    return figure, axis
 
 
 def _format_time_axis_label(time_values, *, time_range_format):

@@ -7,6 +7,7 @@ from ship_trajectory_prediction.trajectory.io import (
 )
 from ship_trajectory_prediction.trajectory.plotting import (
     ShipDataPlotStyle,
+    plot_ship_curvature,
     plot_ship_speeds,
     plot_ship_trajectory,
 )
@@ -24,11 +25,14 @@ END_TIME = None
 TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
 SPEED_UNIT = "km/h"  # "m/s" or "km/h"
 PROPULSION_SPEED_UNIT = "rpm"
+MIN_CURVATURE_DISPLACEMENT_METERS = 2.0
+MAX_CURVATURE_TIME_GAP_SECONDS = 15.0
 
 # Plot appearance
 PLOT_STYLE = ShipDataPlotStyle(
     trajectory_figure_size=(8, 6),
     speed_figure_size=(10, 6),
+    curvature_figure_size=(10, 6),
     title_pad=16,
     title_font_size=13,
     title_font_weight="bold",
@@ -40,6 +44,8 @@ PLOT_STYLE = ShipDataPlotStyle(
     derived_data_color="#F58518",
     calculated_speed_line_width=1.5,
     calculated_speed_alpha=0.75,
+    curvature_line_width=1.5,
+    curvature_alpha=0.85,
 )
 
 
@@ -62,6 +68,12 @@ def main() -> None:
         ship_data,
         speed_unit=SPEED_UNIT,
         propulsion_speed_unit=PROPULSION_SPEED_UNIT,
+        plot_style=PLOT_STYLE,
+    )
+    plot_ship_curvature(
+        ship_data,
+        min_displacement_m=MIN_CURVATURE_DISPLACEMENT_METERS,
+        max_time_gap_s=MAX_CURVATURE_TIME_GAP_SECONDS,
         plot_style=PLOT_STYLE,
     )
 

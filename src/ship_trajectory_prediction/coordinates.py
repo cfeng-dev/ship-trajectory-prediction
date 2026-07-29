@@ -169,6 +169,82 @@ def calculate_speed_from_gps(data, unit="km/h"):
     return speed_mps
 
 
+def calculate_signed_curvature_from_gps(
+    data,
+    *,
+    min_displacement_m=1.0,
+    max_time_gap_s=15.0,
+):
+    """Calculate discrete signed trajectory curvature from GPS positions.
+
+    Curvature is evaluated at every interior position from the wrapped course
+    change between the adjacent GPS segments divided by their mean length.
+    Positive values represent counterclockwise turns and negative values
+    clockwise turns. The first, last, and invalid samples are returned as
+    ``NaN`` because curvature is not defined there.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Trajectory data containing timestamps, longitude, and latitude.
+    min_displacement_m : float, optional
+        Minimum length required for each adjacent GPS segment. This suppresses
+        unstable course estimates during standstill or GPS jitter.
+    max_time_gap_s : float or None, optional
+        Largest accepted duration of either adjacent segment. ``None`` applies
+        no upper time-gap limit.
+
+    Returns
+    -------
+    numpy.ndarray
+        Signed curvature in inverse meters, aligned with the input rows.
+    """
+    if not np.isfinite(min_displacement_m) or min_displacement_m <= 0:
+        raise ValueError("min_displacement_m must be a positive finite number.")
+    if max_time_gap_s is not None and (
+        not np.isfinite(max_time_gap_s) or max_time_gap_s <= 0
+    ):
+        raise ValueError("max_time_gap_s must be a positive finite number or None.")
+
+    sample_count = len(data)
+    curvature = np.full(sample_count, np.nan)
+    if sample_count < 3:
+        return curvature
+
+    x_coordinates, y_coordinates = gps_to_local_coordinates(
+        data["gps_longitude"].to_numpy(),
+        data["gps_latitude"].to_numpy(),
+        unit="m",
+    )
+    delta_x = np.diff(x_coordinates)
+    delta_y = np.diff(y_coordinates)
+    segment_length = np.hypot(delta_x, delta_y)
+    segment_duration = data["time"].diff().dt.total_seconds().to_numpy()[1:]
+    course = np.arctan2(delta_y, delta_x)
+    course_change = (np.diff(course) + np.pi) % (2 * np.pi) - np.pi
+    mean_segment_length = 0.5 * (segment_length[:-1] + segment_length[1:])
+
+    valid = (
+        np.isfinite(course_change)
+        & np.isfinite(mean_segment_length)
+        & (segment_length[:-1] >= min_displacement_m)
+        & (segment_length[1:] >= min_displacement_m)
+        & np.isfinite(segment_duration[:-1])
+        & np.isfinite(segment_duration[1:])
+        & (segment_duration[:-1] > 0)
+        & (segment_duration[1:] > 0)
+    )
+    if max_time_gap_s is not None:
+        valid &= (segment_duration[:-1] <= max_time_gap_s) & (
+            segment_duration[1:] <= max_time_gap_s
+        )
+
+    interior_curvature = np.full(sample_count - 2, np.nan)
+    interior_curvature[valid] = course_change[valid] / mean_segment_length[valid]
+    curvature[1:-1] = interior_curvature
+    return curvature
+
+
 def _validate_coordinate_arrays(longitude, latitude):
     """Validate paired, non-empty one-dimensional coordinate arrays."""
     if longitude.ndim != 1 or latitude.ndim != 1:
