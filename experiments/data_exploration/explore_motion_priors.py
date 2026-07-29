@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ DATA_FILE = project_path(
 # Data selection and preprocessing
 # Keep calibration runs separate from the final evaluation. ``None`` selects
 # every run and should therefore only be used for a descriptive overview.
-CALIBRATION_RUN_IDS = None
+CALIBRATION_RUN_IDS = None  # One: 1; IDs: (1, 3); range: range(1, 4); all: None
 MIN_COURSE_DISPLACEMENT_METERS = 1.0
 MAX_TIME_GAP_SECONDS = 15.0
 
@@ -106,7 +107,7 @@ def collect_motion_prior_samples(
 ) -> MotionPriorSamples:
     """Derive speed, course-rate, and one-step CTRV innovations per run."""
     if run_ids is not None and not isinstance(run_ids, (str, bytes)):
-        run_ids = tuple(run_ids)
+        run_ids = tuple(run_ids) if isinstance(run_ids, Iterable) else (run_ids,)
     _validate_exploration_arguments(
         data,
         run_ids=run_ids,

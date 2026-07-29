@@ -73,6 +73,13 @@ def test_collect_motion_samples_recovers_noise_free_ctrv_quantities():
     assert samples.per_run_summary.loc[0, "run_id"] == 0
 
 
+def test_collect_motion_samples_accepts_single_run_id():
+    """A scalar run ID should select one run like the shared data loader."""
+    samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=0)
+
+    assert samples.per_run_summary["run_id"].tolist() == [0]
+
+
 def test_prior_suggestions_use_robust_turn_rate_scale_floor():
     """Constant synthetic turning should retain a non-degenerate state prior."""
     samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
