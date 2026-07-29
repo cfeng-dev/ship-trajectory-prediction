@@ -9,6 +9,7 @@ from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
 from ship_trajectory_prediction.coordinates import (
+    calculate_gps_distances,
     calculate_signed_curvature_from_gps,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
@@ -57,6 +58,8 @@ class ShipDataPlotStyle:
     calculated_speed_alpha: float = 0.75
     curvature_line_width: float = 1.5
     curvature_alpha: float = 0.85
+    stationary_color: str = "#A7A7A7"
+    stationary_alpha: float = 0.3
 
 
 DEFAULT_SHIP_DATA_PLOT_STYLE = ShipDataPlotStyle()
@@ -428,6 +431,14 @@ def plot_ship_curvature(
         color=plot_style.derived_data_color,
         linewidth=plot_style.curvature_line_width,
         alpha=plot_style.curvature_alpha,
+        label="Vorzeichenbehaftete Krümmung",
+    )
+    _shade_low_motion_periods(
+        axis,
+        data,
+        min_displacement_m=min_displacement_m,
+        color=plot_style.stationary_color,
+        alpha=plot_style.stationary_alpha,
     )
     axis.axhline(0.0, color="black", linewidth=1.0, alpha=0.5)
     axis.set_xlabel(
@@ -450,6 +461,7 @@ def plot_ship_curvature(
     axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
     axis.xaxis.set_major_formatter(mdates.DateFormatter(plot_style.time_tick_format))
     axis.grid(True)
+    axis.legend()
     figure.tight_layout()
     plt.show()
     return figure, axis
@@ -462,3 +474,40 @@ def _format_time_axis_label(time_values, *, time_range_format):
     start_label = start_time.strftime(time_range_format).strip()
     end_label = end_time.strftime(time_range_format).strip()
     return f"Zeit\nStart: {start_label}   Ende: {end_label}"
+
+
+def _shade_low_motion_periods(
+    axis,
+    data,
+    *,
+    min_displacement_m,
+    color,
+    alpha,
+):
+    """Shade periods whose GPS displacement is too small for curvature."""
+    segment_length = calculate_gps_distances(
+        data["gps_longitude"].to_numpy(),
+        data["gps_latitude"].to_numpy(),
+    )
+    low_motion_segment = segment_length < min_displacement_m
+    low_motion_sample = np.zeros(len(data), dtype=bool)
+    low_motion_sample[:-1] |= low_motion_segment
+    low_motion_sample[1:] |= low_motion_segment
+
+    padded_mask = np.pad(low_motion_sample.astype(int), (1, 1))
+    transitions = np.diff(padded_mask)
+    start_indices = np.flatnonzero(transitions == 1)
+    end_indices = np.flatnonzero(transitions == -1) - 1
+    for span_index, (start_index, end_index) in enumerate(
+        zip(start_indices, end_indices, strict=True)
+    ):
+        axis.axvspan(
+            data["time"].iloc[start_index],
+            data["time"].iloc[end_index],
+            color=color,
+            alpha=alpha,
+            label=(
+                "Stillstand / zu geringe Bewegung" if span_index == 0 else "_nolegend_"
+            ),
+            zorder=0,
+        )

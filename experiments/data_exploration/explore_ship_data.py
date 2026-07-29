@@ -46,6 +46,8 @@ PLOT_STYLE = ShipDataPlotStyle(
     calculated_speed_alpha=0.75,
     curvature_line_width=1.5,
     curvature_alpha=0.85,
+    stationary_color="#A7A7A7",
+    stationary_alpha=0.3,
 )
 
 
