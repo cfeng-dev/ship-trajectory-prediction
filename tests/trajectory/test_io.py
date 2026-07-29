@@ -64,6 +64,28 @@ def test_read_ship_data_accepts_simulated_trajectory_columns(tmp_path):
     assert "thruster_speed" not in result.columns
 
 
+def test_read_ship_data_filters_multiple_run_ids(tmp_path):
+    """An iterable should select several runs without including other runs."""
+    csv_path = tmp_path / "trajectory.csv"
+    pd.DataFrame(
+        {
+            "time": [
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:10Z",
+                "2026-01-01T00:00:20Z",
+            ],
+            "run_id": [1, 2, 3],
+            "gps_latitude": [47.0, 47.1, 47.2],
+            "gps_longitude": [8.0, 8.1, 8.2],
+            "gps_speed": [1.0, 2.0, 3.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    result = read_ship_data(csv_path, run_id=(1, 2))
+
+    assert result["run_id"].tolist() == [1, 2]
+
+
 def test_resample_trajectory_data_uses_separate_ten_second_run_windows():
     """Resampling should keep one original row per window and per run."""
     data = pd.DataFrame(

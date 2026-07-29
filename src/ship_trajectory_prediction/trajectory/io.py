@@ -1,5 +1,6 @@
 """Utilities for loading and preprocessing ship trajectory data."""
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
@@ -23,8 +24,8 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
     ----------
     csv_path : str or pathlib.Path
         Path to the CSV file.
-    run_id : int or None, optional
-        Selected run ID. If None, all runs are loaded.
+    run_id : int, iterable of int, or None, optional
+        Selected run ID or IDs. If None, all runs are loaded.
     start_time : str or None, optional
         Start time for filtering, e.g. "2026-01-09 23:00:00".
         If None, no lower time limit is applied.
@@ -62,7 +63,10 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
     data["time"] = pd.to_datetime(data["time"], utc=True)
 
     if run_id is not None:
-        data = data[data["run_id"] == run_id]
+        if isinstance(run_id, Iterable) and not isinstance(run_id, (str, bytes)):
+            data = data[data["run_id"].isin(tuple(run_id))]
+        else:
+            data = data[data["run_id"] == run_id]
 
     if start_time is not None:
         start_time = pd.to_datetime(start_time, utc=True)

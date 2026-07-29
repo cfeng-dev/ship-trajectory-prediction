@@ -17,7 +17,7 @@ DATA_FILE = project_path(
 )
 
 # Data selection
-RUN_ID = 1
+RUN_IDS = range(1, 4)  # One: (1,); selected: (1, 3); range 1-3: range(1, 4); all: None
 START_TIME = None
 END_TIME = None
 
@@ -46,6 +46,7 @@ PLOT_STYLE = ShipDataPlotStyle(
     legend_location="upper right",
     recorded_data_color="#4C78A8",
     derived_data_color="#F58518",
+    run_colors=("#4C78A8", "#59A14F", "#B279A2", "#E45756", "#72B7B2"),
     calculated_speed_line_width=1.5,
     calculated_speed_alpha=0.75,
     curvature_line_width=1.5,
@@ -59,7 +60,7 @@ def main() -> None:
     """Load recorded ship data and create exploratory plots."""
     ship_data = read_ship_data(
         DATA_FILE,
-        run_id=RUN_ID,
+        run_id=RUN_IDS,
         start_time=START_TIME,
         end_time=END_TIME,
     )

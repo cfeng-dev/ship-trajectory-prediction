@@ -55,6 +55,13 @@ class ShipDataPlotStyle:
     legend_location: str = "upper right"
     recorded_data_color: str = "#4C78A8"
     derived_data_color: str = "#F58518"
+    run_colors: tuple[str, ...] = (
+        "#4C78A8",
+        "#59A14F",
+        "#B279A2",
+        "#E45756",
+        "#72B7B2",
+    )
     calculated_speed_line_width: float = 1.5
     calculated_speed_alpha: float = 0.75
     curvature_line_width: float = 1.5
@@ -135,8 +142,9 @@ def plot_ship_trajectory(
     if arrow_step is not None and arrow_step <= 0:
         raise ValueError("arrow_step must be a positive integer or None.")
 
-    longitude = data["gps_longitude"].to_numpy()
-    latitude = data["gps_latitude"].to_numpy()
+    plot_data = data.copy()
+    longitude = plot_data["gps_longitude"].to_numpy()
+    latitude = plot_data["gps_latitude"].to_numpy()
 
     if coordinate_unit in {"km", "m"}:
         # Convert GPS coordinates to a local Cartesian coordinate system.
@@ -150,7 +158,7 @@ def plot_ship_trajectory(
         # All angles must be in radians. The cosine term compensates for the
         # decreasing east-west distance of one longitude degree toward the
         # poles. Positive x points east and positive y points north.
-        x_coordinates, y_coordinates = gps_to_local_coordinates(
+        plot_data["_plot_x"], plot_data["_plot_y"] = gps_to_local_coordinates(
             longitude,
             latitude,
             unit=coordinate_unit,
@@ -158,79 +166,80 @@ def plot_ship_trajectory(
         x_label = f"x [{coordinate_unit}]"
         y_label = f"y [{coordinate_unit}]"
     else:
-        x_coordinates = longitude
-        y_coordinates = latitude
+        plot_data["_plot_x"] = longitude
+        plot_data["_plot_y"] = latitude
         x_label = "Längengrad [°]"
         y_label = "Breitengrad [°]"
 
     plt.figure(figsize=plot_style.trajectory_figure_size)
-
-    # Trajectory line
-    trajectory_line = plt.plot(
-        x_coordinates,
-        y_coordinates,
-        color=plot_style.recorded_data_color,
-        marker="o",
-        markersize=TRAJECTORY_MARKER_SIZE,
-        linewidth=TRAJECTORY_LINE_WIDTH,
-        label="Schiffstrajektorie",
-    )[0]
-
-    # Start point
-    start_marker = plt.scatter(
-        x_coordinates[0],
-        y_coordinates[0],
-        s=START_MARKER_SIZE,
-        color=START_COLOR,
-        marker="o",
-        label="Start",
-        zorder=4,
-    )
-
-    # End point
-    end_marker = plt.scatter(
-        x_coordinates[-1],
-        y_coordinates[-1],
-        s=END_MARKER_SIZE,
-        color=END_COLOR,
-        alpha=END_ALPHA,
-        marker="X",
-        label="Ende",
-        zorder=5,
-    )
-
-    legend_handles = [
-        trajectory_line,
-        start_marker,
-        end_marker,
-    ]
-
+    run_groups = _trajectory_groups(plot_data)
+    trajectory_lines = []
+    start_marker = None
+    end_marker = None
     legend_handler_map = {}
+    for run_index, (run_id, run_data) in enumerate(run_groups):
+        x_coordinates = run_data["_plot_x"].to_numpy()
+        y_coordinates = run_data["_plot_y"].to_numpy()
+        trajectory_color = _run_color(
+            run_index,
+            run_count=len(run_groups),
+            plot_style=plot_style,
+        )
+        trajectory_lines.append(
+            plt.plot(
+                x_coordinates,
+                y_coordinates,
+                color=trajectory_color,
+                marker="o",
+                markersize=TRAJECTORY_MARKER_SIZE,
+                linewidth=TRAJECTORY_LINE_WIDTH,
+                label=_run_label("Schiffstrajektorie", run_id, len(run_groups)),
+            )[0]
+        )
 
-    # Direction arrows
+        run_start_marker = plt.scatter(
+            x_coordinates[0],
+            y_coordinates[0],
+            s=START_MARKER_SIZE,
+            color=START_COLOR,
+            marker="o",
+            label="Start" if run_index == 0 else "_nolegend_",
+            zorder=4,
+        )
+        run_end_marker = plt.scatter(
+            x_coordinates[-1],
+            y_coordinates[-1],
+            s=END_MARKER_SIZE,
+            color=END_COLOR,
+            alpha=END_ALPHA,
+            marker="X",
+            label="Ende" if run_index == 0 else "_nolegend_",
+            zorder=5,
+        )
+        if run_index == 0:
+            start_marker = run_start_marker
+            end_marker = run_end_marker
+
+        if arrow_step is not None:
+            for index in range(0, len(x_coordinates) - 1, arrow_step):
+                start = (x_coordinates[index], y_coordinates[index])
+                end = (x_coordinates[index + 1], y_coordinates[index + 1])
+                if start == end:
+                    continue
+                plt.annotate(
+                    "",
+                    xy=end,
+                    xytext=start,
+                    arrowprops={
+                        "arrowstyle": "->",
+                        "color": plot_style.derived_data_color,
+                        "linewidth": DIRECTION_LINE_WIDTH,
+                        "mutation_scale": ARROW_MUTATION_SCALE,
+                    },
+                )
+
+    legend_handles = [*trajectory_lines, start_marker, end_marker]
     if arrow_step is not None:
-        for index in range(0, len(x_coordinates) - 1, arrow_step):
-            start = (x_coordinates[index], y_coordinates[index])
-            end = (x_coordinates[index + 1], y_coordinates[index + 1])
-
-            dx = end[0] - start[0]
-            dy = end[1] - start[1]
-
-            if dx == 0 and dy == 0:
-                continue
-
-            plt.annotate(
-                "",
-                xy=end,
-                xytext=start,
-                arrowprops={
-                    "arrowstyle": "->",
-                    "color": plot_style.derived_data_color,
-                    "linewidth": DIRECTION_LINE_WIDTH,
-                    "mutation_scale": ARROW_MUTATION_SCALE,
-                },
-            )
-
         direction_handle = FancyArrowPatch(
             (0, 0),
             (1, 0),
@@ -243,6 +252,9 @@ def plot_ship_trajectory(
 
         legend_handles.append(direction_handle)
         legend_handler_map[FancyArrowPatch] = HandlerDirectionArrow()
+
+    x_coordinates = plot_data["_plot_x"].to_numpy()
+    y_coordinates = plot_data["_plot_y"].to_numpy()
 
     plt.xlabel(x_label, fontsize=plot_style.axis_label_font_size)
     plt.ylabel(y_label, fontsize=plot_style.axis_label_font_size)
@@ -318,29 +330,33 @@ def plot_ship_speeds(
     if speed_unit not in {"m/s", "km/h"}:
         raise ValueError("speed_unit must be 'm/s' or 'km/h'.")
 
-    recorded_gps_speed = np.asarray(data["gps_speed"], dtype=float)
-    if speed_unit == "m/s":
-        recorded_gps_speed = (
-            recorded_gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
-        )
-    calculated_speed = calculate_speed_from_gps(data, unit=speed_unit)
-
+    run_groups = _trajectory_groups(data)
     speed_figure, speed_axis = plt.subplots(figsize=plot_style.speed_figure_size)
-
-    speed_axis.plot(
-        data["time"],
-        recorded_gps_speed,
-        color=plot_style.recorded_data_color,
-        label="GPS-Geschwindigkeit",
-    )
-    speed_axis.plot(
-        data["time"],
-        calculated_speed,
-        color=plot_style.derived_data_color,
-        alpha=plot_style.calculated_speed_alpha,
-        label="Aus GPS-Positionen berechnet",
-        linewidth=plot_style.calculated_speed_line_width,
-    )
+    for run_id, run_data in run_groups:
+        recorded_gps_speed = np.asarray(run_data["gps_speed"], dtype=float)
+        if speed_unit == "m/s":
+            recorded_gps_speed = (
+                recorded_gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+            )
+        calculated_speed = calculate_speed_from_gps(run_data, unit=speed_unit)
+        speed_axis.plot(
+            run_data["time"],
+            recorded_gps_speed,
+            color=plot_style.recorded_data_color,
+            label=_run_label("GPS-Geschwindigkeit", run_id, len(run_groups)),
+        )
+        speed_axis.plot(
+            run_data["time"],
+            calculated_speed,
+            color=plot_style.derived_data_color,
+            alpha=plot_style.calculated_speed_alpha,
+            label=_run_label(
+                "Aus GPS-Positionen berechnet",
+                run_id,
+                len(run_groups),
+            ),
+            linewidth=plot_style.calculated_speed_line_width,
+        )
     time_axis_label = _format_time_axis_label(
         data["time"],
         time_range_format=plot_style.time_range_format,
@@ -371,16 +387,19 @@ def plot_ship_speeds(
     propulsion_figure, propulsion_axis = plt.subplots(
         figsize=plot_style.speed_figure_size
     )
-    propulsion_axis.plot(
-        data["time"],
-        data["shaft_speed"],
-        label="Wellendrehzahl",
-    )
-    propulsion_axis.plot(
-        data["time"],
-        data["thruster_speed"],
-        label="Strahlruderdrehzahl",
-    )
+    for run_id, run_data in run_groups:
+        propulsion_axis.plot(
+            run_data["time"],
+            run_data["shaft_speed"],
+            color=plot_style.recorded_data_color,
+            label=_run_label("Wellendrehzahl", run_id, len(run_groups)),
+        )
+        propulsion_axis.plot(
+            run_data["time"],
+            run_data["thruster_speed"],
+            color=plot_style.derived_data_color,
+            label=_run_label("Strahlruderdrehzahl", run_id, len(run_groups)),
+        )
     propulsion_axis.set_xlabel(
         time_axis_label,
         fontsize=plot_style.axis_label_font_size,
@@ -421,27 +440,43 @@ def plot_ship_curvature(
     if data.empty:
         raise ValueError("The input data is empty.")
 
-    curvature = calculate_signed_curvature_from_gps(
-        data,
-        min_displacement_m=min_displacement_m,
-        max_time_gap_s=max_time_gap_s,
-    )
+    run_groups = _trajectory_groups(data)
     figure, axis = plt.subplots(figsize=plot_style.curvature_figure_size)
-    axis.plot(
-        data["time"],
-        curvature,
-        color=plot_style.derived_data_color,
-        linewidth=plot_style.curvature_line_width,
-        alpha=plot_style.curvature_alpha,
-        label="Vorzeichenbehaftete Krümmung",
-    )
-    _shade_low_motion_periods(
-        axis,
-        data,
-        min_displacement_m=min_displacement_m,
-        color=plot_style.stationary_color,
-        alpha=plot_style.stationary_alpha,
-    )
+    for run_index, (run_id, run_data) in enumerate(run_groups):
+        curvature = calculate_signed_curvature_from_gps(
+            run_data,
+            min_displacement_m=min_displacement_m,
+            max_time_gap_s=max_time_gap_s,
+        )
+        curvature_color = (
+            plot_style.derived_data_color
+            if len(run_groups) == 1
+            else _run_color(
+                run_index,
+                run_count=len(run_groups),
+                plot_style=plot_style,
+            )
+        )
+        axis.plot(
+            run_data["time"],
+            curvature,
+            color=curvature_color,
+            linewidth=plot_style.curvature_line_width,
+            alpha=plot_style.curvature_alpha,
+            label=_run_label(
+                "Vorzeichenbehaftete Krümmung",
+                run_id,
+                len(run_groups),
+            ),
+        )
+        _shade_low_motion_periods(
+            axis,
+            run_data,
+            min_displacement_m=min_displacement_m,
+            color=plot_style.stationary_color,
+            alpha=plot_style.stationary_alpha,
+            include_legend_label=run_index == 0,
+        )
     axis.axhline(0.0, color="black", linewidth=1.0, alpha=0.5)
     axis.set_xlabel(
         _format_time_axis_label(
@@ -469,6 +504,35 @@ def plot_ship_curvature(
     return figure, axis
 
 
+def _trajectory_groups(data):
+    """Return run-separated trajectory groups without changing row order."""
+    if "run_id" not in data.columns:
+        return ((None, data),)
+    return tuple(
+        data.groupby(
+            "run_id",
+            sort=False,
+            dropna=False,
+        )
+    )
+
+
+def _run_label(base_label, run_id, run_count):
+    """Append a run identifier only when several runs are displayed."""
+    if run_count == 1 or run_id is None:
+        return base_label
+    return f"{base_label} (Run {run_id})"
+
+
+def _run_color(run_index, *, run_count, plot_style):
+    """Return the default color or a stable multi-run palette color."""
+    if run_count == 1:
+        return plot_style.recorded_data_color
+    if not plot_style.run_colors:
+        raise ValueError("plot_style.run_colors must not be empty for multiple runs.")
+    return plot_style.run_colors[run_index % len(plot_style.run_colors)]
+
+
 def _format_time_axis_label(time_values, *, time_range_format):
     """Return a compact axis label with the exact observation time range."""
     start_time = time_values.min()
@@ -485,6 +549,7 @@ def _shade_low_motion_periods(
     min_displacement_m,
     color,
     alpha,
+    include_legend_label,
 ):
     """Shade periods whose GPS displacement is too small for curvature."""
     segment_length = calculate_gps_distances(
@@ -509,7 +574,9 @@ def _shade_low_motion_periods(
             color=color,
             alpha=alpha,
             label=(
-                "Stillstand / zu geringe Bewegung" if span_index == 0 else "_nolegend_"
+                "Stillstand / zu geringe Bewegung"
+                if include_legend_label and span_index == 0
+                else "_nolegend_"
             ),
             zorder=0,
         )
