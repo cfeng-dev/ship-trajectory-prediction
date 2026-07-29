@@ -29,6 +29,7 @@ MAX_TIME_GAP_SECONDS = 15.0
 
 # Terminal report
 PRINT_PER_RUN_SUMMARY = False
+REPORT_LABEL_WIDTH = 23
 
 # Histogram data display
 PLOT_CENTRAL_QUANTILE = 0.995
@@ -417,37 +418,54 @@ def _print_report(samples, suggestions, *, print_per_run_summary):
     print("=" * 78)
     print("Motion Prior Exploration")
     print("=" * 78)
-    print(f"Data file             : {DATA_FILE}")
-    print(f"Calibration runs      : {_format_run_selection(run_values)}")
-    print(
-        "Usable samples        : "
+    _print_report_row("Data file", DATA_FILE)
+    _print_report_row("Calibration runs", _format_run_selection(run_values))
+    _print_report_row(
+        "Usable samples",
         f"speed={len(samples.speed_mps)}, "
         f"turn rate={len(samples.turn_rate_rad_s)}, "
         f"turn innovation={len(samples.turn_rate_innovation)}, "
-        f"position innovation={len(samples.position_innovation)}"
+        f"position innovation={len(samples.position_innovation)}",
     )
-    print("IMPORTANT             : Keep these runs separate from final evaluation.")
+    _print_report_row(
+        "IMPORTANT",
+        "Keep these runs separate from final evaluation.",
+    )
     if print_per_run_summary:
         print("\nPer-run empirical summary:")
         print(samples.per_run_summary.round(6).to_string(index=False))
     print("\nRobust prior candidates (not applied automatically):")
-    print(f"Speed center          : {suggestions.speed_median_mps:.4f} m/s")
-    print(f"Speed robust scale    : {suggestions.speed_robust_scale_mps:.4f} m/s")
-    print(f"Turn-rate center      : {suggestions.turn_rate_center_rad_s:+.6f} rad/s")
-    print(
-        f"Turn-rate robust scale: {suggestions.turn_rate_robust_scale_rad_s:.6f} rad/s"
+    _print_report_row("Speed center", f"{suggestions.speed_median_mps:.4f} m/s")
+    _print_report_row(
+        "Speed robust scale",
+        f"{suggestions.speed_robust_scale_mps:.4f} m/s",
     )
-    print(
-        "Turn process scale    : "
-        f"{suggestions.turn_rate_process_scale:.6f} rad/s/sqrt(s)"
+    _print_report_row(
+        "Turn-rate center",
+        f"{suggestions.turn_rate_center_rad_s:+.6f} rad/s",
     )
-    print(
-        f"Position residual scale: {suggestions.position_process_scale:.4f} m/sqrt(s)"
+    _print_report_row(
+        "Turn-rate robust scale",
+        f"{suggestions.turn_rate_robust_scale_rad_s:.6f} rad/s",
     )
-    print(
-        "NOTE                  : Position residuals contain motion-model and "
-        "GPS measurement error; they are not a direct process-noise estimate."
+    _print_report_row(
+        "Turn process scale",
+        f"{suggestions.turn_rate_process_scale:.6f} rad/s/sqrt(s)",
     )
+    _print_report_row(
+        "Position residual scale",
+        f"{suggestions.position_process_scale:.4f} m/sqrt(s)",
+    )
+    _print_report_row(
+        "NOTE",
+        "Position residuals contain motion-model and GPS measurement error; "
+        "they are not a direct process-noise estimate.",
+    )
+
+
+def _print_report_row(label, value):
+    """Print one terminal report row with a shared label width."""
+    print(f"{label:<{REPORT_LABEL_WIDTH}}: {value}")
 
 
 def _plot_speed_distribution(axis, values, *, central_quantile, histogram_mode):

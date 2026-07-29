@@ -17,6 +17,8 @@ from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
     HISTOGRAM_EDGE_LINE_WIDTH,
     PLOT_TITLE_FONT_SIZE,
     PLOT_TITLE_FONT_WEIGHT,
+    REPORT_LABEL_WIDTH,
+    _print_report,
     collect_motion_prior_samples,
     plot_motion_prior_distributions,
     suggest_prior_scales,
@@ -81,6 +83,20 @@ def test_prior_suggestions_use_robust_turn_rate_scale_floor():
     assert suggestions.turn_rate_center_rad_s == pytest.approx(0.012, abs=1e-7)
     assert suggestions.turn_rate_process_scale == pytest.approx(0.0, abs=1e-8)
     assert suggestions.position_process_scale == pytest.approx(0.0, abs=1e-5)
+
+
+def test_terminal_report_aligns_all_value_separators(capsys):
+    """Every report value should start after the same aligned colon."""
+    samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
+    suggestions = suggest_prior_scales(samples)
+
+    _print_report(samples, suggestions, print_per_run_summary=False)
+
+    report_lines = [
+        line for line in capsys.readouterr().out.splitlines() if ": " in line
+    ]
+    assert report_lines
+    assert {line.index(":") for line in report_lines} == {REPORT_LABEL_WIDTH}
 
 
 def test_plot_motion_prior_distributions_returns_four_separate_figures():
