@@ -332,7 +332,7 @@ def plot_ship_speeds(
 
     run_groups = _trajectory_groups(data)
     speed_figure, speed_axis = plt.subplots(figsize=plot_style.speed_figure_size)
-    for run_id, run_data in run_groups:
+    for run_index, (_, run_data) in enumerate(run_groups):
         recorded_gps_speed = np.asarray(run_data["gps_speed"], dtype=float)
         if speed_unit == "m/s":
             recorded_gps_speed = (
@@ -343,18 +343,14 @@ def plot_ship_speeds(
             run_data["time"],
             recorded_gps_speed,
             color=plot_style.recorded_data_color,
-            label=_run_label("GPS-Geschwindigkeit", run_id, len(run_groups)),
+            label="GPS-Geschwindigkeit" if run_index == 0 else "_nolegend_",
         )
         speed_axis.plot(
             run_data["time"],
             calculated_speed,
             color=plot_style.derived_data_color,
             alpha=plot_style.calculated_speed_alpha,
-            label=_run_label(
-                "Aus GPS-Positionen berechnet",
-                run_id,
-                len(run_groups),
-            ),
+            label=("Aus GPS-Positionen berechnet" if run_index == 0 else "_nolegend_"),
             linewidth=plot_style.calculated_speed_line_width,
         )
     time_axis_label = _format_time_axis_label(
@@ -387,18 +383,18 @@ def plot_ship_speeds(
     propulsion_figure, propulsion_axis = plt.subplots(
         figsize=plot_style.speed_figure_size
     )
-    for run_id, run_data in run_groups:
+    for run_index, (_, run_data) in enumerate(run_groups):
         propulsion_axis.plot(
             run_data["time"],
             run_data["shaft_speed"],
             color=plot_style.recorded_data_color,
-            label=_run_label("Wellendrehzahl", run_id, len(run_groups)),
+            label="Wellendrehzahl" if run_index == 0 else "_nolegend_",
         )
         propulsion_axis.plot(
             run_data["time"],
             run_data["thruster_speed"],
             color=plot_style.derived_data_color,
-            label=_run_label("Strahlruderdrehzahl", run_id, len(run_groups)),
+            label="Strahlruderdrehzahl" if run_index == 0 else "_nolegend_",
         )
     propulsion_axis.set_xlabel(
         time_axis_label,
@@ -498,7 +494,22 @@ def plot_ship_curvature(
     axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
     axis.xaxis.set_major_formatter(mdates.DateFormatter(plot_style.time_tick_format))
     axis.grid(True)
-    axis.legend(loc=plot_style.legend_location)
+    legend_handles, legend_labels = axis.get_legend_handles_labels()
+    legend_order = [
+        index
+        for index, label in enumerate(legend_labels)
+        if label != "Stillstand / zu geringe Bewegung"
+    ]
+    legend_order.extend(
+        index
+        for index, label in enumerate(legend_labels)
+        if label == "Stillstand / zu geringe Bewegung"
+    )
+    axis.legend(
+        [legend_handles[index] for index in legend_order],
+        [legend_labels[index] for index in legend_order],
+        loc=plot_style.legend_location,
+    )
     figure.tight_layout()
     plt.show()
     return figure, axis

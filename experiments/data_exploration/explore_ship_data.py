@@ -17,7 +17,7 @@ DATA_FILE = project_path(
 )
 
 # Data selection
-RUN_IDS = range(1, 4)  # One: (1,); selected: (1, 3); range 1-3: range(1, 4); all: None
+RUN_IDS = (1,)  # One: (1,); selected: (1, 3); range 1-3: range(1, 4); all: None
 START_TIME = None
 END_TIME = None
 
