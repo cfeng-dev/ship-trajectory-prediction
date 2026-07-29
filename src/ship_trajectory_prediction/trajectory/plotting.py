@@ -52,6 +52,7 @@ class ShipDataPlotStyle:
     axis_tick_font_size: float = 11
     time_tick_format: str = "%H:%M"
     time_range_format: str = "%d.%m.%Y %H:%M:%S %Z"
+    time_label_line_spacing: float = 2.4
     legend_location: str = "upper right"
     recorded_data_color: str = "#4C78A8"
     derived_data_color: str = "#F58518"
@@ -360,6 +361,7 @@ def plot_ship_speeds(
     speed_axis.set_xlabel(
         time_axis_label,
         fontsize=plot_style.axis_label_font_size,
+        linespacing=plot_style.time_label_line_spacing,
     )
     speed_axis.set_ylabel(
         f"Schiffsgeschwindigkeit [{speed_unit}]",
@@ -399,6 +401,7 @@ def plot_ship_speeds(
     propulsion_axis.set_xlabel(
         time_axis_label,
         fontsize=plot_style.axis_label_font_size,
+        linespacing=plot_style.time_label_line_spacing,
     )
     propulsion_axis.set_ylabel(
         f"Antriebsdrehzahl [{propulsion_speed_unit}]",
@@ -480,6 +483,7 @@ def plot_ship_curvature(
             time_range_format=plot_style.time_range_format,
         ),
         fontsize=plot_style.axis_label_font_size,
+        linespacing=plot_style.time_label_line_spacing,
     )
     axis.set_ylabel(
         "Vorzeichenbehaftete Krümmung κ [1/m]",
