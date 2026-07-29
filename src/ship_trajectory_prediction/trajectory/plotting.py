@@ -52,6 +52,7 @@ class ShipDataPlotStyle:
     axis_tick_font_size: float = 11
     time_tick_format: str = "%H:%M"
     time_range_format: str = "%d.%m.%Y %H:%M:%S %Z"
+    legend_location: str = "upper right"
     recorded_data_color: str = "#4C78A8"
     derived_data_color: str = "#F58518"
     calculated_speed_line_width: float = 1.5
@@ -274,6 +275,7 @@ def plot_ship_trajectory(
     plt.legend(
         handles=legend_handles,
         handler_map=legend_handler_map,
+        loc=plot_style.legend_location,
     )
 
     plt.tight_layout()
@@ -362,7 +364,7 @@ def plot_ship_speeds(
         mdates.DateFormatter(plot_style.time_tick_format)
     )
     speed_axis.grid(True)
-    speed_axis.legend()
+    speed_axis.legend(loc=plot_style.legend_location)
     speed_figure.tight_layout()
     plt.show()
 
@@ -401,7 +403,7 @@ def plot_ship_speeds(
         mdates.DateFormatter(plot_style.time_tick_format)
     )
     propulsion_axis.grid(True)
-    propulsion_axis.legend()
+    propulsion_axis.legend(loc=plot_style.legend_location)
     propulsion_figure.tight_layout()
     plt.show()
 
@@ -461,7 +463,7 @@ def plot_ship_curvature(
     axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
     axis.xaxis.set_major_formatter(mdates.DateFormatter(plot_style.time_tick_format))
     axis.grid(True)
-    axis.legend()
+    axis.legend(loc=plot_style.legend_location)
     figure.tight_layout()
     plt.show()
     return figure, axis

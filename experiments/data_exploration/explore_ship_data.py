@@ -40,6 +40,7 @@ PLOT_STYLE = ShipDataPlotStyle(
     axis_tick_font_size=11,
     time_tick_format="%H:%M",
     time_range_format="%d.%m.%Y %H:%M:%S %Z",
+    legend_location="upper right",
     recorded_data_color="#4C78A8",
     derived_data_color="#F58518",
     calculated_speed_line_width=1.5,
