@@ -111,6 +111,8 @@ model {
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
   sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
 
+  // Propagate the latent state through CTRV. GPS positions enter only the
+  // observation model below and never serve as transition inputs.
   for (n in 2:N_observed) {
     real dt = time_observed[n] - time_observed[n - 1];
     vector[2] position = ctrv_position(
@@ -131,6 +133,7 @@ model {
                                 sigma_turn_rate_process * sqrt(dt));
   }
 
+  // GPS data are noisy observations of the propagated latent states.
   x_observed ~ normal(x_state, sigma_position_gps);
   y_observed ~ normal(y_state, sigma_position_gps);
   speed_observed ~ normal(speed_state, sigma_speed_gps);
@@ -146,8 +149,10 @@ generated quantities {
   vector[N_prediction] heading_prediction;
   vector[N_prediction] turn_rate_prediction;
   vector[3 * N_observed] log_likelihood;
-  real x_previous = x_observed[N_observed];
-  real y_previous = y_observed[N_observed];
+  // Continue future CTRV propagation from the final latent state, not from
+  // the final noisy GPS observation.
+  real x_previous = x_state[N_observed];
+  real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
   real heading_previous = heading_state[N_observed];
   real turn_rate_previous = turn_rate_state[N_observed];

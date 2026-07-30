@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -469,8 +470,24 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "lower=-turn_rate_limit" in source
     assert "upper=turn_rate_limit" in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
-    assert "real x_previous = x_observed[N_observed]" in source
-    assert "real y_previous = y_observed[N_observed]" in source
+    assert "real x_previous = x_state[N_observed]" in source
+    assert "real y_previous = y_state[N_observed]" in source
+
+
+def test_stan_ctrv_calls_never_use_observed_positions_as_transition_inputs():
+    """Every fitted and future CTRV step should propagate latent positions."""
+    source = STAN_FILE.read_text(encoding="utf-8")
+    calls = re.findall(
+        r"vector\[2\]\s+\w+\s*=\s*ctrv_position\((.*?)\);",
+        source,
+        flags=re.DOTALL,
+    )
+
+    assert len(calls) == 2
+    assert all("x_observed" not in call for call in calls)
+    assert all("y_observed" not in call for call in calls)
+    assert "x_observed ~ normal(x_state, sigma_position_gps)" in source
+    assert "y_observed ~ normal(y_state, sigma_position_gps)" in source
 
 
 @pytest.mark.integration
