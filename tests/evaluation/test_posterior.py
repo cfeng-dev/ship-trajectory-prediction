@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
-from experiments.trajectory_prediction import (
+from experiments.model_validation import (
     plot_bayesian_ctrv_posterior as posterior_experiment,  # noqa: E402
 )
 from ship_trajectory_prediction.evaluation.posterior import (  # noqa: E402
