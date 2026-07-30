@@ -1,4 +1,5 @@
 functions {
+  // Deterministic CTRV position update
   vector ctrv_position(
       real dt,
       real x,
@@ -9,6 +10,7 @@ functions {
     vector[2] position;
 
     if (abs(turn_rate) > 1e-6) {
+      // Exact circular-motion equations
       position[1] = x
                     + speed / turn_rate
                       * (sin(heading + turn_rate * dt) - sin(heading));
@@ -16,6 +18,7 @@ functions {
                     + speed / turn_rate
                       * (-cos(heading + turn_rate * dt) + cos(heading));
     } else {
+      // Stable straight-line approximation
       position[1] = x + speed * dt * cos(heading);
       position[2] = y + speed * dt * sin(heading);
     }
@@ -25,15 +28,18 @@ functions {
 }
 
 data {
-  int<lower=2> N_observed;
-  vector[N_observed] time_observed;
-  vector[N_observed] x_observed;
-  vector[N_observed] y_observed;
-  vector<lower=0>[N_observed] speed_observed;
+  // Observed trajectory
+  int<lower=2> N_observed;                         // number of observations
+  vector[N_observed] time_observed;                // elapsed time [s]
+  vector[N_observed] x_observed;                   // local x position [m]
+  vector[N_observed] y_observed;                   // local y position [m]
+  vector<lower=0>[N_observed] speed_observed;      // GPS speed [m/s]
 
-  int<lower=1> N_prediction;
-  vector[N_prediction] time_prediction;
+  // Prediction horizon
+  int<lower=1> N_prediction;                       // number of future steps
+  vector[N_prediction] time_prediction;            // future elapsed time [s]
 
+  // Initial-state priors
   real x_initial_prior_mean;
   real y_initial_prior_mean;
   real<lower=0> position_initial_prior_scale;
@@ -43,8 +49,9 @@ data {
   real<lower=0> heading_initial_prior_scale;
   real turn_rate_initial_prior_mean;
   real<lower=0> turn_rate_state_prior_scale;
-  real<lower=0> turn_rate_limit;
+  real<lower=0> turn_rate_limit;                    // absolute limit [rad/s]
 
+  // Observation- and process-noise prior scales
   real<lower=0> sigma_position_gps_prior_scale;
   real<lower=0> sigma_speed_gps_prior_scale;
   real<lower=0> sigma_position_process_prior_scale;
@@ -53,6 +60,7 @@ data {
 }
 
 transformed data {
+  // Require strictly ordered observation and prediction times
   for (n in 2:N_observed) {
     if (time_observed[n] <= time_observed[n - 1]) {
       reject("time_observed must be strictly increasing");
@@ -69,6 +77,7 @@ transformed data {
 }
 
 parameters {
+  // Latent motion states
   vector[N_observed] x_state;
   vector[N_observed] y_state;
   vector<lower=0.001, upper=100>[N_observed] speed_state;
@@ -76,8 +85,11 @@ parameters {
   vector<lower=-turn_rate_limit,
          upper=turn_rate_limit>[N_observed] turn_rate_state;
 
+  // Observation noise
   real<lower=1e-6> sigma_position_gps;
   real<lower=1e-6> sigma_speed_gps;
+
+  // Process noise per square-root second
   real<lower=1e-6> sigma_position_process;
   real<lower=1e-6> sigma_speed_process;
   real<lower=1e-6> sigma_turn_rate_process;
@@ -86,6 +98,7 @@ parameters {
 transformed parameters {
   vector[N_observed] heading_state;
 
+  // Deterministic heading propagation
   heading_state[1] = heading_initial;
   for (n in 2:N_observed) {
     real dt = time_observed[n] - time_observed[n - 1];
@@ -94,25 +107,25 @@ transformed parameters {
 }
 
 model {
+  // Initial-state priors
   x_state[1] ~ normal(x_initial_prior_mean, position_initial_prior_scale);
   y_state[1] ~ normal(y_initial_prior_mean, position_initial_prior_scale);
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
   heading_initial ~ normal(heading_initial_prior_mean,
                            heading_initial_prior_scale);
-  // Regularize the complete latent path, not only its first element. This
-  // prevents process noise from supporting implausible full rotations while
-  // retaining the local random-walk transition below.
+
+  // Prior for the complete latent turn-rate path
   turn_rate_state ~ normal(turn_rate_initial_prior_mean,
                            turn_rate_state_prior_scale);
 
+  // Half-normal priors due to positive sigma constraints
   sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
   sigma_speed_gps ~ normal(0, sigma_speed_gps_prior_scale);
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
   sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
 
-  // Propagate the latent state through CTRV. GPS positions enter only the
-  // observation model below and never serve as transition inputs.
+  // Stochastic CTRV transitions between latent states
   for (n in 2:N_observed) {
     real dt = time_observed[n] - time_observed[n - 1];
     vector[2] position = ctrv_position(
@@ -123,8 +136,7 @@ model {
         heading_state[n - 1],
         turn_rate_state[n - 1]);
 
-    // Diffusion scales grow with sqrt(dt). Therefore each process sigma is
-    // expressed per square-root second in the unit of its corresponding state.
+    // Diffusion scaling for variable time intervals
     x_state[n] ~ normal(position[1], sigma_position_process * sqrt(dt));
     y_state[n] ~ normal(position[2], sigma_position_process * sqrt(dt));
     speed_state[n] ~ normal(speed_state[n - 1],
@@ -133,24 +145,31 @@ model {
                                 sigma_turn_rate_process * sqrt(dt));
   }
 
-  // GPS data are noisy observations of the propagated latent states.
+  // Observation model
   x_observed ~ normal(x_state, sigma_position_gps);
   y_observed ~ normal(y_state, sigma_position_gps);
   speed_observed ~ normal(speed_state, sigma_speed_gps);
 }
 
 generated quantities {
+  // Predicted latent position and speed
   vector[N_prediction] x_prediction_mean;
   vector[N_prediction] y_prediction_mean;
   vector[N_prediction] speed_prediction_mean;
+
+  // Posterior predictive GPS observations
   vector[N_prediction] x_prediction;
   vector[N_prediction] y_prediction;
   vector[N_prediction] speed_prediction;
+
+  // Predicted heading and turn rate
   vector[N_prediction] heading_prediction;
   vector[N_prediction] turn_rate_prediction;
+
+  // Pointwise observation log likelihood
   vector[3 * N_observed] log_likelihood;
-  // Continue future CTRV propagation from the final latent state, not from
-  // the final noisy GPS observation.
+
+  // Start forecasting at the final latent state
   real x_previous = x_state[N_observed];
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
@@ -158,6 +177,7 @@ generated quantities {
   real turn_rate_previous = turn_rate_state[N_observed];
   real time_previous = time_observed[N_observed];
 
+  // Log likelihood for model comparison
   for (n in 1:N_observed) {
     log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n],
                                     sigma_position_gps);
@@ -167,6 +187,7 @@ generated quantities {
         speed_observed[n] | speed_state[n], sigma_speed_gps);
   }
 
+  // Posterior predictive trajectory
   for (n in 1:N_prediction) {
     real dt = time_prediction[n] - time_previous;
     vector[2] position = ctrv_position(
