@@ -242,8 +242,8 @@ def create_steering_section(gui, parent):
 
     tk.Label(
         steering_frame,
-        text="Left  ←   0 °/s   →  Right",
-        width=24,
+        text="Left (+)  ←  0 °/s  →  (−) Right",
+        width=30,
         anchor="center",
         bg=gui.control_panel_color,
         fg="black",
@@ -251,8 +251,8 @@ def create_steering_section(gui, parent):
 
     gui.steering_slider = tk.Scale(
         steering_frame,
-        from_=gui.min_steering_deg_per_second,
-        to=gui.max_steering_deg_per_second,
+        from_=gui.max_steering_deg_per_second,
+        to=gui.min_steering_deg_per_second,
         orient=tk.HORIZONTAL,
         length=180,
         resolution=gui.steering_resolution,

@@ -179,9 +179,9 @@ class ShipTrajectoryGUI:
         """
         Steer the ship to the left using the keyboard.
         """
-        new_steering = max(
-            self.steering_slider.get() - self.keyboard_steering_step,
-            self.min_steering_deg_per_second,
+        new_steering = min(
+            self.steering_slider.get() + self.keyboard_steering_step,
+            self.max_steering_deg_per_second,
         )
 
         self.steering_slider.set(new_steering)
@@ -191,9 +191,9 @@ class ShipTrajectoryGUI:
         """
         Steer the ship to the right using the keyboard.
         """
-        new_steering = min(
-            self.steering_slider.get() + self.keyboard_steering_step,
-            self.max_steering_deg_per_second,
+        new_steering = max(
+            self.steering_slider.get() - self.keyboard_steering_step,
+            self.min_steering_deg_per_second,
         )
 
         self.steering_slider.set(new_steering)
@@ -241,7 +241,9 @@ class ShipTrajectoryGUI:
 
     def get_omega_from_steering(self):
         """
-        Convert steering slider value from degrees per second to rad/s.
+        Convert signed steering rate from degrees per second to rad/s.
+
+        Positive values turn left and negative values turn right.
 
         Returns
         -------
@@ -250,10 +252,7 @@ class ShipTrajectoryGUI:
         """
         steering_deg_per_second = self.steering_slider.get()
 
-        # Positive slider value means steering to the right.
-        # In mathematical coordinates, positive omega turns left,
-        # therefore the sign is inverted here.
-        omega = -np.deg2rad(steering_deg_per_second)
+        omega = np.deg2rad(steering_deg_per_second)
 
         return omega
 
