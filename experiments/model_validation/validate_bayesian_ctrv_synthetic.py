@@ -17,6 +17,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     NOISE_PARAMETER_NAMES,
+    BayesianCTRVPriors,
     VIRunResult,
     build_stan_data,
     compare_vi_runs,
@@ -31,6 +32,7 @@ from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 OBSERVATION_COUNT = 12
 PREDICTION_COUNT = 4
+PRIORS = BayesianCTRVPriors()
 VI_ITER = 20_000
 VI_GRAD_SAMPLES = 1
 VI_ELBO_SAMPLES = 100
@@ -69,7 +71,7 @@ def main(
         observation_count=observation_count,
         prediction_count=prediction_count,
     )
-    stan_data = build_stan_data(window)
+    stan_data = build_stan_data(window, priors=PRIORS)
     print_prediction_setup(
         "Synthetic Bayesian CTRV Validation",
         data_file=f"synthetic CTRV data (seed={SYNTHETIC_SEED})",
@@ -97,6 +99,7 @@ def main(
             started = perf_counter()
             fit = fit_bayesian_ctrv_model(
                 window,
+                priors=PRIORS,
                 algorithm=algorithm,
                 iter=vi_iter,
                 grad_samples=VI_GRAD_SAMPLES,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,6 +15,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
+    BayesianCTRVPriors,
     VIRunResult,
     build_stan_data,
     compare_vi_runs,
@@ -131,7 +132,28 @@ def test_build_stan_data_does_not_use_held_out_measurements():
 def test_build_stan_data_rejects_non_positive_prior_scales(scale_name):
     """Every configurable prior scale should be positive and finite."""
     with pytest.raises(ValueError, match=scale_name):
-        build_stan_data(create_synthetic_window(), **{scale_name: 0.0})
+        BayesianCTRVPriors(**{scale_name: 0.0})
+
+
+def test_build_stan_data_uses_typed_prior_configuration():
+    """One immutable configuration should supply every Stan prior scale."""
+    priors = BayesianCTRVPriors(
+        position_initial_prior_scale=4.0,
+        speed_initial_prior_scale=0.6,
+        heading_initial_prior_scale=0.25,
+        turn_rate_state_prior_scale=0.004,
+        sigma_position_gps_prior_scale=3.0,
+        sigma_speed_gps_prior_scale=0.4,
+        sigma_position_process_prior_scale=0.3,
+        sigma_speed_process_prior_scale=0.04,
+        sigma_turn_rate_process_prior_scale=0.0008,
+    )
+
+    stan_data = build_stan_data(create_synthetic_window(), priors=priors)
+
+    for prior_field in fields(priors):
+        field_name = prior_field.name
+        assert stan_data[field_name] == pytest.approx(getattr(priors, field_name))
 
 
 @pytest.mark.parametrize(("turn_rate", "expected_sign"), [(0.012, 1), (-0.012, -1)])

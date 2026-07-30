@@ -1,6 +1,7 @@
 """Evaluate Bayesian CTRV forecasts over a complete recorded trajectory."""
 
 import argparse
+from dataclasses import replace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,6 +25,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
+    BayesianCTRVPriors,
     diagnose_observed_turn_rate,
     fit_bayesian_ctrv_model,
     variational_converged,
@@ -47,7 +49,7 @@ STRIDE = None
 CREDIBLE_INTERVAL = 0.9
 VI_ALGORITHM = "meanfield"
 TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
-TURN_RATE_STATE_PRIOR_SCALE = None
+PRIORS = BayesianCTRVPriors()
 SEED = 42
 REQUIRE_CONVERGED = False
 MAX_WINDOWS = None
@@ -62,7 +64,7 @@ def main(
     stride=STRIDE,
     vi_algorithm=VI_ALGORITHM,
     turn_rate_limit=TURN_RATE_LIMIT,
-    turn_rate_state_prior_scale=TURN_RATE_STATE_PRIOR_SCALE,
+    priors=PRIORS,
     seed=SEED,
     require_converged=REQUIRE_CONVERGED,
     max_windows=MAX_WINDOWS,
@@ -104,8 +106,8 @@ def main(
         "Turn-rate prior scale : "
         + (
             "data-derived"
-            if turn_rate_state_prior_scale is None
-            else f"{turn_rate_state_prior_scale:.5f} rad/s"
+            if priors.turn_rate_state_prior_scale is None
+            else f"{priors.turn_rate_state_prior_scale:.5f} rad/s"
         )
     )
     print(f"Plot each window      : {plot_each_window}")
@@ -127,15 +129,15 @@ def main(
         observed_turn_rate = diagnose_observed_turn_rate(
             window,
             turn_rate_limit=turn_rate_limit,
-            turn_rate_state_prior_scale=turn_rate_state_prior_scale,
+            turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         )
         fit = fit_bayesian_ctrv_model(
             window,
+            priors=priors,
+            turn_rate_limit=turn_rate_limit,
             algorithm=vi_algorithm,
             seed=window_seed,
             require_converged=require_converged,
-            turn_rate_limit=turn_rate_limit,
-            turn_rate_state_prior_scale=turn_rate_state_prior_scale,
         )
         converged = variational_converged(fit)
         posterior_diagnostics = _posterior_window_diagnostics(fit)
@@ -437,7 +439,7 @@ def _parse_arguments():
     parser.add_argument(
         "--turn-rate-prior-scale",
         type=float,
-        default=TURN_RATE_STATE_PRIOR_SCALE,
+        default=PRIORS.turn_rate_state_prior_scale,
         help="Optional fixed state-prior scale; defaults to observed-history MAD.",
     )
     parser.add_argument("--seed", type=int, default=SEED)
@@ -471,7 +473,10 @@ if __name__ == "__main__":
         stride=arguments.stride,
         vi_algorithm=arguments.vi_algorithm,
         turn_rate_limit=arguments.turn_rate_limit,
-        turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
+        priors=replace(
+            PRIORS,
+            turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
+        ),
         seed=arguments.seed,
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,

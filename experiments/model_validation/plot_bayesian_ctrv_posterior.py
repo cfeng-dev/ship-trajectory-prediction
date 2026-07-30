@@ -16,6 +16,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     NOISE_PARAMETER_NAMES,
+    BayesianCTRVPriors,
     fit_bayesian_ctrv_model,
     variational_converged,
 )
@@ -32,6 +33,7 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
+PRIORS = BayesianCTRVPriors()
 POSTERIOR_TIME_INDICES = (0, OBSERVATION_COUNT - 1)
 CREDIBLE_INTERVAL = 0.9
 
@@ -73,6 +75,7 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
 
     fit = fit_bayesian_ctrv_model(
         window,
+        priors=PRIORS,
         algorithm=vi_algorithm,
         iter=VI_ITER,
         grad_samples=VI_GRAD_SAMPLES,

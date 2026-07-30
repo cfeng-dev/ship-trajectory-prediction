@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,31 @@ NOISE_PARAMETER_NAMES = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class BayesianCTRVPriors:
+    """Configurable prior scales for the Bayesian CTRV state-space model."""
+
+    position_initial_prior_scale: float = 5.0
+    speed_initial_prior_scale: float = 0.75
+    heading_initial_prior_scale: float = 0.35
+    turn_rate_state_prior_scale: float | None = None
+    sigma_position_gps_prior_scale: float = 5.0
+    sigma_speed_gps_prior_scale: float = 0.5
+    sigma_position_process_prior_scale: float = 0.5
+    sigma_speed_process_prior_scale: float = 0.05
+    sigma_turn_rate_process_prior_scale: float = 0.001
+
+    def __post_init__(self) -> None:
+        """Normalize and validate every explicitly configured prior scale."""
+        for prior_field in fields(self):
+            field_name = prior_field.name
+            value = getattr(self, field_name)
+            if field_name == "turn_rate_state_prior_scale" and value is None:
+                continue
+            _validate_positive_finite(field_name, value)
+            object.__setattr__(self, field_name, float(value))
+
+
 @dataclass(frozen=True)
 class VIRunResult:
     """One fitted VI run together with reproducibility metadata."""
@@ -71,16 +96,8 @@ class TurnRateDiagnostics:
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
-    position_initial_prior_scale: float = 5.0,
-    speed_initial_prior_scale: float = 0.75,
-    heading_initial_prior_scale: float = 0.35,
-    turn_rate_state_prior_scale: float | None = None,
+    priors: BayesianCTRVPriors | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
-    sigma_position_gps_prior_scale: float = 5.0,
-    sigma_speed_gps_prior_scale: float = 0.5,
-    sigma_position_process_prior_scale: float = 0.5,
-    sigma_speed_process_prior_scale: float = 0.05,
-    sigma_turn_rate_process_prior_scale: float = 0.001,
 ) -> dict[str, Any]:
     """Build data and weakly informative priors for one observed window.
 
@@ -90,24 +107,31 @@ def build_stan_data(
     standard deviations are multiplied by ``sqrt(dt)`` in Stan. Their units are
     therefore state units per square-root second.
     """
+    if priors is None:
+        priors = BayesianCTRVPriors()
+    if not isinstance(priors, BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance or None.")
+
     turn_rate_diagnostics = diagnose_observed_turn_rate(
         window,
-        turn_rate_state_prior_scale=turn_rate_state_prior_scale,
+        turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         turn_rate_limit=turn_rate_limit,
     )
     prior_scales = {
-        "position_initial_prior_scale": position_initial_prior_scale,
-        "speed_initial_prior_scale": speed_initial_prior_scale,
-        "heading_initial_prior_scale": heading_initial_prior_scale,
+        "position_initial_prior_scale": priors.position_initial_prior_scale,
+        "speed_initial_prior_scale": priors.speed_initial_prior_scale,
+        "heading_initial_prior_scale": priors.heading_initial_prior_scale,
         "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
-        "sigma_position_gps_prior_scale": sigma_position_gps_prior_scale,
-        "sigma_speed_gps_prior_scale": sigma_speed_gps_prior_scale,
-        "sigma_position_process_prior_scale": (sigma_position_process_prior_scale),
-        "sigma_speed_process_prior_scale": sigma_speed_process_prior_scale,
-        "sigma_turn_rate_process_prior_scale": (sigma_turn_rate_process_prior_scale),
+        "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
+        "sigma_speed_gps_prior_scale": priors.sigma_speed_gps_prior_scale,
+        "sigma_position_process_prior_scale": (
+            priors.sigma_position_process_prior_scale
+        ),
+        "sigma_speed_process_prior_scale": priors.sigma_speed_process_prior_scale,
+        "sigma_turn_rate_process_prior_scale": (
+            priors.sigma_turn_rate_process_prior_scale
+        ),
     }
-    for name, value in prior_scales.items():
-        _validate_positive_finite(name, value)
 
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
@@ -179,6 +203,8 @@ def compile_bayesian_ctrv_model(
 def fit_bayesian_ctrv_model(
     window: TrajectoryWindowData,
     *,
+    priors: BayesianCTRVPriors | None = None,
+    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     algorithm: str = "meanfield",
     iter: int = 20_000,
     grad_samples: int = 1,
@@ -193,7 +219,6 @@ def fit_bayesian_ctrv_model(
     require_converged: bool = True,
     show_console: bool = False,
     variational_options: Mapping[str, Any] | None = None,
-    **stan_data_options: float,
 ) -> CmdStanVB:
     """Fit the Bayesian CTRV model with CmdStan variational inference.
 
@@ -238,7 +263,11 @@ def fit_bayesian_ctrv_model(
         names = ", ".join(sorted(conflicting))
         raise ValueError(f"variational_options must not override: {names}.")
 
-    stan_data = build_stan_data(window, **stan_data_options)
+    stan_data = build_stan_data(
+        window,
+        priors=priors,
+        turn_rate_limit=turn_rate_limit,
+    )
     if inits is None:
         inits = _default_initial_values(stan_data, seed=seed)
 

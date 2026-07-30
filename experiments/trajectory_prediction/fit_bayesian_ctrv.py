@@ -17,6 +17,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     NOISE_PARAMETER_NAMES,
+    BayesianCTRVPriors,
     build_stan_data,
     fit_bayesian_ctrv_model,
     variational_converged,
@@ -33,6 +34,7 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
+PRIORS = BayesianCTRVPriors()
 VI_ITER = 20_000
 VI_GRAD_SAMPLES = 1
 VI_ELBO_SAMPLES = 100
@@ -53,7 +55,7 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
         prediction_count=PREDICTION_COUNT,
         start_index=START_INDEX,
     )
-    stan_data = build_stan_data(window)
+    stan_data = build_stan_data(window, priors=PRIORS)
     print_prediction_setup(
         "Bayesian CTRV State-Space Prediction",
         data_file=DATA_FILE,
@@ -77,6 +79,7 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
 
     fit = fit_bayesian_ctrv_model(
         window,
+        priors=PRIORS,
         algorithm=vi_algorithm,
         iter=VI_ITER,
         grad_samples=VI_GRAD_SAMPLES,
