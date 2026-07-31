@@ -1,11 +1,51 @@
 """Tests for simulation GUI control semantics without creating a window."""
 
+import subprocess
+import sys
+from textwrap import dedent
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from ship_trajectory_prediction.simulation.gui import ShipTrajectoryGUI
+
+
+def test_gui_module_import_does_not_require_tkinter():
+    """Headless environments should still import the testable GUI class."""
+    script = dedent(
+        """
+        import builtins
+
+        original_import = builtins.__import__
+
+        def import_without_tkinter(
+            name,
+            globals=None,
+            locals=None,
+            fromlist=(),
+            level=0,
+        ):
+            if name == "tkinter" or name.startswith("tkinter."):
+                raise ModuleNotFoundError("Tkinter intentionally unavailable")
+            return original_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = import_without_tkinter
+
+        from ship_trajectory_prediction.simulation.gui import ShipTrajectoryGUI
+
+        assert ShipTrajectoryGUI.__name__ == "ShipTrajectoryGUI"
+        """
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 class SliderStub:

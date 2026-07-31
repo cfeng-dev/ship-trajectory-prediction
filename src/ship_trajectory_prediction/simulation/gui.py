@@ -5,32 +5,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from ship_trajectory_prediction.simulation.config import GUIConfig
-from ship_trajectory_prediction.simulation.controls import (
-    bind_keyboard_controls as bind_gui_keyboard_controls,
-)
-from ship_trajectory_prediction.simulation.controls import (
-    create_gui_widgets,
-)
 from ship_trajectory_prediction.simulation.core import ShipSimulator
-from ship_trajectory_prediction.simulation.dialogs import (
-    apply_gps_start_position as apply_gps_position,
-)
-from ship_trajectory_prediction.simulation.dialogs import (
-    save_csv as save_trajectory_csv,
-)
-from ship_trajectory_prediction.simulation.dialogs import (
-    show_gps_start_position_dialog as open_gps_start_position_dialog,
-)
-from ship_trajectory_prediction.simulation.help import show_help_window
-from ship_trajectory_prediction.simulation.plotting import (
-    update_plot as draw_ship_plot,
-)
-from ship_trajectory_prediction.simulation.view import (
-    create_menu_bar as build_menu_bar,
-)
-from ship_trajectory_prediction.simulation.view import (
-    update_status_display,
-)
 
 
 class ShipTrajectoryGUI:
@@ -122,22 +97,32 @@ class ShipTrajectoryGUI:
 
     def create_menu_bar(self):
         """Create the desktop-style application menu bar."""
-        build_menu_bar(self)
+        from ship_trajectory_prediction.simulation.view import create_menu_bar
+
+        create_menu_bar(self)
 
     def create_widgets(self):
         """
         Create buttons, sliders, labels, and plot area.
         """
+        from ship_trajectory_prediction.simulation.controls import create_gui_widgets
+
         create_gui_widgets(self)
 
     def bind_keyboard_controls(self):
         """Bind keyboard controls to the main window."""
-        bind_gui_keyboard_controls(self)
+        from ship_trajectory_prediction.simulation.controls import (
+            bind_keyboard_controls,
+        )
+
+        bind_keyboard_controls(self)
 
     def show_help(self):
         """
         Show a help window with keyboard shortcuts and basic usage.
         """
+        from ship_trajectory_prediction.simulation.help import show_help_window
+
         show_help_window(
             root=self.root,
             app_background_color=self.app_background_color,
@@ -368,11 +353,19 @@ class ShipTrajectoryGUI:
 
     def show_gps_start_position_dialog(self):
         """Open a dialog for configuring the GPS position of the local origin."""
-        open_gps_start_position_dialog(self)
+        from ship_trajectory_prediction.simulation.dialogs import (
+            show_gps_start_position_dialog,
+        )
+
+        show_gps_start_position_dialog(self)
 
     def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
         """Validate and apply the GPS position of the local simulation origin."""
-        return apply_gps_position(
+        from ship_trajectory_prediction.simulation.dialogs import (
+            apply_gps_start_position,
+        )
+
+        return apply_gps_start_position(
             self,
             latitude_text,
             longitude_text,
@@ -381,7 +374,9 @@ class ShipTrajectoryGUI:
 
     def save_csv(self):
         """Save the simulated trajectory as CSV."""
-        save_trajectory_csv(self)
+        from ship_trajectory_prediction.simulation.dialogs import save_csv
+
+        save_csv(self)
 
     def reset(self):
         """
@@ -409,10 +404,14 @@ class ShipTrajectoryGUI:
 
     def update_status(self):
         """Update the status display."""
+        from ship_trajectory_prediction.simulation.view import update_status_display
+
         update_status_display(self)
 
     def update_plot(self):
         """
         Update the trajectory plot.
         """
-        draw_ship_plot(self)
+        from ship_trajectory_prediction.simulation.plotting import update_plot
+
+        update_plot(self)
