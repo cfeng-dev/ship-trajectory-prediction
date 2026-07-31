@@ -40,7 +40,6 @@ PRIORS = BayesianCTRVPriors(
     heading_initial_prior_scale=0.35,
     turn_rate_state_prior_scale=None,
     sigma_position_gps_prior_scale=5.0,
-    sigma_speed_gps_prior_scale=0.5,
     sigma_position_process_prior_scale=0.5,
     sigma_speed_process_prior_scale=0.05,
     sigma_turn_rate_process_prior_scale=0.001,
@@ -75,6 +74,11 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
             ("Inference method", "VI"),
             ("VI algorithm", vi_algorithm),
             ("Seed", seed),
+            ("Observation model", "position only"),
+            (
+                "Initial speed center",
+                f"{stan_data['speed_initial_prior_mean']:.3f} m/s (from positions)",
+            ),
             (
                 "Initial turn-rate center",
                 f"{stan_data['turn_rate_initial_prior_mean']:.5f} rad/s",
@@ -138,14 +142,30 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
         f"{np.median(turn_rate_state[:, 0]):.5f} -> "
         f"{np.median(turn_rate_state[:, -1]):.5f}"
     )
+    print(
+        "GPS speed was not used for fitting; it is retained only as an "
+        "external post-fit plausibility reference."
+    )
 
     evaluation = evaluate_position_predictions(
         fit,
         window,
         credible_interval=CREDIBLE_INTERVAL,
+        position_variable_names=(
+            "x_observation_prediction",
+            "y_observation_prediction",
+        ),
     )
     print_position_evaluation(evaluation)
-    plot_prediction(window, fit, model_name="CTRV State-Space")
+    plot_prediction(
+        window,
+        fit,
+        model_name="CTRV State-Space",
+        state_prediction_variable_names=(
+            "x_state_prediction",
+            "y_state_prediction",
+        ),
+    )
 
 
 def _parse_arguments():

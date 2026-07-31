@@ -25,14 +25,9 @@ DEFAULT_MAX_COMPARISON_RUNS = 6
 
 NOISE_PARAMETER_METADATA = {
     "sigma_position_gps": (
-        "Approximate posterior of GPS position measurement noise",
-        "GPS position measurement noise",
+        "Approximate posterior of position measurement noise",
+        "Position measurement noise",
         "m",
-    ),
-    "sigma_speed_gps": (
-        "Approximate posterior of GPS speed measurement noise",
-        "GPS speed measurement noise",
-        "m/s",
     ),
     "sigma_position_process": (
         "Approximate posterior of position process noise",
@@ -168,6 +163,8 @@ def plot_state_credible_band(
     credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
     observed_values: Sequence[float] | np.ndarray | None = None,
     reference_values: Sequence[float] | np.ndarray | None = None,
+    observed_label: str = "Observed values",
+    reference_label: str = "Known reference",
     title: str | None = None,
     ylabel: str | None = None,
     unit: str | None = None,
@@ -192,6 +189,8 @@ def plot_state_credible_band(
         reference_values,
         expected_length=samples.shape[1],
     )
+    observed_label = _validate_non_empty_label("observed_label", observed_label)
+    reference_label = _validate_non_empty_label("reference_label", reference_label)
     default_label, default_unit = _state_metadata(variable_name)
     display_unit, convert_to_degrees = _state_display_unit(
         variable_name,
@@ -234,7 +233,7 @@ def plot_state_credible_band(
             marker="o",
             markersize=3,
             linewidth=1,
-            label="Observed values",
+            label=observed_label,
         )
     if reference_values is not None:
         axis.plot(
@@ -243,7 +242,7 @@ def plot_state_credible_band(
             color="tab:green",
             linestyle="--",
             linewidth=1.5,
-            label="Known reference",
+            label=reference_label,
         )
     axis.set_title(
         f"Approximate posterior of {variable_name}" if title is None else title
@@ -359,13 +358,15 @@ def save_bayesian_ctrv_posterior_plots(
     selected_time_indices: Sequence[int] | None = None,
     reference_parameters: Mapping[str, float] | None = None,
     reference_states: Mapping[str, Sequence[float] | np.ndarray] | None = None,
+    include_speed_gps_reference: bool = False,
     dpi: int = 200,
 ) -> dict[str, Path]:
     """Save standard Bayesian CTRV posterior-draw diagnostics.
 
-    Only latent states over the observed inference window are plotted. The
-    function reuses the public plot functions, closes every saved figure, and
-    returns stable names mapped to their generated file paths.
+    Only latent states over the observed inference window are plotted. If
+    requested, GPS speed is labelled as an external post-fit reference; it was
+    not used to fit the position-only model. The function reuses the public plot
+    functions, closes every saved figure, and returns stable output names.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     dpi = _validate_positive_integer("dpi", dpi)
@@ -376,12 +377,16 @@ def save_bayesian_ctrv_posterior_plots(
         window.observed_slice,
         observation_count,
     )
-    speed_observed = _finite_window_vector(
-        "window.gps_speed_mps",
-        window.gps_speed_mps,
-        window.observed_slice,
-        observation_count,
-    )
+    if not isinstance(include_speed_gps_reference, bool):
+        raise TypeError("include_speed_gps_reference must be a boolean.")
+    speed_gps_reference = None
+    if include_speed_gps_reference:
+        speed_gps_reference = _finite_window_vector(
+            "window.gps_speed_mps",
+            window.gps_speed_mps,
+            window.observed_slice,
+            observation_count,
+        )
     selected_time_indices = _selected_time_indices(
         selected_time_indices,
         observation_count,
@@ -409,7 +414,8 @@ def save_bayesian_ctrv_posterior_plots(
 
     state_plot_options = {
         "speed_state": {
-            "observed_values": speed_observed,
+            "observed_values": speed_gps_reference,
+            "observed_label": "External GPS-speed reference",
             "reference_values": reference_states.get("speed_state"),
         },
         "turn_rate_state": {
@@ -461,8 +467,13 @@ def show_bayesian_ctrv_posterior_plots(
     *,
     selected_time_indices: Sequence[int] | None = None,
     credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
+    include_speed_gps_reference: bool = False,
 ) -> None:
-    """Display standard Bayesian CTRV posterior figures one at a time."""
+    """Display position-only CTRV posterior figures one at a time.
+
+    GPS speed can optionally be overlaid as an explicitly external post-fit
+    reference. It is not part of the fitted observation model.
+    """
     credible_interval = _validate_credible_interval(credible_interval)
     observation_count = _window_observation_count(window)
     time_values = _finite_window_vector(
@@ -471,12 +482,16 @@ def show_bayesian_ctrv_posterior_plots(
         window.observed_slice,
         observation_count,
     )
-    speed_observed = _finite_window_vector(
-        "window.gps_speed_mps",
-        window.gps_speed_mps,
-        window.observed_slice,
-        observation_count,
-    )
+    if not isinstance(include_speed_gps_reference, bool):
+        raise TypeError("include_speed_gps_reference must be a boolean.")
+    speed_gps_reference = None
+    if include_speed_gps_reference:
+        speed_gps_reference = _finite_window_vector(
+            "window.gps_speed_mps",
+            window.gps_speed_mps,
+            window.observed_slice,
+            observation_count,
+        )
     selected_time_indices = _selected_time_indices(
         selected_time_indices,
         observation_count,
@@ -491,7 +506,10 @@ def show_bayesian_ctrv_posterior_plots(
         _show_and_close(figure)
 
     state_plot_options = {
-        "speed_state": {"observed_values": speed_observed},
+        "speed_state": {
+            "observed_values": speed_gps_reference,
+            "observed_label": "External GPS-speed reference",
+        },
         "turn_rate_state": {"observed_values": None},
     }
     for variable_name, options in state_plot_options.items():
@@ -661,6 +679,13 @@ def _validate_variable_name(variable_name: str) -> str:
     if not isinstance(variable_name, str) or not variable_name.strip():
         raise ValueError("variable_name must be a non-empty string.")
     return variable_name.strip()
+
+
+def _validate_non_empty_label(name: str, value: str) -> str:
+    """Return a non-empty plot label."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string.")
+    return value.strip()
 
 
 def _validate_time_index(time_index: int, time_count: int) -> int:

@@ -20,6 +20,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     build_stan_data,
     compare_vi_runs,
     diagnose_observed_turn_rate,
+    estimate_initial_speed_from_positions,
     fit_bayesian_ctrv_model,
     summarize_predictions,
     variational_converged,
@@ -64,8 +65,8 @@ def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):
     )
 
 
-def test_build_stan_data_contains_observed_states_future_times_and_si_units():
-    """Stan data should expose only measured history and future timestamps."""
+def test_build_stan_data_contains_only_position_history_and_future_times():
+    """Stan data should expose position history but no GPS-speed input."""
     window = create_synthetic_window(variable_dt=True)
 
     stan_data = build_stan_data(window)
@@ -76,17 +77,18 @@ def test_build_stan_data_contains_observed_states_future_times_and_si_units():
         [0.0, 2.0, 5.0, 9.0, 12.0, 17.0, 21.0]
     )
     assert stan_data["time_prediction"] == pytest.approx([27.0, 32.0, 38.0])
-    assert stan_data["speed_observed"] == pytest.approx(np.full(7, 3.0))
-    assert stan_data["speed_initial_prior_mean"] == pytest.approx(3.0)
+    assert "speed_observed" not in stan_data
+    assert "sigma_speed_gps_prior_scale" not in stan_data
+    assert stan_data["speed_initial_prior_mean"] == pytest.approx(3.0, abs=0.01)
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(
         0.012,
         abs=1e-8,
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
     assert stan_data["turn_rate_limit"] == pytest.approx(DEFAULT_TURN_RATE_LIMIT)
-    assert "x_prediction" not in stan_data
-    assert "y_prediction" not in stan_data
-    assert "speed_prediction" not in stan_data
+    assert "x_state_prediction" not in stan_data
+    assert "y_state_prediction" not in stan_data
+    assert "speed_state_prediction" not in stan_data
 
 
 def test_build_stan_data_does_not_use_held_out_measurements():
@@ -113,6 +115,10 @@ def test_build_stan_data_does_not_use_held_out_measurements():
     assert reference_data.keys() == changed_data.keys()
     for key in reference_data:
         assert changed_data[key] == pytest.approx(reference_data[key])
+    reference_initials = model_module._default_initial_values(reference_data, seed=19)
+    changed_initials = model_module._default_initial_values(changed_data, seed=19)
+    for name, values in reference_initials.items():
+        assert changed_initials[name] == pytest.approx(values)
 
 
 @pytest.mark.parametrize(
@@ -123,7 +129,6 @@ def test_build_stan_data_does_not_use_held_out_measurements():
         "heading_initial_prior_scale",
         "turn_rate_state_prior_scale",
         "sigma_position_gps_prior_scale",
-        "sigma_speed_gps_prior_scale",
         "sigma_position_process_prior_scale",
         "sigma_speed_process_prior_scale",
         "sigma_turn_rate_process_prior_scale",
@@ -143,7 +148,6 @@ def test_build_stan_data_uses_typed_prior_configuration():
         heading_initial_prior_scale=0.25,
         turn_rate_state_prior_scale=0.004,
         sigma_position_gps_prior_scale=3.0,
-        sigma_speed_gps_prior_scale=0.4,
         sigma_position_process_prior_scale=0.3,
         sigma_speed_process_prior_scale=0.04,
         sigma_turn_rate_process_prior_scale=0.0008,
@@ -223,18 +227,74 @@ def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
 
     assert stan_data["heading_initial_prior_mean"] == 0.0
     assert stan_data["turn_rate_initial_prior_mean"] == 0.0
+    assert stan_data["speed_initial_prior_mean"] == 0.0
 
 
-@pytest.mark.parametrize("invalid_speed", [np.nan, -0.1])
-def test_build_stan_data_rejects_invalid_observed_speed(invalid_speed):
-    """The GPS speed likelihood requires finite non-negative history."""
+def test_initial_speed_is_estimated_from_straight_position_motion():
+    """Uniform straight displacement should recover its segment speed."""
+    speed = estimate_initial_speed_from_positions(
+        [0.0, 2.0, 4.0, 6.0, 8.0],
+        [0.0, 6.0, 12.0, 18.0, 24.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+
+    assert speed == pytest.approx(3.0)
+
+
+def test_initial_speed_supports_variable_time_intervals():
+    """Segment distance divided by its own dt should handle irregular data."""
+    speed = estimate_initial_speed_from_positions(
+        [0.0, 2.0, 5.0, 9.0],
+        [0.0, 4.0, 10.0, 18.0],
+        [0.0, 0.0, 0.0, 0.0],
+    )
+
+    assert speed == pytest.approx(2.0)
+
+
+def test_initial_speed_treats_small_position_jitter_as_stationary():
+    """Sub-meter proxy-position jitter should retain a zero-centered prior."""
+    speed = estimate_initial_speed_from_positions(
+        [0.0, 10.0, 20.0, 30.0],
+        [0.0, 0.3, -0.2, 0.4],
+        [0.0, -0.2, 0.1, 0.0],
+    )
+
+    assert speed == 0.0
+
+
+@pytest.mark.parametrize(
+    "time_seconds",
+    ([0.0, 10.0, 10.0], [0.0, 10.0, 5.0], [0.0, np.nan, 20.0]),
+)
+def test_initial_speed_rejects_invalid_or_non_increasing_times(time_seconds):
+    """Every position-derived segment requires a finite positive duration."""
+    with pytest.raises(ValueError, match="time_seconds"):
+        estimate_initial_speed_from_positions(
+            time_seconds,
+            [0.0, 2.0, 4.0],
+            [0.0, 0.0, 0.0],
+        )
+
+
+@pytest.mark.parametrize("external_speed", [np.nan, -0.1, 500.0])
+def test_build_stan_data_ignores_external_gps_speed(external_speed):
+    """GPS speed quality must not affect position-only Stan inputs."""
     window = create_synthetic_window()
     speed = window.gps_speed_mps.copy()
-    speed[2] = invalid_speed
-    invalid_window = replace(window, gps_speed_mps=speed)
+    speed[:] = external_speed
+    changed_window = replace(window, gps_speed_mps=speed)
 
-    with pytest.raises(ValueError, match="gps_speed|speed_observed"):
-        build_stan_data(invalid_window)
+    reference_data = build_stan_data(window)
+    changed_data = build_stan_data(changed_window)
+
+    assert reference_data.keys() == changed_data.keys()
+    for key in reference_data:
+        assert changed_data[key] == pytest.approx(reference_data[key])
+    reference_initials = model_module._default_initial_values(reference_data, seed=19)
+    changed_initials = model_module._default_initial_values(changed_data, seed=19)
+    for name, values in reference_initials.items():
+        assert changed_initials[name] == pytest.approx(values)
 
 
 def test_build_stan_data_rejects_invalid_observation_and_prediction_times():
@@ -312,12 +372,8 @@ def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):
         assert second_arguments["inits"][name] == pytest.approx(first_value)
 
 
-@pytest.mark.parametrize("observed_speed", [0.0, 150.0])
-def test_fit_initializes_speed_strictly_inside_stan_bounds(
-    monkeypatch,
-    observed_speed,
-):
-    """Zero or extreme GPS speeds must not initialize on a Stan boundary."""
+def test_fit_initializes_position_derived_speed_inside_stan_bounds(monkeypatch):
+    """Position-derived speeds must initialize strictly inside Stan bounds."""
     fake_model = FakeModel()
     monkeypatch.setattr(
         model_module,
@@ -325,14 +381,36 @@ def test_fit_initializes_speed_strictly_inside_stan_bounds(
         lambda: fake_model,
     )
     window = create_synthetic_window()
-    speed = window.gps_speed_mps.copy()
-    speed[2] = observed_speed
 
-    fit_bayesian_ctrv_model(replace(window, gps_speed_mps=speed), seed=71)
+    fit_bayesian_ctrv_model(window, seed=71)
 
     initial_speed = fake_model.arguments["inits"]["speed_state"]
-    assert np.all(initial_speed > 0.001)
+    assert np.all(initial_speed > 0)
     assert np.all(initial_speed < 100)
+
+
+def test_gps_speed_does_not_change_seeded_vi_initial_values(monkeypatch):
+    """Equal positions and times must give equal initials despite GPS speed."""
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: fake_model,
+    )
+    window = create_synthetic_window()
+    changed_window = replace(
+        window,
+        gps_speed_mps=np.linspace(50.0, 500.0, len(window.gps_speed_mps)),
+    )
+
+    fit_bayesian_ctrv_model(window, seed=71)
+    reference_initials = fake_model.calls[-1]["inits"]
+    fit_bayesian_ctrv_model(changed_window, seed=71)
+    changed_initials = fake_model.calls[-1]["inits"]
+
+    assert reference_initials.keys() == changed_initials.keys()
+    for name, values in reference_initials.items():
+        assert changed_initials[name] == pytest.approx(values)
 
 
 @pytest.mark.parametrize(
@@ -366,30 +444,69 @@ def test_fit_rejects_unsupported_inference_algorithms(algorithm):
         fit_bayesian_ctrv_model(create_synthetic_window(), algorithm=algorithm)
 
 
-def test_summarize_predictions_includes_all_future_ctrv_states():
-    """Prediction summaries should have one interval per requested state."""
+def test_summarize_predictions_includes_latent_states_and_position_observations():
+    """Prediction summaries should distinguish latent and observed positions."""
     window = create_synthetic_window()
     base = np.arange(window.prediction_count, dtype=float)
     variables = {
         name: np.vstack([base + offset, base + offset + 1, base + offset + 2])
         for name, offset in (
-            ("x_prediction", 0),
-            ("y_prediction", 3),
-            ("speed_prediction", 6),
-            ("heading_prediction", 9),
-            ("turn_rate_prediction", 12),
+            ("x_state_prediction", 0),
+            ("y_state_prediction", 3),
+            ("speed_state_prediction", 6),
+            ("heading_state_prediction", 9),
+            ("turn_rate_state_prediction", 12),
+            ("x_observation_prediction", 15),
+            ("y_observation_prediction", 18),
         )
     }
 
     summary = summarize_predictions(FakeFit(**variables), window, 0.8)
 
     assert len(summary) == window.prediction_count
-    for prefix in ("x", "y", "speed", "heading", "turn_rate"):
+    for prefix in (
+        "x_state",
+        "y_state",
+        "speed_state",
+        "heading_state",
+        "turn_rate_state",
+        "x_observation",
+        "y_observation",
+    ):
         assert {
             f"{prefix}_median",
             f"{prefix}_lower",
             f"{prefix}_upper",
         }.issubset(summary.columns)
+    assert "speed_gps_reference" not in summary
+
+
+def test_summarize_predictions_can_include_external_gps_speed_reference():
+    """GPS speed should be optional and explicitly labelled as external."""
+    window = create_synthetic_window()
+    variables = {
+        name: np.ones((5, window.prediction_count))
+        for name in (
+            "x_state_prediction",
+            "y_state_prediction",
+            "speed_state_prediction",
+            "heading_state_prediction",
+            "turn_rate_state_prediction",
+            "x_observation_prediction",
+            "y_observation_prediction",
+        )
+    }
+
+    summary = summarize_predictions(
+        FakeFit(**variables),
+        window,
+        include_speed_gps_reference=True,
+    )
+
+    assert summary["speed_gps_reference"].to_numpy() == pytest.approx(
+        window.gps_speed_mps[window.prediction_slice]
+    )
+    assert "speed_actual" not in summary
 
 
 def test_summarize_predictions_rejects_wrong_prediction_shape():
@@ -398,14 +515,16 @@ def test_summarize_predictions_rejects_wrong_prediction_shape():
     variables = {
         name: np.ones((5, window.prediction_count))
         for name in (
-            "x_prediction",
-            "y_prediction",
-            "speed_prediction",
-            "heading_prediction",
-            "turn_rate_prediction",
+            "x_state_prediction",
+            "y_state_prediction",
+            "speed_state_prediction",
+            "heading_state_prediction",
+            "turn_rate_state_prediction",
+            "x_observation_prediction",
+            "y_observation_prediction",
         )
     }
-    variables["heading_prediction"] = np.ones((5, 2))
+    variables["heading_state_prediction"] = np.ones((5, 2))
 
     with pytest.raises(ValueError, match="unexpected shape"):
         summarize_predictions(FakeFit(**variables), window)
@@ -418,8 +537,10 @@ def test_compare_vi_runs_reports_noise_prediction_and_elbo_metrics(tmp_path):
     x_actual = window.x_meters[window.prediction_slice]
     y_actual = window.y_meters[window.prediction_slice]
     variables = {
-        "x_prediction": np.vstack([x_actual - 1, x_actual, x_actual + 1]),
-        "y_prediction": np.vstack([y_actual - 1, y_actual, y_actual + 1]),
+        "x_observation_prediction": np.vstack([x_actual - 1, x_actual, x_actual + 1]),
+        "y_observation_prediction": np.vstack([y_actual - 1, y_actual, y_actual + 1]),
+        "x_state_prediction": np.vstack([x_actual - 1, x_actual, x_actual + 1]),
+        "y_state_prediction": np.vstack([y_actual - 1, y_actual, y_actual + 1]),
     }
     for parameter_name in NOISE_PARAMETER_NAMES:
         variables[parameter_name] = np.asarray([0.1, 0.2, 0.3])
@@ -448,6 +569,7 @@ def test_compare_vi_runs_reports_noise_prediction_and_elbo_metrics(tmp_path):
     assert comparison.loc[0, "fde_m"] == pytest.approx(0.0)
     assert comparison.loc[0, "radial_coverage"] == pytest.approx(1.0)
     assert comparison.loc[0, "sigma_position_gps_mean"] == pytest.approx(0.2)
+    assert not any("sigma_speed_gps" in name for name in comparison.columns)
     assert prediction_count == 3
 
 
@@ -491,6 +613,7 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "sigma_turn_rate_process * sqrt(dt)" in source
     assert "lower=-turn_rate_limit" in source
     assert "upper=turn_rate_limit" in source
+    assert "vector<lower=0, upper=100>[N_observed] speed_state" in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source
@@ -510,6 +633,25 @@ def test_stan_ctrv_calls_never_use_observed_positions_as_transition_inputs():
     assert all("y_observed" not in call for call in calls)
     assert "x_observed ~ normal(x_state, sigma_position_gps)" in source
     assert "y_observed ~ normal(y_state, sigma_position_gps)" in source
+
+
+def test_stan_model_has_position_only_likelihood_and_named_predictions():
+    """Stan must contain no GPS-speed likelihood or generated measurement."""
+    source = STAN_FILE.read_text(encoding="utf-8")
+
+    assert "speed_observed" not in source
+    assert "sigma_speed_gps" not in source
+    assert "vector[2 * N_observed] log_likelihood" in source
+    for variable_name in (
+        "x_state_prediction",
+        "y_state_prediction",
+        "speed_state_prediction",
+        "heading_state_prediction",
+        "turn_rate_state_prediction",
+        "x_observation_prediction",
+        "y_observation_prediction",
+    ):
+        assert f"vector[N_prediction] {variable_name}" in source
 
 
 @pytest.mark.integration
@@ -533,7 +675,10 @@ def test_small_synthetic_vi_fit_is_executable(algorithm, seed):
     )
 
     assert posterior_samples(fit, "x_state").shape == (100, 7)
-    assert posterior_samples(fit, "heading_prediction").shape == (100, 3)
+    assert posterior_samples(fit, "heading_state_prediction").shape == (100, 3)
+    assert posterior_samples(fit, "speed_state_prediction").shape == (100, 3)
+    assert posterior_samples(fit, "x_observation_prediction").shape == (100, 3)
+    assert posterior_samples(fit, "log_likelihood").shape == (100, 14)
     assert np.all(np.isfinite(posterior_samples(fit, "sigma_position_gps")))
 
 

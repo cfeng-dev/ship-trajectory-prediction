@@ -80,6 +80,11 @@ def main(
         extra_rows=[
             ("VI algorithms", ", ".join(algorithms)),
             ("Seeds", ", ".join(str(seed) for seed in seeds)),
+            ("Observation model", "position only"),
+            (
+                "Initial speed center",
+                f"{stan_data['speed_initial_prior_mean']:.3f} m/s (from positions)",
+            ),
             (
                 "Initial turn-rate center",
                 f"{stan_data['turn_rate_initial_prior_mean']:.5f} rad/s",
@@ -175,7 +180,15 @@ def main(
         )
 
     if show_plot:
-        plot_prediction(window, runs[0].fit, model_name="Synthetic CTRV")
+        plot_prediction(
+            window,
+            runs[0].fit,
+            model_name="Synthetic CTRV",
+            state_prediction_variable_names=(
+                "x_state_prediction",
+                "y_state_prediction",
+            ),
+        )
     return comparison
 
 
@@ -237,11 +250,11 @@ def _print_synthetic_recovery(
     )
     future_rows = []
     for prefix, truth_column in (
-        ("x", "x_true"),
-        ("y", "y_true"),
-        ("speed", "speed_true"),
-        ("heading", "heading_true"),
-        ("turn_rate", "turn_rate_true"),
+        ("x_state", "x_true"),
+        ("y_state", "y_true"),
+        ("speed_state", "speed_true"),
+        ("heading_state", "heading_true"),
+        ("turn_rate_state", "turn_rate_true"),
     ):
         truth = future_truth[truth_column].to_numpy(dtype=float)
         covered = (truth >= prediction[f"{prefix}_lower"]) & (

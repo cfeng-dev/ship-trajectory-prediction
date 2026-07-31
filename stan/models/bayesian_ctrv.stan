@@ -28,12 +28,11 @@ functions {
 }
 
 data {
-  // Observed trajectory
+  // Noisy position observations used as external-trajectory proxies
   int<lower=2> N_observed;                         // number of observations
   vector[N_observed] time_observed;                // elapsed time [s]
   vector[N_observed] x_observed;                   // local x position [m]
   vector[N_observed] y_observed;                   // local y position [m]
-  vector<lower=0>[N_observed] speed_observed;      // GPS speed [m/s]
 
   // Prediction horizon
   int<lower=1> N_prediction;                       // number of future steps
@@ -53,7 +52,6 @@ data {
 
   // Observation- and process-noise prior scales
   real<lower=0> sigma_position_gps_prior_scale;
-  real<lower=0> sigma_speed_gps_prior_scale;
   real<lower=0> sigma_position_process_prior_scale;
   real<lower=0> sigma_speed_process_prior_scale;
   real<lower=0> sigma_turn_rate_process_prior_scale;
@@ -80,14 +78,14 @@ parameters {
   // Latent motion states
   vector[N_observed] x_state;
   vector[N_observed] y_state;
-  vector<lower=0.001, upper=100>[N_observed] speed_state;
+  // Zero permits stationary motion. VI initial values must remain inside bounds.
+  vector<lower=0, upper=100>[N_observed] speed_state;
   real heading_initial;
   vector<lower=-turn_rate_limit,
          upper=turn_rate_limit>[N_observed] turn_rate_state;
 
   // Observation noise
   real<lower=1e-6> sigma_position_gps;
-  real<lower=1e-6> sigma_speed_gps;
 
   // Process noise per square-root second
   real<lower=1e-6> sigma_position_process;
@@ -120,7 +118,6 @@ model {
 
   // Half-normal priors due to positive sigma constraints
   sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
-  sigma_speed_gps ~ normal(0, sigma_speed_gps_prior_scale);
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
   sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
@@ -145,29 +142,25 @@ model {
                                 sigma_turn_rate_process * sqrt(dt));
   }
 
-  // Observation model
+  // Position-only observation model: observations differ from latent truth
   x_observed ~ normal(x_state, sigma_position_gps);
   y_observed ~ normal(y_state, sigma_position_gps);
-  speed_observed ~ normal(speed_state, sigma_speed_gps);
 }
 
 generated quantities {
-  // Predicted latent position and speed
-  vector[N_prediction] x_prediction_mean;
-  vector[N_prediction] y_prediction_mean;
-  vector[N_prediction] speed_prediction_mean;
+  // Predicted latent states, including process noise
+  vector[N_prediction] x_state_prediction;
+  vector[N_prediction] y_state_prediction;
+  vector[N_prediction] speed_state_prediction;
+  vector[N_prediction] heading_state_prediction;
+  vector[N_prediction] turn_rate_state_prediction;
 
-  // Posterior predictive GPS observations
-  vector[N_prediction] x_prediction;
-  vector[N_prediction] y_prediction;
-  vector[N_prediction] speed_prediction;
+  // Posterior predictive noisy position observations
+  vector[N_prediction] x_observation_prediction;
+  vector[N_prediction] y_observation_prediction;
 
-  // Predicted heading and turn rate
-  vector[N_prediction] heading_prediction;
-  vector[N_prediction] turn_rate_prediction;
-
-  // Pointwise observation log likelihood
-  vector[3 * N_observed] log_likelihood;
+  // Pointwise position-observation log likelihood
+  vector[2 * N_observed] log_likelihood;
 
   // Start forecasting at the final latent state
   real x_previous = x_state[N_observed];
@@ -183,8 +176,6 @@ generated quantities {
                                     sigma_position_gps);
     log_likelihood[N_observed + n] = normal_lpdf(
         y_observed[n] | y_state[n], sigma_position_gps);
-    log_likelihood[2 * N_observed + n] = normal_lpdf(
-        speed_observed[n] | speed_state[n], sigma_speed_gps);
   }
 
   // Posterior predictive trajectory
@@ -203,7 +194,7 @@ generated quantities {
         position[2], sigma_position_process * sqrt(dt));
     real speed_current = fmin(
         100,
-        fmax(0.001,
+        fmax(0,
              normal_rng(speed_previous, sigma_speed_process * sqrt(dt))));
     real heading_current = heading_previous + turn_rate_previous * dt;
     real turn_rate_current = fmin(
@@ -212,15 +203,13 @@ generated quantities {
              normal_rng(turn_rate_previous,
                         sigma_turn_rate_process * sqrt(dt))));
 
-    x_prediction_mean[n] = x_current;
-    y_prediction_mean[n] = y_current;
-    speed_prediction_mean[n] = speed_current;
-    x_prediction[n] = normal_rng(x_current, sigma_position_gps);
-    y_prediction[n] = normal_rng(y_current, sigma_position_gps);
-    speed_prediction[n] = fmax(
-        0, normal_rng(speed_current, sigma_speed_gps));
-    heading_prediction[n] = heading_current;
-    turn_rate_prediction[n] = turn_rate_current;
+    x_state_prediction[n] = x_current;
+    y_state_prediction[n] = y_current;
+    speed_state_prediction[n] = speed_current;
+    heading_state_prediction[n] = heading_current;
+    turn_rate_state_prediction[n] = turn_rate_current;
+    x_observation_prediction[n] = normal_rng(x_current, sigma_position_gps);
+    y_observation_prediction[n] = normal_rng(y_current, sigma_position_gps);
 
     x_previous = x_current;
     y_previous = y_current;

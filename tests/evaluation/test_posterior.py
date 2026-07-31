@@ -182,6 +182,22 @@ def test_state_credible_band_uses_draw_quantiles_and_optional_references():
     plt.close(figure)
 
 
+def test_speed_band_labels_gps_speed_as_an_external_reference():
+    """A post-fit GPS-speed overlay must not be called an observation."""
+    figure, axis = plot_state_credible_band(
+        create_fit(),
+        "speed_state",
+        [0.0, 10.0, 20.0, 30.0],
+        observed_values=[3.0, 4.0, 5.0, 6.0],
+        observed_label="External GPS-speed reference",
+    )
+
+    legend_text = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert "External GPS-speed reference" in legend_text
+    assert "Observed values" not in legend_text
+    plt.close(figure)
+
+
 @pytest.mark.parametrize(
     ("option", "values", "message"),
     [
@@ -299,6 +315,7 @@ def test_save_bayesian_ctrv_posterior_plots_creates_expected_files(
             "speed_state": np.asarray([3.0, 4.0, 5.0, 6.0]),
             "turn_rate_state": np.asarray([0.0, 0.001, 0.002, 0.003]),
         },
+        include_speed_gps_reference=True,
         dpi=80,
     )
 
@@ -312,12 +329,12 @@ def test_save_bayesian_ctrv_posterior_plots_creates_expected_files(
         "posterior_turn_rate_state_t_003",
     }
     assert generated.keys() == expected_names
-    assert len(generated) == 11
+    assert len(generated) == 10
     assert all(
         path.is_file() and path.stat().st_size > 0 for path in generated.values()
     )
     assert plt.get_fignums() == []
-    assert fit.requested_means == [False] * 11
+    assert fit.requested_means == [False] * 10
 
 
 def test_posterior_library_functions_never_show_automatically(monkeypatch):
@@ -408,7 +425,6 @@ def test_show_bayesian_ctrv_posterior_plots_displays_figures_sequentially(
         "scalar",
         "scalar",
         "scalar",
-        "scalar",
         "band",
         "band",
         "time",
@@ -416,7 +432,7 @@ def test_show_bayesian_ctrv_posterior_plots_displays_figures_sequentially(
         "time",
         "time",
     ]
-    assert shown_blocks == [True] * 11
+    assert shown_blocks == [True] * 10
     assert closed_figures == [figure for _, figure in created_figures]
 
 

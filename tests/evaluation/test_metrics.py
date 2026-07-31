@@ -45,6 +45,25 @@ def test_evaluate_position_predictions_calculates_shared_metrics():
     assert evaluation.mean_marginal_interval_width_m > 0
 
 
+def test_evaluate_position_predictions_accepts_position_only_variable_names():
+    """The Bayesian CTRV evaluator should use noisy position predictions."""
+    fit = FakeFit(
+        x_observation_prediction=np.array([[1.0, 3.0], [2.0, 4.0], [3.0, 5.0]]),
+        y_observation_prediction=np.array([[-1.0, -1.0], [0.0, 0.0], [1.0, 1.0]]),
+    )
+
+    evaluation = evaluate_position_predictions(
+        fit,
+        FakeWindow(),
+        position_variable_names=(
+            "x_observation_prediction",
+            "y_observation_prediction",
+        ),
+    )
+
+    assert evaluation.ade_m == pytest.approx(1.5)
+
+
 @pytest.mark.parametrize("credible_interval", [0, 1, -0.1, 1.1, np.nan, "bad"])
 def test_evaluate_position_predictions_rejects_invalid_interval(
     credible_interval,

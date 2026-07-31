@@ -145,6 +145,10 @@ def main(
             fit,
             window,
             credible_interval=CREDIBLE_INTERVAL,
+            position_variable_names=(
+                "x_observation_prediction",
+                "y_observation_prediction",
+            ),
         )
         table = _build_route_prediction_table(
             evaluation.prediction_table,
@@ -172,6 +176,10 @@ def main(
                 window,
                 fit,
                 model_name=f"CTRV Rolling Window {number}/{len(windows)}",
+                state_prediction_variable_names=(
+                    "x_state_prediction",
+                    "y_state_prediction",
+                ),
             )
             plt.close(figure)
 
@@ -315,13 +323,16 @@ def _posterior_window_diagnostics(fit):
     """Return turn-rate and noise medians for one fitted rolling window."""
     turn_rate_state = posterior_variable_samples(fit, "turn_rate_state")
     heading_state = posterior_variable_samples(fit, "heading_state")
-    heading_prediction = posterior_variable_samples(fit, "heading_prediction")
+    heading_state_prediction = posterior_variable_samples(
+        fit,
+        "heading_state_prediction",
+    )
     diagnostics = {
         "posterior_origin_turn_rate_median_rad_s": float(
             np.median(turn_rate_state[:, -1])
         ),
         "posterior_heading_change_median_rad": float(
-            np.median(heading_prediction[:, -1] - heading_state[:, -1])
+            np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
         ),
     }
     for name in NOISE_PARAMETER_NAMES:

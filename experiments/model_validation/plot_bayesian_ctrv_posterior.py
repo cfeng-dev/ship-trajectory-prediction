@@ -95,11 +95,16 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
 
     print("\nApproximate posterior parameter summary:")
     print(posterior_parameter_summary(fit, NOISE_PARAMETER_NAMES))
+    print(
+        "GPS speed was not used for fitting and is plotted only as an "
+        "external post-fit reference."
+    )
     show_bayesian_ctrv_posterior_plots(
         fit,
         window,
         selected_time_indices=POSTERIOR_TIME_INDICES,
         credible_interval=CREDIBLE_INTERVAL,
+        include_speed_gps_reference=True,
     )
 
 

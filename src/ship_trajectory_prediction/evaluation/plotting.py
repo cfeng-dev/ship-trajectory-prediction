@@ -14,15 +14,28 @@ def plot_prediction(
     *,
     model_name,
     max_posterior_trajectories=100,
+    state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
 ):
-    """Plot observed, held-out, and posterior trajectories for any model."""
+    """Plot observed, held-out, and latent posterior paths for any model."""
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError("model_name must be a non-empty string.")
+    if (
+        not isinstance(state_prediction_variable_names, (tuple, list))
+        or len(state_prediction_variable_names) != 2
+        or not all(
+            isinstance(name, str) and name.strip()
+            for name in state_prediction_variable_names
+        )
+    ):
+        raise ValueError(
+            "state_prediction_variable_names must contain non-empty x and y names."
+        )
 
     observed = window.observed_slice
     prediction = window.prediction_slice
-    x_samples = posterior_variable_samples(fit, "x_prediction_mean")
-    y_samples = posterior_variable_samples(fit, "y_prediction_mean")
+    x_variable_name, y_variable_name = state_prediction_variable_names
+    x_samples = posterior_variable_samples(fit, x_variable_name)
+    y_samples = posterior_variable_samples(fit, y_variable_name)
     prediction_start_index = window.observation_count - 1
     prediction_start_x = window.x_meters[prediction_start_index]
     prediction_start_y = window.y_meters[prediction_start_index]

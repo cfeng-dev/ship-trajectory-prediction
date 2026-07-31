@@ -19,7 +19,11 @@ KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND = 1 / 3.6
 
 @dataclass(frozen=True)
 class TrajectoryWindowData:
-    """Model-neutral trajectory values for inference and held-out evaluation."""
+    """Model-neutral trajectory values for inference and held-out evaluation.
+
+    ``gps_speed_mps`` is retained independently of model inputs so position-only
+    models can use it strictly as an optional external post-fit reference.
+    """
 
     timestamps: pd.DatetimeIndex
     time_seconds: np.ndarray
@@ -56,11 +60,12 @@ def prepare_trajectory_window(
     """Prepare one model-neutral trajectory window in SI units.
 
     Position and time values are validated centrally. GPS speeds are interpreted
-    according to ``gps_speed_unit`` and stored in meters per second, while
-    non-numeric and negative values are retained as ``NaN`` and negative values
-    respectively. Individual models apply their own speed requirements. The
-    selected window is rejected if consecutive timestamps are separated by more
-    than ``max_time_gap_seconds``; gaps are never interpolated or split silently.
+    according to ``gps_speed_unit`` and retained in meters per second as an
+    optional external reference; they are not necessarily model inputs.
+    Non-numeric and negative values remain ``NaN`` and negative respectively.
+    The selected window is rejected if consecutive timestamps are separated by
+    more than ``max_time_gap_seconds``; gaps are never interpolated or split
+    silently.
     """
     max_time_gap_seconds = _validate_window_arguments(
         observation_count,

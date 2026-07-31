@@ -24,7 +24,13 @@ class PositionEvaluation:
     credible_interval: float
 
 
-def evaluate_position_predictions(fit, window, credible_interval=0.9):
+def evaluate_position_predictions(
+    fit,
+    window,
+    credible_interval=0.9,
+    *,
+    position_variable_names=("x_prediction", "y_prediction"),
+):
     """Evaluate posterior position draws against one held-out trajectory.
 
     ADE and FDE use the Euclidean distance between the posterior-median
@@ -34,13 +40,16 @@ def evaluate_position_predictions(fit, window, credible_interval=0.9):
     the median.
     """
     credible_interval = _validate_credible_interval(credible_interval)
+    x_variable_name, y_variable_name = _validate_position_variable_names(
+        position_variable_names
+    )
     prediction_count = window.prediction_count
     if prediction_count < 1:
         raise ValueError("window must contain at least one held-out prediction.")
-    x_samples = _prediction_samples(fit, "x_prediction", prediction_count)
-    y_samples = _prediction_samples(fit, "y_prediction", prediction_count)
+    x_samples = _prediction_samples(fit, x_variable_name, prediction_count)
+    y_samples = _prediction_samples(fit, y_variable_name, prediction_count)
     if x_samples.shape != y_samples.shape:
-        raise ValueError("x_prediction and y_prediction must have matching shapes.")
+        raise ValueError("Position prediction variables must have matching shapes.")
 
     prediction = window.prediction_slice
     x_actual = np.asarray(window.x_meters[prediction], dtype=float)
@@ -198,3 +207,18 @@ def _validate_credible_interval(credible_interval):
     if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
     return credible_interval
+
+
+def _validate_position_variable_names(position_variable_names):
+    """Return two explicit posterior variable names for x and y predictions."""
+    if (
+        not isinstance(position_variable_names, (tuple, list))
+        or len(position_variable_names) != 2
+        or not all(
+            isinstance(name, str) and name.strip() for name in position_variable_names
+        )
+    ):
+        raise ValueError(
+            "position_variable_names must contain non-empty x and y names."
+        )
+    return tuple(name.strip() for name in position_variable_names)

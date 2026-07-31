@@ -26,8 +26,10 @@ from ship_trajectory_prediction.trajectory.window import (
 
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
-SPEED_STATE_INITIAL_LOWER = 0.01
+SPEED_STATE_INITIAL_LOWER = 0.001
 SPEED_STATE_INITIAL_UPPER = 99.99
+INITIAL_SPEED_INTERVAL_COUNT = 3
+POSITION_JITTER_THRESHOLD_METERS = 1.0
 # At 10-second sampling, 0.02 rad/s permits at most 11.46 degrees per step.
 DEFAULT_TURN_RATE_LIMIT = 0.02
 # Robust window-specific scales are kept informative but not degenerate.
@@ -38,7 +40,6 @@ MIN_COURSE_DISPLACEMENT_METERS = 1.0
 
 NOISE_PARAMETER_NAMES = (
     "sigma_position_gps",
-    "sigma_speed_gps",
     "sigma_position_process",
     "sigma_speed_process",
     "sigma_turn_rate_process",
@@ -54,7 +55,6 @@ class BayesianCTRVPriors:
     heading_initial_prior_scale: float = 0.35
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
-    sigma_speed_gps_prior_scale: float = 0.5
     sigma_position_process_prior_scale: float = 0.5
     sigma_speed_process_prior_scale: float = 0.05
     sigma_turn_rate_process_prior_scale: float = 0.001
@@ -99,39 +99,20 @@ def build_stan_data(
     priors: BayesianCTRVPriors | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
 ) -> dict[str, Any]:
-    """Build data and weakly informative priors for one observed window.
+    """Build position-only data and priors for one observed trajectory window.
 
     All data-derived prior centers use only the observed portion of ``window``.
-    Position is measured in meters, speed in meters per second, heading in
-    radians, turn rate in radians per second, and time in seconds. Process-noise
-    standard deviations are multiplied by ``sqrt(dt)`` in Stan. Their units are
-    therefore state units per square-root second.
+    The available GPS positions act as noisy proxy observations for a later
+    externally observed target-vessel trajectory. GPS speed is deliberately
+    excluded from Stan data, prior construction, and initialization. Position
+    is measured in meters, latent speed in meters per second, heading in radians,
+    turn rate in radians per second, and time in seconds. Process-noise standard
+    deviations are multiplied by ``sqrt(dt)`` in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
     if not isinstance(priors, BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance or None.")
-
-    turn_rate_diagnostics = diagnose_observed_turn_rate(
-        window,
-        turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
-        turn_rate_limit=turn_rate_limit,
-    )
-    prior_scales = {
-        "position_initial_prior_scale": priors.position_initial_prior_scale,
-        "speed_initial_prior_scale": priors.speed_initial_prior_scale,
-        "heading_initial_prior_scale": priors.heading_initial_prior_scale,
-        "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
-        "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
-        "sigma_speed_gps_prior_scale": priors.sigma_speed_gps_prior_scale,
-        "sigma_position_process_prior_scale": (
-            priors.sigma_position_process_prior_scale
-        ),
-        "sigma_speed_process_prior_scale": priors.sigma_speed_process_prior_scale,
-        "sigma_turn_rate_process_prior_scale": (
-            priors.sigma_turn_rate_process_prior_scale
-        ),
-    }
 
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
@@ -144,20 +125,20 @@ def build_stan_data(
     time_prediction = np.asarray(window.time_seconds[prediction], dtype=float)
     x_observed = np.asarray(window.x_meters[observed], dtype=float)
     y_observed = np.asarray(window.y_meters[observed], dtype=float)
-    speed_observed = np.asarray(window.gps_speed_mps[observed], dtype=float)
 
     _validate_time_arrays(time_observed, time_prediction)
     _validate_finite_vector("x_observed", x_observed)
     _validate_finite_vector("y_observed", y_observed)
-    _validate_finite_vector("speed_observed", speed_observed)
-    if np.any(speed_observed < 0):
-        raise ValueError("Observed gps_speed must contain non-negative values.")
-
-    positive_speeds = speed_observed[speed_observed > 0]
-    if positive_speeds.size == 0:
-        raise ValueError("Observed gps_speed must contain positive values.")
-    initial_speed_count = min(3, positive_speeds.size)
-    speed_initial_prior_mean = float(np.median(positive_speeds[:initial_speed_count]))
+    speed_initial_prior_mean = estimate_initial_speed_from_positions(
+        time_observed,
+        x_observed,
+        y_observed,
+    )
+    turn_rate_diagnostics = diagnose_observed_turn_rate(
+        window,
+        turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
+        turn_rate_limit=turn_rate_limit,
+    )
     try:
         heading_initial_prior_mean = estimate_initial_heading(
             x_observed,
@@ -172,12 +153,25 @@ def build_stan_data(
     else:
         turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
 
+    prior_scales = {
+        "position_initial_prior_scale": priors.position_initial_prior_scale,
+        "speed_initial_prior_scale": priors.speed_initial_prior_scale,
+        "heading_initial_prior_scale": priors.heading_initial_prior_scale,
+        "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
+        "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
+        "sigma_position_process_prior_scale": (
+            priors.sigma_position_process_prior_scale
+        ),
+        "sigma_speed_process_prior_scale": priors.sigma_speed_process_prior_scale,
+        "sigma_turn_rate_process_prior_scale": (
+            priors.sigma_turn_rate_process_prior_scale
+        ),
+    }
     return {
         "N_observed": window.observation_count,
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
-        "speed_observed": speed_observed,
         "N_prediction": window.prediction_count,
         "time_prediction": time_prediction,
         "x_initial_prior_mean": float(x_observed[0]),
@@ -188,6 +182,48 @@ def build_stan_data(
         "turn_rate_limit": turn_rate_diagnostics.limit_rad_s,
         **prior_scales,
     }
+
+
+def estimate_initial_speed_from_positions(
+    time_seconds,
+    x_meters,
+    y_meters,
+    *,
+    interval_count: int = INITIAL_SPEED_INTERVAL_COUNT,
+    jitter_threshold_meters: float = POSITION_JITTER_THRESHOLD_METERS,
+) -> float:
+    """Estimate initial latent speed from early position-only intervals.
+
+    The estimate is the median of at most the first ``interval_count`` segment
+    speeds. A segment whose displacement is no greater than
+    ``jitter_threshold_meters`` contributes exactly zero, which prevents small
+    position jitter from forcing a moving-state prior while retaining a prior
+    centered near zero for stationary targets. Times must be finite and strictly
+    increasing; all positions must be finite and shape-aligned.
+    """
+    if (
+        isinstance(interval_count, bool)
+        or not isinstance(interval_count, (int, np.integer))
+        or interval_count < 1
+    ):
+        raise ValueError("interval_count must be a positive integer.")
+    jitter_threshold_meters = _validate_non_negative_finite(
+        "jitter_threshold_meters",
+        jitter_threshold_meters,
+    )
+    time_seconds = np.asarray(time_seconds, dtype=float)
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
+
+    time_differences = np.diff(time_seconds)
+    if np.any(time_differences <= 0):
+        raise ValueError("time_seconds must be strictly increasing.")
+    displacements = np.hypot(np.diff(x_meters), np.diff(y_meters))
+    segment_speeds = np.divide(displacements, time_differences)
+    segment_speeds[displacements <= jitter_threshold_meters] = 0.0
+    selected = segment_speeds[: min(interval_count, segment_speeds.size)]
+    return float(np.median(selected))
 
 
 def compile_bayesian_ctrv_model(
@@ -295,20 +331,31 @@ def summarize_predictions(
     fit: Any,
     window: TrajectoryWindowData,
     credible_interval: float = 0.9,
+    *,
+    include_speed_gps_reference: bool = False,
 ) -> pd.DataFrame:
-    """Summarize posterior-predictive states against held-out observations."""
+    """Summarize future latent states and noisy position observations.
+
+    ``speed_gps_reference`` can be included for a post-fit plausibility check.
+    It is not an observed model variable and is never used for model fitting.
+    """
     if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
+    if not isinstance(include_speed_gps_reference, bool):
+        raise TypeError("include_speed_gps_reference must be a boolean.")
 
+    prediction_variables = {
+        "x_state": "x_state_prediction",
+        "y_state": "y_state_prediction",
+        "speed_state": "speed_state_prediction",
+        "heading_state": "heading_state_prediction",
+        "turn_rate_state": "turn_rate_state_prediction",
+        "x_observation": "x_observation_prediction",
+        "y_observation": "y_observation_prediction",
+    }
     prediction_samples = {
-        name: _prediction_samples(fit, name, window.prediction_count)
-        for name in (
-            "x_prediction",
-            "y_prediction",
-            "speed_prediction",
-            "heading_prediction",
-            "turn_rate_prediction",
-        )
+        prefix: _prediction_samples(fit, variable_name, window.prediction_count)
+        for prefix, variable_name in prediction_variables.items()
     }
     lower_probability = (1 - credible_interval) / 2
     upper_probability = 1 - lower_probability
@@ -318,10 +365,10 @@ def summarize_predictions(
         "t": window.time_seconds[prediction],
         "x_actual": window.x_meters[prediction],
         "y_actual": window.y_meters[prediction],
-        "speed_actual": window.gps_speed_mps[prediction],
     }
-    for variable_name, samples in prediction_samples.items():
-        prefix = variable_name.removesuffix("_prediction")
+    if include_speed_gps_reference:
+        table_data["speed_gps_reference"] = window.gps_speed_mps[prediction]
+    for prefix, samples in prediction_samples.items():
         table_data[f"{prefix}_median"] = np.median(samples, axis=0)
         table_data[f"{prefix}_lower"] = np.quantile(
             samples,
@@ -359,15 +406,19 @@ def compare_vi_runs(
             run.fit,
             window,
             credible_interval=credible_interval,
+            position_variable_names=(
+                "x_observation_prediction",
+                "y_observation_prediction",
+            ),
         )
         x_prediction = _prediction_samples(
             run.fit,
-            "x_prediction",
+            "x_state_prediction",
             window.prediction_count,
         )
         y_prediction = _prediction_samples(
             run.fit,
-            "y_prediction",
+            "y_state_prediction",
             window.prediction_count,
         )
         row = {
@@ -504,11 +555,22 @@ def _observed_turn_rates(time_seconds, x_meters, y_meters) -> np.ndarray:
 
 
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
-    """Create deterministic-with-seed, slightly jittered VI initial values."""
+    """Create seeded VI initials from observed positions and times only.
+
+    Stan maps an exact constrained zero to negative infinity on its internal
+    scale. Speed initials are therefore kept slightly inside the zero-inclusive
+    model bounds even when the position-derived path is stationary.
+    """
     generator = np.random.default_rng(seed)
+    time_observed = np.asarray(stan_data["time_observed"], dtype=float)
     x_observed = np.asarray(stan_data["x_observed"], dtype=float)
     y_observed = np.asarray(stan_data["y_observed"], dtype=float)
-    speed_observed = np.asarray(stan_data["speed_observed"], dtype=float)
+    speed_initial = _position_derived_speed_initials(
+        time_observed,
+        x_observed,
+        y_observed,
+        initial_prior_mean=float(stan_data["speed_initial_prior_mean"]),
+    )
     turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
     state_count = int(stan_data["N_observed"])
 
@@ -522,7 +584,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "x_state": x_observed + generator.normal(0, x_jitter, state_count),
         "y_state": y_observed + generator.normal(0, x_jitter, state_count),
         "speed_state": np.clip(
-            speed_observed + generator.normal(0, speed_jitter, state_count),
+            speed_initial + generator.normal(0, speed_jitter, state_count),
             SPEED_STATE_INITIAL_LOWER,
             SPEED_STATE_INITIAL_UPPER,
         ),
@@ -537,10 +599,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             1e-3,
             0.5 * stan_data["sigma_position_gps_prior_scale"],
         ),
-        "sigma_speed_gps": max(
-            1e-3,
-            0.5 * stan_data["sigma_speed_gps_prior_scale"],
-        ),
         "sigma_position_process": max(
             1e-3,
             0.5 * stan_data["sigma_position_process_prior_scale"],
@@ -554,6 +612,34 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             0.5 * stan_data["sigma_turn_rate_process_prior_scale"],
         ),
     }
+
+
+def _position_derived_speed_initials(
+    time_seconds,
+    x_meters,
+    y_meters,
+    *,
+    initial_prior_mean: float,
+) -> np.ndarray:
+    """Map position-derived segment speeds onto latent state timestamps."""
+    time_seconds = np.asarray(time_seconds, dtype=float)
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
+    time_differences = np.diff(time_seconds)
+    if np.any(time_differences <= 0):
+        raise ValueError("time_seconds must be strictly increasing.")
+
+    displacements = np.hypot(np.diff(x_meters), np.diff(y_meters))
+    segment_speeds = displacements / time_differences
+    segment_speeds[displacements <= POSITION_JITTER_THRESHOLD_METERS] = 0.0
+    state_speeds = np.empty(time_seconds.size, dtype=float)
+    state_speeds[0] = _validate_non_negative_finite(
+        "initial_prior_mean",
+        initial_prior_mean,
+    )
+    state_speeds[1:] = segment_speeds
+    return state_speeds
 
 
 def _validate_variational_arguments(**arguments: Any) -> None:
@@ -599,6 +685,36 @@ def _validate_finite_vector(name: str, values) -> None:
     """Validate one non-empty, one-dimensional, finite array."""
     if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
         raise ValueError(f"{name} must be a non-empty finite vector.")
+
+
+def _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) -> None:
+    """Validate matching finite position and time vectors with two points."""
+    for name, values in (
+        ("time_seconds", time_seconds),
+        ("x_meters", x_meters),
+        ("y_meters", y_meters),
+    ):
+        _validate_finite_vector(name, values)
+    if (
+        time_seconds.size < 2
+        or x_meters.shape != time_seconds.shape
+        or y_meters.shape != time_seconds.shape
+    ):
+        raise ValueError(
+            "time_seconds, x_meters, and y_meters must be matching vectors "
+            "with at least two values."
+        )
+
+
+def _validate_non_negative_finite(name: str, value: float) -> float:
+    """Validate and return a non-negative finite scalar."""
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{name} must be a non-negative finite value.") from error
+    if not np.isfinite(numeric_value) or numeric_value < 0:
+        raise ValueError(f"{name} must be a non-negative finite value.")
+    return numeric_value
 
 
 def _validate_positive_finite(name: str, value: float) -> None:

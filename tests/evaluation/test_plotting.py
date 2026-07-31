@@ -45,6 +45,29 @@ def test_plot_prediction_connects_future_trajectories_to_prediction_start(
     plt.close(figure)
 
 
+def test_plot_prediction_accepts_position_only_state_variable_names(monkeypatch):
+    """Bayesian CTRV plots should read the explicitly named latent states."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+    fit = FakeFit()
+    fit.variables = {
+        "x_state_prediction": np.array([[2.0, 3.0], [2.1, 3.1]]),
+        "y_state_prediction": np.array([[1.0, 1.5], [1.1, 1.6]]),
+    }
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        fit,
+        model_name="CTRV State-Space",
+        state_prediction_variable_names=(
+            "x_state_prediction",
+            "y_state_prediction",
+        ),
+    )
+
+    assert axis.lines[-1].get_xdata()[-1] == pytest.approx(3.05)
+    plt.close(figure)
+
+
 @pytest.mark.parametrize("model_name", [None, "", "   "])
 def test_plot_prediction_rejects_empty_model_name(model_name):
     """A model name is required to create a meaningful title."""
