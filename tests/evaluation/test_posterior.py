@@ -12,9 +12,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
-from experiments.model_validation import (
-    plot_bayesian_ctrv_posterior as posterior_experiment,  # noqa: E402
-)
+import ship_trajectory_prediction.evaluation.posterior as posterior_module  # noqa: E402
 from ship_trajectory_prediction.evaluation.posterior import (  # noqa: E402
     plot_scalar_posterior,
     plot_scalar_posterior_comparison,
@@ -356,8 +354,10 @@ def test_posterior_library_functions_never_show_automatically(monkeypatch):
         plt.close(figure)
 
 
-def test_posterior_experiment_shows_figures_sequentially(monkeypatch):
-    """The posterior experiment should show and close plots without saving."""
+def test_show_bayesian_ctrv_posterior_plots_displays_figures_sequentially(
+    monkeypatch,
+):
+    """The display helper should show and close plots without saving."""
     created_figures = []
     shown_blocks = []
     closed_figures = []
@@ -372,32 +372,32 @@ def test_posterior_experiment_shows_figures_sequentially(monkeypatch):
         return create_figure
 
     monkeypatch.setattr(
-        posterior_experiment,
+        posterior_module,
         "plot_scalar_posterior",
         fake_plot("scalar"),
     )
     monkeypatch.setattr(
-        posterior_experiment,
+        posterior_module,
         "plot_state_credible_band",
         fake_plot("band"),
     )
     monkeypatch.setattr(
-        posterior_experiment,
+        posterior_module,
         "plot_state_posterior_at_time",
         fake_plot("time"),
     )
     monkeypatch.setattr(
-        posterior_experiment.plt,
+        posterior_module.plt,
         "show",
         lambda *, block: shown_blocks.append(block),
     )
     monkeypatch.setattr(
-        posterior_experiment.plt,
+        posterior_module.plt,
         "close",
         closed_figures.append,
     )
 
-    posterior_experiment._show_bayesian_ctrv_posterior_plots(
+    posterior_module.show_bayesian_ctrv_posterior_plots(
         object(),
         FakeWindow(),
         selected_time_indices=(0, 3),

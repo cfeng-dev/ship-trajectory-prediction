@@ -2,12 +2,8 @@
 
 import argparse
 
-import matplotlib.pyplot as plt
-
 from ship_trajectory_prediction.evaluation.posterior import (
-    plot_scalar_posterior,
-    plot_state_credible_band,
-    plot_state_posterior_at_time,
+    show_bayesian_ctrv_posterior_plots,
 )
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_parameter_summary,
@@ -99,64 +95,12 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
 
     print("\nApproximate posterior parameter summary:")
     print(posterior_parameter_summary(fit, NOISE_PARAMETER_NAMES))
-    _show_bayesian_ctrv_posterior_plots(
+    show_bayesian_ctrv_posterior_plots(
         fit,
         window,
         selected_time_indices=POSTERIOR_TIME_INDICES,
-    )
-
-
-def _show_bayesian_ctrv_posterior_plots(
-    fit,
-    window,
-    *,
-    selected_time_indices=POSTERIOR_TIME_INDICES,
-):
-    """Display posterior figures one at a time without saving them."""
-    observed = window.observed_slice
-    time_values = window.time_seconds[observed]
-
-    for variable_name in NOISE_PARAMETER_NAMES:
-        figure, _ = plot_scalar_posterior(
-            fit,
-            variable_name,
-            credible_interval=CREDIBLE_INTERVAL,
-        )
-        _show_and_close(figure)
-
-    figure, _ = plot_state_credible_band(
-        fit,
-        "speed_state",
-        time_values,
-        credible_interval=CREDIBLE_INTERVAL,
-        observed_values=window.gps_speed_mps[observed],
-    )
-    _show_and_close(figure)
-
-    figure, _ = plot_state_credible_band(
-        fit,
-        "turn_rate_state",
-        time_values,
         credible_interval=CREDIBLE_INTERVAL,
     )
-    _show_and_close(figure)
-
-    for time_index in selected_time_indices:
-        for variable_name in ("speed_state", "turn_rate_state"):
-            figure, _ = plot_state_posterior_at_time(
-                fit,
-                variable_name,
-                time_index,
-                time_values=time_values,
-                credible_interval=CREDIBLE_INTERVAL,
-            )
-            _show_and_close(figure)
-
-
-def _show_and_close(figure):
-    """Block until one posterior figure is closed, then release it."""
-    plt.show(block=True)
-    plt.close(figure)
 
 
 def _parse_arguments():

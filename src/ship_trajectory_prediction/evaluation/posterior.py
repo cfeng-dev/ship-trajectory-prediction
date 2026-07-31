@@ -455,6 +455,67 @@ def save_bayesian_ctrv_posterior_plots(
     return generated_paths
 
 
+def show_bayesian_ctrv_posterior_plots(
+    fit: Any,
+    window: TrajectoryWindowData,
+    *,
+    selected_time_indices: Sequence[int] | None = None,
+    credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
+) -> None:
+    """Display standard Bayesian CTRV posterior figures one at a time."""
+    credible_interval = _validate_credible_interval(credible_interval)
+    observation_count = _window_observation_count(window)
+    time_values = _finite_window_vector(
+        "window.time_seconds",
+        window.time_seconds,
+        window.observed_slice,
+        observation_count,
+    )
+    speed_observed = _finite_window_vector(
+        "window.gps_speed_mps",
+        window.gps_speed_mps,
+        window.observed_slice,
+        observation_count,
+    )
+    selected_time_indices = _selected_time_indices(
+        selected_time_indices,
+        observation_count,
+    )
+
+    for variable_name in NOISE_PARAMETER_METADATA:
+        figure, _ = plot_scalar_posterior(
+            fit,
+            variable_name,
+            credible_interval=credible_interval,
+        )
+        _show_and_close(figure)
+
+    state_plot_options = {
+        "speed_state": {"observed_values": speed_observed},
+        "turn_rate_state": {"observed_values": None},
+    }
+    for variable_name, options in state_plot_options.items():
+        figure, _ = plot_state_credible_band(
+            fit,
+            variable_name,
+            time_values,
+            credible_interval=credible_interval,
+            **options,
+        )
+        _show_and_close(figure)
+
+    for time_index in selected_time_indices:
+        for variable_name in state_plot_options:
+            figure, _ = plot_state_posterior_at_time(
+                fit,
+                variable_name,
+                time_index,
+                time_values=time_values,
+                credible_interval=credible_interval,
+            )
+            _show_and_close(figure)
+
+
 def _plot_distribution(
     axis: Axes,
     samples: np.ndarray,
@@ -820,10 +881,19 @@ def _save_and_close(
     generated_paths[path.stem] = path
 
 
+def _show_and_close(figure: Figure) -> None:
+    """Show one figure with blocking display and always release it afterward."""
+    try:
+        plt.show(block=True)
+    finally:
+        plt.close(figure)
+
+
 __all__ = [
     "plot_scalar_posterior",
     "plot_scalar_posterior_comparison",
     "plot_state_credible_band",
     "plot_state_posterior_at_time",
     "save_bayesian_ctrv_posterior_plots",
+    "show_bayesian_ctrv_posterior_plots",
 ]

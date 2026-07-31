@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 
-from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
+from ship_trajectory_prediction.evaluation.motion_priors import (  # noqa: E402
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
     HISTOGRAM_ALPHA,
@@ -18,9 +18,9 @@ from experiments.data_exploration.explore_motion_priors import (  # noqa: E402
     PLOT_TITLE_FONT_SIZE,
     PLOT_TITLE_FONT_WEIGHT,
     REPORT_LABEL_WIDTH,
-    _print_report,
     collect_motion_prior_samples,
     plot_motion_prior_distributions,
+    print_motion_prior_report,
     suggest_prior_scales,
 )
 from ship_trajectory_prediction.models.ctrv import CTRVState  # noqa: E402
@@ -97,7 +97,12 @@ def test_terminal_report_aligns_all_value_separators(capsys):
     samples = collect_motion_prior_samples(create_noise_free_data(), run_ids=(0,))
     suggestions = suggest_prior_scales(samples)
 
-    _print_report(samples, suggestions, print_per_run_summary=False)
+    print_motion_prior_report(
+        samples,
+        suggestions,
+        data_file="synthetic.csv",
+        print_per_run_summary=False,
+    )
 
     report_lines = [
         line for line in capsys.readouterr().out.splitlines() if ": " in line
