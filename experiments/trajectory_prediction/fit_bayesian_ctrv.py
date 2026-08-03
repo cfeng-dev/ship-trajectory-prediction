@@ -1,6 +1,7 @@
 """Fit the Bayesian CTRV model to one recorded trajectory window."""
 
 import argparse
+from time import perf_counter
 
 import numpy as np
 
@@ -93,6 +94,9 @@ def main(
         start_index=START_INDEX,
     )
     stan_data = build_stan_data(window, priors=PRIORS)
+    forecast_horizon_seconds = float(
+        stan_data["time_prediction"][-1] - stan_data["time_observed"][-1]
+    )
     inference_rows = [("Inference method", inference_method.upper())]
     if inference_method == "vi":
         inference_rows.append(("VI algorithm", vi_algorithm))
@@ -114,6 +118,7 @@ def main(
             *inference_rows,
             ("Seed", seed),
             ("Observation model", "position only"),
+            ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             (
                 "Initial speed center",
                 f"{stan_data['speed_initial_prior_mean']:.3f} m/s (from positions)",
@@ -130,6 +135,7 @@ def main(
         ],
     )
 
+    fit_started = perf_counter()
     fit = fit_bayesian_ctrv_model(
         window,
         priors=PRIORS,
@@ -152,6 +158,8 @@ def main(
         seed=seed,
         require_converged=require_converged,
     )
+    fit_and_forecast_runtime_seconds = perf_counter() - fit_started
+    print(f"\nModel fit and forecast runtime: {fit_and_forecast_runtime_seconds:.2f} s")
     if inference_method == "vi":
         converged = variational_converged(fit)
         print_variational_diagnostics(fit)
