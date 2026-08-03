@@ -1,4 +1,4 @@
-"""Bayesian CTRV state-space model fitted with variational inference."""
+"""Bayesian CTRV state-space model fitted with VI or MCMC."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from cmdstanpy import CmdStanModel, CmdStanVB
+from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
@@ -241,6 +241,7 @@ def fit_bayesian_ctrv_model(
     *,
     priors: BayesianCTRVPriors | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
+    inference_method: str = "vi",
     algorithm: str = "meanfield",
     iter: int = 20_000,
     grad_samples: int = 1,
@@ -250,78 +251,142 @@ def fit_bayesian_ctrv_model(
     tol_rel_obj: float = 0.01,
     eval_elbo: int = 100,
     draws: int = 1_000,
+    chains: int = 4,
+    parallel_chains: int | None = None,
+    iter_warmup: int = 1_000,
+    iter_sampling: int = 1_000,
+    adapt_delta: float = 0.9,
+    max_treedepth: int = 10,
     seed: int = 42,
-    inits: Mapping[str, Any] | str | float | None = None,
+    inits: (
+        Mapping[str, Any] | Sequence[Mapping[str, Any]] | str | float | None
+    ) = None,
     require_converged: bool = True,
     show_console: bool = False,
     variational_options: Mapping[str, Any] | None = None,
-) -> CmdStanVB:
-    """Fit the Bayesian CTRV model with CmdStan variational inference.
+    mcmc_options: Mapping[str, Any] | None = None,
+) -> CmdStanVB | CmdStanMCMC:
+    """Fit the Bayesian CTRV model with selectable VI or MCMC inference.
 
-    ``meanfield`` is the default approximation. ``fullrank`` is available for
-    sensitivity analysis, but this function intentionally exposes no MCMC path.
-    With ``require_converged=True``, CmdStanPy raises if its VI convergence
-    criterion is not reached.
+    ``inference_method="vi"`` uses CmdStan variational inference with either a
+    ``meanfield`` or ``fullrank`` approximation. ``inference_method="mcmc"``
+    uses NUTS through CmdStan's sampler. VI and MCMC have separate option maps,
+    and options for the inactive method are rejected instead of silently ignored.
+    ``require_converged`` applies only to the VI path; MCMC quality is assessed
+    through sampler diagnostics, effective sample sizes, and R-hat values.
     """
-    _validate_variational_arguments(
-        algorithm=algorithm,
-        iter=iter,
-        grad_samples=grad_samples,
-        elbo_samples=elbo_samples,
-        eta=eta,
-        adapt_iter=adapt_iter,
-        tol_rel_obj=tol_rel_obj,
-        eval_elbo=eval_elbo,
-        draws=draws,
-        seed=seed,
-        require_converged=require_converged,
-        show_console=show_console,
-    )
-    options = dict(variational_options or {})
-    controlled_options = {
-        "data",
-        "seed",
-        "inits",
-        "algorithm",
-        "iter",
-        "grad_samples",
-        "elbo_samples",
-        "eta",
-        "adapt_iter",
-        "tol_rel_obj",
-        "eval_elbo",
-        "draws",
-        "require_converged",
-        "show_console",
-    }
-    conflicting = controlled_options.intersection(options)
-    if conflicting:
-        names = ", ".join(sorted(conflicting))
-        raise ValueError(f"variational_options must not override: {names}.")
+    inference_method = _validate_inference_method(inference_method)
+    if inference_method == "vi":
+        if mcmc_options:
+            raise ValueError("mcmc_options can only be used with MCMC inference.")
+        _validate_variational_arguments(
+            algorithm=algorithm,
+            iter=iter,
+            grad_samples=grad_samples,
+            elbo_samples=elbo_samples,
+            eta=eta,
+            adapt_iter=adapt_iter,
+            tol_rel_obj=tol_rel_obj,
+            eval_elbo=eval_elbo,
+            draws=draws,
+            seed=seed,
+            require_converged=require_converged,
+            show_console=show_console,
+        )
+        options = dict(variational_options or {})
+        controlled_options = {
+            "data",
+            "seed",
+            "inits",
+            "algorithm",
+            "iter",
+            "grad_samples",
+            "elbo_samples",
+            "eta",
+            "adapt_iter",
+            "tol_rel_obj",
+            "eval_elbo",
+            "draws",
+            "require_converged",
+            "show_console",
+        }
+        _reject_conflicting_options(
+            "variational_options",
+            options,
+            controlled_options,
+        )
+    else:
+        if variational_options:
+            raise ValueError("variational_options can only be used with VI inference.")
+        if parallel_chains is None:
+            parallel_chains = chains
+        _validate_mcmc_arguments(
+            chains=chains,
+            parallel_chains=parallel_chains,
+            iter_warmup=iter_warmup,
+            iter_sampling=iter_sampling,
+            adapt_delta=adapt_delta,
+            max_treedepth=max_treedepth,
+            seed=seed,
+            show_console=show_console,
+        )
+        options = dict(mcmc_options or {})
+        controlled_options = {
+            "data",
+            "seed",
+            "inits",
+            "chains",
+            "parallel_chains",
+            "iter_warmup",
+            "iter_sampling",
+            "adapt_delta",
+            "max_treedepth",
+            "show_console",
+        }
+        _reject_conflicting_options("mcmc_options", options, controlled_options)
 
     stan_data = build_stan_data(
         window,
         priors=priors,
         turn_rate_limit=turn_rate_limit,
     )
-    if inits is None:
-        inits = _default_initial_values(stan_data, seed=seed)
-
     model = compile_bayesian_ctrv_model()
-    return model.variational(
+    if inference_method == "vi":
+        if inits is None:
+            inits = _default_initial_values(stan_data, seed=seed)
+        return model.variational(
+            data=stan_data,
+            seed=seed,
+            inits=inits,
+            algorithm=algorithm,
+            iter=iter,
+            grad_samples=grad_samples,
+            elbo_samples=elbo_samples,
+            eta=eta,
+            adapt_iter=adapt_iter,
+            tol_rel_obj=tol_rel_obj,
+            eval_elbo=eval_elbo,
+            draws=draws,
+            require_converged=require_converged,
+            show_console=show_console,
+            **options,
+        )
+
+    if inits is None:
+        inits = [
+            _default_initial_values(stan_data, seed=seed + chain_index)
+            for chain_index in range(chains)
+        ]
+    return model.sample(
         data=stan_data,
         seed=seed,
         inits=inits,
-        algorithm=algorithm,
-        iter=iter,
-        grad_samples=grad_samples,
-        elbo_samples=elbo_samples,
-        eta=eta,
-        adapt_iter=adapt_iter,
-        tol_rel_obj=tol_rel_obj,
-        eval_elbo=eval_elbo,
-        draws=draws,
-        require_converged=require_converged,
+        chains=chains,
+        parallel_chains=parallel_chains,
+        iter_warmup=iter_warmup,
+        iter_sampling=iter_sampling,
+        adapt_delta=adapt_delta,
+        max_treedepth=max_treedepth,
         show_console=show_console,
         **options,
     )
@@ -666,6 +731,58 @@ def _validate_variational_arguments(**arguments: Any) -> None:
     for name in ("require_converged", "show_console"):
         if not isinstance(arguments[name], bool):
             raise ValueError(f"{name} must be a boolean.")
+
+
+def _validate_inference_method(inference_method: str) -> str:
+    """Return a normalized supported inference method."""
+    if not isinstance(inference_method, str):
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    normalized = inference_method.strip().lower()
+    if normalized not in {"vi", "mcmc"}:
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    return normalized
+
+
+def _validate_mcmc_arguments(**arguments: Any) -> None:
+    """Validate the explicitly supported CmdStan NUTS controls."""
+    for name in (
+        "chains",
+        "parallel_chains",
+        "iter_warmup",
+        "iter_sampling",
+        "max_treedepth",
+        "seed",
+    ):
+        value = arguments[name]
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise ValueError(f"{name} must be a positive integer.")
+        if value <= 0:
+            raise ValueError(f"{name} must be a positive integer.")
+    if arguments["parallel_chains"] > arguments["chains"]:
+        raise ValueError("parallel_chains must not exceed chains.")
+    adapt_delta = arguments["adapt_delta"]
+    if isinstance(adapt_delta, (bool, str, bytes)):
+        raise ValueError("adapt_delta must be between 0 and 1.")
+    try:
+        adapt_delta = float(adapt_delta)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("adapt_delta must be between 0 and 1.") from error
+    if not np.isfinite(adapt_delta) or not 0 < adapt_delta < 1:
+        raise ValueError("adapt_delta must be between 0 and 1.")
+    if not isinstance(arguments["show_console"], bool):
+        raise ValueError("show_console must be a boolean.")
+
+
+def _reject_conflicting_options(
+    option_name: str,
+    options: Mapping[str, Any],
+    controlled_options: set[str],
+) -> None:
+    """Reject generic options that override the wrapper's explicit controls."""
+    conflicting = controlled_options.intersection(options)
+    if conflicting:
+        names = ", ".join(sorted(conflicting))
+        raise ValueError(f"{option_name} must not override: {names}.")
 
 
 def _validate_time_arrays(time_observed, time_prediction) -> None:

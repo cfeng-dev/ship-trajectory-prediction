@@ -34,6 +34,9 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
+# Select "vi" for fast approximation or "mcmc" for reference NUTS sampling.
+INFERENCE_METHOD = "vi"
+SEED = 42
 PRIORS = BayesianCTRVPriors(
     position_initial_prior_scale=5.0,
     speed_initial_prior_scale=0.75,
@@ -44,6 +47,7 @@ PRIORS = BayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.05,
     sigma_turn_rate_process_prior_scale=0.001,
 )
+VI_ALGORITHM = "meanfield"
 VI_ITER = 20_000
 VI_GRAD_SAMPLES = 1
 VI_ELBO_SAMPLES = 100
@@ -52,11 +56,35 @@ VI_ADAPT_ITER = 50
 VI_TOL_REL_OBJ = 0.01
 VI_EVAL_ELBO = 100
 VI_DRAWS = 1_000
+VI_REQUIRE_CONVERGED = False
+MCMC_CHAINS = 4
+MCMC_PARALLEL_CHAINS = 4
+MCMC_ITER_WARMUP = 1_000
+MCMC_ITER_SAMPLING = 1_000
+MCMC_ADAPT_DELTA = 0.9
+MCMC_MAX_TREEDEPTH = 10
 CREDIBLE_INTERVAL = 0.9
 
 
-def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
-    """Fit one recorded run and plot predictions against held-out GPS data."""
+def main(
+    *,
+    inference_method=INFERENCE_METHOD,
+    vi_algorithm=VI_ALGORITHM,
+    seed=SEED,
+    require_converged=VI_REQUIRE_CONVERGED,
+    mcmc_chains=MCMC_CHAINS,
+    mcmc_parallel_chains=MCMC_PARALLEL_CHAINS,
+    mcmc_iter_warmup=MCMC_ITER_WARMUP,
+    mcmc_iter_sampling=MCMC_ITER_SAMPLING,
+    mcmc_adapt_delta=MCMC_ADAPT_DELTA,
+    mcmc_max_treedepth=MCMC_MAX_TREEDEPTH,
+):
+    """Fit one recorded run with selected inference and evaluate predictions."""
+    if not isinstance(inference_method, str):
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    inference_method = inference_method.strip().lower()
+    if inference_method not in {"vi", "mcmc"}:
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     window = prepare_trajectory_window(
         trajectory_data,
@@ -65,14 +93,25 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
         start_index=START_INDEX,
     )
     stan_data = build_stan_data(window, priors=PRIORS)
+    inference_rows = [("Inference method", inference_method.upper())]
+    if inference_method == "vi":
+        inference_rows.append(("VI algorithm", vi_algorithm))
+    else:
+        inference_rows.extend(
+            [
+                ("MCMC chains", mcmc_chains),
+                ("MCMC parallel chains", mcmc_parallel_chains),
+                ("MCMC warmup per chain", mcmc_iter_warmup),
+                ("MCMC samples per chain", mcmc_iter_sampling),
+            ]
+        )
     print_prediction_setup(
         "Bayesian CTRV State-Space Prediction",
         data_file=DATA_FILE,
         run_id=RUN_ID,
         window=window,
         extra_rows=[
-            ("Inference method", "VI"),
-            ("VI algorithm", vi_algorithm),
+            *inference_rows,
             ("Seed", seed),
             ("Observation model", "position only"),
             (
@@ -94,6 +133,7 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
     fit = fit_bayesian_ctrv_model(
         window,
         priors=PRIORS,
+        inference_method=inference_method,
         algorithm=vi_algorithm,
         iter=VI_ITER,
         grad_samples=VI_GRAD_SAMPLES,
@@ -103,17 +143,27 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
         tol_rel_obj=VI_TOL_REL_OBJ,
         eval_elbo=VI_EVAL_ELBO,
         draws=VI_DRAWS,
+        chains=mcmc_chains,
+        parallel_chains=mcmc_parallel_chains,
+        iter_warmup=mcmc_iter_warmup,
+        iter_sampling=mcmc_iter_sampling,
+        adapt_delta=mcmc_adapt_delta,
+        max_treedepth=mcmc_max_treedepth,
         seed=seed,
         require_converged=require_converged,
     )
-    converged = variational_converged(fit)
-    print_variational_diagnostics(fit)
-    print(f"CmdStan convergence criterion met: {converged}")
-    if not converged:
-        print(
-            "WARNING: Treat this posterior and its plot as preliminary; "
-            "the VI convergence criterion was not met."
-        )
+    if inference_method == "vi":
+        converged = variational_converged(fit)
+        print_variational_diagnostics(fit)
+        print(f"CmdStan convergence criterion met: {converged}")
+        if not converged:
+            print(
+                "WARNING: Treat this posterior and its plot as preliminary; "
+                "the VI convergence criterion was not met."
+            )
+    else:
+        print("\nMCMC diagnostics:")
+        print(fit.diagnose())
 
     print("\nPosterior parameter summary:")
     print(
@@ -171,14 +221,20 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--inference",
+        choices=("vi", "mcmc"),
+        default=INFERENCE_METHOD,
+    )
+    parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default="meanfield",
+        default=VI_ALGORITHM,
     )
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
         "--require-converged",
         action="store_true",
+        default=VI_REQUIRE_CONVERGED,
         help="Abort instead of plotting if CmdStan reports non-converged VI.",
     )
     return parser.parse_args()
@@ -187,6 +243,7 @@ def _parse_arguments():
 if __name__ == "__main__":
     arguments = _parse_arguments()
     main(
+        inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,
         require_converged=arguments.require_converged,

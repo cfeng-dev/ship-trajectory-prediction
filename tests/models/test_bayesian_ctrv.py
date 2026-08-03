@@ -10,6 +10,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_variable_samples,
+)
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
@@ -352,6 +355,45 @@ def test_fit_forwards_explicit_meanfield_controls(monkeypatch):
     assert arguments["show_console"] is True
 
 
+def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):
+    """The wrapper should call NUTS with independent seeded chain initials."""
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: fake_model,
+    )
+
+    fit = fit_bayesian_ctrv_model(
+        create_synthetic_window(),
+        inference_method="mcmc",
+        chains=3,
+        parallel_chains=2,
+        iter_warmup=250,
+        iter_sampling=300,
+        adapt_delta=0.95,
+        max_treedepth=12,
+        seed=17,
+        show_console=True,
+    )
+
+    assert fit is fake_model.mcmc_result
+    arguments = fake_model.sample_arguments
+    assert arguments["chains"] == 3
+    assert arguments["parallel_chains"] == 2
+    assert arguments["iter_warmup"] == 250
+    assert arguments["iter_sampling"] == 300
+    assert arguments["adapt_delta"] == pytest.approx(0.95)
+    assert arguments["max_treedepth"] == 12
+    assert arguments["seed"] == 17
+    assert arguments["show_console"] is True
+    assert len(arguments["inits"]) == 3
+    assert not np.array_equal(
+        arguments["inits"][0]["speed_state"],
+        arguments["inits"][1]["speed_state"],
+    )
+
+
 def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):
     """A repeated seed should reproduce initial values for either VI family."""
     fake_model = FakeModel()
@@ -434,6 +476,83 @@ def test_fit_rejects_conflicting_variational_options(monkeypatch, options):
         fit_bayesian_ctrv_model(
             create_synthetic_window(),
             variational_options=options,
+        )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"data": {}},
+        {"seed": 1},
+        {"chains": 2},
+        {"adapt_delta": 0.95},
+    ],
+)
+def test_fit_rejects_conflicting_mcmc_options(monkeypatch, options):
+    """Generic MCMC options must not override typed NUTS controls."""
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: FakeModel(),
+    )
+
+    with pytest.raises(ValueError, match="must not override"):
+        fit_bayesian_ctrv_model(
+            create_synthetic_window(),
+            inference_method="mcmc",
+            mcmc_options=options,
+        )
+
+
+@pytest.mark.parametrize(
+    ("inference_method", "option_name", "options"),
+    [
+        ("vi", "mcmc_options", {"show_progress": False}),
+        ("mcmc", "variational_options", {"refresh": 0}),
+    ],
+)
+def test_fit_rejects_options_for_inactive_inference_method(
+    inference_method,
+    option_name,
+    options,
+):
+    """Configuration for the inactive inference method must not be ignored."""
+    with pytest.raises(ValueError, match=option_name):
+        fit_bayesian_ctrv_model(
+            create_synthetic_window(),
+            inference_method=inference_method,
+            **{option_name: options},
+        )
+
+
+@pytest.mark.parametrize("inference_method", ["laplace", "nuts", ""])
+def test_fit_rejects_unsupported_inference_methods(inference_method):
+    """Only the explicit VI and MCMC interfaces should be accepted."""
+    with pytest.raises(ValueError, match="inference_method"):
+        fit_bayesian_ctrv_model(
+            create_synthetic_window(),
+            inference_method=inference_method,
+        )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"chains": 0},
+        {"chains": 2, "parallel_chains": 3},
+        {"iter_warmup": 0},
+        {"iter_sampling": 0},
+        {"adapt_delta": 1.0},
+        {"max_treedepth": 0},
+    ],
+)
+def test_fit_rejects_invalid_mcmc_controls(arguments):
+    """NUTS controls should fail before compiling the Stan model."""
+    with pytest.raises(ValueError):
+        fit_bayesian_ctrv_model(
+            create_synthetic_window(),
+            inference_method="mcmc",
+            **arguments,
         )
 
 
@@ -657,7 +776,7 @@ def test_stan_model_has_position_only_likelihood_and_named_predictions():
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.getenv("RUN_CMDSTAN_INTEGRATION") != "1",
-    reason="Set RUN_CMDSTAN_INTEGRATION=1 to compile and run CmdStan VI.",
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run CmdStan inference.",
 )
 @pytest.mark.parametrize(
     ("algorithm", "seed"),
@@ -682,9 +801,33 @@ def test_small_synthetic_vi_fit_is_executable(algorithm, seed):
     assert np.all(np.isfinite(posterior_samples(fit, "sigma_position_gps")))
 
 
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.getenv("RUN_CMDSTAN_INTEGRATION") != "1",
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run CmdStan inference.",
+)
+def test_small_synthetic_mcmc_fit_is_executable():
+    """A small NUTS run should return finite position-only state draws."""
+    fit = fit_bayesian_ctrv_model(
+        create_synthetic_window(),
+        inference_method="mcmc",
+        chains=2,
+        parallel_chains=2,
+        iter_warmup=100,
+        iter_sampling=100,
+        adapt_delta=0.9,
+        seed=14,
+    )
+
+    assert posterior_samples(fit, "x_state").shape == (200, 7)
+    assert posterior_samples(fit, "speed_state_prediction").shape == (200, 3)
+    assert posterior_samples(fit, "log_likelihood").shape == (200, 14)
+    assert np.all(np.isfinite(posterior_samples(fit, "sigma_position_gps")))
+
+
 def posterior_samples(fit, name):
-    """Extract full VI draws for the integration assertions."""
-    return np.asarray(fit.stan_variable(name, mean=False))
+    """Extract full VI or MCMC draws for the integration assertions."""
+    return posterior_variable_samples(fit, name)
 
 
 class FakeFit:
@@ -704,15 +847,24 @@ class FakeFit:
 
 
 class FakeModel:
-    """Minimal CmdStan model that records variational calls."""
+    """Minimal CmdStan model that records VI and MCMC calls."""
 
     def __init__(self):
         self.result = object()
+        self.mcmc_result = object()
         self.arguments = None
         self.calls = []
+        self.sample_arguments = None
+        self.sample_calls = []
 
     def variational(self, **kwargs):
         """Capture variational arguments and return a stable sentinel."""
         self.arguments = kwargs
         self.calls.append(kwargs)
         return self.result
+
+    def sample(self, **kwargs):
+        """Capture MCMC arguments and return a stable sentinel."""
+        self.sample_arguments = kwargs
+        self.sample_calls.append(kwargs)
+        return self.mcmc_result
