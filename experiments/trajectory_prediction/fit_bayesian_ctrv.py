@@ -53,39 +53,37 @@ PRIORS = BayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.05,
     sigma_turn_rate_process_prior_scale=0.001,
 )
-VI_ALGORITHM = "meanfield"
-VI_ITER = 20_000
-VI_GRAD_SAMPLES = 1
-VI_ELBO_SAMPLES = 100
-VI_ETA = 1.0
-VI_ADAPT_ITER = 50
-VI_TOL_REL_OBJ = 0.01
-VI_EVAL_ELBO = 100
-VI_DRAWS = 1_000
-VI_REQUIRE_CONVERGED = False
-MCMC_CHAINS = 4
-MCMC_PARALLEL_CHAINS = 4
-MCMC_ITER_WARMUP = 1_000
-MCMC_ITER_SAMPLING = 1_000
-MCMC_ADAPT_DELTA = 0.9
-MCMC_MAX_TREEDEPTH = 10
+VI_CONFIG = {
+    "algorithm": "meanfield",
+    "iter": 20_000,
+    "grad_samples": 1,
+    "elbo_samples": 100,
+    "eta": 1.0,
+    "adapt_iter": 50,
+    "tol_rel_obj": 0.01,
+    "eval_elbo": 100,
+    "draws": 1_000,
+    "require_converged": False,
+}
+MCMC_CONFIG = {
+    "chains": 4,
+    "parallel_chains": 4,
+    "iter_warmup": 1_000,
+    "iter_sampling": 1_000,
+    "adapt_delta": 0.9,
+    "max_treedepth": 10,
+}
 CREDIBLE_INTERVAL = 0.9
 
 
 def main(
     *,
     inference_method=INFERENCE_METHOD,
-    vi_algorithm=VI_ALGORITHM,
+    vi_algorithm=VI_CONFIG["algorithm"],
     seed=SEED,
     additional_position_noise_std_m=ADDITIONAL_POSITION_NOISE_STD_M,
     position_noise_seed=POSITION_NOISE_SEED,
-    require_converged=VI_REQUIRE_CONVERGED,
-    mcmc_chains=MCMC_CHAINS,
-    mcmc_parallel_chains=MCMC_PARALLEL_CHAINS,
-    mcmc_iter_warmup=MCMC_ITER_WARMUP,
-    mcmc_iter_sampling=MCMC_ITER_SAMPLING,
-    mcmc_adapt_delta=MCMC_ADAPT_DELTA,
-    mcmc_max_treedepth=MCMC_MAX_TREEDEPTH,
+    require_converged=VI_CONFIG["require_converged"],
 ):
     """Fit one recorded run with selected inference and evaluate predictions."""
     if not isinstance(inference_method, str):
@@ -116,14 +114,20 @@ def main(
     )
     inference_rows = [("Inference method", inference_method.upper())]
     if inference_method == "vi":
-        inference_rows.append(("VI algorithm", vi_algorithm))
+        inference_config = {
+            **VI_CONFIG,
+            "algorithm": vi_algorithm,
+            "require_converged": require_converged,
+        }
+        inference_rows.append(("VI algorithm", inference_config["algorithm"]))
     else:
+        inference_config = dict(MCMC_CONFIG)
         inference_rows.extend(
             [
-                ("MCMC chains", mcmc_chains),
-                ("MCMC parallel chains", mcmc_parallel_chains),
-                ("MCMC warmup per chain", mcmc_iter_warmup),
-                ("MCMC samples per chain", mcmc_iter_sampling),
+                ("MCMC chains", inference_config["chains"]),
+                ("MCMC parallel chains", inference_config["parallel_chains"]),
+                ("MCMC warmup per chain", inference_config["iter_warmup"]),
+                ("MCMC samples per chain", inference_config["iter_sampling"]),
             ]
         )
     _print_ctrv_setup(
@@ -140,23 +144,8 @@ def main(
         priors=PRIORS,
         position_observations=position_observations,
         inference_method=inference_method,
-        algorithm=vi_algorithm,
-        iter=VI_ITER,
-        grad_samples=VI_GRAD_SAMPLES,
-        elbo_samples=VI_ELBO_SAMPLES,
-        eta=VI_ETA,
-        adapt_iter=VI_ADAPT_ITER,
-        tol_rel_obj=VI_TOL_REL_OBJ,
-        eval_elbo=VI_EVAL_ELBO,
-        draws=VI_DRAWS,
-        chains=mcmc_chains,
-        parallel_chains=mcmc_parallel_chains,
-        iter_warmup=mcmc_iter_warmup,
-        iter_sampling=mcmc_iter_sampling,
-        adapt_delta=mcmc_adapt_delta,
-        max_treedepth=mcmc_max_treedepth,
         seed=seed,
-        require_converged=require_converged,
+        **inference_config,
     )
     fit_and_forecast_runtime_seconds = perf_counter() - fit_started
     print(f"\nModel fit and forecast runtime: {fit_and_forecast_runtime_seconds:.2f} s")
@@ -274,7 +263,7 @@ def _parse_arguments():
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default=VI_ALGORITHM,
+        default=VI_CONFIG["algorithm"],
     )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
@@ -292,7 +281,7 @@ def _parse_arguments():
     parser.add_argument(
         "--require-converged",
         action="store_true",
-        default=VI_REQUIRE_CONVERGED,
+        default=VI_CONFIG["require_converged"],
         help="Abort instead of plotting if CmdStan reports non-converged VI.",
     )
     return parser.parse_args()
