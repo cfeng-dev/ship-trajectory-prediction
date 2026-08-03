@@ -5,6 +5,11 @@ from time import perf_counter
 
 import numpy as np
 
+if __package__:
+    from .config import ExperimentConfig
+else:
+    from config import ExperimentConfig
+
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
@@ -32,57 +37,57 @@ DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
-RUN_ID = 1
-START_INDEX = 0
-OBSERVATION_COUNT = 20
-PREDICTION_COUNT = 5
-# Set to 0.0 to fit the converted GPS positions without extra perturbation.
-# A positive value adds independent Normal(0, std) noise to each local x/y axis.
-ADDITIONAL_POSITION_NOISE_STD_M = 2.0
-POSITION_NOISE_SEED = 2026
-# Select "vi" for fast approximation or "mcmc" for reference NUTS sampling.
-INFERENCE_METHOD = "vi"
-SEED = 42
+
+EXPERIMENT = ExperimentConfig(
+    run_id=1,  # Trajectory run to fit.
+    start_index=0,  # First point of the selected window.
+    observation_count=20,  # Position points used for fitting.
+    prediction_count=5,  # Held-out future position points.
+    additional_position_noise_std_m=2.0,  # Per x/y axis [m]; 0 disables.
+    position_noise_seed=2026,  # Reproduces the added position noise.
+    inference_method="vi",  # Fast "vi" or reference "mcmc".
+    inference_seed=42,  # Reproduces VI or MCMC.
+)
 PRIORS = BayesianCTRVPriors(
-    position_initial_prior_scale=5.0,
-    speed_initial_prior_scale=0.75,
-    heading_initial_prior_scale=0.35,
-    turn_rate_state_prior_scale=None,
-    sigma_position_gps_prior_scale=5.0,
-    sigma_position_process_prior_scale=0.5,
-    sigma_speed_process_prior_scale=0.05,
-    sigma_turn_rate_process_prior_scale=0.001,
+    position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
+    speed_initial_prior_scale=0.75,  # Initial speed uncertainty [m/s].
+    heading_initial_prior_scale=0.35,  # Initial heading uncertainty [rad].
+    turn_rate_state_prior_scale=None,  # Derive from observed positions.
+    sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
+    sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
+    sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
+    sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
 )
 VI_CONFIG = {
-    "algorithm": "meanfield",
-    "iter": 20_000,
-    "grad_samples": 1,
-    "elbo_samples": 100,
-    "eta": 1.0,
-    "adapt_iter": 50,
-    "tol_rel_obj": 0.01,
-    "eval_elbo": 100,
-    "draws": 1_000,
-    "require_converged": False,
+    "algorithm": "meanfield",  # "meanfield" or "fullrank".
+    "iter": 20_000,  # Maximum optimization iterations.
+    "grad_samples": 1,  # Samples per gradient estimate.
+    "elbo_samples": 100,  # Samples per ELBO estimate.
+    "eta": 1.0,  # Initial step size.
+    "adapt_iter": 50,  # Step-size adaptation iterations.
+    "tol_rel_obj": 0.01,  # Relative ELBO stopping tolerance.
+    "eval_elbo": 100,  # ELBO evaluation interval.
+    "draws": 1_000,  # Posterior draws to save.
+    "require_converged": False,  # Allow preliminary non-converged VI.
 }
 MCMC_CONFIG = {
-    "chains": 4,
-    "parallel_chains": 4,
-    "iter_warmup": 1_000,
-    "iter_sampling": 1_000,
-    "adapt_delta": 0.9,
-    "max_treedepth": 10,
+    "chains": 4,  # Independent NUTS chains.
+    "parallel_chains": 4,  # Chains run concurrently.
+    "iter_warmup": 1_000,  # Warmup iterations per chain.
+    "iter_sampling": 1_000,  # Saved draws per chain.
+    "adapt_delta": 0.9,  # Target acceptance probability.
+    "max_treedepth": 10,  # Maximum NUTS tree depth.
 }
-CREDIBLE_INTERVAL = 0.9
+CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 
 
 def main(
     *,
-    inference_method=INFERENCE_METHOD,
+    inference_method=EXPERIMENT.inference_method,
     vi_algorithm=VI_CONFIG["algorithm"],
-    seed=SEED,
-    additional_position_noise_std_m=ADDITIONAL_POSITION_NOISE_STD_M,
-    position_noise_seed=POSITION_NOISE_SEED,
+    seed=EXPERIMENT.inference_seed,
+    position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
+    position_noise_seed=EXPERIMENT.position_noise_seed,
     require_converged=VI_CONFIG["require_converged"],
 ):
     """Fit one recorded run with selected inference and evaluate predictions."""
@@ -91,16 +96,16 @@ def main(
     inference_method = inference_method.strip().lower()
     if inference_method not in {"vi", "mcmc"}:
         raise ValueError("inference_method must be 'vi' or 'mcmc'.")
-    trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
+    trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     window = prepare_trajectory_window(
         trajectory_data,
-        observation_count=OBSERVATION_COUNT,
-        prediction_count=PREDICTION_COUNT,
-        start_index=START_INDEX,
+        observation_count=EXPERIMENT.observation_count,
+        prediction_count=EXPERIMENT.prediction_count,
+        start_index=EXPERIMENT.start_index,
     )
     position_observations = simulate_position_observations(
         window,
-        additional_noise_std_m=additional_position_noise_std_m,
+        additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
     additional_noise_enabled = position_observations.additional_noise_std_m > 0
@@ -242,7 +247,7 @@ def _print_ctrv_setup(
     print_prediction_setup(
         "Bayesian CTRV State-Space Prediction",
         data_file=DATA_FILE,
-        run_id=RUN_ID,
+        run_id=EXPERIMENT.run_id,
         window=window,
         extra_rows=[
             *inference_rows,
@@ -258,24 +263,24 @@ def _parse_arguments():
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
-        default=INFERENCE_METHOD,
+        default=EXPERIMENT.inference_method,
     )
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
         default=VI_CONFIG["algorithm"],
     )
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=ADDITIONAL_POSITION_NOISE_STD_M,
+        default=EXPERIMENT.additional_position_noise_std_m,
         help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
     )
     parser.add_argument(
         "--position-noise-seed",
         type=int,
-        default=POSITION_NOISE_SEED,
+        default=EXPERIMENT.position_noise_seed,
         help="Seed used only to generate the in-memory position perturbation.",
     )
     parser.add_argument(
@@ -293,7 +298,7 @@ if __name__ == "__main__":
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,
-        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
     )
