@@ -126,41 +126,12 @@ def main(
                 ("MCMC samples per chain", mcmc_iter_sampling),
             ]
         )
-    print_prediction_setup(
-        "Bayesian CTRV State-Space Prediction",
-        data_file=DATA_FILE,
-        run_id=RUN_ID,
+    _print_ctrv_setup(
         window=window,
-        extra_rows=[
-            *inference_rows,
-            ("Seed", seed),
-            (
-                "Observation model",
-                "noise-augmented position only"
-                if additional_noise_enabled
-                else "position only",
-            ),
-            (
-                "Additional position noise",
-                f"Normal(0, {position_observations.additional_noise_std_m:g} m) "
-                "per x/y axis",
-            ),
-            ("Position-noise seed", position_observations.noise_seed),
-            ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
-            (
-                "Initial speed center",
-                f"{stan_data['speed_initial_prior_mean']:.3f} m/s (from positions)",
-            ),
-            (
-                "Initial turn-rate center",
-                f"{stan_data['turn_rate_initial_prior_mean']:.5f} rad/s",
-            ),
-            (
-                "Turn-rate state prior scale",
-                f"{stan_data['turn_rate_state_prior_scale']:.5f} rad/s",
-            ),
-            ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
-        ],
+        inference_rows=inference_rows,
+        inference_seed=seed,
+        position_observations=position_observations,
+        forecast_horizon_seconds=forecast_horizon_seconds,
     )
 
     fit_started = perf_counter()
@@ -261,6 +232,35 @@ def main(
             if additional_noise_enabled
             else "Observed trajectory"
         ),
+    )
+
+
+def _print_ctrv_setup(
+    *,
+    window,
+    inference_rows,
+    inference_seed,
+    position_observations,
+    forecast_horizon_seconds,
+):
+    """Print the concise, reproducible setup for one Bayesian CTRV run."""
+    noise_std_m = position_observations.additional_noise_std_m
+    noise_description = (
+        f"{noise_std_m:g} m (seed={position_observations.noise_seed})"
+        if noise_std_m > 0
+        else "disabled"
+    )
+    print_prediction_setup(
+        "Bayesian CTRV State-Space Prediction",
+        data_file=DATA_FILE,
+        run_id=RUN_ID,
+        window=window,
+        extra_rows=[
+            *inference_rows,
+            ("Inference seed", inference_seed),
+            ("Additional position noise", noise_description),
+            ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
+        ],
     )
 
 
