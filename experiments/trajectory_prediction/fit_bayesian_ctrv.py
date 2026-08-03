@@ -21,6 +21,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     BayesianCTRVPriors,
     build_stan_data,
     fit_bayesian_ctrv_model,
+    simulate_position_observations,
     variational_converged,
 )
 from ship_trajectory_prediction.paths import project_path
@@ -35,6 +36,10 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
+# Set to 0.0 to fit the converted GPS positions without extra perturbation.
+# A positive value adds independent Normal(0, std) noise to each local x/y axis.
+ADDITIONAL_POSITION_NOISE_STD_M = 2.0
+POSITION_NOISE_SEED = 2026
 # Select "vi" for fast approximation or "mcmc" for reference NUTS sampling.
 INFERENCE_METHOD = "vi"
 SEED = 42
@@ -72,6 +77,8 @@ def main(
     inference_method=INFERENCE_METHOD,
     vi_algorithm=VI_ALGORITHM,
     seed=SEED,
+    additional_position_noise_std_m=ADDITIONAL_POSITION_NOISE_STD_M,
+    position_noise_seed=POSITION_NOISE_SEED,
     require_converged=VI_REQUIRE_CONVERGED,
     mcmc_chains=MCMC_CHAINS,
     mcmc_parallel_chains=MCMC_PARALLEL_CHAINS,
@@ -93,7 +100,17 @@ def main(
         prediction_count=PREDICTION_COUNT,
         start_index=START_INDEX,
     )
-    stan_data = build_stan_data(window, priors=PRIORS)
+    position_observations = simulate_position_observations(
+        window,
+        additional_noise_std_m=additional_position_noise_std_m,
+        seed=position_noise_seed,
+    )
+    additional_noise_enabled = position_observations.additional_noise_std_m > 0
+    stan_data = build_stan_data(
+        window,
+        priors=PRIORS,
+        position_observations=position_observations,
+    )
     forecast_horizon_seconds = float(
         stan_data["time_prediction"][-1] - stan_data["time_observed"][-1]
     )
@@ -117,7 +134,18 @@ def main(
         extra_rows=[
             *inference_rows,
             ("Seed", seed),
-            ("Observation model", "position only"),
+            (
+                "Observation model",
+                "noise-augmented position only"
+                if additional_noise_enabled
+                else "position only",
+            ),
+            (
+                "Additional position noise",
+                f"Normal(0, {position_observations.additional_noise_std_m:g} m) "
+                "per x/y axis",
+            ),
+            ("Position-noise seed", position_observations.noise_seed),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             (
                 "Initial speed center",
@@ -139,6 +167,7 @@ def main(
     fit = fit_bayesian_ctrv_model(
         window,
         priors=PRIORS,
+        position_observations=position_observations,
         inference_method=inference_method,
         algorithm=vi_algorithm,
         iter=VI_ITER,
@@ -210,8 +239,8 @@ def main(
         window,
         credible_interval=CREDIBLE_INTERVAL,
         position_variable_names=(
-            "x_observation_prediction",
-            "y_observation_prediction",
+            "x_state_prediction",
+            "y_state_prediction",
         ),
     )
     print_position_evaluation(evaluation)
@@ -222,6 +251,15 @@ def main(
         state_prediction_variable_names=(
             "x_state_prediction",
             "y_state_prediction",
+        ),
+        observed_position_values=(
+            position_observations.x_meters,
+            position_observations.y_meters,
+        ),
+        observed_trajectory_label=(
+            "Noise-augmented observations"
+            if additional_noise_enabled
+            else "Observed trajectory"
         ),
     )
 
@@ -240,6 +278,18 @@ def _parse_arguments():
     )
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument(
+        "--position-noise-std-m",
+        type=float,
+        default=ADDITIONAL_POSITION_NOISE_STD_M,
+        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+    )
+    parser.add_argument(
+        "--position-noise-seed",
+        type=int,
+        default=POSITION_NOISE_SEED,
+        help="Seed used only to generate the in-memory position perturbation.",
+    )
+    parser.add_argument(
         "--require-converged",
         action="store_true",
         default=VI_REQUIRE_CONVERGED,
@@ -254,5 +304,7 @@ if __name__ == "__main__":
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,
+        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
     )

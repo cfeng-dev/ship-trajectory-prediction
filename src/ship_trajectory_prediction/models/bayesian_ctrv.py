@@ -70,6 +70,51 @@ class BayesianCTRVPriors:
             object.__setattr__(self, field_name, float(value))
 
 
+@dataclass(frozen=True, slots=True)
+class PositionObservations:
+    """Immutable observed positions supplied to the Bayesian CTRV fit.
+
+    The arrays contain only the observed part of one trajectory window. The
+    additional noise metadata records the experimental perturbation applied in
+    memory; it is not another parameter of the Stan observation model.
+    """
+
+    time_seconds: np.ndarray
+    x_meters: np.ndarray
+    y_meters: np.ndarray
+    additional_noise_std_m: float
+    noise_seed: int
+
+    def __post_init__(self) -> None:
+        """Copy, validate, and make all observation arrays read-only."""
+        time_seconds = np.asarray(self.time_seconds, dtype=float).copy()
+        x_meters = np.asarray(self.x_meters, dtype=float).copy()
+        y_meters = np.asarray(self.y_meters, dtype=float).copy()
+        _validate_matching_position_time_arrays(
+            time_seconds,
+            x_meters,
+            y_meters,
+        )
+        if np.any(np.diff(time_seconds) <= 0):
+            raise ValueError("time_seconds must be strictly increasing.")
+        additional_noise_std_m = _validate_non_negative_finite(
+            "additional_noise_std_m",
+            self.additional_noise_std_m,
+        )
+        noise_seed = _validate_non_negative_integer("noise_seed", self.noise_seed)
+        for values in (time_seconds, x_meters, y_meters):
+            values.setflags(write=False)
+        object.__setattr__(self, "time_seconds", time_seconds)
+        object.__setattr__(self, "x_meters", x_meters)
+        object.__setattr__(self, "y_meters", y_meters)
+        object.__setattr__(
+            self,
+            "additional_noise_std_m",
+            additional_noise_std_m,
+        )
+        object.__setattr__(self, "noise_seed", noise_seed)
+
+
 @dataclass(frozen=True)
 class VIRunResult:
     """One fitted VI run together with reproducibility metadata."""
@@ -93,16 +138,57 @@ class TurnRateDiagnostics:
     limit_rad_s: float
 
 
+def simulate_position_observations(
+    window: TrajectoryWindowData,
+    *,
+    additional_noise_std_m: float = 0.0,
+    seed: int = 2026,
+) -> PositionObservations:
+    """Create reproducible position observations without changing ``window``.
+
+    Independent zero-mean Gaussian noise with the configured standard
+    deviation is added once to each local x and y coordinate. A value of zero
+    preserves the converted GPS positions exactly. Only the observed slice is
+    copied; held-out positions remain untouched for later evaluation.
+    """
+    additional_noise_std_m = _validate_non_negative_finite(
+        "additional_noise_std_m",
+        additional_noise_std_m,
+    )
+    seed = _validate_non_negative_integer("seed", seed)
+    if window.observation_count < 2:
+        raise ValueError("window must contain at least two observed positions.")
+
+    observed = window.observed_slice
+    time_seconds = np.asarray(window.time_seconds[observed], dtype=float).copy()
+    x_meters = np.asarray(window.x_meters[observed], dtype=float).copy()
+    y_meters = np.asarray(window.y_meters[observed], dtype=float).copy()
+    if additional_noise_std_m > 0:
+        generator = np.random.default_rng(seed)
+        x_meters += generator.normal(0.0, additional_noise_std_m, x_meters.size)
+        y_meters += generator.normal(0.0, additional_noise_std_m, y_meters.size)
+
+    return PositionObservations(
+        time_seconds=time_seconds,
+        x_meters=x_meters,
+        y_meters=y_meters,
+        additional_noise_std_m=additional_noise_std_m,
+        noise_seed=seed,
+    )
+
+
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
+    position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
     """Build position-only data and priors for one observed trajectory window.
 
-    All data-derived prior centers use only the observed portion of ``window``.
-    The available GPS positions act as noisy proxy observations for a later
+    All data-derived prior centers use only ``position_observations``. If they
+    are omitted, the observed portion of ``window`` is copied without adding
+    noise. The available positions act as noisy proxy observations for a later
     externally observed target-vessel trajectory. GPS speed is deliberately
     excluded from Stan data, prior construction, and initialization. Position
     is measured in meters, latent speed in meters per second, heading in radians,
@@ -121,12 +207,17 @@ def build_stan_data(
 
     observed = window.observed_slice
     prediction = window.prediction_slice
-    time_observed = np.asarray(window.time_seconds[observed], dtype=float)
+    window_time_observed = np.asarray(window.time_seconds[observed], dtype=float)
     time_prediction = np.asarray(window.time_seconds[prediction], dtype=float)
-    x_observed = np.asarray(window.x_meters[observed], dtype=float)
-    y_observed = np.asarray(window.y_meters[observed], dtype=float)
+    _validate_time_arrays(window_time_observed, time_prediction)
+    position_observations = _resolve_position_observations(
+        window,
+        position_observations,
+    )
+    time_observed = position_observations.time_seconds
+    x_observed = position_observations.x_meters
+    y_observed = position_observations.y_meters
 
-    _validate_time_arrays(time_observed, time_prediction)
     _validate_finite_vector("x_observed", x_observed)
     _validate_finite_vector("y_observed", y_observed)
     speed_initial_prior_mean = estimate_initial_speed_from_positions(
@@ -138,6 +229,7 @@ def build_stan_data(
         window,
         turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         turn_rate_limit=turn_rate_limit,
+        position_observations=position_observations,
     )
     try:
         heading_initial_prior_mean = estimate_initial_heading(
@@ -241,6 +333,7 @@ def fit_bayesian_ctrv_model(
     *,
     priors: BayesianCTRVPriors | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
+    position_observations: PositionObservations | None = None,
     inference_method: str = "vi",
     algorithm: str = "meanfield",
     iter: int = 20_000,
@@ -349,6 +442,7 @@ def fit_bayesian_ctrv_model(
         window,
         priors=priors,
         turn_rate_limit=turn_rate_limit,
+        position_observations=position_observations,
     )
     model = compile_bayesian_ctrv_model()
     if inference_method == "vi":
@@ -536,12 +630,14 @@ def diagnose_observed_turn_rate(
     *,
     turn_rate_state_prior_scale: float | None = None,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
+    position_observations: PositionObservations | None = None,
 ) -> TurnRateDiagnostics:
     """Summarize course-derived turn rates from observed positions only.
 
     The median supplies the signed prior center. A MAD-based robust scale keeps
-    isolated GPS course changes from making the state prior arbitrarily wide.
-    The held-out part of ``window`` is never inspected.
+    isolated position changes from making the state prior arbitrarily wide.
+    Supplied position observations override the clean observed coordinates;
+    the held-out part of ``window`` is never inspected.
     """
     _validate_positive_finite("turn_rate_limit", turn_rate_limit)
     if turn_rate_state_prior_scale is not None:
@@ -550,11 +646,14 @@ def diagnose_observed_turn_rate(
             turn_rate_state_prior_scale,
         )
 
-    observed = window.observed_slice
+    position_observations = _resolve_position_observations(
+        window,
+        position_observations,
+    )
     rates = _observed_turn_rates(
-        np.asarray(window.time_seconds[observed], dtype=float),
-        np.asarray(window.x_meters[observed], dtype=float),
-        np.asarray(window.y_meters[observed], dtype=float),
+        position_observations.time_seconds,
+        position_observations.x_meters,
+        position_observations.y_meters,
     )
     if rates.size == 0:
         median = 0.0
@@ -821,6 +920,45 @@ def _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) ->
             "time_seconds, x_meters, and y_meters must be matching vectors "
             "with at least two values."
         )
+
+
+def _resolve_position_observations(
+    window: TrajectoryWindowData,
+    position_observations: PositionObservations | None,
+) -> PositionObservations:
+    """Return observations aligned with the observed part of ``window``."""
+    if position_observations is None:
+        position_observations = simulate_position_observations(
+            window,
+            additional_noise_std_m=0.0,
+            seed=0,
+        )
+    if not isinstance(position_observations, PositionObservations):
+        raise TypeError(
+            "position_observations must be a PositionObservations instance or None."
+        )
+
+    expected_time = np.asarray(
+        window.time_seconds[window.observed_slice],
+        dtype=float,
+    )
+    if (
+        position_observations.time_seconds.shape != expected_time.shape
+        or not np.array_equal(position_observations.time_seconds, expected_time)
+    ):
+        raise ValueError(
+            "position_observations must match the observed timestamps in window."
+        )
+    return position_observations
+
+
+def _validate_non_negative_integer(name: str, value: int) -> int:
+    """Validate and return a non-negative integer seed-like value."""
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{name} must be a non-negative integer.")
+    if value < 0:
+        raise ValueError(f"{name} must be a non-negative integer.")
+    return int(value)
 
 
 def _validate_non_negative_finite(name: str, value: float) -> float:

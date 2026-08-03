@@ -19,12 +19,14 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
     BayesianCTRVPriors,
+    PositionObservations,
     VIRunResult,
     build_stan_data,
     compare_vi_runs,
     diagnose_observed_turn_rate,
     estimate_initial_speed_from_positions,
     fit_bayesian_ctrv_model,
+    simulate_position_observations,
     summarize_predictions,
     variational_converged,
 )
@@ -92,6 +94,119 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     assert "x_state_prediction" not in stan_data
     assert "y_state_prediction" not in stan_data
     assert "speed_state_prediction" not in stan_data
+
+
+def test_simulate_position_observations_is_reproducible_and_keeps_window_clean():
+    """Artificial noise should be deterministic and remain outside the window."""
+    window = create_synthetic_window()
+    clean_x = window.x_meters.copy()
+    clean_y = window.y_meters.copy()
+
+    first = simulate_position_observations(
+        window,
+        additional_noise_std_m=2.0,
+        seed=2026,
+    )
+    second = simulate_position_observations(
+        window,
+        additional_noise_std_m=2.0,
+        seed=2026,
+    )
+    different_seed = simulate_position_observations(
+        window,
+        additional_noise_std_m=2.0,
+        seed=2027,
+    )
+
+    assert first.x_meters == pytest.approx(second.x_meters)
+    assert first.y_meters == pytest.approx(second.y_meters)
+    assert not np.array_equal(first.x_meters, different_seed.x_meters)
+    assert not np.array_equal(first.y_meters, different_seed.y_meters)
+    assert window.x_meters == pytest.approx(clean_x)
+    assert window.y_meters == pytest.approx(clean_y)
+    assert not first.x_meters.flags.writeable
+    assert not first.y_meters.flags.writeable
+
+
+def test_zero_additional_noise_preserves_observed_positions():
+    """A zero standard deviation should provide a clean opt-out path."""
+    window = create_synthetic_window()
+
+    observations = simulate_position_observations(
+        window,
+        additional_noise_std_m=0.0,
+        seed=2026,
+    )
+
+    assert observations.x_meters == pytest.approx(
+        window.x_meters[window.observed_slice]
+    )
+    assert observations.y_meters == pytest.approx(
+        window.y_meters[window.observed_slice]
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"additional_noise_std_m": -1.0}, "additional_noise_std_m"),
+        ({"additional_noise_std_m": np.nan}, "additional_noise_std_m"),
+        ({"seed": -1}, "seed"),
+        ({"seed": 1.5}, "seed"),
+    ],
+)
+def test_simulate_position_observations_rejects_invalid_noise_options(
+    options,
+    message,
+):
+    """Noise settings should fail clearly before any random data are generated."""
+    with pytest.raises(ValueError, match=message):
+        simulate_position_observations(create_synthetic_window(), **options)
+
+
+def test_stan_data_and_derived_priors_use_supplied_position_observations_only():
+    """Clean observed coordinates must not leak into noise-augmented fitting."""
+    window = create_synthetic_window()
+    observations = simulate_position_observations(
+        window,
+        additional_noise_std_m=2.0,
+        seed=2026,
+    )
+    changed_x = window.x_meters.copy()
+    changed_y = window.y_meters.copy()
+    changed_x[window.observed_slice] += np.linspace(100.0, 700.0, 7)
+    changed_y[window.observed_slice] -= np.linspace(50.0, 350.0, 7)
+    changed_window = replace(window, x_meters=changed_x, y_meters=changed_y)
+
+    reference_data = build_stan_data(
+        window,
+        position_observations=observations,
+    )
+    changed_data = build_stan_data(
+        changed_window,
+        position_observations=observations,
+    )
+
+    assert reference_data["x_observed"] == pytest.approx(observations.x_meters)
+    assert reference_data["y_observed"] == pytest.approx(observations.y_meters)
+    assert reference_data.keys() == changed_data.keys()
+    for key in reference_data:
+        assert changed_data[key] == pytest.approx(reference_data[key])
+
+
+def test_build_stan_data_rejects_observations_from_a_different_window():
+    """Externally supplied positions must match the window's observed timestamps."""
+    window = create_synthetic_window()
+    observations = PositionObservations(
+        time_seconds=window.time_seconds[window.observed_slice] + 1.0,
+        x_meters=window.x_meters[window.observed_slice],
+        y_meters=window.y_meters[window.observed_slice],
+        additional_noise_std_m=0.0,
+        noise_seed=0,
+    )
+
+    with pytest.raises(ValueError, match="observed timestamps"):
+        build_stan_data(window, position_observations=observations)
 
 
 def test_build_stan_data_does_not_use_held_out_measurements():
@@ -392,6 +507,44 @@ def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):
         arguments["inits"][0]["speed_state"],
         arguments["inits"][1]["speed_state"],
     )
+
+
+def test_vi_and_mcmc_receive_the_same_supplied_position_observations(monkeypatch):
+    """Inference selection must not regenerate the experimental input data."""
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: fake_model,
+    )
+    window = create_synthetic_window()
+    observations = simulate_position_observations(
+        window,
+        additional_noise_std_m=2.0,
+        seed=2026,
+    )
+
+    fit_bayesian_ctrv_model(
+        window,
+        position_observations=observations,
+        seed=17,
+    )
+    vi_data = fake_model.calls[-1]["data"]
+    fit_bayesian_ctrv_model(
+        window,
+        position_observations=observations,
+        inference_method="mcmc",
+        chains=2,
+        parallel_chains=2,
+        seed=18,
+    )
+    mcmc_data = fake_model.sample_calls[-1]["data"]
+
+    assert vi_data.keys() == mcmc_data.keys()
+    for key in vi_data:
+        assert mcmc_data[key] == pytest.approx(vi_data[key])
+    assert vi_data["x_observed"] == pytest.approx(observations.x_meters)
+    assert vi_data["y_observed"] == pytest.approx(observations.y_meters)
 
 
 def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):

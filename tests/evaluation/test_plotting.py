@@ -68,6 +68,49 @@ def test_plot_prediction_accepts_position_only_state_variable_names(monkeypatch)
     plt.close(figure)
 
 
+def test_plot_prediction_uses_supplied_observations_and_their_final_position(
+    monkeypatch,
+):
+    """A noise experiment should plot and connect from its actual fit input."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+    observed_x = np.array([10.0, 11.0])
+    observed_y = np.array([20.0, 20.5])
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        model_name="CTRV State-Space",
+        max_posterior_trajectories=1,
+        observed_position_values=(observed_x, observed_y),
+        observed_trajectory_label="Noise-augmented observations",
+    )
+
+    assert axis.lines[0].get_xdata() == pytest.approx(observed_x)
+    assert axis.lines[0].get_ydata() == pytest.approx(observed_y)
+    assert axis.lines[0].get_label() == "Noise-augmented observations"
+    for line in axis.lines[1:]:
+        assert line.get_xdata()[0] == pytest.approx(observed_x[-1])
+        assert line.get_ydata()[0] == pytest.approx(observed_y[-1])
+    plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    "observed_position_values",
+    [([0.0], [1.0]), ([0.0, np.nan], [1.0, 2.0]), [0.0, 1.0]],
+)
+def test_plot_prediction_rejects_invalid_observed_position_values(
+    observed_position_values,
+):
+    """Plot overrides must be finite x/y vectors aligned to the fit window."""
+    with pytest.raises(ValueError, match="observed_position_values"):
+        plot_prediction(
+            FakeWindow(),
+            FakeFit(),
+            model_name="CTRV",
+            observed_position_values=observed_position_values,
+        )
+
+
 @pytest.mark.parametrize("model_name", [None, "", "   "])
 def test_plot_prediction_rejects_empty_model_name(model_name):
     """A model name is required to create a meaningful title."""
