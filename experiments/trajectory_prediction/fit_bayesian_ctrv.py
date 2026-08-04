@@ -211,7 +211,6 @@ def main(
     plot_prediction(
         window,
         fit,
-        model_name="CTRV State-Space",
         state_prediction_variable_names=(
             "x_state_prediction",
             "y_state_prediction",

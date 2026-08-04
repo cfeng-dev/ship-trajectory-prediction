@@ -4,7 +4,7 @@ from numbers import Integral
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Patch
+from matplotlib.patches import Ellipse, Patch
 
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
@@ -13,9 +13,9 @@ from ship_trajectory_prediction.evaluation.reporting import (
     posterior_variable_samples,
 )
 
-MAX_POSTERIOR_TRAJECTORIES = 30
+MAX_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
-TIME_MARKER_SECONDS = (30.0, 60.0, 90.0)
+PREDICTION_PLOT_TITLE = "Position-Only Bayesian CTRV:\nPosterior Predictive Trajectory"
 
 
 def plot_trajectory_paths(
@@ -32,7 +32,6 @@ def plot_trajectory_paths(
     prediction_origin_label="Prediction start",
     posterior_draws=None,
     forecast_time_seconds=None,
-    time_marker_seconds=TIME_MARKER_SECONDS,
     annotation_text=None,
     figsize=(10, 7),
     forecast_alpha=1.0,
@@ -83,15 +82,19 @@ def plot_trajectory_paths(
 
     region_handles = []
     if posterior_draws is not None:
-        region_handles = _draw_prediction_regions(axis, posterior_draws)
+        region_handles = _draw_prediction_regions(
+            axis,
+            posterior_draws,
+            forecast_time_seconds,
+        )
 
     for x_values, y_values in samples:
         axis.plot(
             x_values,
             y_values,
             color="tab:red",
-            alpha=0.06,
-            linewidth=0.8,
+            alpha=0.04,
+            linewidth=0.7,
             zorder=2,
         )
 
@@ -121,13 +124,6 @@ def plot_trajectory_paths(
             label=prediction_origin_label,
         )
 
-    if forecast_time_seconds is not None:
-        _draw_time_markers(
-            axis,
-            forecasts[0],
-            forecast_time_seconds,
-            time_marker_seconds,
-        )
     if annotation_text is not None:
         annotation_text = _non_empty_text("annotation_text", annotation_text)
         axis.text(
@@ -174,47 +170,60 @@ def plot_prediction(
     window,
     fit,
     *,
-    model_name,
-    max_posterior_trajectories=MAX_POSTERIOR_TRAJECTORIES,
-    trajectory_sample_seed=42,
+    plot_mode="evaluation",
+    show_sample_trajectories=True,
+    max_sample_trajectories=MAX_SAMPLE_TRAJECTORIES,
+    sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
     observed_trajectory_label="Observed history",
 ):
-    """Plot posterior trajectories against a held-out future."""
+    """Plot an evaluation or operational posterior-predictive trajectory."""
+    plot_mode = _validate_plot_mode(plot_mode)
     plot_data = _prepare_prediction_plot_data(
         window,
         fit,
-        model_name=model_name,
-        max_posterior_trajectories=max_posterior_trajectories,
-        trajectory_sample_seed=trajectory_sample_seed,
+        show_sample_trajectories=show_sample_trajectories,
+        max_sample_trajectories=max_sample_trajectories,
+        sample_seed=sample_seed,
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
     )
-    evaluation = evaluate_position_predictions(
-        fit,
-        window,
-        credible_interval=0.9,
-        position_variable_names=state_prediction_variable_names,
-    )
-    held_out_x = np.concatenate(
-        ([plot_data["prediction_start_x"]], window.x_meters[window.prediction_slice])
-    )
-    held_out_y = np.concatenate(
-        ([plot_data["prediction_start_y"]], window.y_meters[window.prediction_slice])
-    )
+    reference_path = None
+    annotation_text = _operational_annotation(window)
+    if plot_mode == "evaluation":
+        evaluation = evaluate_position_predictions(
+            fit,
+            window,
+            credible_interval=0.9,
+            position_variable_names=plot_data["variable_names"],
+        )
+        held_out_x = np.concatenate(
+            (
+                [plot_data["prediction_start_x"]],
+                window.x_meters[window.prediction_slice],
+            )
+        )
+        held_out_y = np.concatenate(
+            (
+                [plot_data["prediction_start_y"]],
+                window.y_meters[window.prediction_slice],
+            )
+        )
+        reference_path = (held_out_x, held_out_y)
+        annotation_text = _evaluation_annotation(window, evaluation)
 
     figure, axis = plot_trajectory_paths(
         observed_path=plot_data["observed_path"],
-        reference_path=(held_out_x, held_out_y),
+        reference_path=reference_path,
         forecast_paths=(plot_data["median_path"],),
         sample_paths=plot_data["sample_paths"],
         prediction_origins=plot_data["prediction_origin"],
         posterior_draws=plot_data["posterior_draws"],
         forecast_time_seconds=plot_data["forecast_time_seconds"],
-        annotation_text=_evaluation_annotation(window, evaluation),
-        title=f"Bayesian {plot_data['model_name']} Prediction",
+        annotation_text=annotation_text,
+        title=PREDICTION_PLOT_TITLE,
         observed_label=plot_data["observed_label"],
     )
     plt.show()
@@ -225,53 +234,39 @@ def plot_operational_prediction(
     window,
     fit,
     *,
-    model_name,
-    max_posterior_trajectories=MAX_POSTERIOR_TRAJECTORIES,
-    trajectory_sample_seed=42,
+    show_sample_trajectories=True,
+    max_sample_trajectories=MAX_SAMPLE_TRAJECTORIES,
+    sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
     observed_trajectory_label="Observed history",
 ):
-    """Plot an operational posterior forecast without unknown future positions."""
-    plot_data = _prepare_prediction_plot_data(
+    """Plot an operational forecast through the shared plot-mode interface."""
+    return plot_prediction(
         window,
         fit,
-        model_name=model_name,
-        max_posterior_trajectories=max_posterior_trajectories,
-        trajectory_sample_seed=trajectory_sample_seed,
+        plot_mode="operational",
+        show_sample_trajectories=show_sample_trajectories,
+        max_sample_trajectories=max_sample_trajectories,
+        sample_seed=sample_seed,
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
     )
-    figure, axis = plot_trajectory_paths(
-        observed_path=plot_data["observed_path"],
-        reference_path=None,
-        forecast_paths=(plot_data["median_path"],),
-        sample_paths=plot_data["sample_paths"],
-        prediction_origins=plot_data["prediction_origin"],
-        posterior_draws=plot_data["posterior_draws"],
-        forecast_time_seconds=plot_data["forecast_time_seconds"],
-        annotation_text=_operational_annotation(window),
-        title=f"Bayesian {plot_data['model_name']} Operational Prediction",
-        observed_label=plot_data["observed_label"],
-    )
-    plt.show()
-    return figure, axis
 
 
 def _prepare_prediction_plot_data(
     window,
     fit,
     *,
-    model_name,
-    max_posterior_trajectories,
-    trajectory_sample_seed,
+    show_sample_trajectories,
+    max_sample_trajectories,
+    sample_seed,
     state_prediction_variable_names,
     observed_position_values,
     observed_trajectory_label,
 ):
     """Build plot-ready paths from existing posterior draws."""
-    model_name = _non_empty_text("model_name", model_name)
     observed_label = _non_empty_text(
         "observed_trajectory_label",
         observed_trajectory_label,
@@ -284,6 +279,8 @@ def _prepare_prediction_plot_data(
     x_samples = posterior_variable_samples(fit, variable_names[0])
     y_samples = posterior_variable_samples(fit, variable_names[1])
     _validate_prediction_samples(window, x_samples, y_samples)
+    if not isinstance(show_sample_trajectories, bool):
+        raise ValueError("show_sample_trajectories must be a boolean.")
 
     prediction_start_x = observed_x[-1]
     prediction_start_y = observed_y[-1]
@@ -293,10 +290,14 @@ def _prepare_prediction_plot_data(
     connected_y_samples = np.column_stack(
         (np.full(len(y_samples), prediction_start_y), y_samples)
     )
-    sample_indices = _sample_trajectory_indices(
-        len(x_samples),
-        max_posterior_trajectories,
-        trajectory_sample_seed,
+    sample_indices = (
+        _sample_trajectory_indices(
+            len(x_samples),
+            max_sample_trajectories,
+            sample_seed,
+        )
+        if show_sample_trajectories
+        else np.asarray([], dtype=int)
     )
     sample_paths = tuple(
         (connected_x_samples[index], connected_y_samples[index])
@@ -309,7 +310,7 @@ def _prepare_prediction_plot_data(
     )
 
     return {
-        "model_name": model_name,
+        "variable_names": variable_names,
         "observed_label": observed_label,
         "observed_path": (observed_x, observed_y),
         "prediction_start_x": prediction_start_x,
@@ -330,62 +331,135 @@ def _prepare_prediction_plot_data(
     }
 
 
-def _draw_prediction_regions(axis, posterior_draws):
-    """Draw empirical joint spatial highest-density regions."""
-    x_centers, y_centers, density, thresholds = _joint_prediction_density(
-        posterior_draws
+def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
+    """Draw one empirical covariance region pair per future time point."""
+    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
+    horizon_seconds = _prediction_horizon_seconds(
+        forecast_time_seconds,
+        x_samples.shape[1],
     )
     region_styles = {
-        0.9: ("#d62728", 0.10, "90% prediction region"),
-        0.5: ("#d62728", 0.20, "50% prediction region"),
+        0.9: ("#d62728", 0.10, "90% posterior predictive region"),
+        0.5: ("#d62728", 0.22, "50% posterior predictive region"),
     }
-    handles = {}
-    density_max = np.nextafter(float(np.max(density)), np.inf)
-    for probability in (0.9, 0.5):
-        color, alpha, label = region_styles[probability]
-        axis.contourf(
-            x_centers,
-            y_centers,
-            density.T,
-            levels=[thresholds[probability], density_max],
-            colors=[color],
-            alpha=alpha,
-            antialiased=True,
-            zorder=1,
+    centers = []
+    for time_index in range(x_samples.shape[1]):
+        center, ellipse_parameters = _empirical_covariance_regions(
+            x_samples[:, time_index],
+            y_samples[:, time_index],
         )
-        handles[probability] = Patch(
-            facecolor=color,
+        centers.append(center)
+        for probability in (0.9, 0.5):
+            color, alpha, _ = region_styles[probability]
+            width, height, angle = ellipse_parameters[probability]
+            ellipse = Ellipse(
+                xy=center,
+                width=width,
+                height=height,
+                angle=angle,
+                facecolor=color,
+                edgecolor=color,
+                linewidth=0.7,
+                alpha=alpha,
+                zorder=1,
+            )
+            ellipse.set_gid(
+                f"posterior-predictive-region-{probability:g}-t{time_index}"
+            )
+            axis.add_patch(ellipse)
+
+    _label_prediction_regions(axis, centers, horizon_seconds)
+    return [
+        Patch(
+            facecolor=region_styles[0.5][0],
             edgecolor="none",
-            alpha=alpha,
-            label=label,
-        )
-    return [handles[0.5], handles[0.9]]
+            alpha=region_styles[0.5][1],
+            label=region_styles[0.5][2],
+        ),
+        Patch(
+            facecolor=region_styles[0.9][0],
+            edgecolor="none",
+            alpha=region_styles[0.9][1],
+            label=region_styles[0.9][2],
+        ),
+    ]
 
 
-def _joint_prediction_density(posterior_draws, *, grid_size=80):
-    """Estimate a joint x/y density and empirical mass thresholds."""
-    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
-    x_values = x_samples.ravel()
-    y_values = y_samples.ravel()
-    x_limits = _padded_limits(x_values)
-    y_limits = _padded_limits(y_values)
-    histogram, x_edges, y_edges = np.histogram2d(
-        x_values,
-        y_values,
-        bins=grid_size,
-        range=(x_limits, y_limits),
+def _empirical_covariance_regions(x_values, y_values):
+    """Approximate joint empirical regions with covariance-shaped ellipses.
+
+    Orientation and eccentricity come from the joint two-dimensional sample
+    covariance. The ellipse radii use empirical quantiles of the corresponding
+    Mahalanobis distances rather than a Gaussian chi-square assumption.
+    """
+    samples = np.column_stack((x_values, y_values))
+    center = np.median(samples, axis=0)
+    centered_samples = samples - center
+    covariance = centered_samples.T @ centered_samples / max(len(samples) - 1, 1)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    largest_eigenvalue = max(float(np.max(eigenvalues)), 1e-6)
+    eigenvalues = np.maximum(eigenvalues, largest_eigenvalue * 1e-6)
+    projected_samples = centered_samples @ eigenvectors
+    squared_distances = np.sum(projected_samples**2 / eigenvalues, axis=1)
+    angle_degrees = float(
+        np.degrees(np.arctan2(eigenvectors[1, 1], eigenvectors[0, 1]))
     )
-    density = histogram.astype(float)
-    for _ in range(2):
-        density = _smooth_density(density)
-    density /= np.sum(density)
-    thresholds = {
-        probability: _highest_density_threshold(density, probability)
-        for probability in PREDICTION_REGION_LEVELS
-    }
-    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
-    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
-    return x_centers, y_centers, density, thresholds
+
+    ellipse_parameters = {}
+    for probability in PREDICTION_REGION_LEVELS:
+        squared_radius = max(
+            float(np.quantile(squared_distances, probability)),
+            1e-12,
+        )
+        half_axes = np.sqrt(squared_radius * eigenvalues)
+        ellipse_parameters[probability] = (
+            2 * float(half_axes[1]),
+            2 * float(half_axes[0]),
+            angle_degrees,
+        )
+    return center, ellipse_parameters
+
+
+def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):
+    """Return positive future horizons aligned with posterior sample columns."""
+    time_values = np.asarray(forecast_time_seconds, dtype=float)
+    if (
+        time_values.ndim != 1
+        or time_values.shape != (prediction_count + 1,)
+        or time_values[0] != 0
+        or not np.all(np.isfinite(time_values))
+        or np.any(np.diff(time_values) <= 0)
+    ):
+        raise ValueError(
+            "forecast_time_seconds must start at zero and contain one increasing "
+            "time for every posterior prediction column."
+        )
+    return time_values[1:]
+
+
+def _label_prediction_regions(axis, centers, horizon_seconds):
+    """Label a small non-repeating selection of future-time regions."""
+    vertical_offsets = (8, -14, 26)
+    for label_number, time_index in enumerate(
+        _selected_time_label_indices(len(horizon_seconds))
+    ):
+        axis.annotate(
+            f"+{horizon_seconds[time_index]:g} s",
+            centers[time_index],
+            xytext=(6, vertical_offsets[label_number]),
+            textcoords="offset points",
+            fontsize=8,
+            color="0.25",
+            zorder=6,
+        )
+
+
+def _selected_time_label_indices(prediction_count):
+    """Select at most three useful, unique horizon labels."""
+    if prediction_count <= 3:
+        return tuple(range(prediction_count))
+    candidates = (0, prediction_count // 2, prediction_count - 1)
+    return tuple(sorted(set(candidates)))
 
 
 def _posterior_draw_arrays(posterior_draws):
@@ -412,91 +486,15 @@ def _posterior_draw_arrays(posterior_draws):
     return x_samples, y_samples
 
 
-def _padded_limits(values):
-    """Return non-degenerate plot limits around finite values."""
-    lower = float(np.min(values))
-    upper = float(np.max(values))
-    span = upper - lower
-    padding = 0.05 * span if span > 0 else 1.0
-    return lower - padding, upper + padding
-
-
-def _smooth_density(density):
-    """Apply one small separable Gaussian-like smoothing step."""
-    padded = np.pad(density, 1, mode="constant")
-    smoothed = np.zeros_like(density, dtype=float)
-    weights = (1.0, 2.0, 1.0)
-    for row_index, row_weight in enumerate(weights):
-        for column_index, column_weight in enumerate(weights):
-            smoothed += (
-                row_weight
-                * column_weight
-                * padded[
-                    row_index : row_index + density.shape[0],
-                    column_index : column_index + density.shape[1],
-                ]
-            )
-    return smoothed / 16.0
-
-
-def _highest_density_threshold(density, probability):
-    """Return the density cutoff containing the requested empirical mass."""
-    sorted_density = np.sort(density.ravel())[::-1]
-    threshold_index = int(
-        np.searchsorted(np.cumsum(sorted_density), probability, side="left")
-    )
-    return float(sorted_density[min(threshold_index, len(sorted_density) - 1)])
-
-
-def _draw_time_markers(axis, forecast_path, forecast_time_seconds, marker_seconds):
-    """Interpolate and annotate requested elapsed times on one median path."""
-    x_values, y_values = forecast_path
-    time_values = np.asarray(forecast_time_seconds, dtype=float)
-    if (
-        time_values.ndim != 1
-        or time_values.shape != x_values.shape
-        or not np.all(np.isfinite(time_values))
-        or np.any(np.diff(time_values) <= 0)
-    ):
-        raise ValueError(
-            "forecast_time_seconds must be finite, increasing, and match the "
-            "median forecast path."
-        )
-    for marker_seconds_value in marker_seconds:
-        marker_seconds_value = float(marker_seconds_value)
-        if not 0 < marker_seconds_value <= time_values[-1]:
-            continue
-        x_marker = np.interp(marker_seconds_value, time_values, x_values)
-        y_marker = np.interp(marker_seconds_value, time_values, y_values)
-        axis.scatter(
-            [x_marker],
-            [y_marker],
-            s=28,
-            facecolor="white",
-            edgecolor="tab:red",
-            linewidth=1,
-            zorder=5,
-        )
-        axis.annotate(
-            f"+{marker_seconds_value:g} s",
-            (x_marker, y_marker),
-            xytext=(5, 5),
-            textcoords="offset points",
-            fontsize=8,
-            color="0.25",
-            zorder=6,
-        )
-
-
 def _sample_trajectory_indices(draw_count, requested_count, seed):
-    """Select at most 30 posterior paths reproducibly without replacement."""
+    """Select at most 15 posterior paths reproducibly without replacement."""
     if isinstance(requested_count, bool) or not isinstance(requested_count, Integral):
-        raise ValueError("max_posterior_trajectories must be a non-negative integer.")
+        raise ValueError("max_sample_trajectories must be a non-negative integer.")
     if requested_count < 0:
-        raise ValueError("max_posterior_trajectories must be a non-negative integer.")
+        raise ValueError("max_sample_trajectories must be a non-negative integer.")
     if isinstance(seed, bool) or not isinstance(seed, Integral):
-        raise ValueError("trajectory_sample_seed must be an integer.")
-    sample_count = min(requested_count, MAX_POSTERIOR_TRAJECTORIES, draw_count)
+        raise ValueError("sample_seed must be an integer.")
+    sample_count = min(requested_count, MAX_SAMPLE_TRAJECTORIES, draw_count)
     if sample_count == 0:
         return np.asarray([], dtype=int)
     random_generator = np.random.default_rng(int(seed))
@@ -506,13 +504,17 @@ def _sample_trajectory_indices(draw_count, requested_count, seed):
 def _evaluation_annotation(window, evaluation):
     """Format evaluation timing and accuracy for the plot inset."""
     observation_duration, prediction_horizon = _window_durations(window)
+    covered_count = int(evaluation.prediction_table["radial_covered"].sum())
+    prediction_count = len(evaluation.prediction_table)
     return "\n".join(
         (
             f"Observation duration: {observation_duration:g} s",
             f"Prediction horizon: {prediction_horizon:g} s",
             f"ADE: {evaluation.ade_m:.2f} m",
             f"FDE: {evaluation.fde_m:.2f} m",
-            f"90% coverage: {evaluation.radial_coverage:.1%}",
+            "90% empirical coverage: "
+            f"{evaluation.radial_coverage:.1%} "
+            f"({covered_count}/{prediction_count} points)",
         )
     )
 
@@ -539,7 +541,7 @@ def _window_durations(window):
 
 def _validate_prediction_samples(window, x_samples, y_samples):
     """Validate posterior matrices against the selected prediction window."""
-    expected_count = len(np.asarray(window.x_meters[window.prediction_slice]))
+    expected_count = len(np.asarray(window.time_seconds[window.prediction_slice]))
     if (
         x_samples.ndim != 2
         or x_samples.shape != y_samples.shape
@@ -552,6 +554,16 @@ def _validate_prediction_samples(window, x_samples, y_samples):
             "Posterior position variables must contain aligned finite draws "
             "matching the prediction window."
         )
+
+
+def _validate_plot_mode(plot_mode):
+    """Return one supported posterior-predictive plot mode."""
+    if not isinstance(plot_mode, str):
+        raise ValueError("plot_mode must be 'evaluation' or 'operational'.")
+    plot_mode = plot_mode.strip().lower()
+    if plot_mode not in {"evaluation", "operational"}:
+        raise ValueError("plot_mode must be 'evaluation' or 'operational'.")
+    return plot_mode
 
 
 def _prediction_variable_names(variable_names):

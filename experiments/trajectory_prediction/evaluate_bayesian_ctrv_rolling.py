@@ -176,7 +176,6 @@ def main(
             figure, _ = plot_window_prediction(
                 window,
                 fit,
-                model_name=f"CTRV Rolling Window {number}/{len(windows)}",
                 state_prediction_variable_names=(
                     "x_state_prediction",
                     "y_state_prediction",

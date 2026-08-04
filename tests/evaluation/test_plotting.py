@@ -1,17 +1,26 @@
 """Tests for the shared posterior trajectory plot."""
 
+from unittest.mock import Mock
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.patches import Ellipse
 
 from ship_trajectory_prediction.evaluation.plotting import (
-    _joint_prediction_density,
+    PREDICTION_PLOT_TITLE,
     plot_operational_prediction,
     plot_prediction,
     plot_trajectory_paths,
 )
 
 plt.switch_backend("Agg")
+
+
+@pytest.fixture(autouse=True)
+def _prevent_test_windows(monkeypatch):
+    """Avoid GUI windows while individual tests verify the display call."""
+    monkeypatch.setattr(plt, "show", Mock())
 
 
 def test_plot_trajectory_paths_supports_multiple_forecast_origins():
@@ -58,32 +67,28 @@ def test_plot_trajectory_paths_rejects_invalid_forecasts(forecast_paths):
         )
 
 
-def test_plot_prediction_uses_the_requested_model_name(monkeypatch):
-    """One public plot function should generate every model-specific title."""
-    monkeypatch.setattr(plt, "show", lambda: None)
+def test_plot_prediction_uses_fixed_title_and_displays_plot(monkeypatch):
+    """The thesis plot should have a stable title and display automatically."""
+    show_mock = Mock()
+    monkeypatch.setattr(plt, "show", show_mock)
 
     figure, axis = plot_prediction(
         FakeWindow(),
         FakeFit(),
-        model_name="Time-Varying Radius",
-        max_posterior_trajectories=2,
+        max_sample_trajectories=2,
     )
 
-    assert axis.get_title() == "Bayesian Time-Varying Radius Prediction"
+    assert axis.get_title() == PREDICTION_PLOT_TITLE
     assert len(axis.lines) == 5
+    show_mock.assert_called_once_with()
     plt.close(figure)
 
 
-def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels(
-    monkeypatch,
-):
+def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     """The spatial plot should preserve geometry and use physical axis names."""
-    monkeypatch.setattr(plt, "show", lambda: None)
-
     figure, axis = plot_prediction(
         FakeWindow(),
         FakeFit(),
-        model_name="CTRV",
     )
 
     assert axis.get_aspect() == pytest.approx(1.0)
@@ -93,58 +98,47 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels(
     assert legend_labels == [
         "Observed history",
         "Held-out trajectory",
-        "50% prediction region",
-        "90% prediction region",
+        "50% posterior predictive region",
+        "90% posterior predictive region",
         "Posterior median",
         "Prediction start",
     ]
     plt.close(figure)
 
 
-def test_plot_prediction_draws_at_most_30_sample_trajectories(monkeypatch):
+def test_plot_prediction_draws_at_most_15_sample_trajectories():
     """A large posterior should still produce a readable number of paths."""
-    monkeypatch.setattr(plt, "show", lambda: None)
-
     figure, axis = plot_prediction(
         FakeWindow(),
         ManyDrawFit(),
-        model_name="CTRV",
-        max_posterior_trajectories=100,
+        max_sample_trajectories=100,
     )
 
-    sample_lines = [line for line in axis.lines if line.get_alpha() == 0.06]
-    assert len(sample_lines) == 30
+    assert len(_sample_lines(axis)) == 15
     plt.close(figure)
 
 
-def test_joint_prediction_regions_contain_valid_empirical_mass():
-    """The 50% joint region should be nested in the joint 90% region."""
-    fit = ManyDrawFit()
-    _, _, density, thresholds = _joint_prediction_density(
-        (
-            fit.variables["x_prediction_mean"],
-            fit.variables["y_prediction_mean"],
-        )
+def test_plot_prediction_can_hide_sample_trajectories():
+    """Posterior path lines should be optional without removing uncertainty."""
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        ManyDrawFit(),
+        show_sample_trajectories=False,
     )
 
-    region_50 = density >= thresholds[0.5]
-    region_90 = density >= thresholds[0.9]
-    assert thresholds[0.5] >= thresholds[0.9] > 0
-    assert np.all(region_50 <= region_90)
-    assert density[region_50].sum() >= 0.5
-    assert density[region_90].sum() >= 0.9
+    assert not _sample_lines(axis)
+    assert len(_region_patches(axis)) == 2 * FakeWindow().prediction_count
+    plt.close(figure)
 
 
-def test_posterior_trajectory_selection_is_reproducible(monkeypatch):
+def test_posterior_trajectory_selection_is_reproducible():
     """The same plotting seed should select the same posterior trajectories."""
-    monkeypatch.setattr(plt, "show", lambda: None)
     figures_and_axes = [
         plot_prediction(
             FakeWindow(),
             ManyDrawFit(),
-            model_name="CTRV",
-            max_posterior_trajectories=10,
-            trajectory_sample_seed=seed,
+            max_sample_trajectories=10,
+            sample_seed=seed,
         )
         for seed in (17, 17, 23)
     ]
@@ -152,8 +146,7 @@ def test_posterior_trajectory_selection_is_reproducible(monkeypatch):
     selected_paths = [
         [
             np.column_stack((line.get_xdata(), line.get_ydata()))
-            for line in axis.lines
-            if line.get_alpha() == 0.06
+            for line in _sample_lines(axis)
         ]
         for _, axis in figures_and_axes
     ]
@@ -169,35 +162,74 @@ def test_posterior_trajectory_selection_is_reproducible(monkeypatch):
         plt.close(figure)
 
 
-def test_plot_prediction_adds_time_markers_and_evaluation_inset(monkeypatch):
-    """Available elapsed times and held-out metrics should be visible."""
-    monkeypatch.setattr(plt, "show", lambda: None)
-
+def test_prediction_regions_are_per_time_and_nested():
+    """Every horizon should have a nested joint 50% and 90% ellipse pair."""
+    window = FakeWindow()
     figure, axis = plot_prediction(
-        FakeWindow(),
-        FakeFit(),
-        model_name="CTRV",
+        window,
+        ManyDrawFit(),
+        show_sample_trajectories=False,
     )
 
-    text_values = [text.get_text() for text in axis.texts]
-    assert "+30 s" in text_values
-    assert "+60 s" in text_values
-    inset = next(text for text in text_values if "Observation duration" in text)
-    assert "Prediction horizon: 60 s" in inset
-    assert "ADE:" in inset
-    assert "FDE:" in inset
-    assert "90% coverage:" in inset
+    regions = _region_patches(axis)
+    assert len(regions) == 2 * window.prediction_count
+    for time_index in range(window.prediction_count):
+        region_50 = _region(axis, probability=0.5, time_index=time_index)
+        region_90 = _region(axis, probability=0.9, time_index=time_index)
+        assert region_50.center == pytest.approx(region_90.center)
+        assert region_50.angle == pytest.approx(region_90.angle)
+        assert region_50.width <= region_90.width
+        assert region_50.height <= region_90.height
+        assert region_50.get_alpha() > region_90.get_alpha()
     plt.close(figure)
 
 
-def test_operational_plot_omits_unknown_future_and_evaluation_metrics(monkeypatch):
-    """The operational view should not expose held-out data or its metrics."""
-    monkeypatch.setattr(plt, "show", lambda: None)
-
-    figure, axis = plot_operational_prediction(
+def test_plot_prediction_labels_selected_prediction_regions():
+    """Future regions should carry unique and correct elapsed-time labels."""
+    figure, axis = plot_prediction(
         FakeWindow(),
         FakeFit(),
-        model_name="CTRV",
+    )
+
+    time_labels = [
+        text.get_text() for text in axis.texts if text.get_text().startswith("+")
+    ]
+    assert time_labels == ["+10 s", "+20 s", "+30 s"]
+    assert len(time_labels) == len(set(time_labels))
+    plt.close(figure)
+
+
+def test_evaluation_mode_contains_ground_truth_and_window_metrics():
+    """Evaluation mode should show held-out positions and window-level metrics."""
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        plot_mode="evaluation",
+    )
+
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert "Held-out trajectory" in legend_labels
+    inset = next(
+        text.get_text()
+        for text in axis.texts
+        if "Observation duration" in text.get_text()
+    )
+    assert "Observation duration: 10 s" in inset
+    assert "Prediction horizon: 30 s" in inset
+    assert "ADE:" in inset
+    assert "FDE:" in inset
+    assert "90% empirical coverage:" in inset
+    assert "/3 points)" in inset
+    assert "calibration" not in inset.lower()
+    plt.close(figure)
+
+
+def test_operational_mode_contains_no_ground_truth_or_unknown_metrics():
+    """Operational mode should not access or display unknown future positions."""
+    figure, axis = plot_prediction(
+        OperationalWindow(),
+        FakeFit(),
+        plot_mode="operational",
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
@@ -213,17 +245,24 @@ def test_operational_plot_omits_unknown_future_and_evaluation_metrics(monkeypatc
     plt.close(figure)
 
 
-def test_plot_prediction_connects_future_trajectories_to_prediction_start(
-    monkeypatch,
-):
-    """Held-out and posterior paths should start at the final observation."""
-    monkeypatch.setattr(plt, "show", lambda: None)
+def test_operational_wrapper_uses_the_shared_plot_mode():
+    """The convenience function should produce the same ground-truth-free view."""
+    figure, axis = plot_operational_prediction(
+        OperationalWindow(),
+        FakeFit(),
+    )
 
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert "Held-out trajectory" not in legend_labels
+    plt.close(figure)
+
+
+def test_plot_prediction_connects_future_trajectories_to_prediction_start():
+    """Held-out and posterior paths should start at the final observation."""
     figure, axis = plot_prediction(
         FakeWindow(),
         FakeFit(),
-        model_name="Constant Radius",
-        max_posterior_trajectories=2,
+        max_sample_trajectories=2,
     )
 
     expected_start = (1.0, 0.5)
@@ -233,42 +272,36 @@ def test_plot_prediction_connects_future_trajectories_to_prediction_start(
     plt.close(figure)
 
 
-def test_plot_prediction_accepts_position_only_state_variable_names(monkeypatch):
+def test_plot_prediction_accepts_position_only_state_variable_names():
     """Bayesian CTRV plots should read the explicitly named latent states."""
-    monkeypatch.setattr(plt, "show", lambda: None)
     fit = FakeFit()
     fit.variables = {
-        "x_state_prediction": np.array([[2.0, 3.0], [2.1, 3.1]]),
-        "y_state_prediction": np.array([[1.0, 1.5], [1.1, 1.6]]),
+        "x_state_prediction": np.array([[2.0, 3.0, 4.0], [2.1, 3.1, 4.1]]),
+        "y_state_prediction": np.array([[1.0, 1.5, 2.0], [1.1, 1.6, 2.1]]),
     }
 
     figure, axis = plot_prediction(
         FakeWindow(),
         fit,
-        model_name="CTRV State-Space",
         state_prediction_variable_names=(
             "x_state_prediction",
             "y_state_prediction",
         ),
     )
 
-    assert axis.lines[-1].get_xdata()[-1] == pytest.approx(3.05)
+    assert axis.lines[-1].get_xdata()[-1] == pytest.approx(4.05)
     plt.close(figure)
 
 
-def test_plot_prediction_uses_supplied_observations_and_their_final_position(
-    monkeypatch,
-):
+def test_plot_prediction_uses_supplied_observations_and_their_final_position():
     """A noise experiment should plot and connect from its actual fit input."""
-    monkeypatch.setattr(plt, "show", lambda: None)
     observed_x = np.array([10.0, 11.0])
     observed_y = np.array([20.0, 20.5])
 
     figure, axis = plot_prediction(
         FakeWindow(),
         FakeFit(),
-        model_name="CTRV State-Space",
-        max_posterior_trajectories=1,
+        max_sample_trajectories=1,
         observed_position_values=(observed_x, observed_y),
         observed_trajectory_label="Noise-augmented observations",
     )
@@ -294,31 +327,58 @@ def test_plot_prediction_rejects_invalid_observed_position_values(
         plot_prediction(
             FakeWindow(),
             FakeFit(),
-            model_name="CTRV",
             observed_position_values=observed_position_values,
         )
 
 
-@pytest.mark.parametrize("model_name", [None, "", "   "])
-def test_plot_prediction_rejects_empty_model_name(model_name):
-    """A model name is required to create a meaningful title."""
-    with pytest.raises(ValueError, match="model_name"):
-        plot_prediction(FakeWindow(), FakeFit(), model_name=model_name)
+@pytest.mark.parametrize("plot_mode", [None, "", "analysis"])
+def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
+    """Only evaluation and operational views should be accepted."""
+    with pytest.raises(ValueError, match="plot_mode"):
+        plot_prediction(
+            FakeWindow(),
+            FakeFit(),
+            plot_mode=plot_mode,
+        )
+
+
+def _sample_lines(axis):
+    """Return the deliberately faint posterior sample paths."""
+    return [line for line in axis.lines if line.get_alpha() == 0.04]
+
+
+def _region_patches(axis):
+    """Return posterior-predictive region ellipses."""
+    return [
+        patch
+        for patch in axis.patches
+        if isinstance(patch, Ellipse)
+        and str(patch.get_gid()).startswith("posterior-predictive-region-")
+    ]
+
+
+def _region(axis, *, probability, time_index):
+    """Return one identified probability region at one future time."""
+    expected_gid = f"posterior-predictive-region-{probability:g}-t{time_index}"
+    return next(
+        patch for patch in _region_patches(axis) if patch.get_gid() == expected_gid
+    )
 
 
 class FakeWindow:
     """Minimal shared trajectory-window interface for plotting."""
 
     def __init__(self):
-        self.x_meters = np.array([0.0, 1.0, 2.0, 3.0])
-        self.y_meters = np.array([0.0, 0.5, 1.0, 1.5])
-        self.time_seconds = np.array([0.0, 10.0, 40.0, 70.0])
+        self.x_meters = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        self.y_meters = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
+        self.time_seconds = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
         self.timestamps = np.array(
             [
                 "2026-01-01T00:00:00",
                 "2026-01-01T00:00:10",
+                "2026-01-01T00:00:20",
+                "2026-01-01T00:00:30",
                 "2026-01-01T00:00:40",
-                "2026-01-01T00:01:10",
             ],
             dtype="datetime64[s]",
         )
@@ -327,7 +387,7 @@ class FakeWindow:
     @property
     def prediction_count(self):
         """Return the number of held-out positions."""
-        return len(self.x_meters) - self.observation_count
+        return len(self.time_seconds) - self.observation_count
 
     @property
     def observed_slice(self):
@@ -340,13 +400,22 @@ class FakeWindow:
         return slice(self.observation_count, None)
 
 
+class OperationalWindow(FakeWindow):
+    """Forecast window without future ground-truth positions."""
+
+    def __init__(self):
+        super().__init__()
+        self.x_meters = self.x_meters[: self.observation_count]
+        self.y_meters = self.y_meters[: self.observation_count]
+
+
 class FakeFit:
     """Minimal fit object exposing posterior mean trajectories."""
 
     def __init__(self):
         self.variables = {
-            "x_prediction_mean": np.array([[2.0, 3.0], [2.1, 3.1]]),
-            "y_prediction_mean": np.array([[1.0, 1.5], [1.1, 1.6]]),
+            "x_prediction_mean": np.array([[2.0, 3.0, 4.0], [2.1, 3.1, 4.1]]),
+            "y_prediction_mean": np.array([[1.0, 1.5, 2.0], [1.1, 1.6, 2.1]]),
         }
 
     def stan_variable(self, name):
@@ -355,15 +424,23 @@ class FakeFit:
 
 
 class ManyDrawFit(FakeFit):
-    """Posterior fixture with distinguishable trajectories."""
+    """Posterior fixture with distinguishable two-dimensional trajectories."""
 
     def __init__(self, draw_count=100):
-        offsets = np.arange(draw_count, dtype=float)
+        phase = np.linspace(0.0, 2 * np.pi, draw_count, endpoint=False)
         self.variables = {
             "x_prediction_mean": np.column_stack(
-                (2.0 + 0.01 * offsets, 3.0 + 0.02 * offsets)
+                (
+                    2.0 + 0.2 * np.cos(phase),
+                    3.0 + 0.3 * np.cos(phase),
+                    4.0 + 0.4 * np.cos(phase),
+                )
             ),
             "y_prediction_mean": np.column_stack(
-                (1.0 - 0.01 * offsets, 1.5 - 0.015 * offsets)
+                (
+                    1.0 + 0.1 * np.sin(phase),
+                    1.5 + 0.2 * np.sin(phase),
+                    2.0 + 0.3 * np.sin(phase),
+                )
             ),
         }

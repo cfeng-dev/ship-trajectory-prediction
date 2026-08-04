@@ -183,7 +183,6 @@ def main(
         plot_prediction(
             window,
             runs[0].fit,
-            model_name="Synthetic CTRV",
             state_prediction_variable_names=(
                 "x_state_prediction",
                 "y_state_prediction",
