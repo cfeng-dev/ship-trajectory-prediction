@@ -14,7 +14,10 @@ from ship_trajectory_prediction.evaluation.motion_priors import (
     print_motion_prior_report,
     suggest_prior_scales,
 )
-from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.plotting import (
+    plot_prediction,
+    plot_trajectory_paths,
+)
 from ship_trajectory_prediction.evaluation.posterior import (
     plot_scalar_posterior,
     plot_scalar_posterior_comparison,
@@ -42,6 +45,7 @@ __all__ = [
     "evaluate_position_predictions",
     "format_position_evaluation",
     "plot_prediction",
+    "plot_trajectory_paths",
     "plot_motion_prior_distributions",
     "plot_scalar_posterior",
     "plot_scalar_posterior_comparison",

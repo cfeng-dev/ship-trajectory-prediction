@@ -4,9 +4,56 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.plotting import (
+    plot_prediction,
+    plot_trajectory_paths,
+)
 
 plt.switch_backend("Agg")
+
+
+def test_plot_trajectory_paths_supports_multiple_forecast_origins():
+    """The shared renderer should accept variable-length rolling paths."""
+    figure, axis = plot_trajectory_paths(
+        observed_path=([0.0, 1.0], [0.0, 0.5]),
+        reference_path=([0.0, 1.0, 2.0, 3.0], [0.0, 0.5, 1.0, 1.5]),
+        forecast_paths=(
+            ([1.0, 1.8, 2.6], [0.5, 0.9, 1.3]),
+            ([2.0, 2.7], [1.0, 1.4]),
+        ),
+        prediction_origins=([1.0, 2.0], [0.5, 1.0]),
+        title="Bayesian CTRV Rolling Prediction",
+        observed_label="Initial observations",
+        reference_label="Recorded trajectory",
+        forecast_label="Rolling posterior medians",
+        prediction_origin_label="Forecast origins",
+    )
+
+    labels = [line.get_label() for line in axis.lines]
+    assert labels[:3] == [
+        "Initial observations",
+        "Recorded trajectory",
+        "Rolling posterior medians",
+    ]
+    assert labels[3].startswith("_")
+    assert axis.collections[0].get_label() == "Forecast origins"
+    assert axis.get_title() == "Bayesian CTRV Rolling Prediction"
+    plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    "forecast_paths",
+    [(), (([1.0, 2.0], [1.0]),), (([1.0, np.nan], [1.0, 2.0]),)],
+)
+def test_plot_trajectory_paths_rejects_invalid_forecasts(forecast_paths):
+    """Every shared forecast path must be non-empty, finite, and aligned."""
+    with pytest.raises(ValueError, match="forecast_paths"):
+        plot_trajectory_paths(
+            observed_path=([0.0], [0.0]),
+            reference_path=([0.0, 1.0], [0.0, 1.0]),
+            forecast_paths=forecast_paths,
+            title="Prediction",
+        )
 
 
 def test_plot_prediction_uses_the_requested_model_name(monkeypatch):

@@ -8,6 +8,97 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 
 
+def plot_trajectory_paths(
+    observed_path,
+    reference_path,
+    forecast_paths,
+    *,
+    title,
+    observed_label="Observed trajectory",
+    reference_label="Held-out trajectory",
+    forecast_label="Posterior median",
+    sample_paths=(),
+    prediction_origins=None,
+    prediction_origin_label="Prediction start",
+    figsize=(10, 7),
+    forecast_alpha=1.0,
+    forecast_linewidth=2.0,
+):
+    """Draw observed, reference, sampled, and central forecast paths."""
+    title = _non_empty_text("title", title)
+    observed_label = _non_empty_text("observed_label", observed_label)
+    reference_label = _non_empty_text("reference_label", reference_label)
+    forecast_label = _non_empty_text("forecast_label", forecast_label)
+    observed_x, observed_y = _path_arrays("observed_path", observed_path)
+    reference_x, reference_y = _path_arrays("reference_path", reference_path)
+    forecasts = _path_collection(
+        "forecast_paths",
+        forecast_paths,
+        require_non_empty=True,
+    )
+    samples = _path_collection("sample_paths", sample_paths)
+    if prediction_origins is not None:
+        origin_x, origin_y = _path_arrays(
+            "prediction_origins",
+            prediction_origins,
+        )
+        prediction_origin_label = _non_empty_text(
+            "prediction_origin_label",
+            prediction_origin_label,
+        )
+
+    figure, axis = plt.subplots(figsize=figsize)
+    axis.plot(
+        observed_x,
+        observed_y,
+        color="tab:blue",
+        linewidth=2,
+        label=observed_label,
+    )
+    axis.plot(
+        reference_x,
+        reference_y,
+        color="black",
+        linestyle="--",
+        linewidth=2,
+        label=reference_label,
+    )
+    for x_values, y_values in samples:
+        axis.plot(
+            x_values,
+            y_values,
+            color="tab:red",
+            alpha=0.05,
+            linewidth=1,
+        )
+    for path_index, (x_values, y_values) in enumerate(forecasts):
+        axis.plot(
+            x_values,
+            y_values,
+            color="tab:red",
+            alpha=forecast_alpha,
+            linewidth=forecast_linewidth,
+            label=forecast_label if path_index == 0 else None,
+        )
+    if prediction_origins is not None:
+        axis.scatter(
+            origin_x,
+            origin_y,
+            color="tab:blue",
+            zorder=3,
+            label=prediction_origin_label,
+        )
+
+    axis.set_title(title)
+    axis.set_xlabel("x [m]")
+    axis.set_ylabel("y [m]")
+    axis.set_aspect("equal", adjustable="box")
+    axis.grid(alpha=0.3)
+    axis.legend()
+    figure.tight_layout()
+    return figure, axis
+
+
 def plot_prediction(
     window,
     fit,
@@ -57,23 +148,6 @@ def plot_prediction(
         (np.full(len(y_samples), prediction_start_y), y_samples)
     )
 
-    figure, axis = plt.subplots(figsize=(10, 7))
-    axis.plot(
-        observed_x,
-        observed_y,
-        color="tab:blue",
-        linewidth=2,
-        label=observed_trajectory_label.strip(),
-    )
-    axis.plot(
-        held_out_x,
-        held_out_y,
-        color="black",
-        linestyle="--",
-        linewidth=2,
-        label="Held-out trajectory",
-    )
-
     sample_count = min(max_posterior_trajectories, len(x_samples))
     sample_indices = np.linspace(
         0,
@@ -81,37 +155,30 @@ def plot_prediction(
         num=sample_count,
         dtype=int,
     )
-    for sample_index in sample_indices:
-        axis.plot(
+    sample_paths = tuple(
+        (
             connected_x_samples[sample_index],
             connected_y_samples[sample_index],
-            color="tab:red",
-            alpha=0.05,
-            linewidth=1,
         )
-
-    axis.plot(
-        np.median(connected_x_samples, axis=0),
-        np.median(connected_y_samples, axis=0),
-        color="tab:red",
-        linewidth=2,
-        label="Posterior median",
+        for sample_index in sample_indices
     )
-    axis.scatter(
-        prediction_start_x,
-        prediction_start_y,
-        color="tab:blue",
-        zorder=3,
-        label="Prediction start",
+    figure, axis = plot_trajectory_paths(
+        observed_path=(observed_x, observed_y),
+        reference_path=(held_out_x, held_out_y),
+        forecast_paths=(
+            (
+                np.median(connected_x_samples, axis=0),
+                np.median(connected_y_samples, axis=0),
+            ),
+        ),
+        sample_paths=sample_paths,
+        prediction_origins=(
+            np.asarray([prediction_start_x]),
+            np.asarray([prediction_start_y]),
+        ),
+        title=f"Bayesian {model_name.strip()} Prediction",
+        observed_label=observed_trajectory_label.strip(),
     )
-
-    axis.set_title(f"Bayesian {model_name.strip()} Prediction")
-    axis.set_xlabel("x [m]")
-    axis.set_ylabel("y [m]")
-    axis.set_aspect("equal", adjustable="box")
-    axis.grid(alpha=0.3)
-    axis.legend()
-    figure.tight_layout()
     plt.show()
     return figure, axis
 
@@ -145,3 +212,48 @@ def _resolve_observed_position_values(window, observed_position_values):
             "matching window.observation_count."
         )
     return observed_x, observed_y
+
+
+def _path_collection(name, paths, *, require_non_empty=False):
+    """Return a validated tuple of finite x/y path pairs."""
+    if isinstance(paths, (str, bytes)):
+        raise ValueError(f"{name} must contain x/y path pairs.")
+    try:
+        paths = tuple(paths)
+    except TypeError as error:
+        raise ValueError(f"{name} must contain x/y path pairs.") from error
+    if require_non_empty and not paths:
+        raise ValueError(f"{name} must contain at least one path.")
+    return tuple(
+        _path_arrays(f"{name}[{index}]", path) for index, path in enumerate(paths)
+    )
+
+
+def _path_arrays(name, path):
+    """Return one non-empty finite x/y path with aligned one-dimensional arrays."""
+    if not isinstance(path, (tuple, list)) or len(path) != 2:
+        raise ValueError(f"{name} must contain x and y values.")
+    try:
+        x_values = np.asarray(path[0], dtype=float)
+        y_values = np.asarray(path[1], dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must contain finite x and y values.") from error
+    if (
+        x_values.ndim != 1
+        or y_values.ndim != 1
+        or x_values.size == 0
+        or x_values.shape != y_values.shape
+        or not np.all(np.isfinite(x_values))
+        or not np.all(np.isfinite(y_values))
+    ):
+        raise ValueError(
+            f"{name} must contain non-empty, finite, aligned x and y vectors."
+        )
+    return x_values, y_values
+
+
+def _non_empty_text(name, value):
+    """Return stripped non-empty plot text."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string.")
+    return value.strip()

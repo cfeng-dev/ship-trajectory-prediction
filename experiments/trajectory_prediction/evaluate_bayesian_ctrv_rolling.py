@@ -14,6 +14,7 @@ from ship_trajectory_prediction.coordinates import (
 from ship_trajectory_prediction.evaluation import (
     build_rolling_window_specs,
     evaluate_position_predictions,
+    plot_trajectory_paths,
     summarize_rolling_predictions,
 )
 from ship_trajectory_prediction.evaluation import (
@@ -44,7 +45,7 @@ DATA_FILE = project_path(
 RUN_ID = 1
 WINDOW_MODE = "sliding"
 OBSERVATION_COUNT = 20
-PREDICTION_COUNT = 5
+PREDICTION_COUNT = 3
 STRIDE = None
 CREDIBLE_INTERVAL = 0.9
 VI_ALGORITHM = "meanfield"
@@ -206,48 +207,37 @@ def plot_rolling_predictions(
     window_mode,
 ):
     """Plot the complete recorded route and every rolling posterior median."""
-    figure, axis = plt.subplots(figsize=(11, 8))
-    axis.plot(
-        route_x,
-        route_y,
-        color="black",
-        linestyle="--",
-        linewidth=1.5,
-        label="Recorded trajectory",
-    )
-    axis.plot(
-        route_x[:initial_observation_count],
-        route_y[:initial_observation_count],
-        color="tab:blue",
-        linewidth=2.5,
-        label="Initial observations",
-    )
-
-    for plot_index, (_, forecast) in enumerate(
-        predictions.groupby("window_index", sort=True)
-    ):
+    forecast_paths = []
+    forecast_origin_x = []
+    forecast_origin_y = []
+    for _, forecast in predictions.groupby("window_index", sort=True):
         x_values = np.concatenate(
             ([forecast["forecast_origin_x_route"].iloc[0]], forecast["x_median_route"])
         )
         y_values = np.concatenate(
             ([forecast["forecast_origin_y_route"].iloc[0]], forecast["y_median_route"])
         )
-        axis.plot(
-            x_values,
-            y_values,
-            color="tab:red",
-            alpha=0.35,
-            linewidth=1.5,
-            label="Rolling posterior medians" if plot_index == 0 else None,
-        )
+        forecast_paths.append((x_values, y_values))
+        forecast_origin_x.append(x_values[0])
+        forecast_origin_y.append(y_values[0])
 
-    axis.set_title(f"Bayesian CTRV Rolling Prediction ({window_mode.title()} Window)")
-    axis.set_xlabel("x [m]")
-    axis.set_ylabel("y [m]")
-    axis.set_aspect("equal", adjustable="box")
-    axis.grid(alpha=0.3)
-    axis.legend()
-    figure.tight_layout()
+    figure, axis = plot_trajectory_paths(
+        observed_path=(
+            route_x[:initial_observation_count],
+            route_y[:initial_observation_count],
+        ),
+        reference_path=(route_x, route_y),
+        forecast_paths=forecast_paths,
+        prediction_origins=(forecast_origin_x, forecast_origin_y),
+        title=f"Bayesian CTRV Rolling Prediction ({window_mode.title()} Window)",
+        observed_label="Initial observations",
+        reference_label="Recorded trajectory",
+        forecast_label="Rolling posterior medians",
+        prediction_origin_label="Forecast origins",
+        figsize=(11, 8),
+        forecast_alpha=0.35,
+        forecast_linewidth=1.5,
+    )
     plt.show()
     return figure, axis
 
