@@ -15,6 +15,7 @@ from ship_trajectory_prediction.evaluation.motion_priors import (
     suggest_prior_scales,
 )
 from ship_trajectory_prediction.evaluation.plotting import (
+    plot_operational_prediction,
     plot_prediction,
     plot_trajectory_paths,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "collect_motion_prior_samples",
     "evaluate_position_predictions",
     "format_position_evaluation",
+    "plot_operational_prediction",
     "plot_prediction",
     "plot_trajectory_paths",
     "plot_motion_prior_distributions",

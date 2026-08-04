@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 from ship_trajectory_prediction.evaluation.plotting import (
+    _joint_prediction_density,
+    plot_operational_prediction,
     plot_prediction,
     plot_trajectory_paths,
 )
@@ -69,6 +71,145 @@ def test_plot_prediction_uses_the_requested_model_name(monkeypatch):
 
     assert axis.get_title() == "Bayesian Time-Varying Radius Prediction"
     assert len(axis.lines) == 5
+    plt.close(figure)
+
+
+def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels(
+    monkeypatch,
+):
+    """The spatial plot should preserve geometry and use physical axis names."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        model_name="CTRV",
+    )
+
+    assert axis.get_aspect() == pytest.approx(1.0)
+    assert axis.get_xlabel() == "East position [m]"
+    assert axis.get_ylabel() == "North position [m]"
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert legend_labels == [
+        "Observed history",
+        "Held-out trajectory",
+        "50% prediction region",
+        "90% prediction region",
+        "Posterior median",
+        "Prediction start",
+    ]
+    plt.close(figure)
+
+
+def test_plot_prediction_draws_at_most_30_sample_trajectories(monkeypatch):
+    """A large posterior should still produce a readable number of paths."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        ManyDrawFit(),
+        model_name="CTRV",
+        max_posterior_trajectories=100,
+    )
+
+    sample_lines = [line for line in axis.lines if line.get_alpha() == 0.06]
+    assert len(sample_lines) == 30
+    plt.close(figure)
+
+
+def test_joint_prediction_regions_contain_valid_empirical_mass():
+    """The 50% joint region should be nested in the joint 90% region."""
+    fit = ManyDrawFit()
+    _, _, density, thresholds = _joint_prediction_density(
+        (
+            fit.variables["x_prediction_mean"],
+            fit.variables["y_prediction_mean"],
+        )
+    )
+
+    region_50 = density >= thresholds[0.5]
+    region_90 = density >= thresholds[0.9]
+    assert thresholds[0.5] >= thresholds[0.9] > 0
+    assert np.all(region_50 <= region_90)
+    assert density[region_50].sum() >= 0.5
+    assert density[region_90].sum() >= 0.9
+
+
+def test_posterior_trajectory_selection_is_reproducible(monkeypatch):
+    """The same plotting seed should select the same posterior trajectories."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+    figures_and_axes = [
+        plot_prediction(
+            FakeWindow(),
+            ManyDrawFit(),
+            model_name="CTRV",
+            max_posterior_trajectories=10,
+            trajectory_sample_seed=seed,
+        )
+        for seed in (17, 17, 23)
+    ]
+
+    selected_paths = [
+        [
+            np.column_stack((line.get_xdata(), line.get_ydata()))
+            for line in axis.lines
+            if line.get_alpha() == 0.06
+        ]
+        for _, axis in figures_and_axes
+    ]
+    assert all(
+        np.array_equal(first, second)
+        for first, second in zip(selected_paths[0], selected_paths[1], strict=True)
+    )
+    assert any(
+        not np.array_equal(first, third)
+        for first, third in zip(selected_paths[0], selected_paths[2], strict=True)
+    )
+    for figure, _ in figures_and_axes:
+        plt.close(figure)
+
+
+def test_plot_prediction_adds_time_markers_and_evaluation_inset(monkeypatch):
+    """Available elapsed times and held-out metrics should be visible."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        model_name="CTRV",
+    )
+
+    text_values = [text.get_text() for text in axis.texts]
+    assert "+30 s" in text_values
+    assert "+60 s" in text_values
+    inset = next(text for text in text_values if "Observation duration" in text)
+    assert "Prediction horizon: 60 s" in inset
+    assert "ADE:" in inset
+    assert "FDE:" in inset
+    assert "90% coverage:" in inset
+    plt.close(figure)
+
+
+def test_operational_plot_omits_unknown_future_and_evaluation_metrics(monkeypatch):
+    """The operational view should not expose held-out data or its metrics."""
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    figure, axis = plot_operational_prediction(
+        FakeWindow(),
+        FakeFit(),
+        model_name="CTRV",
+    )
+
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert "Held-out trajectory" not in legend_labels
+    inset = next(
+        text.get_text()
+        for text in axis.texts
+        if "Observation duration" in text.get_text()
+    )
+    assert "ADE:" not in inset
+    assert "FDE:" not in inset
+    assert "coverage" not in inset.lower()
     plt.close(figure)
 
 
@@ -171,7 +312,22 @@ class FakeWindow:
     def __init__(self):
         self.x_meters = np.array([0.0, 1.0, 2.0, 3.0])
         self.y_meters = np.array([0.0, 0.5, 1.0, 1.5])
+        self.time_seconds = np.array([0.0, 10.0, 40.0, 70.0])
+        self.timestamps = np.array(
+            [
+                "2026-01-01T00:00:00",
+                "2026-01-01T00:00:10",
+                "2026-01-01T00:00:40",
+                "2026-01-01T00:01:10",
+            ],
+            dtype="datetime64[s]",
+        )
         self.observation_count = 2
+
+    @property
+    def prediction_count(self):
+        """Return the number of held-out positions."""
+        return len(self.x_meters) - self.observation_count
 
     @property
     def observed_slice(self):
@@ -196,3 +352,18 @@ class FakeFit:
     def stan_variable(self, name):
         """Return one stored posterior variable."""
         return self.variables[name]
+
+
+class ManyDrawFit(FakeFit):
+    """Posterior fixture with distinguishable trajectories."""
+
+    def __init__(self, draw_count=100):
+        offsets = np.arange(draw_count, dtype=float)
+        self.variables = {
+            "x_prediction_mean": np.column_stack(
+                (2.0 + 0.01 * offsets, 3.0 + 0.02 * offsets)
+            ),
+            "y_prediction_mean": np.column_stack(
+                (1.0 - 0.01 * offsets, 1.5 - 0.015 * offsets)
+            ),
+        }

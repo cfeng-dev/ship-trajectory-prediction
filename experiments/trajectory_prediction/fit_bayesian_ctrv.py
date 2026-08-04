@@ -108,7 +108,6 @@ def main(
         additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
-    additional_noise_enabled = position_observations.additional_noise_std_m > 0
     stan_data = build_stan_data(
         window,
         priors=PRIORS,
@@ -221,11 +220,7 @@ def main(
             position_observations.x_meters,
             position_observations.y_meters,
         ),
-        observed_trajectory_label=(
-            "Noise-augmented observations"
-            if additional_noise_enabled
-            else "Observed trajectory"
-        ),
+        observed_trajectory_label="Observed history",
     )
 
 
