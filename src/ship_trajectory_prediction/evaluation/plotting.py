@@ -20,6 +20,13 @@ PREDICTION_PLOT_TITLE = (
     "Posterior-prädiktive Trajektorie"
 )
 
+# Plot typography
+PLOT_TITLE_PAD = 16
+PLOT_TITLE_FONT_SIZE = 13
+PLOT_TITLE_FONT_WEIGHT = "bold"
+AXIS_LABEL_FONT_SIZE = 13
+AXIS_TICK_FONT_SIZE = 11
+
 
 def plot_trajectory_paths(
     observed_path,
@@ -166,9 +173,15 @@ def plot_trajectory_paths(
     if origin_artist is not None:
         legend_handles.append(origin_artist)
 
-    axis.set_title(title)
-    axis.set_xlabel("Ostposition [m]")
-    axis.set_ylabel("Nordposition [m]")
+    axis.set_title(
+        title,
+        pad=PLOT_TITLE_PAD,
+        fontsize=PLOT_TITLE_FONT_SIZE,
+        fontweight=PLOT_TITLE_FONT_WEIGHT,
+    )
+    axis.set_xlabel("Ostposition [m]", fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.set_ylabel("Nordposition [m]", fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
     _reserve_vertical_layout_space(axis)
     axis.set_aspect("equal", adjustable="box")
     axis.grid(alpha=0.2)

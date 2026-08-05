@@ -8,6 +8,10 @@ import pytest
 from matplotlib.patches import Ellipse
 
 from ship_trajectory_prediction.evaluation.plotting import (
+    AXIS_LABEL_FONT_SIZE,
+    AXIS_TICK_FONT_SIZE,
+    PLOT_TITLE_FONT_SIZE,
+    PLOT_TITLE_FONT_WEIGHT,
     PREDICTION_PLOT_TITLE,
     plot_operational_prediction,
     plot_prediction,
@@ -111,6 +115,14 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     assert axis.get_aspect() == pytest.approx(1.0)
     assert axis.get_xlabel() == "Ostposition [m]"
     assert axis.get_ylabel() == "Nordposition [m]"
+    assert axis.title.get_fontsize() == PLOT_TITLE_FONT_SIZE
+    assert axis.title.get_fontweight() == PLOT_TITLE_FONT_WEIGHT
+    assert axis.xaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE
+    assert axis.yaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE
+    assert all(
+        label.get_fontsize() == AXIS_TICK_FONT_SIZE
+        for label in (*axis.get_xticklabels(), *axis.get_yticklabels())
+    )
     assert figure.get_size_inches() == pytest.approx((9.0, 6.0))
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
