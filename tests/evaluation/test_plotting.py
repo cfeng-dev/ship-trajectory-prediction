@@ -52,6 +52,23 @@ def test_plot_trajectory_paths_supports_multiple_forecast_origins():
     plt.close(figure)
 
 
+def test_plot_trajectory_paths_reserves_upper_space_for_wide_routes():
+    """A wide route should gain mostly upper space without distorting meters."""
+    figure, axis = plot_trajectory_paths(
+        observed_path=([0.0, 4.0], [0.0, -1.0]),
+        reference_path=([4.0, 8.0], [-1.0, -2.0]),
+        forecast_paths=(([4.0, 8.0], [-1.0, -1.8]),),
+        title="Prediction",
+    )
+
+    x_min, x_max = axis.get_xlim()
+    y_min, y_max = axis.get_ylim()
+    assert (x_max - x_min) / (y_max - y_min) == pytest.approx(2.0)
+    assert y_max - 0.0 > -2.0 - y_min
+    assert axis.get_aspect() == pytest.approx(1.0)
+    plt.close(figure)
+
+
 @pytest.mark.parametrize(
     "forecast_paths",
     [(), (([1.0, 2.0], [1.0]),), (([1.0, np.nan], [1.0, 2.0]),)],
@@ -94,7 +111,7 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     assert axis.get_aspect() == pytest.approx(1.0)
     assert axis.get_xlabel() == "Ostposition [m]"
     assert axis.get_ylabel() == "Nordposition [m]"
-    assert figure.get_size_inches() == pytest.approx((10.0, 6.0))
+    assert figure.get_size_inches() == pytest.approx((9.0, 6.0))
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
     assert legend_labels == [

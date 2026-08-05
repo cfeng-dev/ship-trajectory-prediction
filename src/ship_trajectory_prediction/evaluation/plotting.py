@@ -36,7 +36,7 @@ def plot_trajectory_paths(
     posterior_draws=None,
     forecast_time_seconds=None,
     annotation_text=None,
-    figsize=(10, 6),
+    figsize=(9, 6),
     forecast_alpha=1.0,
     forecast_linewidth=2.0,
 ):
@@ -156,6 +156,7 @@ def plot_trajectory_paths(
     axis.set_title(title)
     axis.set_xlabel("Ostposition [m]")
     axis.set_ylabel("Nordposition [m]")
+    _reserve_vertical_layout_space(axis)
     axis.set_aspect("equal", adjustable="box")
     axis.grid(alpha=0.2)
     axis.legend(
@@ -165,6 +166,23 @@ def plot_trajectory_paths(
     )
     figure.tight_layout()
     return figure, axis
+
+
+def _reserve_vertical_layout_space(axis):
+    """Make a wide trajectory plot taller while preserving equal meter scales."""
+    x_min, x_max = axis.get_xlim()
+    y_min, y_max = axis.get_ylim()
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    minimum_y_span = x_span / 2
+    if y_span >= minimum_y_span:
+        return
+
+    additional_y_span = minimum_y_span - y_span
+    axis.set_ylim(
+        y_min - 0.15 * additional_y_span,
+        y_max + 0.85 * additional_y_span,
+    )
 
 
 def plot_prediction(
