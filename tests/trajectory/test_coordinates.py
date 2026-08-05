@@ -7,6 +7,7 @@ import pytest
 from ship_trajectory_prediction.coordinates import (
     calculate_gps_distances,
     calculate_signed_curvature_from_gps,
+    calculate_signed_turn_rate_from_gps,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
     local_to_gps_coordinates,
@@ -183,6 +184,52 @@ def test_curvature_rejects_invalid_filter_settings(options, message):
 
     with pytest.raises(ValueError, match=message):
         calculate_signed_curvature_from_gps(data, **options)
+
+
+@pytest.mark.parametrize(("final_y", "expected_sign"), [(10, 1), (-10, -1)])
+def test_signed_turn_rate_uses_course_change_over_actual_time(final_y, expected_sign):
+    """A quarter turn should use adjacent segment midpoint times."""
+    data = _trajectory_data_from_local_coordinates(
+        [0, 10, 10],
+        [0, 0, final_y],
+    )
+    data["time"] = pd.to_datetime(
+        ["2026-01-01T00:00:00Z", "2026-01-01T00:00:10Z", "2026-01-01T00:00:30Z"]
+    )
+
+    turn_rate = calculate_signed_turn_rate_from_gps(data, max_time_gap_s=30.0)
+
+    assert np.isnan(turn_rate[0])
+    assert np.sign(turn_rate[1]) == expected_sign
+    assert abs(turn_rate[1]) == pytest.approx(np.pi / 30, rel=1e-5)
+    assert np.isnan(turn_rate[2])
+
+
+def test_turn_rate_ignores_short_gps_segments():
+    """Small displacements should not create unstable turn-rate estimates."""
+    data = _trajectory_data_from_local_coordinates([0, 1, 1], [0, 0, 1])
+
+    turn_rate = calculate_signed_turn_rate_from_gps(
+        data,
+        min_displacement_m=2.0,
+    )
+
+    assert np.all(np.isnan(turn_rate))
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"min_displacement_m": 0.0}, "min_displacement_m"),
+        ({"max_time_gap_s": 0.0}, "max_time_gap_s"),
+    ],
+)
+def test_turn_rate_rejects_invalid_filter_settings(options, message):
+    """Turn-rate filters should require positive finite values."""
+    data = _trajectory_data_from_local_coordinates([0, 10, 20], [0, 0, 0])
+
+    with pytest.raises(ValueError, match=message):
+        calculate_signed_turn_rate_from_gps(data, **options)
 
 
 @pytest.mark.parametrize("unit", ["miles", "knots", "degrees"])

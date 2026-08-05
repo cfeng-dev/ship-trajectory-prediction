@@ -3,6 +3,7 @@
 from ship_trajectory_prediction.coordinates import (
     calculate_gps_distances,
     calculate_signed_curvature_from_gps,
+    calculate_signed_turn_rate_from_gps,
     calculate_speed_from_gps,
     gps_to_local_coordinates,
     local_to_gps_coordinates,
@@ -23,6 +24,7 @@ __all__ = [
     "DEFAULT_MAX_TIME_GAP_SECONDS",
     "calculate_gps_distances",
     "calculate_signed_curvature_from_gps",
+    "calculate_signed_turn_rate_from_gps",
     "calculate_speed_from_gps",
     "gps_to_local_coordinates",
     "local_to_gps_coordinates",
