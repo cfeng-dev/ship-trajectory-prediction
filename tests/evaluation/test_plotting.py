@@ -10,8 +10,11 @@ from matplotlib.patches import Ellipse
 from ship_trajectory_prediction.evaluation.plotting import (
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
+    PLOT_FIGURE_SIZE,
+    PLOT_MAX_WIDTH_TO_HEIGHT_RATIO,
     PLOT_TITLE_FONT_SIZE,
     PLOT_TITLE_FONT_WEIGHT,
+    POSTERIOR_SAMPLE_ALPHA,
     PREDICTION_PLOT_TITLE,
     plot_operational_prediction,
     plot_prediction,
@@ -67,7 +70,9 @@ def test_plot_trajectory_paths_reserves_upper_space_for_wide_routes():
 
     x_min, x_max = axis.get_xlim()
     y_min, y_max = axis.get_ylim()
-    assert (x_max - x_min) / (y_max - y_min) == pytest.approx(2.0)
+    assert (x_max - x_min) / (y_max - y_min) == pytest.approx(
+        PLOT_MAX_WIDTH_TO_HEIGHT_RATIO
+    )
     assert y_max - 0.0 > -2.0 - y_min
     assert axis.get_aspect() == pytest.approx(1.0)
     plt.close(figure)
@@ -123,7 +128,7 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
         label.get_fontsize() == AXIS_TICK_FONT_SIZE
         for label in (*axis.get_xticklabels(), *axis.get_yticklabels())
     )
-    assert figure.get_size_inches() == pytest.approx((9.0, 6.0))
+    assert figure.get_size_inches() == pytest.approx(PLOT_FIGURE_SIZE)
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
     assert legend_labels == [
@@ -382,7 +387,7 @@ def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
 
 def _sample_lines(axis):
     """Return the deliberately faint posterior sample paths."""
-    return [line for line in axis.lines if line.get_alpha() == 0.12]
+    return [line for line in axis.lines if line.get_alpha() == POSTERIOR_SAMPLE_ALPHA]
 
 
 def _region_patches(axis):

@@ -27,6 +27,34 @@ PLOT_TITLE_FONT_WEIGHT = "bold"
 AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
 
+# Plot layout
+PLOT_FIGURE_SIZE = (9, 6)
+PLOT_MAX_WIDTH_TO_HEIGHT_RATIO = 2.0
+PLOT_UPPER_PADDING_FRACTION = 0.85
+GRID_ALPHA = 0.2
+LEGEND_LOCATION = "upper right"
+LEGEND_FRAME_ALPHA = 0.9
+
+# Trajectory appearance
+OBSERVED_TRAJECTORY_COLOR = "tab:blue"
+OBSERVED_TRAJECTORY_LINE_WIDTH = 2.0
+REFERENCE_TRAJECTORY_COLOR = "black"
+REFERENCE_TRAJECTORY_LINE_STYLE = "--"
+REFERENCE_TRAJECTORY_LINE_WIDTH = 2.0
+PREDICTION_ORIGIN_COLOR = OBSERVED_TRAJECTORY_COLOR
+PREDICTION_ORIGIN_EDGE_COLOR = "white"
+PREDICTION_ORIGIN_EDGE_LINE_WIDTH = 0.6
+
+# Posterior appearance
+POSTERIOR_COLOR = "tab:red"
+POSTERIOR_SAMPLE_ALPHA = 0.12
+POSTERIOR_SAMPLE_LINE_WIDTH = 0.8
+POSTERIOR_MEDIAN_ALPHA = 1.0
+POSTERIOR_MEDIAN_LINE_WIDTH = 2.0
+PREDICTION_REGION_50_ALPHA = 0.22
+PREDICTION_REGION_90_ALPHA = 0.10
+PREDICTION_REGION_EDGE_LINE_WIDTH = 0.7
+
 
 def plot_trajectory_paths(
     observed_path,
@@ -44,9 +72,9 @@ def plot_trajectory_paths(
     posterior_draws=None,
     forecast_time_seconds=None,
     annotation_text=None,
-    figsize=(9, 6),
-    forecast_alpha=1.0,
-    forecast_linewidth=2.0,
+    figsize=PLOT_FIGURE_SIZE,
+    forecast_alpha=POSTERIOR_MEDIAN_ALPHA,
+    forecast_linewidth=POSTERIOR_MEDIAN_LINE_WIDTH,
 ):
     """Draw observed, reference, sampled, and central forecast paths."""
     title = _non_empty_text("title", title)
@@ -79,17 +107,17 @@ def plot_trajectory_paths(
     observed_line = axis.plot(
         observed_x,
         observed_y,
-        color="tab:blue",
-        linewidth=2,
+        color=OBSERVED_TRAJECTORY_COLOR,
+        linewidth=OBSERVED_TRAJECTORY_LINE_WIDTH,
         label=observed_label,
     )[0]
     reference_line = None
     if reference is not None:
         reference_line = axis.plot(
             *reference,
-            color="black",
-            linestyle="--",
-            linewidth=2,
+            color=REFERENCE_TRAJECTORY_COLOR,
+            linestyle=REFERENCE_TRAJECTORY_LINE_STYLE,
+            linewidth=REFERENCE_TRAJECTORY_LINE_WIDTH,
             label=reference_label,
         )[0]
 
@@ -107,9 +135,9 @@ def plot_trajectory_paths(
             axis.plot(
                 x_values,
                 y_values,
-                color="tab:red",
-                alpha=0.12,
-                linewidth=0.8,
+                color=POSTERIOR_COLOR,
+                alpha=POSTERIOR_SAMPLE_ALPHA,
+                linewidth=POSTERIOR_SAMPLE_LINE_WIDTH,
                 label=(
                     f"{sample_label} (n = {len(samples)})"
                     if sample_index == 0
@@ -125,7 +153,7 @@ def plot_trajectory_paths(
             axis.plot(
                 x_values,
                 y_values,
-                color="tab:red",
+                color=POSTERIOR_COLOR,
                 alpha=forecast_alpha,
                 linewidth=forecast_linewidth,
                 label=forecast_label if path_index == 0 else None,
@@ -138,9 +166,9 @@ def plot_trajectory_paths(
         origin_artist = axis.scatter(
             origin_x,
             origin_y,
-            color="tab:blue",
-            edgecolor="white",
-            linewidth=0.6,
+            color=PREDICTION_ORIGIN_COLOR,
+            edgecolor=PREDICTION_ORIGIN_EDGE_COLOR,
+            linewidth=PREDICTION_ORIGIN_EDGE_LINE_WIDTH,
             zorder=5,
             label=prediction_origin_label,
         )
@@ -184,11 +212,11 @@ def plot_trajectory_paths(
     axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
     _reserve_vertical_layout_space(axis)
     axis.set_aspect("equal", adjustable="box")
-    axis.grid(alpha=0.2)
+    axis.grid(alpha=GRID_ALPHA)
     axis.legend(
         handles=legend_handles,
-        loc="upper right",
-        framealpha=0.9,
+        loc=LEGEND_LOCATION,
+        framealpha=LEGEND_FRAME_ALPHA,
     )
     figure.tight_layout()
     return figure, axis
@@ -200,14 +228,14 @@ def _reserve_vertical_layout_space(axis):
     y_min, y_max = axis.get_ylim()
     x_span = x_max - x_min
     y_span = y_max - y_min
-    minimum_y_span = x_span / 2
+    minimum_y_span = x_span / PLOT_MAX_WIDTH_TO_HEIGHT_RATIO
     if y_span >= minimum_y_span:
         return
 
     additional_y_span = minimum_y_span - y_span
     axis.set_ylim(
-        y_min - 0.15 * additional_y_span,
-        y_max + 0.85 * additional_y_span,
+        y_min - (1 - PLOT_UPPER_PADDING_FRACTION) * additional_y_span,
+        y_max + PLOT_UPPER_PADDING_FRACTION * additional_y_span,
     )
 
 
@@ -384,8 +412,16 @@ def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
         x_samples.shape[1],
     )
     region_styles = {
-        0.9: ("#d62728", 0.10, "Posterior-prädiktiver Bereich (90 %)"),
-        0.5: ("#d62728", 0.22, "Posterior-prädiktiver Bereich (50 %)"),
+        0.9: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_90_ALPHA,
+            "Posterior-prädiktiver Bereich (90 %)",
+        ),
+        0.5: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_50_ALPHA,
+            "Posterior-prädiktiver Bereich (50 %)",
+        ),
     }
     centers = []
     for time_index in range(x_samples.shape[1]):
@@ -404,7 +440,7 @@ def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
                 angle=angle,
                 facecolor=color,
                 edgecolor=color,
-                linewidth=0.7,
+                linewidth=PREDICTION_REGION_EDGE_LINE_WIDTH,
                 alpha=alpha,
                 zorder=1,
             )
