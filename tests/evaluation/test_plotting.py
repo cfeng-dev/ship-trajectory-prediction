@@ -60,6 +60,57 @@ def test_plot_trajectory_paths_supports_multiple_forecast_origins():
     plt.close(figure)
 
 
+def test_plot_trajectory_paths_draws_regions_for_multiple_forecasts():
+    """A rolling plot should show both uncertainty regions for every window."""
+    phase = np.linspace(0.0, 2 * np.pi, 20, endpoint=False)
+    posterior_draw_groups = (
+        (
+            np.column_stack((1.0 + 0.1 * np.cos(phase), 2.0 + 0.2 * np.cos(phase))),
+            np.column_stack((0.5 + 0.1 * np.sin(phase), 1.0 + 0.2 * np.sin(phase))),
+        ),
+        (
+            np.column_stack((3.0 + 0.1 * np.cos(phase), 4.0 + 0.2 * np.cos(phase))),
+            np.column_stack((1.5 + 0.1 * np.sin(phase), 2.0 + 0.2 * np.sin(phase))),
+        ),
+    )
+
+    figure, axis = plot_trajectory_paths(
+        observed_path=([0.0, 1.0], [0.0, 0.5]),
+        reference_path=([0.0, 1.0, 2.0, 3.0, 4.0], [0.0, 0.5, 1.0, 1.5, 2.0]),
+        forecast_paths=(
+            ([1.0, 1.5, 2.0], [0.5, 0.75, 1.0]),
+            ([3.0, 3.5, 4.0], [1.5, 1.75, 2.0]),
+        ),
+        posterior_draw_groups=posterior_draw_groups,
+        forecast_time_groups=(
+            np.array([0.0, 10.0, 20.0]),
+            np.array([0.0, 10.0, 20.0]),
+        ),
+        annotate_prediction_regions=False,
+        title="Bayesian CTRV Rolling Prediction",
+    )
+
+    assert len(_region_patches(axis)) == 8
+    assert not axis.texts
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert legend_labels.count("Posterior-prädiktiver Bereich (50 %)") == 1
+    assert legend_labels.count("Posterior-prädiktiver Bereich (90 %)") == 1
+    plt.close(figure)
+
+
+def test_plot_trajectory_paths_rejects_misaligned_region_groups():
+    """Every rolling posterior group should have one matching time vector."""
+    with pytest.raises(ValueError, match="equal length"):
+        plot_trajectory_paths(
+            observed_path=([0.0], [0.0]),
+            reference_path=([0.0, 1.0], [0.0, 1.0]),
+            forecast_paths=(([0.0, 1.0], [0.0, 1.0]),),
+            posterior_draw_groups=((np.ones((2, 1)), np.ones((2, 1))),),
+            forecast_time_groups=(),
+            title="Prediction",
+        )
+
+
 def test_plot_trajectory_paths_reserves_upper_space_for_wide_routes():
     """A wide route should gain mostly upper space without distorting meters."""
     figure, axis = plot_trajectory_paths(

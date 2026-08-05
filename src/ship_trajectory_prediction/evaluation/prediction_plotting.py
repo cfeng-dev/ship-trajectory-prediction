@@ -85,6 +85,9 @@ def plot_trajectory_paths(
     prediction_origin_label="Prognosebeginn",
     posterior_draws=None,
     forecast_time_seconds=None,
+    posterior_draw_groups=(),
+    forecast_time_groups=(),
+    annotate_prediction_regions=True,
     annotation_text=None,
     figsize=PLOT_FIGURE_SIZE,
     forecast_alpha=POSTERIOR_MEDIAN_ALPHA,
@@ -141,13 +144,23 @@ def plot_trajectory_paths(
             label=reference_label,
         )[0]
 
+    region_inputs = _prediction_region_inputs(
+        posterior_draws,
+        forecast_time_seconds,
+        posterior_draw_groups,
+        forecast_time_groups,
+    )
     region_handles = []
-    if posterior_draws is not None:
-        region_handles = _draw_prediction_regions(
+    for group_index, (group_draws, group_times) in enumerate(region_inputs):
+        handles = _draw_prediction_regions(
             axis,
-            posterior_draws,
-            forecast_time_seconds,
+            group_draws,
+            group_times,
+            annotate_time=annotate_prediction_regions,
+            group_index=group_index if len(region_inputs) > 1 else None,
         )
+        if not region_handles:
+            region_handles = handles
 
     sample_lines = []
     for sample_index, (x_values, y_values) in enumerate(samples):
@@ -473,7 +486,36 @@ def _prepare_prediction_plot_data(
     }
 
 
-def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
+def _prediction_region_inputs(
+    posterior_draws,
+    forecast_time_seconds,
+    posterior_draw_groups,
+    forecast_time_groups,
+):
+    """Return aligned single- or multiple-forecast uncertainty inputs."""
+    draw_groups = tuple(posterior_draw_groups)
+    time_groups = tuple(forecast_time_groups)
+    if posterior_draws is not None:
+        if draw_groups or time_groups:
+            raise ValueError(
+                "posterior_draws cannot be combined with posterior_draw_groups."
+            )
+        return ((posterior_draws, forecast_time_seconds),)
+    if len(draw_groups) != len(time_groups):
+        raise ValueError(
+            "posterior_draw_groups and forecast_time_groups must have equal length."
+        )
+    return tuple(zip(draw_groups, time_groups, strict=True))
+
+
+def _draw_prediction_regions(
+    axis,
+    posterior_draws,
+    forecast_time_seconds,
+    *,
+    annotate_time=True,
+    group_index=None,
+):
     """Draw one empirical covariance region pair per future time point."""
     x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
     horizon_seconds = _prediction_horizon_seconds(
@@ -513,12 +555,15 @@ def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
                 alpha=alpha,
                 zorder=1,
             )
+            group_suffix = "" if group_index is None else f"-g{group_index}"
             ellipse.set_gid(
-                f"posterior-predictive-region-{probability:g}-t{time_index}"
+                "posterior-predictive-region-"
+                f"{probability:g}{group_suffix}-t{time_index}"
             )
             axis.add_patch(ellipse)
 
-    _label_prediction_regions(axis, centers, horizon_seconds)
+    if annotate_time:
+        _label_prediction_regions(axis, centers, horizon_seconds)
     return [
         Patch(
             facecolor=region_styles[0.5][0],

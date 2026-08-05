@@ -1,7 +1,7 @@
 """Evaluate Bayesian CTRV forecasts over a complete recorded trajectory."""
 
 import argparse
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -55,6 +55,18 @@ SEED = 42
 REQUIRE_CONVERGED = False
 MAX_WINDOWS = None
 PLOT_EACH_WINDOW = False
+SAMPLE_TRAJECTORIES_PER_FORECAST = 15
+
+
+@dataclass(frozen=True, slots=True)
+class RollingPosteriorPlotData:
+    """Posterior paths for one window in the route-wide coordinate frame."""
+
+    forecast_origin_x: float
+    forecast_origin_y: float
+    x_samples: np.ndarray
+    y_samples: np.ndarray
+    forecast_time_seconds: np.ndarray
 
 
 def main(
@@ -114,6 +126,7 @@ def main(
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
+    posterior_plot_groups = []
     for number, specification in enumerate(windows, start=1):
         window_seed = seed + specification.window_index
         print(
@@ -164,6 +177,17 @@ def main(
             posterior_diagnostics=posterior_diagnostics,
         )
         prediction_tables.append(table)
+        posterior_plot_groups.append(
+            _build_rolling_posterior_plot_data(
+                fit,
+                specification=specification,
+                window=window,
+                route_x=route_x,
+                route_y=route_y,
+                longitude=longitude,
+                latitude=latitude,
+            )
+        )
         print(
             f"ADE={evaluation.ade_m:.2f} m, "
             f"FDE={evaluation.fde_m:.2f} m, "
@@ -190,9 +214,10 @@ def main(
     plot_rolling_predictions(
         route_x,
         route_y,
-        predictions,
+        posterior_plot_groups,
         initial_observation_count=observation_count,
         window_mode=window_mode,
+        sample_seed=seed,
     )
     return predictions, summary
 
@@ -200,29 +225,40 @@ def main(
 def plot_rolling_predictions(
     route_x,
     route_y,
-    predictions,
+    posterior_plot_groups,
     *,
     initial_observation_count,
     window_mode,
+    sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+    sample_seed=SEED,
 ):
-    """Plot the complete recorded route and every rolling posterior median."""
+    """Plot route-wide rolling posterior paths and predictive uncertainty."""
     window_mode_label = {
         "sliding": "gleitendes Fenster",
         "expanding": "wachsendes Fenster",
     }[window_mode]
-    forecast_paths = []
-    forecast_origin_x = []
-    forecast_origin_y = []
-    for _, forecast in predictions.groupby("window_index", sort=True):
-        x_values = np.concatenate(
-            ([forecast["forecast_origin_x_route"].iloc[0]], forecast["x_median_route"])
+    posterior_plot_groups = tuple(posterior_plot_groups)
+    if not posterior_plot_groups:
+        raise ValueError("posterior_plot_groups must not be empty.")
+
+    forecast_paths = tuple(
+        (
+            np.concatenate(
+                ([group.forecast_origin_x], np.median(group.x_samples, axis=0))
+            ),
+            np.concatenate(
+                ([group.forecast_origin_y], np.median(group.y_samples, axis=0))
+            ),
         )
-        y_values = np.concatenate(
-            ([forecast["forecast_origin_y_route"].iloc[0]], forecast["y_median_route"])
-        )
-        forecast_paths.append((x_values, y_values))
-        forecast_origin_x.append(x_values[0])
-        forecast_origin_y.append(y_values[0])
+        for group in posterior_plot_groups
+    )
+    forecast_origin_x = [group.forecast_origin_x for group in posterior_plot_groups]
+    forecast_origin_y = [group.forecast_origin_y for group in posterior_plot_groups]
+    sample_paths = _select_rolling_sample_paths(
+        posterior_plot_groups,
+        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+        sample_seed=sample_seed,
+    )
 
     figure, axis = plot_trajectory_paths(
         observed_path=(
@@ -231,11 +267,20 @@ def plot_rolling_predictions(
         ),
         reference_path=(route_x, route_y),
         forecast_paths=forecast_paths,
+        sample_paths=sample_paths,
         prediction_origins=(forecast_origin_x, forecast_origin_y),
+        posterior_draw_groups=tuple(
+            (group.x_samples, group.y_samples) for group in posterior_plot_groups
+        ),
+        forecast_time_groups=tuple(
+            group.forecast_time_seconds for group in posterior_plot_groups
+        ),
+        annotate_prediction_regions=False,
         title=f"Rollierende bayessche CTRV-Prognose ({window_mode_label})",
         observed_label="Anfängliche Beobachtungen",
         reference_label="Aufgezeichnete Trajektorie",
         forecast_label="Rollierende Posterior-Mediane",
+        sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
         prediction_origin_label="Startpunkte der Prognosen",
         figsize=(11, 8),
         forecast_alpha=0.35,
@@ -243,6 +288,116 @@ def plot_rolling_predictions(
     )
     plt.show()
     return figure, axis
+
+
+def _build_rolling_posterior_plot_data(
+    fit,
+    *,
+    specification,
+    window,
+    route_x,
+    route_y,
+    longitude,
+    latitude,
+):
+    """Transform one window's posterior paths into the common route frame."""
+    x_samples = posterior_variable_samples(fit, "x_state_prediction")
+    y_samples = posterior_variable_samples(fit, "y_state_prediction")
+    if x_samples.ndim != 2:
+        raise ValueError(
+            "Rolling posterior position draws must be finite aligned matrices."
+        )
+    expected_shape = (x_samples.shape[0], specification.prediction_count)
+    if (
+        x_samples.shape[0] == 0
+        or x_samples.shape != expected_shape
+        or y_samples.shape != expected_shape
+        or not np.all(np.isfinite(x_samples))
+        or not np.all(np.isfinite(y_samples))
+    ):
+        raise ValueError(
+            "Rolling posterior position draws must be finite aligned matrices."
+        )
+
+    sample_shape = x_samples.shape
+    predicted_longitude, predicted_latitude = local_to_gps_coordinates(
+        x_samples.ravel(),
+        y_samples.ravel(),
+        reference_longitude=longitude[specification.start_index],
+        reference_latitude=latitude[specification.start_index],
+        unit="m",
+    )
+    x_route, y_route = _gps_to_route_coordinates(
+        predicted_longitude,
+        predicted_latitude,
+        reference_longitude=longitude[0],
+        reference_latitude=latitude[0],
+    )
+    forecast_origin_index = specification.forecast_start_index - 1
+    prediction_start_time = float(
+        window.time_seconds[specification.observation_count - 1]
+    )
+    prediction_times = np.asarray(
+        window.time_seconds[window.prediction_slice],
+        dtype=float,
+    )
+    return RollingPosteriorPlotData(
+        forecast_origin_x=float(route_x[forecast_origin_index]),
+        forecast_origin_y=float(route_y[forecast_origin_index]),
+        x_samples=x_route.reshape(sample_shape),
+        y_samples=y_route.reshape(sample_shape),
+        forecast_time_seconds=np.concatenate(
+            ([0.0], prediction_times - prediction_start_time)
+        ),
+    )
+
+
+def _select_rolling_sample_paths(
+    posterior_plot_groups,
+    *,
+    sample_trajectories_per_forecast,
+    sample_seed,
+):
+    """Select reproducible posterior paths for every rolling forecast."""
+    if (
+        isinstance(sample_trajectories_per_forecast, bool)
+        or not isinstance(sample_trajectories_per_forecast, int)
+        or sample_trajectories_per_forecast < 0
+    ):
+        raise ValueError(
+            "sample_trajectories_per_forecast must be a non-negative integer."
+        )
+    if isinstance(sample_seed, bool) or not isinstance(sample_seed, int):
+        raise ValueError("sample_seed must be an integer.")
+
+    if sample_trajectories_per_forecast == 0:
+        return ()
+    random_generator = np.random.default_rng(sample_seed)
+    sample_paths = []
+    for group in posterior_plot_groups:
+        sample_count = min(
+            sample_trajectories_per_forecast,
+            group.x_samples.shape[0],
+        )
+        draw_indices = np.sort(
+            random_generator.choice(
+                group.x_samples.shape[0],
+                sample_count,
+                replace=False,
+            )
+        )
+        for draw_index in draw_indices:
+            sample_paths.append(
+                (
+                    np.concatenate(
+                        ([group.forecast_origin_x], group.x_samples[draw_index])
+                    ),
+                    np.concatenate(
+                        ([group.forecast_origin_y], group.y_samples[draw_index])
+                    ),
+                )
+            )
+    return tuple(sample_paths)
 
 
 def _build_route_prediction_table(
