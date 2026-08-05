@@ -444,15 +444,25 @@ def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
         )
 
 
-@pytest.mark.parametrize("coordinate_mode", [None, "", "meters", "latlon"])
-def test_plot_prediction_rejects_invalid_coordinate_mode(coordinate_mode):
-    """Only the three documented display coordinate modes should be accepted."""
-    with pytest.raises(ValueError, match="coordinate_mode"):
-        plot_prediction(
+@pytest.mark.parametrize(
+    "coordinate_mode",
+    [None, "", "   ", "meters", "latlon", 123],
+)
+def test_plot_prediction_warns_and_defaults_invalid_coordinate_mode_to_meters(
+    coordinate_mode,
+):
+    """Every invalid coordinate value should warn and retain the meter plot."""
+    with pytest.warns(UserWarning, match="Use 'm', 'km', or 'gps'"):
+        figure, axis = plot_prediction(
             FakeWindow(),
             FakeFit(),
             coordinate_mode=coordinate_mode,
         )
+
+    assert axis.get_xlabel() == "Ostposition x [m]"
+    assert axis.get_ylabel() == "Nordposition y [m]"
+    assert axis.lines[0].get_xdata() == pytest.approx([0.0, 1.0])
+    plt.close(figure)
 
 
 def test_gps_plot_requires_a_finite_window_reference():

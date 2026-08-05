@@ -16,6 +16,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
 )
 from ship_trajectory_prediction.evaluation.plotting import (
     PLOT_COORDINATE_MODES,
+    normalize_plot_coordinate_mode,
     plot_prediction,
 )
 from ship_trajectory_prediction.evaluation.reporting import (
@@ -101,11 +102,7 @@ def main(
     inference_method = inference_method.strip().lower()
     if inference_method not in {"vi", "mcmc"}:
         raise ValueError("inference_method must be 'vi' or 'mcmc'.")
-    if not isinstance(plot_coordinate_mode, str):
-        raise ValueError("plot_coordinate_mode must be 'm', 'km', or 'gps'.")
-    plot_coordinate_mode = plot_coordinate_mode.strip().lower()
-    if plot_coordinate_mode not in PLOT_COORDINATE_MODES:
-        raise ValueError("plot_coordinate_mode must be 'm', 'km', or 'gps'.")
+    plot_coordinate_mode = normalize_plot_coordinate_mode(plot_coordinate_mode)
     trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     window = prepare_trajectory_window(
         trajectory_data,
@@ -305,9 +302,12 @@ def _parse_arguments():
     )
     parser.add_argument(
         "--plot-coordinates",
-        choices=PLOT_COORDINATE_MODES,
+        metavar="{" + ",".join(PLOT_COORDINATE_MODES) + "}",
         default=PLOT_COORDINATE_MODE,
-        help="Display local meters, local kilometers, or GPS coordinates.",
+        help=(
+            "Display local meters, local kilometers, or GPS coordinates; "
+            "invalid values fall back to meters."
+        ),
     )
     return parser.parse_args()
 

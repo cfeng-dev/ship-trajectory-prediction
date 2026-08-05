@@ -1,5 +1,6 @@
 """Plotting utilities for Bayesian trajectory evaluation."""
 
+import warnings
 from numbers import Integral, Real
 
 import matplotlib.pyplot as plt
@@ -274,7 +275,7 @@ def plot_prediction(
 ):
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
-    coordinate_mode = _validate_coordinate_mode(coordinate_mode)
+    coordinate_mode = normalize_plot_coordinate_mode(coordinate_mode)
     additional_position_noise_std_m = _validate_additional_position_noise_std_m(
         additional_position_noise_std_m
     )
@@ -773,14 +774,19 @@ def _validate_plot_mode(plot_mode):
     return plot_mode
 
 
-def _validate_coordinate_mode(coordinate_mode):
-    """Return one supported coordinate representation for the plot."""
-    if not isinstance(coordinate_mode, str):
-        raise ValueError("coordinate_mode must be 'm', 'km', or 'gps'.")
-    coordinate_mode = coordinate_mode.strip().lower()
-    if coordinate_mode not in PLOT_COORDINATE_MODES:
-        raise ValueError("coordinate_mode must be 'm', 'km', or 'gps'.")
-    return coordinate_mode
+def normalize_plot_coordinate_mode(coordinate_mode):
+    """Return a supported coordinate mode or warn and fall back to meters."""
+    if isinstance(coordinate_mode, str):
+        normalized_mode = coordinate_mode.strip().lower()
+        if normalized_mode in PLOT_COORDINATE_MODES:
+            return normalized_mode
+    warnings.warn(
+        f"Invalid plot coordinate mode {coordinate_mode!r}; falling back to 'm'. "
+        "Use 'm', 'km', or 'gps'.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return "m"
 
 
 def _coordinate_plot_spec(window, coordinate_mode):
