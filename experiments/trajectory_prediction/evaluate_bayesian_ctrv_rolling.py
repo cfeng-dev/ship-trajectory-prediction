@@ -206,6 +206,10 @@ def plot_rolling_predictions(
     window_mode,
 ):
     """Plot the complete recorded route and every rolling posterior median."""
+    window_mode_label = {
+        "sliding": "gleitendes Fenster",
+        "expanding": "wachsendes Fenster",
+    }[window_mode]
     forecast_paths = []
     forecast_origin_x = []
     forecast_origin_y = []
@@ -228,11 +232,11 @@ def plot_rolling_predictions(
         reference_path=(route_x, route_y),
         forecast_paths=forecast_paths,
         prediction_origins=(forecast_origin_x, forecast_origin_y),
-        title=f"Bayesian CTRV Rolling Prediction ({window_mode.title()} Window)",
-        observed_label="Initial observations",
-        reference_label="Recorded trajectory",
-        forecast_label="Rolling posterior medians",
-        prediction_origin_label="Forecast origins",
+        title=f"Rollierende bayessche CTRV-Prognose ({window_mode_label})",
+        observed_label="Anfängliche Beobachtungen",
+        reference_label="Aufgezeichnete Trajektorie",
+        forecast_label="Rollierende Posterior-Mediane",
+        prediction_origin_label="Startpunkte der Prognosen",
         figsize=(11, 8),
         forecast_alpha=0.35,
         forecast_linewidth=1.5,

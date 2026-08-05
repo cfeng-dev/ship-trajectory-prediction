@@ -219,7 +219,6 @@ def main(
             position_observations.x_meters,
             position_observations.y_meters,
         ),
-        observed_trajectory_label="Observed history",
     )
 
 

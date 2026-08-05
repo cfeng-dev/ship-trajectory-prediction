@@ -92,18 +92,18 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     )
 
     assert axis.get_aspect() == pytest.approx(1.0)
-    assert axis.get_xlabel() == "East position [m]"
-    assert axis.get_ylabel() == "North position [m]"
+    assert axis.get_xlabel() == "Ostposition [m]"
+    assert axis.get_ylabel() == "Nordposition [m]"
     assert figure.get_size_inches() == pytest.approx((10.0, 6.0))
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
     assert legend_labels == [
-        "Observed history",
-        "Held-out trajectory",
-        "50% posterior predictive region",
-        "90% posterior predictive region",
-        "Posterior median",
-        "Prediction start",
+        "Beobachtete Trajektorie",
+        "Zurückgehaltene Referenztrajektorie",
+        "Posterior-prädiktiver Bereich (50 %)",
+        "Posterior-prädiktiver Bereich (90 %)",
+        "Posterior-Median",
+        "Prognosebeginn",
     ]
     plt.close(figure)
 
@@ -199,9 +199,7 @@ def test_plot_prediction_labels_selected_prediction_regions():
     assert time_labels == ["+10 s", "+20 s", "+30 s"]
     assert len(time_labels) == len(set(time_labels))
     time_annotations = {
-        text.get_text(): text
-        for text in axis.texts
-        if text.get_text().startswith("+")
+        text.get_text(): text for text in axis.texts if text.get_text().startswith("+")
     }
     assert all(
         annotation.get_position()[1] > 0 for annotation in time_annotations.values()
@@ -218,19 +216,17 @@ def test_evaluation_mode_contains_ground_truth_and_window_metrics():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Held-out trajectory" in legend_labels
+    assert "Zurückgehaltene Referenztrajektorie" in legend_labels
     inset = next(
-        text.get_text()
-        for text in axis.texts
-        if "Observation duration" in text.get_text()
+        text.get_text() for text in axis.texts if "Beobachtungsdauer" in text.get_text()
     )
-    assert "Observation duration: 10 s" in inset
-    assert "Prediction horizon: 30 s" in inset
-    assert "ADE:" in inset
-    assert "FDE:" in inset
-    assert "90% empirical coverage:" in inset
-    assert "/3 points)" in inset
-    assert "calibration" not in inset.lower()
+    assert "Beobachtungsdauer: 10 s" in inset
+    assert "Prognosehorizont: 30 s" in inset
+    assert "ADE: 0,07 m" in inset
+    assert "FDE: 0,07 m" in inset
+    assert "Empirische Abdeckung (90 %):" in inset
+    assert "/3 Punkte)" in inset
+    assert "Kalibrierung" not in inset
     plt.close(figure)
 
 
@@ -243,15 +239,13 @@ def test_operational_mode_contains_no_ground_truth_or_unknown_metrics():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Held-out trajectory" not in legend_labels
+    assert "Zurückgehaltene Referenztrajektorie" not in legend_labels
     inset = next(
-        text.get_text()
-        for text in axis.texts
-        if "Observation duration" in text.get_text()
+        text.get_text() for text in axis.texts if "Beobachtungsdauer" in text.get_text()
     )
     assert "ADE:" not in inset
     assert "FDE:" not in inset
-    assert "coverage" not in inset.lower()
+    assert "Abdeckung" not in inset
     plt.close(figure)
 
 
@@ -263,7 +257,7 @@ def test_operational_wrapper_uses_the_shared_plot_mode():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Held-out trajectory" not in legend_labels
+    assert "Zurückgehaltene Referenztrajektorie" not in legend_labels
     plt.close(figure)
 
 

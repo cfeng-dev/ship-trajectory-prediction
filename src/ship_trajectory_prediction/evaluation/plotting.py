@@ -15,7 +15,10 @@ from ship_trajectory_prediction.evaluation.reporting import (
 
 MAX_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
-PREDICTION_PLOT_TITLE = "Position-Only Bayesian CTRV:\nPosterior Predictive Trajectory"
+PREDICTION_PLOT_TITLE = (
+    "Bayessches CTRV-Modell auf Basis von Positionsdaten:\n"
+    "Posterior-prädiktive Trajektorie"
+)
 
 
 def plot_trajectory_paths(
@@ -24,12 +27,12 @@ def plot_trajectory_paths(
     forecast_paths,
     *,
     title,
-    observed_label="Observed history",
-    reference_label="Held-out trajectory",
-    forecast_label="Posterior median",
+    observed_label="Beobachtete Trajektorie",
+    reference_label="Zurückgehaltene Referenztrajektorie",
+    forecast_label="Posterior-Median",
     sample_paths=(),
     prediction_origins=None,
-    prediction_origin_label="Prediction start",
+    prediction_origin_label="Prognosebeginn",
     posterior_draws=None,
     forecast_time_seconds=None,
     annotation_text=None,
@@ -151,8 +154,8 @@ def plot_trajectory_paths(
         legend_handles.append(origin_artist)
 
     axis.set_title(title)
-    axis.set_xlabel("East position [m]")
-    axis.set_ylabel("North position [m]")
+    axis.set_xlabel("Ostposition [m]")
+    axis.set_ylabel("Nordposition [m]")
     axis.set_aspect("equal", adjustable="box")
     axis.grid(alpha=0.2)
     axis.legend(
@@ -174,7 +177,7 @@ def plot_prediction(
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
-    observed_trajectory_label="Observed history",
+    observed_trajectory_label="Beobachtete Trajektorie",
 ):
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
@@ -237,7 +240,7 @@ def plot_operational_prediction(
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
-    observed_trajectory_label="Observed history",
+    observed_trajectory_label="Beobachtete Trajektorie",
 ):
     """Plot an operational forecast through the shared plot-mode interface."""
     return plot_prediction(
@@ -337,8 +340,8 @@ def _draw_prediction_regions(axis, posterior_draws, forecast_time_seconds):
         x_samples.shape[1],
     )
     region_styles = {
-        0.9: ("#d62728", 0.10, "90% posterior predictive region"),
-        0.5: ("#d62728", 0.22, "50% posterior predictive region"),
+        0.9: ("#d62728", 0.10, "Posterior-prädiktiver Bereich (90 %)"),
+        0.5: ("#d62728", 0.22, "Posterior-prädiktiver Bereich (50 %)"),
     }
     centers = []
     for time_index in range(x_samples.shape[1]):
@@ -504,15 +507,20 @@ def _evaluation_annotation(window, evaluation):
     observation_duration, prediction_horizon = _window_durations(window)
     covered_count = int(evaluation.prediction_table["radial_covered"].sum())
     prediction_count = len(evaluation.prediction_table)
+    ade_m = _format_decimal_comma(evaluation.ade_m, decimal_places=2)
+    fde_m = _format_decimal_comma(evaluation.fde_m, decimal_places=2)
+    coverage_percent = _format_decimal_comma(
+        100 * evaluation.radial_coverage,
+        decimal_places=1,
+    )
     return "\n".join(
         (
-            f"Observation duration: {observation_duration:g} s",
-            f"Prediction horizon: {prediction_horizon:g} s",
-            f"ADE: {evaluation.ade_m:.2f} m",
-            f"FDE: {evaluation.fde_m:.2f} m",
-            "90% empirical coverage: "
-            f"{evaluation.radial_coverage:.1%} "
-            f"({covered_count}/{prediction_count} points)",
+            f"Beobachtungsdauer: {observation_duration:g} s",
+            f"Prognosehorizont: {prediction_horizon:g} s",
+            f"ADE: {ade_m} m",
+            f"FDE: {fde_m} m",
+            "Empirische Abdeckung (90 %): "
+            f"{coverage_percent} % ({covered_count}/{prediction_count} Punkte)",
         )
     )
 
@@ -522,10 +530,15 @@ def _operational_annotation(window):
     observation_duration, prediction_horizon = _window_durations(window)
     return "\n".join(
         (
-            f"Observation duration: {observation_duration:g} s",
-            f"Prediction horizon: {prediction_horizon:g} s",
+            f"Beobachtungsdauer: {observation_duration:g} s",
+            f"Prognosehorizont: {prediction_horizon:g} s",
         )
     )
+
+
+def _format_decimal_comma(value, *, decimal_places):
+    """Format a decimal number using the German decimal separator."""
+    return f"{value:.{decimal_places}f}".replace(".", ",")
 
 
 def _window_durations(window):
