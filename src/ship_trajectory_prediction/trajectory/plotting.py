@@ -164,8 +164,8 @@ def plot_ship_trajectory(
             latitude,
             unit=coordinate_unit,
         )
-        x_label = f"x [{coordinate_unit}]"
-        y_label = f"y [{coordinate_unit}]"
+        x_label = f"Ostposition x [{coordinate_unit}]"
+        y_label = f"Nordposition y [{coordinate_unit}]"
     else:
         plot_data["_plot_x"] = longitude
         plot_data["_plot_y"] = latitude
