@@ -14,7 +14,10 @@ from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.plotting import (
+    PLOT_COORDINATE_MODES,
+    plot_prediction,
+)
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_parameter_summary,
     posterior_variable_samples,
@@ -79,6 +82,7 @@ MCMC_CONFIG = {
     "max_treedepth": 10,  # Maximum NUTS tree depth.
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
+PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
 
 
 def main(
@@ -89,6 +93,7 @@ def main(
     position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
     position_noise_seed=EXPERIMENT.position_noise_seed,
     require_converged=VI_CONFIG["require_converged"],
+    plot_coordinate_mode=PLOT_COORDINATE_MODE,
 ):
     """Fit one recorded run with selected inference and evaluate predictions."""
     if not isinstance(inference_method, str):
@@ -96,6 +101,11 @@ def main(
     inference_method = inference_method.strip().lower()
     if inference_method not in {"vi", "mcmc"}:
         raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    if not isinstance(plot_coordinate_mode, str):
+        raise ValueError("plot_coordinate_mode must be 'm', 'km', or 'gps'.")
+    plot_coordinate_mode = plot_coordinate_mode.strip().lower()
+    if plot_coordinate_mode not in PLOT_COORDINATE_MODES:
+        raise ValueError("plot_coordinate_mode must be 'm', 'km', or 'gps'.")
     trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     window = prepare_trajectory_window(
         trajectory_data,
@@ -140,6 +150,7 @@ def main(
         inference_seed=seed,
         position_observations=position_observations,
         forecast_horizon_seconds=forecast_horizon_seconds,
+        plot_coordinate_mode=plot_coordinate_mode,
     )
 
     fit_started = perf_counter()
@@ -226,6 +237,7 @@ def main(
         ),
         observed_trajectory_label=observed_trajectory_label,
         additional_position_noise_std_m=(position_observations.additional_noise_std_m),
+        coordinate_mode=plot_coordinate_mode,
     )
 
 
@@ -236,6 +248,7 @@ def _print_ctrv_setup(
     inference_seed,
     position_observations,
     forecast_horizon_seconds,
+    plot_coordinate_mode,
 ):
     """Print the concise, reproducible setup for one Bayesian CTRV run."""
     noise_std_m = position_observations.additional_noise_std_m
@@ -254,6 +267,7 @@ def _print_ctrv_setup(
             ("Inference seed", inference_seed),
             ("Additional position noise", noise_description),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
+            ("Plot coordinates", plot_coordinate_mode),
         ],
     )
 
@@ -289,6 +303,12 @@ def _parse_arguments():
         default=VI_CONFIG["require_converged"],
         help="Abort instead of plotting if CmdStan reports non-converged VI.",
     )
+    parser.add_argument(
+        "--plot-coordinates",
+        choices=PLOT_COORDINATE_MODES,
+        default=PLOT_COORDINATE_MODE,
+        help="Display local meters, local kilometers, or GPS coordinates.",
+    )
     return parser.parse_args()
 
 
@@ -301,4 +321,5 @@ if __name__ == "__main__":
         position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
+        plot_coordinate_mode=arguments.plot_coordinates,
     )

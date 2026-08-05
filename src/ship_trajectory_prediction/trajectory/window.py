@@ -29,6 +29,8 @@ class TrajectoryWindowData:
     time_seconds: np.ndarray
     x_meters: np.ndarray
     y_meters: np.ndarray
+    reference_longitude: float
+    reference_latitude: float
     gps_speed_mps: np.ndarray
     observation_count: int
 
@@ -144,6 +146,8 @@ def prepare_trajectory_window(
         time_seconds=time_seconds,
         x_meters=x_meters,
         y_meters=y_meters,
+        reference_longitude=float(longitude[0]),
+        reference_latitude=float(latitude[0]),
         gps_speed_mps=gps_speed_mps,
         observation_count=observation_count,
     )

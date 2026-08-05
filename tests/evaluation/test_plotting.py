@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from matplotlib.patches import Ellipse
 
+from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
 from ship_trajectory_prediction.evaluation.plotting import (
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
@@ -118,8 +119,8 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     )
 
     assert axis.get_aspect() == pytest.approx(1.0)
-    assert axis.get_xlabel() == "Ostposition [m]"
-    assert axis.get_ylabel() == "Nordposition [m]"
+    assert axis.get_xlabel() == "Ostposition x [m]"
+    assert axis.get_ylabel() == "Nordposition y [m]"
     assert axis.title.get_fontsize() == PLOT_TITLE_FONT_SIZE
     assert axis.title.get_fontweight() == PLOT_TITLE_FONT_WEIGHT
     assert axis.xaxis.label.get_fontsize() == AXIS_LABEL_FONT_SIZE
@@ -140,6 +141,52 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
         "Posterior-prädiktiver Median",
         "Prognosebeginn",
     ]
+    plt.close(figure)
+
+
+def test_plot_prediction_can_display_local_kilometers():
+    """The kilometer view should scale every plotted coordinate consistently."""
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        FakeFit(),
+        coordinate_mode="km",
+    )
+
+    assert axis.get_xlabel() == "Ostposition x [km]"
+    assert axis.get_ylabel() == "Nordposition y [km]"
+    assert axis.get_aspect() == pytest.approx(1.0)
+    assert axis.lines[0].get_xdata() == pytest.approx([0.0, 0.001])
+    assert axis.lines[0].get_ydata() == pytest.approx([0.0, 0.0005])
+    assert axis.lines[1].get_xdata() == pytest.approx(
+        np.array([1.0, 2.0, 3.0, 4.0]) / 1000
+    )
+    plt.close(figure)
+
+
+def test_plot_prediction_can_display_longitude_and_latitude():
+    """The GPS view should transform all paths from the stored local origin."""
+    window = FakeWindow()
+    figure, axis = plot_prediction(
+        window,
+        FakeFit(),
+        coordinate_mode="gps",
+    )
+    expected_longitude, expected_latitude = local_to_gps_coordinates(
+        window.x_meters[window.observed_slice],
+        window.y_meters[window.observed_slice],
+        window.reference_longitude,
+        window.reference_latitude,
+    )
+
+    assert axis.get_xlabel() == "Längengrad [°]"
+    assert axis.get_ylabel() == "Breitengrad [°]"
+    assert axis.get_aspect() == pytest.approx(
+        1 / np.cos(np.radians(window.reference_latitude))
+    )
+    assert axis.lines[0].get_xdata() == pytest.approx(expected_longitude)
+    assert axis.lines[0].get_ydata() == pytest.approx(expected_latitude)
+    assert axis.lines[0].get_xdata()[0] == pytest.approx(window.reference_longitude)
+    assert axis.lines[0].get_ydata()[0] == pytest.approx(window.reference_latitude)
     plt.close(figure)
 
 
@@ -240,9 +287,9 @@ def test_plot_prediction_labels_selected_prediction_regions():
     time_annotations = {
         text.get_text(): text for text in axis.texts if text.get_text().startswith("+")
     }
-    assert all(
-        annotation.get_position()[1] > 0 for annotation in time_annotations.values()
-    )
+    assert {annotation.get_position() for annotation in time_annotations.values()} == {
+        (6, 8)
+    }
     plt.close(figure)
 
 
@@ -397,6 +444,30 @@ def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
         )
 
 
+@pytest.mark.parametrize("coordinate_mode", [None, "", "meters", "latlon"])
+def test_plot_prediction_rejects_invalid_coordinate_mode(coordinate_mode):
+    """Only the three documented display coordinate modes should be accepted."""
+    with pytest.raises(ValueError, match="coordinate_mode"):
+        plot_prediction(
+            FakeWindow(),
+            FakeFit(),
+            coordinate_mode=coordinate_mode,
+        )
+
+
+def test_gps_plot_requires_a_finite_window_reference():
+    """Absolute GPS display must not silently invent a coordinate origin."""
+    window = FakeWindow()
+    window.reference_latitude = np.nan
+
+    with pytest.raises(ValueError, match="reference_longitude"):
+        plot_prediction(
+            window,
+            FakeFit(),
+            coordinate_mode="gps",
+        )
+
+
 @pytest.mark.parametrize(
     "additional_position_noise_std_m",
     [-1.0, np.nan, True, "2"],
@@ -442,6 +513,8 @@ class FakeWindow:
     def __init__(self):
         self.x_meters = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         self.y_meters = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
+        self.reference_longitude = 8.3122
+        self.reference_latitude = 47.0515
         self.time_seconds = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
         self.timestamps = np.array(
             [

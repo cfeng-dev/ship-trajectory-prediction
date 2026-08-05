@@ -6,6 +6,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse, Patch
 
+from ship_trajectory_prediction.coordinates import (
+    METERS_PER_KILOMETER,
+    local_to_gps_coordinates,
+)
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
 )
@@ -15,6 +19,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 
 MAX_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
+PLOT_COORDINATE_MODES = ("m", "km", "gps")
 PREDICTION_PLOT_TITLE = (
     "Bayessches CTRV-Modell auf Basis von Positionsdaten:\n"
     "Posterior-prädiktive Trajektorie"
@@ -83,11 +88,17 @@ def plot_trajectory_paths(
     figsize=PLOT_FIGURE_SIZE,
     forecast_alpha=POSTERIOR_MEDIAN_ALPHA,
     forecast_linewidth=POSTERIOR_MEDIAN_LINE_WIDTH,
+    x_axis_label="Ostposition x [m]",
+    y_axis_label="Nordposition y [m]",
+    spatial_aspect=1.0,
 ):
     """Draw observed, reference, sampled, and central forecast paths."""
     title = _non_empty_text("title", title)
     observed_label = _non_empty_text("observed_label", observed_label)
     forecast_label = _non_empty_text("forecast_label", forecast_label)
+    x_axis_label = _non_empty_text("x_axis_label", x_axis_label)
+    y_axis_label = _non_empty_text("y_axis_label", y_axis_label)
+    spatial_aspect = _positive_finite_number("spatial_aspect", spatial_aspect)
     observed_x, observed_y = _path_arrays("observed_path", observed_path)
     reference = None
     if reference_path is not None:
@@ -197,11 +208,11 @@ def plot_trajectory_paths(
         fontsize=PLOT_TITLE_FONT_SIZE,
         fontweight=PLOT_TITLE_FONT_WEIGHT,
     )
-    axis.set_xlabel("Ostposition [m]", fontsize=AXIS_LABEL_FONT_SIZE)
-    axis.set_ylabel("Nordposition [m]", fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.set_xlabel(x_axis_label, fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.set_ylabel(y_axis_label, fontsize=AXIS_LABEL_FONT_SIZE)
     axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
-    _reserve_vertical_layout_space(axis)
-    axis.set_aspect("equal", adjustable="box")
+    _reserve_vertical_layout_space(axis, spatial_aspect=spatial_aspect)
+    axis.set_aspect(spatial_aspect, adjustable="box")
     axis.grid(alpha=GRID_ALPHA)
     axis.legend(
         handles=legend_handles,
@@ -230,13 +241,13 @@ def plot_trajectory_paths(
     return figure, axis
 
 
-def _reserve_vertical_layout_space(axis):
-    """Make a wide trajectory plot taller while preserving equal meter scales."""
+def _reserve_vertical_layout_space(axis, *, spatial_aspect):
+    """Make a wide trajectory plot taller while preserving spatial scale."""
     x_min, x_max = axis.get_xlim()
     y_min, y_max = axis.get_ylim()
     x_span = x_max - x_min
     y_span = y_max - y_min
-    minimum_y_span = x_span / PLOT_MAX_WIDTH_TO_HEIGHT_RATIO
+    minimum_y_span = x_span / (PLOT_MAX_WIDTH_TO_HEIGHT_RATIO * spatial_aspect)
     if y_span >= minimum_y_span:
         return
 
@@ -259,9 +270,11 @@ def plot_prediction(
     observed_position_values=None,
     observed_trajectory_label="Beobachtungen",
     additional_position_noise_std_m=None,
+    coordinate_mode="m",
 ):
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
+    coordinate_mode = _validate_coordinate_mode(coordinate_mode)
     additional_position_noise_std_m = _validate_additional_position_noise_std_m(
         additional_position_noise_std_m
     )
@@ -274,6 +287,7 @@ def plot_prediction(
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
+        coordinate_mode=coordinate_mode,
     )
     reference_path = None
     annotation_text = _operational_annotation(
@@ -287,19 +301,24 @@ def plot_prediction(
             credible_interval=0.9,
             position_variable_names=plot_data["variable_names"],
         )
-        held_out_x = np.concatenate(
+        held_out_x_meters = np.concatenate(
             (
-                [plot_data["prediction_start_x"]],
+                [plot_data["prediction_start_meters"][0]],
                 window.x_meters[window.prediction_slice],
             )
         )
-        held_out_y = np.concatenate(
+        held_out_y_meters = np.concatenate(
             (
-                [plot_data["prediction_start_y"]],
+                [plot_data["prediction_start_meters"][1]],
                 window.y_meters[window.prediction_slice],
             )
         )
-        reference_path = (held_out_x, held_out_y)
+        reference_path = _convert_plot_coordinates(
+            window,
+            held_out_x_meters,
+            held_out_y_meters,
+            coordinate_mode=coordinate_mode,
+        )
         annotation_text = _evaluation_annotation(
             window,
             evaluation,
@@ -317,7 +336,12 @@ def plot_prediction(
         annotation_text=annotation_text,
         title=PREDICTION_PLOT_TITLE,
         observed_label=plot_data["observed_label"],
+        x_axis_label=plot_data["x_axis_label"],
+        y_axis_label=plot_data["y_axis_label"],
+        spatial_aspect=plot_data["spatial_aspect"],
     )
+    if coordinate_mode == "gps":
+        axis.ticklabel_format(style="plain", useOffset=False)
     plt.show()
     return figure, axis
 
@@ -333,6 +357,7 @@ def plot_operational_prediction(
     observed_position_values=None,
     observed_trajectory_label="Beobachtungen",
     additional_position_noise_std_m=None,
+    coordinate_mode="m",
 ):
     """Plot an operational forecast through the shared plot-mode interface."""
     return plot_prediction(
@@ -346,6 +371,7 @@ def plot_operational_prediction(
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
         additional_position_noise_std_m=additional_position_noise_std_m,
+        coordinate_mode=coordinate_mode,
     )
 
 
@@ -359,6 +385,7 @@ def _prepare_prediction_plot_data(
     state_prediction_variable_names,
     observed_position_values,
     observed_trajectory_label,
+    coordinate_mode,
 ):
     """Build plot-ready paths from existing posterior draws."""
     observed_label = _non_empty_text(
@@ -384,6 +411,20 @@ def _prepare_prediction_plot_data(
     connected_y_samples = np.column_stack(
         (np.full(len(y_samples), prediction_start_y), y_samples)
     )
+    observed_x, observed_y = _convert_plot_coordinates(
+        window,
+        observed_x,
+        observed_y,
+        coordinate_mode=coordinate_mode,
+    )
+    connected_x_samples, connected_y_samples = _convert_plot_coordinates(
+        window,
+        connected_x_samples,
+        connected_y_samples,
+        coordinate_mode=coordinate_mode,
+    )
+    x_samples = connected_x_samples[:, 1:]
+    y_samples = connected_y_samples[:, 1:]
     sample_indices = (
         _sample_trajectory_indices(
             len(x_samples),
@@ -402,16 +443,19 @@ def _prepare_prediction_plot_data(
         window.time_seconds[window.prediction_slice],
         dtype=float,
     )
+    x_axis_label, y_axis_label, spatial_aspect = _coordinate_plot_spec(
+        window,
+        coordinate_mode,
+    )
 
     return {
         "variable_names": variable_names,
         "observed_label": observed_label,
         "observed_path": (observed_x, observed_y),
-        "prediction_start_x": prediction_start_x,
-        "prediction_start_y": prediction_start_y,
+        "prediction_start_meters": (prediction_start_x, prediction_start_y),
         "prediction_origin": (
-            np.asarray([prediction_start_x]),
-            np.asarray([prediction_start_y]),
+            np.asarray([connected_x_samples[0, 0]]),
+            np.asarray([connected_y_samples[0, 0]]),
         ),
         "posterior_draws": (x_samples, y_samples),
         "sample_paths": sample_paths,
@@ -422,6 +466,9 @@ def _prepare_prediction_plot_data(
         "forecast_time_seconds": np.concatenate(
             ([0.0], prediction_times - prediction_start_time)
         ),
+        "x_axis_label": x_axis_label,
+        "y_axis_label": y_axis_label,
+        "spatial_aspect": spatial_aspect,
     }
 
 
@@ -541,14 +588,11 @@ def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):
 
 def _label_prediction_regions(axis, centers, horizon_seconds):
     """Label a small non-repeating selection of future-time regions."""
-    vertical_offsets = (8, 8, 26)
-    for label_number, time_index in enumerate(
-        _selected_time_label_indices(len(horizon_seconds))
-    ):
+    for time_index in _selected_time_label_indices(len(horizon_seconds)):
         axis.annotate(
             f"+{horizon_seconds[time_index]:g} s",
             centers[time_index],
-            xytext=(6, vertical_offsets[label_number]),
+            xytext=(6, 8),
             textcoords="offset points",
             fontsize=8,
             color="0.25",
@@ -729,6 +773,88 @@ def _validate_plot_mode(plot_mode):
     return plot_mode
 
 
+def _validate_coordinate_mode(coordinate_mode):
+    """Return one supported coordinate representation for the plot."""
+    if not isinstance(coordinate_mode, str):
+        raise ValueError("coordinate_mode must be 'm', 'km', or 'gps'.")
+    coordinate_mode = coordinate_mode.strip().lower()
+    if coordinate_mode not in PLOT_COORDINATE_MODES:
+        raise ValueError("coordinate_mode must be 'm', 'km', or 'gps'.")
+    return coordinate_mode
+
+
+def _coordinate_plot_spec(window, coordinate_mode):
+    """Return axis labels and a physically meaningful display aspect."""
+    if coordinate_mode == "m":
+        return "Ostposition x [m]", "Nordposition y [m]", 1.0
+    if coordinate_mode == "km":
+        return "Ostposition x [km]", "Nordposition y [km]", 1.0
+
+    _, reference_latitude = _reference_gps_coordinates(window)
+    spatial_aspect = 1.0 / np.cos(np.radians(reference_latitude))
+    return "Längengrad [°]", "Breitengrad [°]", float(spatial_aspect)
+
+
+def _convert_plot_coordinates(
+    window,
+    x_meters,
+    y_meters,
+    *,
+    coordinate_mode,
+):
+    """Convert aligned local-meter values solely for plot presentation."""
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    if (
+        x_meters.size == 0
+        or x_meters.shape != y_meters.shape
+        or not np.all(np.isfinite(x_meters))
+        or not np.all(np.isfinite(y_meters))
+    ):
+        raise ValueError(
+            "Plot coordinates must contain non-empty, finite, aligned values."
+        )
+    if coordinate_mode == "m":
+        return x_meters, y_meters
+    if coordinate_mode == "km":
+        return (
+            x_meters / METERS_PER_KILOMETER,
+            y_meters / METERS_PER_KILOMETER,
+        )
+
+    reference_longitude, reference_latitude = _reference_gps_coordinates(window)
+    longitude, latitude = local_to_gps_coordinates(
+        x_meters.ravel(),
+        y_meters.ravel(),
+        reference_longitude,
+        reference_latitude,
+        unit="m",
+    )
+    return longitude.reshape(x_meters.shape), latitude.reshape(y_meters.shape)
+
+
+def _reference_gps_coordinates(window):
+    """Return the GPS origin stored with a trajectory window."""
+    try:
+        reference_longitude = float(window.reference_longitude)
+        reference_latitude = float(window.reference_latitude)
+    except (AttributeError, TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            "coordinate_mode='gps' requires finite reference_longitude and "
+            "reference_latitude values on the trajectory window."
+        ) from error
+    if (
+        not np.isfinite(reference_longitude)
+        or not np.isfinite(reference_latitude)
+        or not -90 < reference_latitude < 90
+    ):
+        raise ValueError(
+            "coordinate_mode='gps' requires finite reference_longitude and "
+            "reference_latitude values, with latitude between -90 and 90 degrees."
+        )
+    return reference_longitude, reference_latitude
+
+
 def _prediction_variable_names(variable_names):
     """Return two validated posterior prediction variable names."""
     if (
@@ -816,3 +942,15 @@ def _non_empty_text(name, value):
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string.")
     return value.strip()
+
+
+def _positive_finite_number(name, value):
+    """Return a plotting value that is finite and strictly positive."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not np.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"{name} must be a positive finite number.")
+    return float(value)

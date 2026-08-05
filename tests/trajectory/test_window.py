@@ -55,6 +55,8 @@ def test_prepare_trajectory_window_sorts_slices_and_converts_values():
     assert window.time_seconds.tolist() == [0.0, 10.0, 20.0, 30.0, 40.0]
     assert window.x_meters[0] == pytest.approx(0.0)
     assert window.y_meters[0] == pytest.approx(0.0)
+    assert window.reference_longitude == pytest.approx(8.0002)
+    assert window.reference_latitude == pytest.approx(47.0001)
     assert window.gps_speed_mps[:2] == pytest.approx([5.0, -1.0])
     assert np.isnan(window.gps_speed_mps[2])
     assert window.gps_speed_mps[3:] == pytest.approx([10.0, 15.0])
