@@ -117,6 +117,7 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     assert legend_labels == [
         "Beobachtete Trajektorie",
         "Zurückgehaltene Referenztrajektorie",
+        "Posterior-prädiktive Trajektorien (n = 2)",
         "Posterior-prädiktiver Bereich (50 %)",
         "Posterior-prädiktiver Bereich (90 %)",
         "Posterior-Median",
@@ -134,6 +135,8 @@ def test_plot_prediction_draws_at_most_15_sample_trajectories():
     )
 
     assert len(_sample_lines(axis)) == 15
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert "Posterior-prädiktive Trajektorien (n = 15)" in legend_labels
     plt.close(figure)
 
 
@@ -147,6 +150,8 @@ def test_plot_prediction_can_hide_sample_trajectories():
 
     assert not _sample_lines(axis)
     assert len(_region_patches(axis)) == 2 * FakeWindow().prediction_count
+    legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert not any("Trajektorien (n =" in label for label in legend_labels)
     plt.close(figure)
 
 
@@ -365,7 +370,7 @@ def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
 
 def _sample_lines(axis):
     """Return the deliberately faint posterior sample paths."""
-    return [line for line in axis.lines if line.get_alpha() == 0.04]
+    return [line for line in axis.lines if line.get_alpha() == 0.12]
 
 
 def _region_patches(axis):

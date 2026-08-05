@@ -31,6 +31,7 @@ def plot_trajectory_paths(
     reference_label="Zurückgehaltene Referenztrajektorie",
     forecast_label="Posterior-Median",
     sample_paths=(),
+    sample_label="Posterior-prädiktive Trajektorien",
     prediction_origins=None,
     prediction_origin_label="Prognosebeginn",
     posterior_draws=None,
@@ -55,6 +56,8 @@ def plot_trajectory_paths(
         require_non_empty=True,
     )
     samples = _path_collection("sample_paths", sample_paths)
+    if samples:
+        sample_label = _non_empty_text("sample_label", sample_label)
     if prediction_origins is not None:
         origin_x, origin_y = _path_arrays(
             "prediction_origins",
@@ -91,14 +94,22 @@ def plot_trajectory_paths(
             forecast_time_seconds,
         )
 
-    for x_values, y_values in samples:
-        axis.plot(
-            x_values,
-            y_values,
-            color="tab:red",
-            alpha=0.04,
-            linewidth=0.7,
-            zorder=2,
+    sample_lines = []
+    for sample_index, (x_values, y_values) in enumerate(samples):
+        sample_lines.append(
+            axis.plot(
+                x_values,
+                y_values,
+                color="tab:red",
+                alpha=0.12,
+                linewidth=0.8,
+                label=(
+                    f"{sample_label} (n = {len(samples)})"
+                    if sample_index == 0
+                    else None
+                ),
+                zorder=2,
+            )[0]
         )
 
     forecast_lines = []
@@ -148,6 +159,8 @@ def plot_trajectory_paths(
     legend_handles = [observed_line]
     if reference_line is not None:
         legend_handles.append(reference_line)
+    if sample_lines:
+        legend_handles.append(sample_lines[0])
     legend_handles.extend(region_handles)
     legend_handles.append(forecast_lines[0])
     if origin_artist is not None:
