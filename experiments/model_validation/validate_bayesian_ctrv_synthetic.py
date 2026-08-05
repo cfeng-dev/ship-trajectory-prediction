@@ -8,7 +8,7 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.evaluation.plotting import plot_prediction
+from ship_trajectory_prediction.evaluation.prediction_plotting import plot_prediction
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_parameter_summary,
     posterior_variable_samples,

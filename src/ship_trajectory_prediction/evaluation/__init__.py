@@ -14,18 +14,18 @@ from ship_trajectory_prediction.evaluation.motion_priors import (
     print_motion_prior_report,
     suggest_prior_scales,
 )
-from ship_trajectory_prediction.evaluation.plotting import (
-    plot_operational_prediction,
-    plot_prediction,
-    plot_trajectory_paths,
-)
-from ship_trajectory_prediction.evaluation.posterior import (
+from ship_trajectory_prediction.evaluation.posterior_plotting import (
     plot_scalar_posterior,
     plot_scalar_posterior_comparison,
     plot_state_credible_band,
     plot_state_posterior_at_time,
     save_bayesian_ctrv_posterior_plots,
     show_bayesian_ctrv_posterior_plots,
+)
+from ship_trajectory_prediction.evaluation.prediction_plotting import (
+    plot_operational_prediction,
+    plot_prediction,
+    plot_trajectory_paths,
 )
 from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.evaluation.rolling import (

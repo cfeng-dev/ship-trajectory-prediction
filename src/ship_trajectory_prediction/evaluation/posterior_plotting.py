@@ -1,4 +1,4 @@
-"""Visualize actual draws from approximate Bayesian CTRV posteriors."""
+"""Plot distributions and latent states from Bayesian CTRV posteriors."""
 
 from __future__ import annotations
 

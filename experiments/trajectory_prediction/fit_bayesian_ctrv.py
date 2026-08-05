@@ -14,7 +14,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,
 )
-from ship_trajectory_prediction.evaluation.plotting import (
+from ship_trajectory_prediction.evaluation.prediction_plotting import (
     PLOT_COORDINATE_MODES,
     normalize_plot_coordinate_mode,
     plot_prediction,

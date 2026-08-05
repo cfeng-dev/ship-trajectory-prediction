@@ -8,7 +8,7 @@ import pytest
 from matplotlib.patches import Ellipse
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
-from ship_trajectory_prediction.evaluation.plotting import (
+from ship_trajectory_prediction.evaluation.prediction_plotting import (
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
     PLOT_FIGURE_SIZE,

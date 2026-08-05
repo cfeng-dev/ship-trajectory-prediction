@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
-import ship_trajectory_prediction.evaluation.posterior as posterior_module  # noqa: E402
-from ship_trajectory_prediction.evaluation.posterior import (  # noqa: E402
+import ship_trajectory_prediction.evaluation.posterior_plotting as posterior_module  # noqa: E402
+from ship_trajectory_prediction.evaluation.posterior_plotting import (  # noqa: E402
     plot_scalar_posterior,
     plot_scalar_posterior_comparison,
     plot_state_credible_band,

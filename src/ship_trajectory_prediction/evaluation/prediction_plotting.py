@@ -1,4 +1,4 @@
-"""Plotting utilities for Bayesian trajectory evaluation."""
+"""Plot posterior-predictive trajectories for Bayesian evaluation."""
 
 import warnings
 from numbers import Integral, Real

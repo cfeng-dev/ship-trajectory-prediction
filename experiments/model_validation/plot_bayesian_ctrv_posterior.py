@@ -2,7 +2,7 @@
 
 import argparse
 
-from ship_trajectory_prediction.evaluation.posterior import (
+from ship_trajectory_prediction.evaluation.posterior_plotting import (
     show_bayesian_ctrv_posterior_plots,
 )
 from ship_trajectory_prediction.evaluation.reporting import (
