@@ -1,6 +1,6 @@
 """Plotting utilities for Bayesian trajectory evaluation."""
 
-from numbers import Integral
+from numbers import Integral, Real
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,12 +28,20 @@ AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
 
 # Plot layout
-PLOT_FIGURE_SIZE = (9, 6)
+PLOT_FIGURE_SIZE = (9, 6.5)
 PLOT_MAX_WIDTH_TO_HEIGHT_RATIO = 2.0
 PLOT_UPPER_PADDING_FRACTION = 0.85
 GRID_ALPHA = 0.2
 LEGEND_LOCATION = "upper right"
 LEGEND_FRAME_ALPHA = 0.9
+
+# Plot footer
+FOOTER_BOTTOM = 0.02
+FOOTER_LAYOUT_BOTTOM = 0.14
+FOOTER_FONT_SIZE = 9
+FOOTER_FACE_COLOR = "white"
+FOOTER_EDGE_COLOR = "0.75"
+FOOTER_ALPHA = 0.82
 
 # Trajectory appearance
 OBSERVED_TRAJECTORY_COLOR = "tab:blue"
@@ -62,9 +70,9 @@ def plot_trajectory_paths(
     forecast_paths,
     *,
     title,
-    observed_label="Beobachtete Trajektorie",
-    reference_label="Zurückgehaltene Referenztrajektorie",
-    forecast_label="Posterior-Median",
+    observed_label="Beobachtungen",
+    reference_label="Referenztrajektorie",
+    forecast_label="Posterior-prädiktiver Median",
     sample_paths=(),
     sample_label="Posterior-prädiktive Trajektorien",
     prediction_origins=None,
@@ -173,24 +181,6 @@ def plot_trajectory_paths(
             label=prediction_origin_label,
         )
 
-    if annotation_text is not None:
-        annotation_text = _non_empty_text("annotation_text", annotation_text)
-        axis.text(
-            0.02,
-            0.02,
-            annotation_text,
-            transform=axis.transAxes,
-            fontsize=9,
-            verticalalignment="bottom",
-            bbox={
-                "boxstyle": "round,pad=0.4",
-                "facecolor": "white",
-                "edgecolor": "0.75",
-                "alpha": 0.82,
-            },
-            zorder=6,
-        )
-
     legend_handles = [observed_line]
     if reference_line is not None:
         legend_handles.append(reference_line)
@@ -218,7 +208,25 @@ def plot_trajectory_paths(
         loc=LEGEND_LOCATION,
         framealpha=LEGEND_FRAME_ALPHA,
     )
-    figure.tight_layout()
+    if annotation_text is not None:
+        annotation_text = _non_empty_text("annotation_text", annotation_text)
+        figure.text(
+            0.5,
+            FOOTER_BOTTOM,
+            annotation_text,
+            horizontalalignment="center",
+            verticalalignment="bottom",
+            fontsize=FOOTER_FONT_SIZE,
+            bbox={
+                "boxstyle": "round,pad=0.4",
+                "facecolor": FOOTER_FACE_COLOR,
+                "edgecolor": FOOTER_EDGE_COLOR,
+                "alpha": FOOTER_ALPHA,
+            },
+        )
+        figure.tight_layout(rect=(0, FOOTER_LAYOUT_BOTTOM, 1, 1))
+    else:
+        figure.tight_layout()
     return figure, axis
 
 
@@ -249,10 +257,14 @@ def plot_prediction(
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
-    observed_trajectory_label="Beobachtete Trajektorie",
+    observed_trajectory_label="Beobachtungen",
+    additional_position_noise_std_m=None,
 ):
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
+    additional_position_noise_std_m = _validate_additional_position_noise_std_m(
+        additional_position_noise_std_m
+    )
     plot_data = _prepare_prediction_plot_data(
         window,
         fit,
@@ -264,7 +276,10 @@ def plot_prediction(
         observed_trajectory_label=observed_trajectory_label,
     )
     reference_path = None
-    annotation_text = _operational_annotation(window)
+    annotation_text = _operational_annotation(
+        window,
+        additional_position_noise_std_m=additional_position_noise_std_m,
+    )
     if plot_mode == "evaluation":
         evaluation = evaluate_position_predictions(
             fit,
@@ -285,7 +300,11 @@ def plot_prediction(
             )
         )
         reference_path = (held_out_x, held_out_y)
-        annotation_text = _evaluation_annotation(window, evaluation)
+        annotation_text = _evaluation_annotation(
+            window,
+            evaluation,
+            additional_position_noise_std_m=additional_position_noise_std_m,
+        )
 
     figure, axis = plot_trajectory_paths(
         observed_path=plot_data["observed_path"],
@@ -312,7 +331,8 @@ def plot_operational_prediction(
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
-    observed_trajectory_label="Beobachtete Trajektorie",
+    observed_trajectory_label="Beobachtungen",
+    additional_position_noise_std_m=None,
 ):
     """Plot an operational forecast through the shared plot-mode interface."""
     return plot_prediction(
@@ -325,6 +345,7 @@ def plot_operational_prediction(
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
+        additional_position_noise_std_m=additional_position_noise_std_m,
     )
 
 
@@ -582,8 +603,13 @@ def _sample_trajectory_indices(draw_count, requested_count, seed):
     return np.sort(random_generator.choice(draw_count, sample_count, replace=False))
 
 
-def _evaluation_annotation(window, evaluation):
-    """Format evaluation timing and accuracy for the plot inset."""
+def _evaluation_annotation(
+    window,
+    evaluation,
+    *,
+    additional_position_noise_std_m,
+):
+    """Format evaluation timing and accuracy for the figure footer."""
     observation_duration, prediction_horizon = _window_durations(window)
     covered_count = int(evaluation.prediction_table["radial_covered"].sum())
     prediction_count = len(evaluation.prediction_table)
@@ -595,30 +621,76 @@ def _evaluation_annotation(window, evaluation):
     )
     return "\n".join(
         (
-            f"Beobachtungsdauer: {observation_duration:g} s",
-            f"Prognosehorizont: {prediction_horizon:g} s",
-            f"ADE: {ade_m} m",
-            f"FDE: {fde_m} m",
-            "Empirische Abdeckung (90 %): "
-            f"{coverage_percent} % ({covered_count}/{prediction_count} Punkte)",
+            _timing_annotation(
+                observation_duration,
+                prediction_horizon,
+                additional_position_noise_std_m=additional_position_noise_std_m,
+            ),
+            " | ".join(
+                (
+                    f"ADE: {ade_m} m",
+                    f"FDE: {fde_m} m",
+                    "Empirische Abdeckung (90 %): "
+                    f"{coverage_percent} % "
+                    f"({covered_count}/{prediction_count} Punkte)",
+                )
+            ),
         )
     )
 
 
-def _operational_annotation(window):
-    """Format timing information that is available operationally."""
+def _operational_annotation(window, *, additional_position_noise_std_m):
+    """Format operationally available timing for the figure footer."""
     observation_duration, prediction_horizon = _window_durations(window)
-    return "\n".join(
-        (
-            f"Beobachtungsdauer: {observation_duration:g} s",
-            f"Prognosehorizont: {prediction_horizon:g} s",
-        )
+    return _timing_annotation(
+        observation_duration,
+        prediction_horizon,
+        additional_position_noise_std_m=additional_position_noise_std_m,
     )
+
+
+def _timing_annotation(
+    observation_duration,
+    prediction_horizon,
+    *,
+    additional_position_noise_std_m,
+):
+    """Format timing and optional noise settings as one compact line."""
+    parts = [
+        f"Beobachtungsdauer: {observation_duration:g} s",
+        f"Prognosehorizont: {prediction_horizon:g} s",
+    ]
+    if additional_position_noise_std_m is not None:
+        noise_std_m = _format_general_decimal_comma(additional_position_noise_std_m)
+        parts.append(f"Zusatzrauschen: σ_add = {noise_std_m} m je Achse")
+    return " | ".join(parts)
+
+
+def _validate_additional_position_noise_std_m(value):
+    """Return one optional finite non-negative plotting noise value."""
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not np.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(
+            "additional_position_noise_std_m must be a finite non-negative "
+            "number or None."
+        )
+    return float(value) if value > 0 else None
 
 
 def _format_decimal_comma(value, *, decimal_places):
     """Format a decimal number using the German decimal separator."""
     return f"{value:.{decimal_places}f}".replace(".", ",")
+
+
+def _format_general_decimal_comma(value):
+    """Format a compact number using the German decimal separator."""
+    return f"{value:g}".replace(".", ",")
 
 
 def _window_durations(window):

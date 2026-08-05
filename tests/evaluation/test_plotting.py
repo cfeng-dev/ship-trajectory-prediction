@@ -132,12 +132,12 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
     assert legend_labels == [
-        "Beobachtete Trajektorie",
-        "Zurückgehaltene Referenztrajektorie",
+        "Beobachtungen",
+        "Referenztrajektorie",
         "Posterior-prädiktive Trajektorien (n = 2)",
         "Posterior-prädiktiver Bereich (50 %)",
         "Posterior-prädiktiver Bereich (90 %)",
-        "Posterior-Median",
+        "Posterior-prädiktiver Median",
         "Prognosebeginn",
     ]
     plt.close(figure)
@@ -255,17 +255,20 @@ def test_evaluation_mode_contains_ground_truth_and_window_metrics():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Zurückgehaltene Referenztrajektorie" in legend_labels
-    inset = next(
-        text.get_text() for text in axis.texts if "Beobachtungsdauer" in text.get_text()
+    assert "Referenztrajektorie" in legend_labels
+    footer_artist = next(
+        text for text in figure.texts if "Beobachtungsdauer" in text.get_text()
     )
-    assert "Beobachtungsdauer: 10 s" in inset
-    assert "Prognosehorizont: 30 s" in inset
-    assert "ADE: 0,07 m" in inset
-    assert "FDE: 0,07 m" in inset
-    assert "Empirische Abdeckung (90 %):" in inset
-    assert "/3 Punkte)" in inset
-    assert "Kalibrierung" not in inset
+    footer = footer_artist.get_text()
+    assert footer_artist.get_position()[1] < axis.get_position().y0
+    assert not any("Beobachtungsdauer" in text.get_text() for text in axis.texts)
+    assert "Beobachtungsdauer: 10 s" in footer
+    assert "Prognosehorizont: 30 s" in footer
+    assert "ADE: 0,07 m" in footer
+    assert "FDE: 0,07 m" in footer
+    assert "Empirische Abdeckung (90 %):" in footer
+    assert "/3 Punkte)" in footer
+    assert "Kalibrierung" not in footer
     plt.close(figure)
 
 
@@ -278,13 +281,15 @@ def test_operational_mode_contains_no_ground_truth_or_unknown_metrics():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Zurückgehaltene Referenztrajektorie" not in legend_labels
-    inset = next(
-        text.get_text() for text in axis.texts if "Beobachtungsdauer" in text.get_text()
+    assert "Referenztrajektorie" not in legend_labels
+    footer = next(
+        text.get_text()
+        for text in figure.texts
+        if "Beobachtungsdauer" in text.get_text()
     )
-    assert "ADE:" not in inset
-    assert "FDE:" not in inset
-    assert "Abdeckung" not in inset
+    assert "ADE:" not in footer
+    assert "FDE:" not in footer
+    assert "Abdeckung" not in footer
     plt.close(figure)
 
 
@@ -296,7 +301,7 @@ def test_operational_wrapper_uses_the_shared_plot_mode():
     )
 
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
-    assert "Zurückgehaltene Referenztrajektorie" not in legend_labels
+    assert "Referenztrajektorie" not in legend_labels
     plt.close(figure)
 
 
@@ -347,11 +352,18 @@ def test_plot_prediction_uses_supplied_observations_and_their_final_position():
         max_sample_trajectories=1,
         observed_position_values=(observed_x, observed_y),
         observed_trajectory_label="Noise-augmented observations",
+        additional_position_noise_std_m=2.5,
     )
 
     assert axis.lines[0].get_xdata() == pytest.approx(observed_x)
     assert axis.lines[0].get_ydata() == pytest.approx(observed_y)
     assert axis.lines[0].get_label() == "Noise-augmented observations"
+    footer = next(
+        text.get_text()
+        for text in figure.texts
+        if "Beobachtungsdauer" in text.get_text()
+    )
+    assert "Zusatzrauschen: σ_add = 2,5 m je Achse" in footer
     for line in axis.lines[1:]:
         assert line.get_xdata()[0] == pytest.approx(observed_x[-1])
         assert line.get_ydata()[0] == pytest.approx(observed_y[-1])
@@ -382,6 +394,22 @@ def test_plot_prediction_rejects_invalid_plot_mode(plot_mode):
             FakeWindow(),
             FakeFit(),
             plot_mode=plot_mode,
+        )
+
+
+@pytest.mark.parametrize(
+    "additional_position_noise_std_m",
+    [-1.0, np.nan, True, "2"],
+)
+def test_plot_prediction_rejects_invalid_additional_noise(
+    additional_position_noise_std_m,
+):
+    """The optional footer noise must be a finite non-negative number."""
+    with pytest.raises(ValueError, match="additional_position_noise_std_m"):
+        plot_prediction(
+            FakeWindow(),
+            FakeFit(),
+            additional_position_noise_std_m=additional_position_noise_std_m,
         )
 
 

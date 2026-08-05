@@ -208,6 +208,11 @@ def main(
         ),
     )
     print_position_evaluation(evaluation)
+    observed_trajectory_label = (
+        "Verrauschte Beobachtungen"
+        if position_observations.additional_noise_std_m > 0
+        else "Beobachtungen"
+    )
     plot_prediction(
         window,
         fit,
@@ -219,6 +224,8 @@ def main(
             position_observations.x_meters,
             position_observations.y_meters,
         ),
+        observed_trajectory_label=observed_trajectory_label,
+        additional_position_noise_std_m=(position_observations.additional_noise_std_m),
     )
 
 
