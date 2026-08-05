@@ -94,6 +94,8 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
     assert axis.get_aspect() == pytest.approx(1.0)
     assert axis.get_xlabel() == "East position [m]"
     assert axis.get_ylabel() == "North position [m]"
+    assert figure.get_size_inches() == pytest.approx((10.0, 6.0))
+    assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
     assert legend_labels == [
         "Observed history",
@@ -196,6 +198,14 @@ def test_plot_prediction_labels_selected_prediction_regions():
     ]
     assert time_labels == ["+10 s", "+20 s", "+30 s"]
     assert len(time_labels) == len(set(time_labels))
+    time_annotations = {
+        text.get_text(): text
+        for text in axis.texts
+        if text.get_text().startswith("+")
+    }
+    assert all(
+        annotation.get_position()[1] > 0 for annotation in time_annotations.values()
+    )
     plt.close(figure)
 
 

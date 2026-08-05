@@ -33,7 +33,7 @@ def plot_trajectory_paths(
     posterior_draws=None,
     forecast_time_seconds=None,
     annotation_text=None,
-    figsize=(10, 7),
+    figsize=(10, 6),
     forecast_alpha=1.0,
     forecast_linewidth=2.0,
 ):
@@ -157,9 +157,7 @@ def plot_trajectory_paths(
     axis.grid(alpha=0.2)
     axis.legend(
         handles=legend_handles,
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
-        borderaxespad=0,
+        loc="upper right",
         framealpha=0.9,
     )
     figure.tight_layout()
@@ -439,7 +437,7 @@ def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):
 
 def _label_prediction_regions(axis, centers, horizon_seconds):
     """Label a small non-repeating selection of future-time regions."""
-    vertical_offsets = (8, -14, 26)
+    vertical_offsets = (8, 8, 26)
     for label_number, time_index in enumerate(
         _selected_time_label_indices(len(horizon_seconds))
     ):
