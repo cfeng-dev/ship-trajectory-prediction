@@ -30,8 +30,8 @@ SPEED_STATE_INITIAL_LOWER = 0.001
 SPEED_STATE_INITIAL_UPPER = 99.99
 INITIAL_SPEED_INTERVAL_COUNT = 3
 POSITION_JITTER_THRESHOLD_METERS = 1.0
-# At 10-second sampling, 0.02 rad/s permits at most 11.46 degrees per step.
-DEFAULT_TURN_RATE_LIMIT = 0.02
+# At 10-second sampling, 0.06 rad/s permits at most 34.38 degrees per step.
+DEFAULT_TURN_RATE_LIMIT = 0.06
 # Robust window-specific scales are kept informative but not degenerate.
 MIN_TURN_RATE_PRIOR_SCALE = 0.002
 MAX_TURN_RATE_PRIOR_SCALE = 0.01
