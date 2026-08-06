@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 DEFAULT_CREDIBLE_INTERVAL = 0.9
 DEFAULT_HISTOGRAM_BINS = 40
 DEFAULT_MAX_COMPARISON_RUNS = 6
+PRIOR_DISPLAY_SCALE_MULTIPLIER = 3.0
 
 NOISE_PARAMETER_METADATA = {
     "sigma_position_gps": (
@@ -61,6 +62,7 @@ def plot_scalar_posterior(
     *,
     credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
     reference_value: float | None = None,
+    prior_scale: float | None = None,
     title: str | None = None,
     xlabel: str | None = None,
     unit: str | None = None,
@@ -69,14 +71,22 @@ def plot_scalar_posterior(
 ) -> tuple[Figure, Axes]:
     """Plot actual scalar draws from a variational posterior approximation.
 
-    No parametric distribution is fitted or superimposed. The histogram and
+    No parametric distribution is fitted to the posterior. The histogram and
     all summary markers are computed directly from ``posterior_variable_samples``.
+    An optional half-normal prior curve uses its configured scale exactly.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     bins = _validate_bins(bins)
     samples = _scalar_samples(fit, variable_name)
     reference_value = _optional_finite_scalar("reference_value", reference_value)
+    prior_scale = _optional_positive_finite_scalar("prior_scale", prior_scale)
     default_title, default_label, default_unit = _scalar_metadata(variable_name)
+    if prior_scale is not None:
+        default_title = default_title.replace(
+            "Approximate posterior",
+            "Prior and approximate posterior",
+            1,
+        )
     display_unit = default_unit if unit is None else unit
     figure, axis = _figure_and_axis(ax)
     _plot_distribution(
@@ -84,12 +94,96 @@ def plot_scalar_posterior(
         samples,
         credible_interval=credible_interval,
         reference_value=reference_value,
+        prior_scale=prior_scale,
         title=default_title if title is None else title,
         xlabel=_label_with_unit(
             default_label if xlabel is None else xlabel, display_unit
         ),
         bins=bins,
     )
+    figure.tight_layout()
+    return figure, axis
+
+
+def plot_scalar_prior_to_posterior_update(
+    posterior_fits: Mapping[int, Any],
+    variable_name: str,
+    *,
+    prior_scale: float,
+    credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
+    title: str | None = None,
+    xlabel: str | None = None,
+    unit: str | None = None,
+    bins: int = DEFAULT_HISTOGRAM_BINS,
+    ax: Axes | None = None,
+) -> tuple[Figure, Axes]:
+    """Plot one fixed half-normal prior and posteriors from growing prefixes."""
+    if not isinstance(posterior_fits, Mapping) or not posterior_fits:
+        raise ValueError("posterior_fits must be a non-empty mapping.")
+    variable_name = _validate_variable_name(variable_name)
+    prior_scale = _optional_positive_finite_scalar("prior_scale", prior_scale)
+    if prior_scale is None:
+        raise ValueError("prior_scale must be a positive finite scalar.")
+    credible_interval = _validate_credible_interval(credible_interval)
+    bins = _validate_bins(bins)
+
+    posterior_updates = []
+    for observation_count, fit in posterior_fits.items():
+        validated_count = _validate_positive_integer(
+            "posterior_fits observation count",
+            observation_count,
+        )
+        samples = _scalar_samples(fit, variable_name)
+        if np.any(samples < 0):
+            raise ValueError(
+                "Half-normal prior comparisons require non-negative posterior draws."
+            )
+        posterior_updates.append((validated_count, samples))
+    posterior_updates.sort(key=lambda update: update[0])
+
+    default_title, default_label, default_unit = _scalar_metadata(variable_name)
+    display_unit = default_unit if unit is None else unit
+    if title is None:
+        title = default_title.replace(
+            "Approximate posterior of",
+            "Prior-to-posterior update of",
+            1,
+        )
+    combined_samples = np.concatenate([samples for _, samples in posterior_updates])
+    display_max = max(
+        float(np.max(combined_samples)),
+        PRIOR_DISPLAY_SCALE_MULTIPLIER * prior_scale,
+    )
+    bin_edges = np.linspace(0.0, display_max, bins + 1)
+    interval_percent = 100 * credible_interval
+
+    figure, axis = _figure_and_axis(ax)
+    _plot_half_normal_prior(axis, prior_scale, display_max=display_max)
+    colors = plt.get_cmap("tab10").colors
+    for update_index, (observation_count, samples) in enumerate(posterior_updates):
+        lower, median, upper = _central_summary(samples, credible_interval)
+        axis.hist(
+            samples,
+            bins=bin_edges,
+            density=True,
+            histtype="step",
+            linewidth=1.7,
+            color=colors[update_index % len(colors)],
+            label=(
+                f"Posterior after n={observation_count}: "
+                f"median={_format_number(median)}, "
+                f"{interval_percent:g}% CI="
+                f"[{_format_number(lower)}, {_format_number(upper)}]"
+            ),
+        )
+    axis.set_title(title)
+    axis.set_xlabel(
+        _label_with_unit(default_label if xlabel is None else xlabel, display_unit)
+    )
+    axis.set_ylabel("Density")
+    axis.set_xlim(0.0, display_max)
+    axis.grid(alpha=0.25)
+    axis.legend()
     figure.tight_layout()
     return figure, axis
 
@@ -358,6 +452,7 @@ def save_bayesian_ctrv_posterior_plots(
     selected_time_indices: Sequence[int] | None = None,
     reference_parameters: Mapping[str, float] | None = None,
     reference_states: Mapping[str, Sequence[float] | np.ndarray] | None = None,
+    prior_scales: Mapping[str, float] | None = None,
     include_speed_gps_reference: bool = False,
     dpi: int = 200,
 ) -> dict[str, Path]:
@@ -393,6 +488,7 @@ def save_bayesian_ctrv_posterior_plots(
     )
     reference_parameters = _reference_parameters(reference_parameters)
     reference_states = _reference_states(reference_states, observation_count)
+    prior_scales = _validated_noise_prior_scales(prior_scales)
 
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -404,6 +500,7 @@ def save_bayesian_ctrv_posterior_plots(
             variable_name,
             credible_interval=credible_interval,
             reference_value=reference_parameters.get(variable_name),
+            prior_scale=prior_scales.get(variable_name),
         )
         _save_and_close(
             figure,
@@ -467,6 +564,7 @@ def show_bayesian_ctrv_posterior_plots(
     *,
     selected_time_indices: Sequence[int] | None = None,
     credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
+    prior_scales: Mapping[str, float] | None = None,
     include_speed_gps_reference: bool = False,
 ) -> None:
     """Display position-only CTRV posterior figures one at a time.
@@ -496,12 +594,14 @@ def show_bayesian_ctrv_posterior_plots(
         selected_time_indices,
         observation_count,
     )
+    prior_scales = _validated_noise_prior_scales(prior_scales)
 
     for variable_name in NOISE_PARAMETER_METADATA:
         figure, _ = plot_scalar_posterior(
             fit,
             variable_name,
             credible_interval=credible_interval,
+            prior_scale=prior_scales.get(variable_name),
         )
         _show_and_close(figure)
 
@@ -534,12 +634,34 @@ def show_bayesian_ctrv_posterior_plots(
             _show_and_close(figure)
 
 
+def show_bayesian_ctrv_prior_update_plots(
+    posterior_fits: Mapping[int, Any],
+    *,
+    prior_scales: Mapping[str, float],
+    credible_interval: float = DEFAULT_CREDIBLE_INTERVAL,
+) -> None:
+    """Display fixed-prior updates for all Bayesian CTRV noise parameters."""
+    prior_scales = _validated_noise_prior_scales(
+        prior_scales,
+        require_all=True,
+    )
+    for variable_name in NOISE_PARAMETER_METADATA:
+        figure, _ = plot_scalar_prior_to_posterior_update(
+            posterior_fits,
+            variable_name,
+            prior_scale=prior_scales[variable_name],
+            credible_interval=credible_interval,
+        )
+        _show_and_close(figure)
+
+
 def _plot_distribution(
     axis: Axes,
     samples: np.ndarray,
     *,
     credible_interval: float,
     reference_value: float | None,
+    prior_scale: float | None = None,
     title: str,
     xlabel: str,
     bins: int,
@@ -548,6 +670,13 @@ def _plot_distribution(
     lower, median, upper = _central_summary(samples, credible_interval)
     mean = float(np.mean(samples))
     interval_percent = 100 * credible_interval
+    if prior_scale is not None:
+        display_max = max(
+            float(np.max(samples)),
+            PRIOR_DISPLAY_SCALE_MULTIPLIER * prior_scale,
+        )
+        _plot_half_normal_prior(axis, prior_scale, display_max=display_max)
+        axis.set_xlim(0.0, display_max)
     axis.hist(
         samples,
         bins=bins,
@@ -601,6 +730,19 @@ def _plot_distribution(
     axis.set_ylabel("Density")
     axis.grid(alpha=0.25)
     axis.legend()
+
+
+def _plot_half_normal_prior(axis: Axes, scale: float, *, display_max: float) -> None:
+    """Draw an exact half-normal prior density over its positive support."""
+    x_values = np.linspace(0.0, display_max, 500)
+    density = np.sqrt(2.0 / np.pi) / scale * np.exp(-(x_values**2) / (2.0 * scale**2))
+    axis.plot(
+        x_values,
+        density,
+        color="black",
+        linewidth=2.0,
+        label=f"Half-normal prior: scale={_format_number(scale)}",
+    )
 
 
 def _scalar_samples(fit: Any, variable_name: str) -> np.ndarray:
@@ -752,6 +894,17 @@ def _optional_finite_scalar(name: str, value: float | None) -> float | None:
     return result
 
 
+def _optional_positive_finite_scalar(
+    name: str,
+    value: float | None,
+) -> float | None:
+    """Validate one optional strictly positive finite scalar."""
+    result = _optional_finite_scalar(name, value)
+    if result is not None and result <= 0:
+        raise ValueError(f"{name} must be a positive finite scalar.")
+    return result
+
+
 def _figure_and_axis(ax: Axes | None) -> tuple[Figure, Axes]:
     """Create an axis or reuse the caller-provided axis."""
     if ax is None:
@@ -858,6 +1011,40 @@ def _selected_time_indices(
     return tuple(dict.fromkeys(validated))
 
 
+def _validated_noise_prior_scales(
+    prior_scales: Mapping[str, float] | None,
+    *,
+    require_all: bool = False,
+) -> dict[str, float]:
+    """Validate optional half-normal scales for known noise parameters."""
+    if prior_scales is None:
+        if require_all:
+            raise ValueError("prior_scales must contain every noise parameter.")
+        return {}
+    if not isinstance(prior_scales, Mapping):
+        raise TypeError("prior_scales must be a mapping or None.")
+    unknown_names = set(prior_scales).difference(NOISE_PARAMETER_METADATA)
+    if unknown_names:
+        raise ValueError(f"Unknown noise prior scales: {sorted(unknown_names)}")
+    validated = {}
+    for name, scale in prior_scales.items():
+        validated_scale = _optional_positive_finite_scalar(
+            f"prior_scales[{name!r}]",
+            scale,
+        )
+        if validated_scale is None:
+            raise ValueError(f"prior_scales[{name!r}] must not be None.")
+        validated[name] = validated_scale
+    if require_all:
+        missing_names = set(NOISE_PARAMETER_METADATA).difference(validated)
+        if missing_names:
+            raise ValueError(
+                "prior_scales must contain every noise parameter; missing "
+                f"{sorted(missing_names)}"
+            )
+    return validated
+
+
 def _reference_parameters(
     values: Mapping[str, float] | None,
 ) -> dict[str, float]:
@@ -917,8 +1104,10 @@ def _show_and_close(figure: Figure) -> None:
 __all__ = [
     "plot_scalar_posterior",
     "plot_scalar_posterior_comparison",
+    "plot_scalar_prior_to_posterior_update",
     "plot_state_credible_band",
     "plot_state_posterior_at_time",
     "save_bayesian_ctrv_posterior_plots",
     "show_bayesian_ctrv_posterior_plots",
+    "show_bayesian_ctrv_prior_update_plots",
 ]

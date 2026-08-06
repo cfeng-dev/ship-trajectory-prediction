@@ -16,6 +16,7 @@ import ship_trajectory_prediction.evaluation.posterior_plotting as posterior_mod
 from ship_trajectory_prediction.evaluation.posterior_plotting import (  # noqa: E402
     plot_scalar_posterior,
     plot_scalar_posterior_comparison,
+    plot_scalar_prior_to_posterior_update,
     plot_state_credible_band,
     plot_state_posterior_at_time,
     save_bayesian_ctrv_posterior_plots,
@@ -78,6 +79,64 @@ def test_plot_scalar_posterior_uses_actual_finite_draws():
         "Known reference: 0.25",
     ]
     plt.close(figure)
+
+
+def test_plot_scalar_posterior_can_overlay_exact_half_normal_prior():
+    """A configured noise prior should be visible beside posterior draws."""
+    figure, axis = plot_scalar_posterior(
+        create_fit(),
+        "sigma_position_gps",
+        prior_scale=0.5,
+        bins=5,
+    )
+
+    prior_line = axis.lines[0]
+    assert prior_line.get_label() == "Half-normal prior: scale=0.5"
+    assert prior_line.get_xdata()[0] == 0.0
+    assert prior_line.get_ydata()[0] == pytest.approx(np.sqrt(2 / np.pi) / 0.5)
+    assert axis.get_xlim() == pytest.approx((0.0, 1.5))
+    assert axis.get_title().startswith("Prior and approximate posterior")
+    plt.close(figure)
+
+
+def test_scalar_prior_to_posterior_update_orders_chronological_prefixes():
+    """Growing data prefixes should appear in chronological update order."""
+    posterior_fits = {
+        20: create_fit(draw_count=20),
+        5: create_fit(draw_count=10),
+        10: create_fit(draw_count=15),
+    }
+
+    figure, axis = plot_scalar_prior_to_posterior_update(
+        posterior_fits,
+        "sigma_turn_rate_process",
+        prior_scale=4.0,
+        credible_interval=0.8,
+        bins=6,
+    )
+
+    legend_text = [text.get_text() for text in axis.get_legend().get_texts()]
+    assert legend_text[0] == "Half-normal prior: scale=4"
+    assert [label.split(":", 1)[0] for label in legend_text[1:]] == [
+        "Posterior after n=5",
+        "Posterior after n=10",
+        "Posterior after n=20",
+    ]
+    assert all("80% CI=" in label for label in legend_text[1:])
+    assert len(axis.patches) == 3
+    assert axis.get_xlim() == pytest.approx((0.0, 12.0))
+    plt.close(figure)
+
+
+@pytest.mark.parametrize("prior_scale", [None, 0.0, -1.0, np.nan])
+def test_scalar_prior_to_posterior_update_rejects_invalid_prior_scale(prior_scale):
+    """The displayed half-normal prior requires one positive finite scale."""
+    with pytest.raises(ValueError, match="prior_scale"):
+        plot_scalar_prior_to_posterior_update(
+            {5: create_fit()},
+            "sigma_position_gps",
+            prior_scale=prior_scale,
+        )
 
 
 @pytest.mark.parametrize(
@@ -365,6 +424,11 @@ def test_posterior_library_functions_never_show_automatically(monkeypatch):
             runs,
             "sigma_position_gps",
         )[0],
+        plot_scalar_prior_to_posterior_update(
+            {5: fit},
+            "sigma_position_gps",
+            prior_scale=0.5,
+        )[0],
     ]
 
     for figure in figures:
@@ -418,6 +482,7 @@ def test_show_bayesian_ctrv_posterior_plots_displays_figures_sequentially(
         object(),
         FakeWindow(),
         selected_time_indices=(0, 3),
+        prior_scales={name: 1.0 for name in NOISE_PARAMETER_NAMES},
     )
 
     assert [kind for kind, _ in created_figures] == [
@@ -434,6 +499,46 @@ def test_show_bayesian_ctrv_posterior_plots_displays_figures_sequentially(
     ]
     assert shown_blocks == [True] * 10
     assert closed_figures == [figure for _, figure in created_figures]
+
+
+def test_show_prior_update_plots_displays_each_noise_parameter(monkeypatch):
+    """The update helper should show and close four separate figures."""
+    plotted_variables = []
+    created_figures = []
+    shown_blocks = []
+    closed_figures = []
+
+    def fake_update_plot(posterior_fits, variable_name, **kwargs):
+        del posterior_fits, kwargs
+        figure = object()
+        plotted_variables.append(variable_name)
+        created_figures.append(figure)
+        return figure, object()
+
+    monkeypatch.setattr(
+        posterior_module,
+        "plot_scalar_prior_to_posterior_update",
+        fake_update_plot,
+    )
+    monkeypatch.setattr(
+        posterior_module.plt,
+        "show",
+        lambda *, block: shown_blocks.append(block),
+    )
+    monkeypatch.setattr(
+        posterior_module.plt,
+        "close",
+        closed_figures.append,
+    )
+
+    posterior_module.show_bayesian_ctrv_prior_update_plots(
+        {5: object(), 10: object()},
+        prior_scales={name: 1.0 for name in NOISE_PARAMETER_NAMES},
+    )
+
+    assert plotted_variables == list(NOISE_PARAMETER_NAMES)
+    assert shown_blocks == [True] * len(NOISE_PARAMETER_NAMES)
+    assert closed_figures == created_figures
 
 
 class FakeVariationalFit:

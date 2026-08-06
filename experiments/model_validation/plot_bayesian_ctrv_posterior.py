@@ -4,6 +4,7 @@ import argparse
 
 from ship_trajectory_prediction.evaluation.posterior_plotting import (
     show_bayesian_ctrv_posterior_plots,
+    show_bayesian_ctrv_prior_update_plots,
 )
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_parameter_summary,
@@ -32,6 +33,10 @@ PREDICTION_COUNT = 5
 PRIORS = BayesianCTRVPriors()
 POSTERIOR_TIME_INDICES = (0, OBSERVATION_COUNT - 1)
 CREDIBLE_INTERVAL = 0.9
+PRIOR_UPDATE_OBSERVATION_COUNTS = (5, 10, 15, OBSERVATION_COUNT)
+NOISE_PRIOR_SCALES = {
+    name: getattr(PRIORS, f"{name}_prior_scale") for name in NOISE_PARAMETER_NAMES
+}
 
 # Variational inference
 VI_ITER = 20_000
@@ -66,6 +71,12 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
                 "Posterior time indices",
                 ", ".join(str(index) for index in POSTERIOR_TIME_INDICES),
             ),
+            (
+                "Prior update counts",
+                ", ".join(str(count) for count in PRIOR_UPDATE_OBSERVATION_COUNTS),
+            ),
+            ("Noise priors", "Fixed half-normal distributions"),
+            ("State-prior centers", "Data-informed for each prefix"),
         ],
     )
 
@@ -99,13 +110,76 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
         "GPS speed was not used for fitting and is plotted only as an "
         "external post-fit reference."
     )
+    posterior_fits = _fit_prior_update_posteriors(
+        trajectory_data,
+        final_fit=fit,
+        vi_algorithm=vi_algorithm,
+        seed=seed,
+        require_converged=require_converged,
+    )
+    show_bayesian_ctrv_prior_update_plots(
+        posterior_fits,
+        prior_scales=NOISE_PRIOR_SCALES,
+        credible_interval=CREDIBLE_INTERVAL,
+    )
     show_bayesian_ctrv_posterior_plots(
         fit,
         window,
         selected_time_indices=POSTERIOR_TIME_INDICES,
         credible_interval=CREDIBLE_INTERVAL,
+        prior_scales=NOISE_PRIOR_SCALES,
         include_speed_gps_reference=True,
     )
+
+
+def _fit_prior_update_posteriors(
+    trajectory_data,
+    *,
+    final_fit,
+    vi_algorithm,
+    seed,
+    require_converged,
+):
+    """Fit chronological prefixes while retaining one fixed noise prior."""
+    observation_counts = tuple(sorted(set(PRIOR_UPDATE_OBSERVATION_COUNTS)))
+    if not observation_counts or observation_counts[-1] != OBSERVATION_COUNT:
+        raise ValueError(
+            "PRIOR_UPDATE_OBSERVATION_COUNTS must end with OBSERVATION_COUNT."
+        )
+    if observation_counts[0] < 2:
+        raise ValueError("Prior-update fits require at least two observations.")
+
+    posterior_fits = {OBSERVATION_COUNT: final_fit}
+    for observation_count in observation_counts[:-1]:
+        print(
+            "Fitting prior-update prefix: "
+            f"n={observation_count} chronological observations"
+        )
+        prefix_window = prepare_trajectory_window(
+            trajectory_data,
+            observation_count=observation_count,
+            prediction_count=PREDICTION_COUNT,
+            start_index=START_INDEX,
+        )
+        prefix_fit = fit_bayesian_ctrv_model(
+            prefix_window,
+            priors=PRIORS,
+            algorithm=vi_algorithm,
+            iter=VI_ITER,
+            grad_samples=VI_GRAD_SAMPLES,
+            elbo_samples=VI_ELBO_SAMPLES,
+            eta=VI_ETA,
+            adapt_iter=VI_ADAPT_ITER,
+            tol_rel_obj=VI_TOL_REL_OBJ,
+            eval_elbo=VI_EVAL_ELBO,
+            draws=VI_DRAWS,
+            seed=seed,
+            require_converged=require_converged,
+        )
+        prefix_converged = variational_converged(prefix_fit)
+        print(f"Prefix n={observation_count} converged: {prefix_converged}")
+        posterior_fits[observation_count] = prefix_fit
+    return posterior_fits
 
 
 def _parse_arguments():
