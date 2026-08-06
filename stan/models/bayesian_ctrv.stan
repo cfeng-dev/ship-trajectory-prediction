@@ -1,46 +1,32 @@
 functions {
   /**
-   * Deterministic CTRV position-transition function.
-   *
-   * Computes the conditional mean of the next two-dimensional position
-   * under the constant-turn-rate-and-velocity (CTRV) assumption.
+   * Compute the conditional mean of the next 2D position under the
+   * constant-turn-rate-and-velocity (CTRV) model.
    * Speed and turn rate are assumed constant over the interval dt.
    *
-   * @param dt        Time interval [s].
-   * @param x         Current latent x-position [m].
-   * @param y         Current latent y-position [m].
-   * @param speed     Current latent speed [m/s].
-   * @param heading   Current latent heading [rad].
-   * @param turn_rate Current latent turn rate [rad/s].
+   * Used in the model block for latent-state transitions and in
+   * generated quantities for posterior predictive forecasting.
    *
-   * @return Expected position after dt, before adding process noise [m].
+   * @param  dt        Time interval [s].
+   * @param  x         Current latent x-position [m].
+   * @param  y         Current latent y-position [m].
+   * @param  speed     Current latent speed [m/s].
+   * @param  heading   Current latent heading [rad].
+   * @param  turn_rate Current latent turn rate [rad/s].
+   *
+   * @return Length-2 vector with the conditional mean of next latent position:
+   *         position[1] = next latent x-position mean [m],
+   *         position[2] = next latent y-position mean [m].
    */
-  vector ctrv_position(
-      real dt,
-      real x,
-      real y,
-      real speed,
-      real heading,
-      real turn_rate) {
+  vector ctrv_position(real dt, real x, real y, real speed, real heading, real turn_rate) {
     vector[2] position;
 
     if (abs(turn_rate) > 1e-6) {
-      /*
-       * Closed-form CTRV transition for non-zero turn rate.
-       *
-       * Under constant speed and turn rate, the vessel follows a
-       * circular arc with instantaneous radius speed / turn_rate.
-       */
+      // Circular-motion update for non-zero turn rate.
       position[1] = x + speed / turn_rate * (sin(heading + turn_rate * dt) - sin(heading));
       position[2] = y + speed / turn_rate * (-cos(heading + turn_rate * dt) + cos(heading));
     } else {
-      /*
-       * Zero-turn-rate limit of the CTRV model.
-       *
-       * For a sufficiently small turn rate, straight-line motion is used.
-       * The separate branch avoids numerical instability caused by division
-       * by a value close to zero.
-       */
+      // Straight-line limit; avoids division by a near-zero turn rate.
       position[1] = x + speed * dt * cos(heading);
       position[2] = y + speed * dt * sin(heading);
     }
