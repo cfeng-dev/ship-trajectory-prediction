@@ -37,101 +37,60 @@ functions {
 
 
 data {
-  /*
-   * Observed data D.
-   *
-   * Only two-dimensional positions are included in the likelihood.
-   * The underlying motion states are treated as latent variables.
-   */
-  int<lower=2> N_observed;             // Number of observed time points.
-  vector[N_observed] time_observed;    // Elapsed observation times [s].
-  vector[N_observed] x_observed;       // Observed local x-positions [m].
-  vector[N_observed] y_observed;       // Observed local y-positions [m].
+  // Observed position data (D) used in the likelihood
+  int<lower=2> N_observed;              // Number of observations (must be >= 2)
+  vector[N_observed] time_observed;     // Observation times [s]
+  vector[N_observed] x_observed;        // Observed x-position [m]
+  vector[N_observed] y_observed;        // Observed y-position [m]
 
-  /*
-   * Future time points used for posterior predictive forecasting.
-   *
-   * These values do not contribute to posterior inference because no
-   * observations are available at these times.
-   */
-  int<lower=1> N_prediction;            // Number of future prediction steps.
-  vector[N_prediction] time_prediction; // Future elapsed times [s].
+  // Future time points for posterior predictive forecasting
+  int<lower=1> N_prediction;            // Number of prediction steps (must be >= 1)
+  vector[N_prediction] time_prediction; // Prediction times [s]
 
-  /*
-   * Hyperparameters of the initial-state priors.
-   *
-   * These values specify prior knowledge about the initial latent state
-   * before conditioning on the complete observed trajectory.
-   */
-  real x_initial_prior_mean;           // Prior mean of initial x-position [m].
-  real y_initial_prior_mean;           // Prior mean of initial y-position [m].
+  // Initial-position prior hyperparameters [m]
+	real x_initial_prior_mean;
+	real y_initial_prior_mean;
+	real<lower=0> position_initial_prior_scale;
 
-  real<lower=0> position_initial_prior_scale;
-  // Prior standard deviation shared by the initial x- and y-position [m].
+	// Initial-speed prior hyperparameters [m/s]
+	real<lower=0> speed_initial_prior_mean;
+	real<lower=0> speed_initial_prior_scale;
 
-  real<lower=0> speed_initial_prior_mean;
-  // Prior mean of the initial latent speed [m/s].
+	// Initial-heading prior hyperparameters [rad]
+	real heading_initial_prior_mean;
+	real<lower=0> heading_initial_prior_scale;
 
-  real<lower=0> speed_initial_prior_scale;
-  // Prior standard deviation of the initial latent speed [m/s].
+	// Turn-rate prior hyperparameters [rad/s]
+	real turn_rate_initial_prior_mean;
+	real<lower=0> turn_rate_state_prior_scale;
 
-  real heading_initial_prior_mean;
-  // Prior mean of the initial heading angle [rad].
+	// Physical constraint on turn rate [rad/s]
+	real<lower=0> turn_rate_limit;
 
-  real<lower=0> heading_initial_prior_scale;
-  // Prior standard deviation of the initial heading angle [rad].
-
-  real turn_rate_initial_prior_mean;
-  // Prior mean of the latent turn-rate states [rad/s].
-
-  real<lower=0> turn_rate_state_prior_scale;
-  // Prior standard deviation of the latent turn-rate states [rad/s].
-
-  real<lower=0> turn_rate_limit;
-  // Maximum admissible absolute turn rate [rad/s].
-
-  /*
-   * Hyperparameters of the prior distributions for the unknown
-   * observation- and process-noise scales.
-   *
-   * Because the corresponding sigma parameters are constrained to be
-   * positive, zero-centered normal priors induce half-normal priors.
-   */
-  real<lower=0> sigma_position_gps_prior_scale;
-  // Scale of the half-normal prior for position-observation noise [m].
-
-  real<lower=0> sigma_position_process_prior_scale;
-  // Scale of the half-normal prior for position-process noise [m / sqrt(s)].
-
-  real<lower=0> sigma_speed_process_prior_scale;
-  // Scale of the half-normal prior for speed-process noise
-  // [(m/s) / sqrt(s)].
-
-  real<lower=0> sigma_turn_rate_process_prior_scale;
-  // Scale of the half-normal prior for turn-rate-process noise
-  // [(rad/s) / sqrt(s)].
+  // Prior scales for observation and process noise
+  real<lower=0> sigma_position_gps_prior_scale;         // Observation-noise prior scale [m]
+  real<lower=0> sigma_position_process_prior_scale;     // Position-process prior scale [m/sqrt(s)]
+  real<lower=0> sigma_speed_process_prior_scale;        // Speed-process prior scale [(m/s)/sqrt(s)]
+  real<lower=0> sigma_turn_rate_process_prior_scale;    // Turn-rate-process prior scale [(rad/s)/sqrt(s)]
 }
 
 
 transformed data {
-  /*
-   * Validate the temporal ordering required by the sequential
-   * state-transition model.
-   */
+  // Validate temporal consistency before evaluating the state-space model.
+
+  // Observation times must be strictly increasing.
   for (n in 2:N_observed) {
     if (time_observed[n] <= time_observed[n - 1]) {
       reject("time_observed must be strictly increasing");
     }
   }
 
-  /*
-   * Posterior predictive forecasting must begin after the final
-   * observed time point.
-   */
+  // Prediction must start after the final observation.
   if (time_prediction[1] <= time_observed[N_observed]) {
     reject("time_prediction must start after the observations");
   }
 
+  // Prediction times must be strictly increasing.
   for (n in 2:N_prediction) {
     if (time_prediction[n] <= time_prediction[n - 1]) {
       reject("time_prediction must be strictly increasing");
@@ -141,76 +100,39 @@ transformed data {
 
 
 parameters {
-  /*
-   * Unknown latent motion states.
-   *
-   * These quantities are not directly observed. Their joint posterior
-   * distribution is inferred from the position observations, the priors,
-   * and the stochastic CTRV state-transition model.
-   */
-  vector[N_observed] x_state;          // Latent true x-position [m].
-  vector[N_observed] y_state;          // Latent true y-position [m].
+  // Define the unknown quantities whose posterior distributions are inferred from the data.
 
-  /*
-   * The lower bound permits stationary motion.
-   * The upper bound restricts inference to physically plausible speeds.
-   * Variational-inference initial values must lie strictly within the bounds.
-   */
-  vector<lower=0, upper=100>[N_observed] speed_state;
-  // Latent speed at each observed time point [m/s].
+  // Latent position states
+  vector[N_observed] x_state;  // Latent true x-position [m]
+  vector[N_observed] y_state;  // Latent true y-position [m]
 
-  real heading_initial;
-  // Unknown initial heading angle [rad].
+  // Latent kinematic states
+  vector<lower=0, upper=100>[N_observed] speed_state;  // Latent speed [m/s]
+  real heading_initial;                                // Unknown initial heading [rad]
+  vector<lower=-turn_rate_limit, upper=turn_rate_limit>[N_observed] turn_rate_state;  // Latent turn rate [rad/s]
 
-  vector<lower=-turn_rate_limit,
-         upper=turn_rate_limit>[N_observed] turn_rate_state;
-  // Latent turn rate at each observed time point [rad/s].
+  // Unknown observation-noise parameter
+  real<lower=1e-6> sigma_position_gps;  // SD between observed and latent positions [m]
 
-  /*
-   * Unknown global observation-noise parameter.
-   *
-   * This parameter describes the discrepancy between the observed
-   * positions and the corresponding latent true positions.
-   */
-  real<lower=1e-6> sigma_position_gps;
-  // Standard deviation of the position-observation model [m].
-
-  /*
-   * Unknown global process-noise parameters.
-   *
-   * These parameters quantify departures from the idealized CTRV dynamics.
-   * They are expressed per square-root second so that transition variance
-   * grows proportionally with the elapsed time interval.
-   */
-  real<lower=1e-6> sigma_position_process;
-  // Position-process diffusion scale [m / sqrt(s)].
-
-  real<lower=1e-6> sigma_speed_process;
-  // Speed-process diffusion scale [(m/s) / sqrt(s)].
-
-  real<lower=1e-6> sigma_turn_rate_process;
-  // Turn-rate-process diffusion scale [(rad/s) / sqrt(s)].
+  // Unknown process-noise parameters describing deviations from ideal CTRV dynamics
+  real<lower=1e-6> sigma_position_process;  // Position-process diffusion scale [m/sqrt(s)]
+  real<lower=1e-6> sigma_speed_process;     // Speed-process diffusion scale [(m/s)/sqrt(s)]
+  real<lower=1e-6> sigma_turn_rate_process; // Turn-rate-process diffusion scale [(rad/s)/sqrt(s)]
 }
 
 
 transformed parameters {
-  /*
-   * Deterministically derived heading trajectory.
-   *
-   * Only the initial heading and the turn-rate trajectory are inferred
-   * directly. Subsequent headings are obtained by integrating the
-   * piecewise-constant latent turn rate.
-   */
-  vector[N_observed] heading_state;
+  // Deterministically derive the heading trajectory from inferred parameters.
 
-  heading_state[1] = heading_initial;
+  vector[N_observed] heading_state;  // Derived heading at each observation time [rad]
 
+  heading_state[1] = heading_initial;  // Initialize with the inferred initial heading
+
+  // Propagate heading by integrating the latent turn rate.
   for (n in 2:N_observed) {
     real dt = time_observed[n] - time_observed[n - 1];
 
-    heading_state[n] =
-        heading_state[n - 1]
-        + turn_rate_state[n - 1] * dt;
+    heading_state[n] = heading_state[n - 1] + turn_rate_state[n - 1] * dt;
   }
 }
 
@@ -243,13 +165,8 @@ model {
    *
    *   p(x_1, y_1)
    */
-  x_state[1] ~ normal(
-      x_initial_prior_mean,
-      position_initial_prior_scale);
-
-  y_state[1] ~ normal(
-      y_initial_prior_mean,
-      position_initial_prior_scale);
+  x_state[1] ~ normal(x_initial_prior_mean, position_initial_prior_scale);
+  y_state[1] ~ normal(y_initial_prior_mean, position_initial_prior_scale);
 
   /*
    * Prior distribution of the initial latent speed:
@@ -259,18 +176,14 @@ model {
    * The parameter constraint truncates the normal distribution to
    * the physically admissible interval [0, 100].
    */
-  speed_state[1] ~ normal(
-      speed_initial_prior_mean,
-      speed_initial_prior_scale);
+  speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
   /*
    * Prior distribution of the initial heading:
    *
    *   p(heading_1)
    */
-  heading_initial ~ normal(
-      heading_initial_prior_mean,
-      heading_initial_prior_scale);
+  heading_initial ~ normal(heading_initial_prior_mean, heading_initial_prior_scale);
 
 
   // ------------------------------------------------------------------
@@ -286,9 +199,7 @@ model {
    * prior mean. The temporal dependence between consecutive turn rates
    * is additionally imposed by the state-transition model below.
    */
-  turn_rate_state ~ normal(
-      turn_rate_initial_prior_mean,
-      turn_rate_state_prior_scale);
+  turn_rate_state ~ normal(turn_rate_initial_prior_mean, turn_rate_state_prior_scale);
 
 
   // ------------------------------------------------------------------
@@ -304,21 +215,13 @@ model {
    *
    *   sigma ~ HalfNormal(prior_scale).
    */
-  sigma_position_gps ~ normal(
-      0,
-      sigma_position_gps_prior_scale);
+  sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
 
-  sigma_position_process ~ normal(
-      0,
-      sigma_position_process_prior_scale);
+  sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
 
-  sigma_speed_process ~ normal(
-      0,
-      sigma_speed_process_prior_scale);
+  sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
 
-  sigma_turn_rate_process ~ normal(
-      0,
-      sigma_turn_rate_process_prior_scale);
+  sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
 
 
   // ------------------------------------------------------------------
@@ -356,13 +259,9 @@ model {
      * Position uncertainty increases with sqrt(dt), corresponding to
      * a diffusion process whose variance grows linearly with time.
      */
-    x_state[n] ~ normal(
-        position[1],
-        sigma_position_process * sqrt(dt));
+    x_state[n] ~ normal(position[1], sigma_position_process * sqrt(dt));
 
-    y_state[n] ~ normal(
-        position[2],
-        sigma_position_process * sqrt(dt));
+    y_state[n] ~ normal(position[2], sigma_position_process * sqrt(dt));
 
     /*
      * Latent speed-transition distribution.
@@ -370,9 +269,7 @@ model {
      * The speed follows a Gaussian random walk around the preceding
      * latent speed.
      */
-    speed_state[n] ~ normal(
-        speed_state[n - 1],
-        sigma_speed_process * sqrt(dt));
+    speed_state[n] ~ normal(speed_state[n - 1], sigma_speed_process * sqrt(dt));
 
     /*
      * Latent turn-rate-transition distribution.
@@ -380,9 +277,7 @@ model {
      * The turn rate follows a Gaussian random walk around the preceding
      * latent turn rate.
      */
-    turn_rate_state[n] ~ normal(
-        turn_rate_state[n - 1],
-        sigma_turn_rate_process * sqrt(dt));
+    turn_rate_state[n] ~ normal(turn_rate_state[n - 1], sigma_turn_rate_process * sqrt(dt));
   }
 
 
@@ -403,13 +298,9 @@ model {
    * Together with the priors and transition distributions above, this
    * likelihood updates prior uncertainty to the posterior distribution.
    */
-  x_observed ~ normal(
-      x_state,
-      sigma_position_gps);
+  x_observed ~ normal(x_state, sigma_position_gps);
 
-  y_observed ~ normal(
-      y_state,
-      sigma_position_gps);
+  y_observed ~ normal(y_state, sigma_position_gps);
 }
 
 
