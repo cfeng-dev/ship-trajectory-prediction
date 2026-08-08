@@ -371,15 +371,15 @@ def test_initial_speed_supports_variable_time_intervals():
     assert speed == pytest.approx(2.0)
 
 
-def test_initial_speed_treats_small_position_jitter_as_stationary():
-    """Sub-meter proxy-position jitter should retain a zero-centered prior."""
+def test_initial_speed_retains_small_displacements_without_sensor_metadata():
+    """Unknown sensor resolution must not impose an arbitrary zero threshold."""
     speed = estimate_initial_speed_from_positions(
         [0.0, 10.0, 20.0, 30.0],
         [0.0, 0.3, -0.2, 0.4],
         [0.0, -0.2, 0.1, 0.0],
     )
 
-    assert speed == 0.0
+    assert speed == pytest.approx(np.sqrt(0.34) / 10.0)
 
 
 @pytest.mark.parametrize(

@@ -28,7 +28,6 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 INITIAL_SPEED_INTERVAL_COUNT = 3
-POSITION_JITTER_THRESHOLD_METERS = 1.0
 # At 10-second sampling, 0.06 rad/s permits at most 34.38 degrees per step.
 DEFAULT_TURN_RATE_LIMIT = 0.06
 DEFAULT_VI_ADAPT_ITER = 100
@@ -282,15 +281,12 @@ def estimate_initial_speed_from_positions(
     y_meters,
     *,
     interval_count: int = INITIAL_SPEED_INTERVAL_COUNT,
-    jitter_threshold_meters: float = POSITION_JITTER_THRESHOLD_METERS,
 ) -> float:
     """Estimate initial latent speed from early position-only intervals.
 
     The estimate is the median of at most the first ``interval_count`` segment
-    speeds. A segment whose displacement is no greater than
-    ``jitter_threshold_meters`` contributes exactly zero, which prevents small
-    position jitter from forcing a moving-state prior while retaining a prior
-    centered near zero for stationary targets. Times must be finite and strictly
+    speeds. Every finite displacement is retained because no sensor-specific
+    position resolution is available. Times must be finite and strictly
     increasing; all positions must be finite and shape-aligned.
     """
     if (
@@ -299,10 +295,6 @@ def estimate_initial_speed_from_positions(
         or interval_count < 1
     ):
         raise ValueError("interval_count must be a positive integer.")
-    jitter_threshold_meters = _validate_non_negative_finite(
-        "jitter_threshold_meters",
-        jitter_threshold_meters,
-    )
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
     y_meters = np.asarray(y_meters, dtype=float)
@@ -313,7 +305,6 @@ def estimate_initial_speed_from_positions(
         raise ValueError("time_seconds must be strictly increasing.")
     displacements = np.hypot(np.diff(x_meters), np.diff(y_meters))
     segment_speeds = np.divide(displacements, time_differences)
-    segment_speeds[displacements <= jitter_threshold_meters] = 0.0
     selected = segment_speeds[: min(interval_count, segment_speeds.size)]
     return float(np.median(selected))
 
@@ -795,7 +786,6 @@ def _position_derived_speed_initials(
 
     displacements = np.hypot(np.diff(x_meters), np.diff(y_meters))
     segment_speeds = displacements / time_differences
-    segment_speeds[displacements <= POSITION_JITTER_THRESHOLD_METERS] = 0.0
     state_speeds = np.empty(time_seconds.size, dtype=float)
     state_speeds[0] = _validate_non_negative_finite(
         "initial_prior_mean",
