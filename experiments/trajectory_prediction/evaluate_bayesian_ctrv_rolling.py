@@ -7,6 +7,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+if __package__:
+    from .config import RollingExperimentConfig
+else:
+    from config import RollingExperimentConfig
+
 from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
     local_to_gps_coordinates,
@@ -42,33 +47,52 @@ DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
-# Experiment configuration used by the VS Code run button.
-RUN_ID = 1
-WINDOW_MODE = "sliding"
-OBSERVATION_COUNT = 20
-PREDICTION_COUNT = 3
-STRIDE = None
-CREDIBLE_INTERVAL = 0.9
-INFERENCE_METHOD = "vi"
-VI_ALGORITHM = "meanfield"
-MEANFIELD_GRAD_SAMPLES = 1
-FULLRANK_GRAD_SAMPLES = 10
-VI_ADAPT_ITER = DEFAULT_VI_ADAPT_ITER
-MCMC_CONFIG = {
-    "chains": 4,
-    "parallel_chains": 4,
-    "iter_warmup": 1_000,
-    "iter_sampling": 1_000,
-    "adapt_delta": 0.9,
-    "max_treedepth": 10,
+
+EXPERIMENT = RollingExperimentConfig(
+    run_id=1,  # Trajectory run to evaluate.
+    window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
+    observation_count=20,  # Position points used by the first fit.
+    prediction_count=3,  # Held-out future points per rolling forecast.
+    stride=None,  # Forecast-origin step; None uses prediction_count.
+    inference_method="vi",  # Fast "vi" or reference "mcmc".
+    inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
+)
+PRIORS = BayesianCTRVPriors(
+    position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
+    speed_initial_prior_scale=0.75,  # Initial speed uncertainty [m/s].
+    heading_initial_prior_scale=0.35,  # Initial heading uncertainty [rad].
+    turn_rate_state_prior_scale=None,  # Derive from observed positions.
+    sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
+    sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
+    sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
+    sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
+)
+VI_CONFIG = {
+    "algorithm": "meanfield",  # "meanfield" or "fullrank".
+    "iter": 20_000,  # Maximum optimization iterations.
+    "grad_samples": 1,  # Samples per gradient estimate.
+    "elbo_samples": 100,  # Samples per ELBO estimate.
+    "eta": 1.0,  # Initial step size.
+    "adapt_iter": DEFAULT_VI_ADAPT_ITER,  # Step-size adaptation iterations.
+    "tol_rel_obj": 0.01,  # Relative ELBO stopping tolerance.
+    "eval_elbo": 100,  # ELBO evaluation interval.
+    "draws": 1_000,  # Posterior draws to save.
+    "require_converged": False,  # Allow preliminary non-converged VI.
 }
-TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
-PRIORS = BayesianCTRVPriors()
-SEED = 42
-REQUIRE_CONVERGED = False
-MAX_WINDOWS = None
-PLOT_EACH_WINDOW = False
-SAMPLE_TRAJECTORIES_PER_FORECAST = 15
+FULLRANK_GRAD_SAMPLES = 10
+MCMC_CONFIG = {
+    "chains": 4,  # Independent NUTS chains.
+    "parallel_chains": 4,  # Chains run concurrently.
+    "iter_warmup": 1_000,  # Warmup iterations per chain.
+    "iter_sampling": 1_000,  # Saved draws per chain.
+    "adapt_delta": 0.9,  # Target acceptance probability.
+    "max_treedepth": 10,  # Maximum NUTS tree depth.
+}
+CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
+TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT  # Symmetric turn-rate limit [rad/s].
+MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
+PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
+SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,39 +108,39 @@ class RollingPosteriorPlotData:
 
 def main(
     *,
-    window_mode=WINDOW_MODE,
-    observation_count=OBSERVATION_COUNT,
-    prediction_count=PREDICTION_COUNT,
-    stride=STRIDE,
-    inference_method=INFERENCE_METHOD,
-    vi_algorithm=VI_ALGORITHM,
+    window_mode=EXPERIMENT.window_mode,
+    observation_count=EXPERIMENT.observation_count,
+    prediction_count=EXPERIMENT.prediction_count,
+    stride=EXPERIMENT.stride,
+    inference_method=EXPERIMENT.inference_method,
+    vi_algorithm=VI_CONFIG["algorithm"],
     turn_rate_limit=TURN_RATE_LIMIT,
     priors=PRIORS,
-    seed=SEED,
-    require_converged=REQUIRE_CONVERGED,
+    seed=EXPERIMENT.inference_seed,
+    require_converged=VI_CONFIG["require_converged"],
     max_windows=MAX_WINDOWS,
     plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
     inference_method = _normalize_inference_method(inference_method)
     if inference_method == "vi":
-        inference_config = {
-            "algorithm": vi_algorithm,
-            "grad_samples": (
+        inference_config = dict(VI_CONFIG)
+        inference_config.update(
+            algorithm=vi_algorithm,
+            grad_samples=(
                 FULLRANK_GRAD_SAMPLES
                 if vi_algorithm == "fullrank"
-                else MEANFIELD_GRAD_SAMPLES
+                else VI_CONFIG["grad_samples"]
             ),
-            "adapt_iter": VI_ADAPT_ITER,
-            "require_converged": require_converged,
-        }
+            require_converged=require_converged,
+        )
     else:
         inference_config = dict(MCMC_CONFIG)
 
-    trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
+    trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={RUN_ID}.")
+        raise ValueError(f"No trajectory rows found for run_id={EXPERIMENT.run_id}.")
 
     windows = build_rolling_window_specs(
         len(trajectory_data),
@@ -136,7 +160,7 @@ def main(
     print("Bayesian CTRV Rolling-Window Evaluation")
     print("=" * 72)
     print(f"Data file             : {DATA_FILE}")
-    print(f"Run ID                : {RUN_ID}")
+    print(f"Run ID                : {EXPERIMENT.run_id}")
     print(f"Window mode           : {window_mode}")
     print(f"Initial observations  : {observation_count}")
     print(f"Prediction horizon    : {prediction_count}")
@@ -145,7 +169,7 @@ def main(
     print(f"Inference method      : {inference_method.upper()}")
     if inference_method == "vi":
         print(f"VI algorithm          : {vi_algorithm}")
-        print(f"VI adaptation steps   : {VI_ADAPT_ITER}")
+        print(f"VI adaptation steps   : {inference_config['adapt_iter']}")
     else:
         print(
             "Note: MCMC refits every rolling window and can take much longer than VI."
@@ -278,7 +302,7 @@ def plot_rolling_predictions(
     initial_observation_count,
     window_mode,
     sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
-    sample_seed=SEED,
+    sample_seed=EXPERIMENT.inference_seed,
 ):
     """Plot route-wide rolling posterior paths and predictive uncertainty."""
     window_mode_label = {
@@ -646,27 +670,29 @@ def _parse_arguments():
     parser.add_argument(
         "--window-mode",
         choices=("sliding", "expanding"),
-        default=WINDOW_MODE,
+        default=EXPERIMENT.window_mode,
         help="Keep a fixed history or expand it from the beginning of the run.",
     )
-    parser.add_argument("--observations", type=int, default=OBSERVATION_COUNT)
-    parser.add_argument("--predictions", type=int, default=PREDICTION_COUNT)
+    parser.add_argument(
+        "--observations", type=int, default=EXPERIMENT.observation_count
+    )
+    parser.add_argument("--predictions", type=int, default=EXPERIMENT.prediction_count)
     parser.add_argument(
         "--stride",
         type=int,
-        default=STRIDE,
+        default=EXPERIMENT.stride,
         help="Forecast-origin step; defaults to the prediction horizon.",
     )
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
-        default=INFERENCE_METHOD,
+        default=EXPERIMENT.inference_method,
         help="Fast variational inference or reference MCMC for every window.",
     )
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default=VI_ALGORITHM,
+        default=VI_CONFIG["algorithm"],
     )
     parser.add_argument(
         "--turn-rate-limit",
@@ -680,11 +706,11 @@ def _parse_arguments():
         default=PRIORS.turn_rate_state_prior_scale,
         help="Optional fixed state-prior scale; defaults to observed-history MAD.",
     )
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
     parser.add_argument(
         "--require-converged",
         action="store_true",
-        default=REQUIRE_CONVERGED,
+        default=VI_CONFIG["require_converged"],
         help="Abort when any rolling VI fit misses its convergence criterion.",
     )
     parser.add_argument(
