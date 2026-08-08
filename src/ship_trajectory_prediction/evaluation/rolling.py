@@ -24,6 +24,7 @@ class RollingWindowSpec:
 class RollingPositionSummary:
     """Aggregate position metrics over multiple rolling forecast windows."""
 
+    inference_method: str
     window_count: int
     forecast_count: int
     ade_m: float
@@ -31,7 +32,8 @@ class RollingPositionSummary:
     radial_coverage: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
-    vi_convergence_rate: float
+    vi_convergence_rate: float | None
+    mcmc_diagnostics_pass_rate: float | None
     per_horizon_table: pd.DataFrame
 
 
@@ -116,7 +118,9 @@ def summarize_rolling_predictions(
         "prediction_radius_m",
         "radial_covered",
         "mean_marginal_interval_width_m",
+        "inference_method",
         "converged",
+        "mcmc_diagnostics_ok",
     }
     missing_columns = sorted(required_columns.difference(prediction_table.columns))
     if missing_columns:
@@ -159,11 +163,35 @@ def summarize_rolling_predictions(
         )
         .reset_index(drop=True)
     )
-    convergence_by_window = prediction_table.groupby("window_index")[
-        "converged"
+    inference_methods = prediction_table["inference_method"].dropna().unique()
+    if len(inference_methods) != 1 or inference_methods[0] not in {"vi", "mcmc"}:
+        raise ValueError(
+            "inference_method must contain exactly one value: 'vi' or 'mcmc'."
+        )
+    inference_method = str(inference_methods[0])
+    diagnostics_by_window = prediction_table.groupby("window_index")[
+        [
+            "converged",
+            "mcmc_diagnostics_ok",
+        ]
     ].first()
+    if inference_method == "vi":
+        if diagnostics_by_window["converged"].isna().any():
+            raise ValueError("VI predictions require convergence values.")
+        vi_convergence_rate = float(
+            diagnostics_by_window["converged"].astype(bool).mean()
+        )
+        mcmc_diagnostics_pass_rate = None
+    else:
+        if diagnostics_by_window["mcmc_diagnostics_ok"].isna().any():
+            raise ValueError("MCMC predictions require sampler diagnostic values.")
+        vi_convergence_rate = None
+        mcmc_diagnostics_pass_rate = float(
+            diagnostics_by_window["mcmc_diagnostics_ok"].astype(bool).mean()
+        )
 
     return RollingPositionSummary(
+        inference_method=inference_method,
         window_count=int(prediction_table["window_index"].nunique()),
         forecast_count=len(prediction_table),
         ade_m=float(prediction_table["position_error_m"].mean()),
@@ -173,7 +201,8 @@ def summarize_rolling_predictions(
         mean_marginal_interval_width_m=float(
             prediction_table["mean_marginal_interval_width_m"].mean()
         ),
-        vi_convergence_rate=float(convergence_by_window.mean()),
+        vi_convergence_rate=vi_convergence_rate,
+        mcmc_diagnostics_pass_rate=mcmc_diagnostics_pass_rate,
         per_horizon_table=per_horizon,
     )
 

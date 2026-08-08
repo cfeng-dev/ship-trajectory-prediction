@@ -49,10 +49,19 @@ OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 3
 STRIDE = None
 CREDIBLE_INTERVAL = 0.9
+INFERENCE_METHOD = "vi"
 VI_ALGORITHM = "meanfield"
 MEANFIELD_GRAD_SAMPLES = 1
 FULLRANK_GRAD_SAMPLES = 10
 VI_ADAPT_ITER = DEFAULT_VI_ADAPT_ITER
+MCMC_CONFIG = {
+    "chains": 4,
+    "parallel_chains": 4,
+    "iter_warmup": 1_000,
+    "iter_sampling": 1_000,
+    "adapt_delta": 0.9,
+    "max_treedepth": 10,
+}
 TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
 PRIORS = BayesianCTRVPriors()
 SEED = 42
@@ -79,6 +88,7 @@ def main(
     observation_count=OBSERVATION_COUNT,
     prediction_count=PREDICTION_COUNT,
     stride=STRIDE,
+    inference_method=INFERENCE_METHOD,
     vi_algorithm=VI_ALGORITHM,
     turn_rate_limit=TURN_RATE_LIMIT,
     priors=PRIORS,
@@ -88,6 +98,21 @@ def main(
     plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
+    inference_method = _normalize_inference_method(inference_method)
+    if inference_method == "vi":
+        inference_config = {
+            "algorithm": vi_algorithm,
+            "grad_samples": (
+                FULLRANK_GRAD_SAMPLES
+                if vi_algorithm == "fullrank"
+                else MEANFIELD_GRAD_SAMPLES
+            ),
+            "adapt_iter": VI_ADAPT_ITER,
+            "require_converged": require_converged,
+        }
+    else:
+        inference_config = dict(MCMC_CONFIG)
+
     trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
@@ -117,8 +142,17 @@ def main(
     print(f"Prediction horizon    : {prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
-    print(f"VI algorithm          : {vi_algorithm}")
-    print(f"VI adaptation steps   : {VI_ADAPT_ITER}")
+    print(f"Inference method      : {inference_method.upper()}")
+    if inference_method == "vi":
+        print(f"VI algorithm          : {vi_algorithm}")
+        print(f"VI adaptation steps   : {VI_ADAPT_ITER}")
+    else:
+        print(
+            "Note: MCMC refits every rolling window and can take much longer than VI."
+        )
+        print(f"MCMC chains           : {inference_config['chains']}")
+        print(f"MCMC warmup/chain     : {inference_config['iter_warmup']}")
+        print(f"MCMC samples/chain    : {inference_config['iter_sampling']}")
     print(f"Turn-rate limit       : {turn_rate_limit:.5f} rad/s")
     print(
         "Turn-rate prior scale : "
@@ -154,17 +188,18 @@ def main(
             window,
             priors=priors,
             turn_rate_limit=turn_rate_limit,
-            algorithm=vi_algorithm,
-            grad_samples=(
-                FULLRANK_GRAD_SAMPLES
-                if vi_algorithm == "fullrank"
-                else MEANFIELD_GRAD_SAMPLES
-            ),
-            adapt_iter=VI_ADAPT_ITER,
+            inference_method=inference_method,
             seed=window_seed,
-            require_converged=require_converged,
+            **inference_config,
         )
-        converged = variational_converged(fit)
+        if inference_method == "vi":
+            converged = variational_converged(fit)
+            mcmc_diagnostics_ok = None
+            inference_status = f"VI converged={converged}"
+        else:
+            converged = None
+            mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
+            inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
         posterior_diagnostics = _posterior_window_diagnostics(fit)
         evaluation = evaluate_position_predictions(
             fit,
@@ -183,7 +218,9 @@ def main(
             route_y=route_y,
             longitude=longitude,
             latitude=latitude,
+            inference_method=inference_method,
             converged=converged,
+            mcmc_diagnostics_ok=mcmc_diagnostics_ok,
             observed_turn_rate=observed_turn_rate,
             posterior_diagnostics=posterior_diagnostics,
         )
@@ -205,7 +242,7 @@ def main(
             f"turn-rate observed/posterior="
             f"{observed_turn_rate.median_rad_s:+.5f}/"
             f"{posterior_diagnostics['posterior_origin_turn_rate_median_rad_s']:+.5f} "
-            f"rad/s, converged={converged}"
+            f"rad/s, {inference_status}"
         )
         if plot_each_window:
             figure, _ = plot_window_prediction(
@@ -420,7 +457,9 @@ def _build_route_prediction_table(
     route_y,
     longitude,
     latitude,
+    inference_method,
     converged,
+    mcmc_diagnostics_ok,
     observed_turn_rate,
     posterior_diagnostics,
 ):
@@ -453,7 +492,9 @@ def _build_route_prediction_table(
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
+    table["inference_method"] = inference_method
     table["converged"] = converged
+    table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
     table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
     table["observed_turn_rate_robust_scale_rad_s"] = (
@@ -537,6 +578,7 @@ def _print_summary(summary, *, credible_interval):
     print("Complete rolling evaluation")
     print("=" * 72)
     print(f"Evaluated windows        : {summary.window_count}")
+    print(f"Inference method         : {summary.inference_method.upper()}")
     print(f"Forecasted positions     : {summary.forecast_count}")
     print(f"Overall ADE              : {summary.ade_m:.2f} m")
     print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
@@ -546,7 +588,10 @@ def _print_summary(summary, *, credible_interval):
     )
     print(f"Mean prediction radius   : {summary.mean_prediction_radius_m:.2f} m")
     print(f"Mean marginal width     : {summary.mean_marginal_interval_width_m:.2f} m")
-    print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")
+    if summary.vi_convergence_rate is not None:
+        print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")
+    if summary.mcmc_diagnostics_pass_rate is not None:
+        print(f"MCMC diagnostics rate    : {summary.mcmc_diagnostics_pass_rate:.1%}")
     print("\nPer-horizon evaluation:")
     print(summary.per_horizon_table.round(3).to_string(index=False))
 
@@ -579,6 +624,23 @@ def _print_turn_rate_and_noise_summary(predictions):
     )
 
 
+def _normalize_inference_method(inference_method):
+    """Return a supported lowercase inference method."""
+    if not isinstance(inference_method, str):
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    normalized = inference_method.strip().lower()
+    if normalized not in {"vi", "mcmc"}:
+        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    return normalized
+
+
+def _mcmc_diagnostics_ok(fit):
+    """Return whether CmdStan reports no MCMC sampler problems."""
+    if not hasattr(fit, "diagnose"):
+        raise TypeError("MCMC fit must provide diagnose().")
+    return "no problems detected" in fit.diagnose().lower()
+
+
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -594,6 +656,12 @@ def _parse_arguments():
         type=int,
         default=STRIDE,
         help="Forecast-origin step; defaults to the prediction horizon.",
+    )
+    parser.add_argument(
+        "--inference",
+        choices=("vi", "mcmc"),
+        default=INFERENCE_METHOD,
+        help="Fast variational inference or reference MCMC for every window.",
     )
     parser.add_argument(
         "--vi-algorithm",
@@ -641,6 +709,7 @@ if __name__ == "__main__":
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
         stride=arguments.stride,
+        inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         turn_rate_limit=arguments.turn_rate_limit,
         priors=replace(

@@ -90,12 +90,15 @@ def test_summarize_rolling_predictions_aggregates_windows_and_horizons():
             "prediction_radius_m": [2.0, 3.0, 4.0],
             "radial_covered": [True, True, False],
             "mean_marginal_interval_width_m": [4.0, 5.0, 6.0],
+            "inference_method": ["vi", "vi", "vi"],
             "converged": [True, True, False],
+            "mcmc_diagnostics_ok": [None, None, None],
         }
     )
 
     summary = summarize_rolling_predictions(predictions)
 
+    assert summary.inference_method == "vi"
     assert summary.window_count == 2
     assert summary.forecast_count == 3
     assert summary.ade_m == pytest.approx(2.0)
@@ -104,8 +107,33 @@ def test_summarize_rolling_predictions_aggregates_windows_and_horizons():
     assert summary.mean_prediction_radius_m == pytest.approx(3.0)
     assert summary.mean_marginal_interval_width_m == pytest.approx(5.0)
     assert summary.vi_convergence_rate == pytest.approx(0.5)
+    assert summary.mcmc_diagnostics_pass_rate is None
     assert summary.per_horizon_table["forecast_count"].tolist() == [2, 1]
     assert summary.per_horizon_table["ade_m"].tolist() == pytest.approx([2.0, 2.0])
+
+
+def test_summarize_rolling_predictions_reports_mcmc_diagnostics_separately():
+    """MCMC sampler diagnostics must not be labelled as VI convergence."""
+    predictions = pd.DataFrame(
+        {
+            "window_index": [0, 1],
+            "horizon_step": [1, 1],
+            "horizon_seconds": [10.0, 10.0],
+            "position_error_m": [1.0, 3.0],
+            "prediction_radius_m": [2.0, 4.0],
+            "radial_covered": [True, False],
+            "mean_marginal_interval_width_m": [4.0, 6.0],
+            "inference_method": ["mcmc", "mcmc"],
+            "converged": [None, None],
+            "mcmc_diagnostics_ok": [True, False],
+        }
+    )
+
+    summary = summarize_rolling_predictions(predictions)
+
+    assert summary.inference_method == "mcmc"
+    assert summary.vi_convergence_rate is None
+    assert summary.mcmc_diagnostics_pass_rate == pytest.approx(0.5)
 
 
 def test_summarize_rolling_predictions_rejects_missing_or_empty_data():
@@ -122,7 +150,9 @@ def test_summarize_rolling_predictions_rejects_missing_or_empty_data():
             "prediction_radius_m",
             "radial_covered",
             "mean_marginal_interval_width_m",
+            "inference_method",
             "converged",
+            "mcmc_diagnostics_ok",
         ]
     )
     with pytest.raises(ValueError, match="at least one forecast"):
