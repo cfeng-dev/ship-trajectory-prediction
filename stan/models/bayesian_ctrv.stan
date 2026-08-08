@@ -141,48 +141,24 @@ model {
   /*
    * BAYESIAN MODEL
    *
-   * Stan constructs the unnormalized joint posterior density
+   * The posterior is induced by all priors, state-transition
+   * distributions, and likelihood terms defined below:
    *
-   *   p(latent states, noise parameters | observed positions)
-   *
-   * proportional to
-   *
-   *   initial-state priors
-   *   * parameter priors
-   *   * stochastic state-transition distributions
-   *   * position-observation likelihood.
-   *
-   * The posterior distribution is therefore not written as one explicit
-   * statement. It is induced by all probability statements in this block.
+   *   posterior ∝ priors × transitions × likelihood.
    */
 
   // ------------------------------------------------------------------
   // 1. PRIORS FOR THE INITIAL LATENT STATE
   // ------------------------------------------------------------------
 
-  /*
-   * Prior distribution of the initial latent position:
-   *
-   *   p(x_1, y_1)
-   */
+  // Initial latent position: p(x_1, y_1)
   x_state[1] ~ normal(x_initial_prior_mean, position_initial_prior_scale);
   y_state[1] ~ normal(y_initial_prior_mean, position_initial_prior_scale);
 
-  /*
-   * Prior distribution of the initial latent speed:
-   *
-   *   p(v_1)
-   *
-   * The parameter constraint truncates the normal distribution to
-   * the physically admissible interval [0, 100].
-   */
+  // Initial latent speed: p(v_1), constrained to [0, 100] m/s
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
-  /*
-   * Prior distribution of the initial heading:
-   *
-   *   p(heading_1)
-   */
+  // Initial heading: p(heading_1)
   heading_initial ~ normal(heading_initial_prior_mean, heading_initial_prior_scale);
 
 
@@ -191,13 +167,11 @@ model {
   // ------------------------------------------------------------------
 
   /*
-   * Marginal prior for the complete latent turn-rate path:
+   * Marginal prior for the latent turn-rate path:
    *
    *   p(turn_rate_1, ..., turn_rate_N)
    *
-   * This prior regularizes every turn-rate state toward the specified
-   * prior mean. The temporal dependence between consecutive turn rates
-   * is additionally imposed by the state-transition model below.
+   * Regularizes all turn-rate states around the specified prior mean.
    */
   turn_rate_state ~ normal(turn_rate_initial_prior_mean, turn_rate_state_prior_scale);
 
@@ -207,20 +181,13 @@ model {
   // ------------------------------------------------------------------
 
   /*
-   * Half-normal priors for positive standard-deviation parameters.
+   * Half-normal priors for positive noise parameters:
    *
-   * The distributions are written as zero-centered normal priors.
-   * Combined with the positive parameter constraints, they correspond
-   * to half-normal prior distributions:
-   *
-   *   sigma ~ HalfNormal(prior_scale).
+   *   sigma ~ HalfNormal(prior_scale)
    */
   sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
-
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
-
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
-
   sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
 
 
@@ -229,22 +196,16 @@ model {
   // ------------------------------------------------------------------
 
   /*
-   * The transition distributions define
+   * State-transition distributions:
    *
-   *   p(state_n | state_{n-1}, process-noise parameters).
+   *   p(state_n | state_{n-1}, process-noise parameters)
    *
-   * They act as conditional priors for each subsequent latent state.
-   * The deterministic CTRV equations provide the conditional mean,
-   * while Gaussian process noise permits deviations from idealized
-   * constant-turn-rate-and-velocity motion.
+   * CTRV provides the conditional mean; process noise allows deviations.
    */
   for (n in 2:N_observed) {
     real dt = time_observed[n] - time_observed[n - 1];
 
-    /*
-     * Conditional mean of the subsequent position under the
-     * deterministic CTRV motion model.
-     */
+    // Conditional mean of the next position under deterministic CTRV.
     vector[2] position = ctrv_position(
         dt,
         x_state[n - 1],
@@ -253,30 +214,14 @@ model {
         heading_state[n - 1],
         turn_rate_state[n - 1]);
 
-    /*
-     * Latent position-transition distribution.
-     *
-     * Position uncertainty increases with sqrt(dt), corresponding to
-     * a diffusion process whose variance grows linearly with time.
-     */
+    // Position transition with diffusion-scaled process noise.
     x_state[n] ~ normal(position[1], sigma_position_process * sqrt(dt));
-
     y_state[n] ~ normal(position[2], sigma_position_process * sqrt(dt));
 
-    /*
-     * Latent speed-transition distribution.
-     *
-     * The speed follows a Gaussian random walk around the preceding
-     * latent speed.
-     */
+    // Gaussian random walk for latent speed.
     speed_state[n] ~ normal(speed_state[n - 1], sigma_speed_process * sqrt(dt));
 
-    /*
-     * Latent turn-rate-transition distribution.
-     *
-     * The turn rate follows a Gaussian random walk around the preceding
-     * latent turn rate.
-     */
+    // Gaussian random walk for latent turn rate.
     turn_rate_state[n] ~ normal(turn_rate_state[n - 1], sigma_turn_rate_process * sqrt(dt));
   }
 
@@ -288,18 +233,11 @@ model {
   /*
    * Position-only likelihood:
    *
-   *   p(x_observed, y_observed | latent positions, sigma_position_gps).
+   *   p(x_observed, y_observed | x_state, y_state, sigma_position_gps)
    *
-   * The observed positions are modeled as noisy measurements of the
-   * corresponding latent true positions. Conditional on the latent states
-   * and observation-noise parameter, x- and y-errors are assumed Gaussian,
-   * independent, and homoscedastic.
-   *
-   * Together with the priors and transition distributions above, this
-   * likelihood updates prior uncertainty to the posterior distribution.
+   * Observed positions are noisy measurements of the latent positions.
    */
   x_observed ~ normal(x_state, sigma_position_gps);
-
   y_observed ~ normal(y_state, sigma_position_gps);
 }
 
@@ -308,51 +246,25 @@ generated quantities {
   /*
    * POSTERIOR-DERIVED QUANTITIES
    *
-   * This block does not influence posterior inference.
-   * It generates additional quantities conditional on posterior draws
-   * obtained from the model block.
+   * Generate posterior predictive trajectories and log-likelihood values
+   * without affecting posterior inference.
    */
 
-  /*
-   * Posterior predictive draws of future latent motion states.
-   *
-   * These variables represent possible future true trajectories and
-   * therefore include process uncertainty but no observation noise.
-   */
+  // Posterior predictive latent states (including process uncertainty)
   vector[N_prediction] x_state_prediction;
   vector[N_prediction] y_state_prediction;
   vector[N_prediction] speed_state_prediction;
   vector[N_prediction] heading_state_prediction;
   vector[N_prediction] turn_rate_state_prediction;
 
-  /*
-   * Posterior predictive draws of future noisy position observations.
-   *
-   * These variables include both:
-   *   1. uncertainty in the latent future trajectory, and
-   *   2. observation uncertainty.
-   *
-   * They represent measurements that could be produced by the assumed
-   * observation model at future time points.
-   */
+  // Posterior predictive observations (including observation noise)
   vector[N_prediction] x_observation_prediction;
   vector[N_prediction] y_observation_prediction;
 
-  /*
-   * Pointwise observation log-likelihood contributions.
-   *
-   * These values contain only the position-observation likelihood,
-   * not the prior or state-transition densities. They can be used for
-   * predictive model-comparison methods such as LOO or WAIC.
-   */
+  // Pointwise observation log likelihood for model comparison
   vector[2 * N_observed] log_likelihood;
 
-  /*
-   * Initialize posterior predictive forecasting with the final
-   * inferred latent state from the observation interval.
-   *
-   * Each posterior draw therefore produces its own future trajectory.
-   */
+  // Initialize forecasting from the final inferred latent state
   real x_previous = x_state[N_observed];
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
@@ -362,39 +274,24 @@ generated quantities {
 
 
   // ------------------------------------------------------------------
-  // POINTWISE OBSERVATION LOG LIKELIHOOD
+  // 1. POINTWISE OBSERVATION LOG LIKELIHOOD
   // ------------------------------------------------------------------
 
   for (n in 1:N_observed) {
-    log_likelihood[n] =
-        normal_lpdf(
-            x_observed[n]
-            | x_state[n],
-              sigma_position_gps);
-
-    log_likelihood[N_observed + n] =
-        normal_lpdf(
-            y_observed[n]
-            | y_state[n],
-              sigma_position_gps);
+    log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_gps);
+    log_likelihood[N_observed + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_gps);
   }
 
 
   // ------------------------------------------------------------------
-  // POSTERIOR PREDICTIVE TRAJECTORY
+  // 2. POSTERIOR PREDICTIVE TRAJECTORY
   // ------------------------------------------------------------------
 
-  /*
-   * Sequentially propagate the final latent posterior state into the
-   * future using the same stochastic process model as during inference.
-   */
+  // Sequentially propagate each posterior state draw into the future.
   for (n in 1:N_prediction) {
     real dt = time_prediction[n] - time_previous;
 
-    /*
-     * Conditional mean of the future position under the deterministic
-     * CTRV transition.
-     */
+    // Conditional mean under the deterministic CTRV model
     vector[2] position = ctrv_position(
         dt,
         x_previous,
@@ -403,74 +300,31 @@ generated quantities {
         heading_previous,
         turn_rate_previous);
 
-    /*
-     * Draw the subsequent latent position from the process model.
-     */
-    real x_current = normal_rng(
-        position[1],
-        sigma_position_process * sqrt(dt));
+    // Sample future latent position from the process model
+    real x_current = normal_rng(position[1], sigma_position_process * sqrt(dt));
+    real y_current = normal_rng(position[2], sigma_position_process * sqrt(dt));
 
-    real y_current = normal_rng(
-        position[2],
-        sigma_position_process * sqrt(dt));
+    // Sample future latent speed within the admissible range
+    real speed_current = fmin(100, fmax(0, normal_rng(speed_previous, sigma_speed_process * sqrt(dt))));
 
-    /*
-     * Draw the subsequent latent speed and restrict it to the admissible
-     * physical range used in the parameter block.
-     */
-    real speed_current = fmin(
-        100,
-        fmax(
-            0,
-            normal_rng(
-                speed_previous,
-                sigma_speed_process * sqrt(dt))));
+    // Deterministic heading propagation
+    real heading_current = heading_previous + turn_rate_previous * dt;
 
-    /*
-     * Propagate the heading deterministically using the preceding
-     * latent turn rate.
-     */
-    real heading_current =
-        heading_previous
-        + turn_rate_previous * dt;
+    // Sample future latent turn rate within the admissible range
+    real turn_rate_current = fmin(turn_rate_limit, fmax(-turn_rate_limit, normal_rng(turn_rate_previous, sigma_turn_rate_process * sqrt(dt))));
 
-    /*
-     * Draw the subsequent latent turn rate and restrict it to the
-     * admissible range.
-     */
-    real turn_rate_current = fmin(
-        turn_rate_limit,
-        fmax(
-            -turn_rate_limit,
-            normal_rng(
-                turn_rate_previous,
-                sigma_turn_rate_process * sqrt(dt))));
-
-    /*
-     * Store the posterior predictive latent-state draw.
-     */
+    // Store posterior predictive latent states
     x_state_prediction[n] = x_current;
     y_state_prediction[n] = y_current;
     speed_state_prediction[n] = speed_current;
     heading_state_prediction[n] = heading_current;
     turn_rate_state_prediction[n] = turn_rate_current;
 
-    /*
-     * Generate posterior predictive position observations by adding
-     * observation noise to the predicted latent positions.
-     */
-    x_observation_prediction[n] = normal_rng(
-        x_current,
-        sigma_position_gps);
+    // Generate posterior predictive position observations
+    x_observation_prediction[n] = normal_rng(x_current, sigma_position_gps);
+    y_observation_prediction[n] = normal_rng(y_current, sigma_position_gps);
 
-    y_observation_prediction[n] = normal_rng(
-        y_current,
-        sigma_position_gps);
-
-    /*
-     * Use the current predictive state as the starting state for the
-     * next forecasting step.
-     */
+    // Continue forecasting from the current predictive state
     x_previous = x_current;
     y_previous = y_current;
     speed_previous = speed_current;
