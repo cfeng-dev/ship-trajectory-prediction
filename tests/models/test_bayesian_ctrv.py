@@ -15,6 +15,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_SPEED_LIMIT,
     DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
@@ -90,6 +91,7 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
         abs=1e-8,
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
+    assert stan_data["speed_limit"] == pytest.approx(DEFAULT_SPEED_LIMIT)
     assert stan_data["turn_rate_limit"] == pytest.approx(DEFAULT_TURN_RATE_LIMIT)
     assert "x_state_prediction" not in stan_data
     assert "y_state_prediction" not in stan_data
@@ -317,6 +319,20 @@ def test_turn_rate_diagnostics_are_robust_and_configurable():
     assert derived.prior_scale_rad_s == pytest.approx(0.002)
     assert configured.prior_scale_rad_s == pytest.approx(0.004)
     assert configured.limit_rad_s == pytest.approx(0.015)
+
+
+def test_build_stan_data_accepts_configurable_speed_limit():
+    """The physical speed limit should be supplied to Stan as data."""
+    stan_data = build_stan_data(create_synthetic_window(), speed_limit=4.5)
+
+    assert stan_data["speed_limit"] == pytest.approx(4.5)
+
+
+@pytest.mark.parametrize("speed_limit", [0.0, -1.0, np.nan, np.inf, "invalid"])
+def test_build_stan_data_rejects_invalid_speed_limit(speed_limit):
+    """The speed limit must remain a positive finite scalar."""
+    with pytest.raises(ValueError, match="speed_limit"):
+        build_stan_data(create_synthetic_window(), speed_limit=speed_limit)
 
 
 @pytest.mark.parametrize(
@@ -577,11 +593,13 @@ def test_fit_initializes_position_derived_speed_inside_stan_bounds(monkeypatch):
     )
     window = create_synthetic_window()
 
-    fit_bayesian_ctrv_model(window, seed=71)
+    speed_limit = 2.5
+    fit_bayesian_ctrv_model(window, speed_limit=speed_limit, seed=71)
 
     initial_speed = fake_model.arguments["inits"]["speed_state"]
+    assert fake_model.arguments["data"]["speed_limit"] == pytest.approx(speed_limit)
     assert np.all(initial_speed > 0)
-    assert np.all(initial_speed < 100)
+    assert np.all(initial_speed < speed_limit)
 
 
 def test_gps_speed_does_not_change_seeded_vi_initial_values(monkeypatch):
@@ -885,7 +903,9 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "sigma_turn_rate_process * sqrt(dt)" in source
     assert "lower=-turn_rate_limit" in source
     assert "upper=turn_rate_limit" in source
-    assert "vector<lower=0, upper=100>[N_observed] speed_state" in source
+    assert "real<lower=0> speed_limit" in source
+    assert "vector<lower=0, upper=speed_limit>[N_observed] speed_state" in source
+    assert "fmin(speed_limit" in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source

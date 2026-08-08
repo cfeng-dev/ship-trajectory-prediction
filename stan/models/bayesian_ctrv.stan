@@ -55,6 +55,7 @@ data {
 	// Initial-speed prior hyperparameters [m/s]
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
+	real<lower=0> speed_limit;  // Physical upper speed limit [m/s]
 
 	// Initial-heading prior hyperparameters [rad]
 	real heading_initial_prior_mean;
@@ -107,7 +108,7 @@ parameters {
   vector[N_observed] y_state;  // Latent true y-position [m]
 
   // Latent kinematic states
-  vector<lower=0, upper=100>[N_observed] speed_state;  // Latent speed [m/s]
+  vector<lower=0, upper=speed_limit>[N_observed] speed_state;  // Latent speed [m/s]
   real heading_initial;                                // Unknown initial heading [rad]
   vector<lower=-turn_rate_limit, upper=turn_rate_limit>[N_observed] turn_rate_state;  // Latent turn rate [rad/s]
 
@@ -144,7 +145,7 @@ model {
    * The posterior is induced by all priors, state-transition
    * distributions, and likelihood terms defined below:
    *
-   *   posterior ∝ priors × transitions × likelihood.
+   *   posterior is proportional to priors * transitions * likelihood.
    */
 
   // ------------------------------------------------------------------
@@ -305,7 +306,7 @@ generated quantities {
     real y_current = normal_rng(position[2], sigma_position_process * sqrt(dt));
 
     // Sample future latent speed within the admissible range
-    real speed_current = fmin(100, fmax(0, normal_rng(speed_previous, sigma_speed_process * sqrt(dt))));
+    real speed_current = fmin(speed_limit, fmax(0, normal_rng(speed_previous, sigma_speed_process * sqrt(dt))));
 
     // Deterministic heading propagation
     real heading_current = heading_previous + turn_rate_previous * dt;

@@ -26,6 +26,8 @@ from ship_trajectory_prediction.evaluation.reporting import (
     print_variational_diagnostics,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_SPEED_LIMIT,
+    DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
     build_stan_data,
@@ -83,6 +85,8 @@ MCMC_CONFIG = {
     "max_treedepth": 10,  # Maximum NUTS tree depth.
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
+SPEED_LIMIT = DEFAULT_SPEED_LIMIT  # Physical upper speed limit [m/s].
+TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT  # Symmetric turn-rate limit [rad/s].
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
 
 
@@ -93,6 +97,8 @@ def main(
     seed=EXPERIMENT.inference_seed,
     position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
     position_noise_seed=EXPERIMENT.position_noise_seed,
+    speed_limit=SPEED_LIMIT,
+    turn_rate_limit=TURN_RATE_LIMIT,
     require_converged=VI_CONFIG["require_converged"],
     plot_coordinate_mode=PLOT_COORDINATE_MODE,
 ):
@@ -118,12 +124,18 @@ def main(
     stan_data = build_stan_data(
         window,
         priors=PRIORS,
+        speed_limit=speed_limit,
+        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
     )
     forecast_horizon_seconds = float(
         stan_data["time_prediction"][-1] - stan_data["time_observed"][-1]
     )
-    inference_rows = [("Inference method", inference_method.upper())]
+    inference_rows = [
+        ("Inference method", inference_method.upper()),
+        ("Speed limit", f"{stan_data['speed_limit']:g} m/s"),
+        ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
+    ]
     if inference_method == "vi":
         inference_config = {
             **VI_CONFIG,
@@ -154,6 +166,8 @@ def main(
     fit = fit_bayesian_ctrv_model(
         window,
         priors=PRIORS,
+        speed_limit=speed_limit,
+        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,
@@ -295,6 +309,18 @@ def _parse_arguments():
         help="Seed used only to generate the in-memory position perturbation.",
     )
     parser.add_argument(
+        "--speed-limit",
+        type=float,
+        default=SPEED_LIMIT,
+        help="Physical upper speed limit in m/s.",
+    )
+    parser.add_argument(
+        "--turn-rate-limit",
+        type=float,
+        default=TURN_RATE_LIMIT,
+        help="Physical absolute turn-rate limit in rad/s.",
+    )
+    parser.add_argument(
         "--require-converged",
         action="store_true",
         default=VI_CONFIG["require_converged"],
@@ -320,6 +346,8 @@ if __name__ == "__main__":
         seed=arguments.seed,
         position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
+        speed_limit=arguments.speed_limit,
+        turn_rate_limit=arguments.turn_rate_limit,
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
     )

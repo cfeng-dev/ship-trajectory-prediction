@@ -93,6 +93,7 @@ def main(
                 "Turn-rate state prior scale",
                 f"{stan_data['turn_rate_state_prior_scale']:.5f} rad/s",
             ),
+            ("Speed limit", f"{stan_data['speed_limit']:g} m/s"),
             ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
             ("VI tolerance", VI_TOL_REL_OBJ),
         ],
