@@ -359,7 +359,7 @@ def fit_bayesian_ctrv_model(
     ``require_converged`` applies only to the VI path; MCMC quality is assessed
     through sampler diagnostics, effective sample sizes, and R-hat values.
     """
-    inference_method = _validate_inference_method(inference_method)
+    inference_method = normalize_inference_method(inference_method)
     if inference_method == "vi":
         if mcmc_options:
             raise ValueError("mcmc_options can only be used with MCMC inference.")
@@ -821,7 +821,7 @@ def _validate_variational_arguments(**arguments: Any) -> None:
             raise ValueError(f"{name} must be a boolean.")
 
 
-def _validate_inference_method(inference_method: str) -> str:
+def normalize_inference_method(inference_method: str) -> str:
     """Return a normalized supported inference method."""
     if not isinstance(inference_method, str):
         raise ValueError("inference_method must be 'vi' or 'mcmc'.")

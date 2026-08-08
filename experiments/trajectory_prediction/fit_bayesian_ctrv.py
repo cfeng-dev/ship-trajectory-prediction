@@ -6,9 +6,9 @@ from time import perf_counter
 import numpy as np
 
 if __package__:
-    from .config import ExperimentConfig
+    from .config import ExperimentConfig, select_bayesian_ctrv_inference_config
 else:
-    from config import ExperimentConfig
+    from config import ExperimentConfig, select_bayesian_ctrv_inference_config
 
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
@@ -102,11 +102,14 @@ def main(
     plot_coordinate_mode=PLOT_COORDINATE_MODE,
 ):
     """Fit one recorded run with selected inference and evaluate predictions."""
-    if not isinstance(inference_method, str):
-        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
-    inference_method = inference_method.strip().lower()
-    if inference_method not in {"vi", "mcmc"}:
-        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
+    inference_method, inference_config = select_bayesian_ctrv_inference_config(
+        inference_method,
+        vi_algorithm=vi_algorithm,
+        require_converged=require_converged,
+        vi_config=VI_CONFIG,
+        mcmc_config=MCMC_CONFIG,
+        fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    )
     plot_coordinate_mode = normalize_plot_coordinate_mode(plot_coordinate_mode)
     trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     window = prepare_trajectory_window(
@@ -134,19 +137,8 @@ def main(
         ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
     ]
     if inference_method == "vi":
-        inference_config = {
-            **VI_CONFIG,
-            "algorithm": vi_algorithm,
-            "require_converged": require_converged,
-        }
-        if vi_algorithm == "fullrank":
-            inference_config["grad_samples"] = max(
-                FULLRANK_GRAD_SAMPLES,
-                inference_config["grad_samples"],
-            )
         inference_rows.append(("VI algorithm", inference_config["algorithm"]))
     else:
-        inference_config = dict(MCMC_CONFIG)
         inference_rows.extend(
             [
                 ("MCMC chains", inference_config["chains"]),

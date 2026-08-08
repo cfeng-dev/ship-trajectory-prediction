@@ -27,6 +27,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     diagnose_observed_turn_rate,
     estimate_initial_speed_from_positions,
     fit_bayesian_ctrv_model,
+    normalize_inference_method,
     simulate_position_observations,
     summarize_predictions,
     variational_converged,
@@ -702,6 +703,22 @@ def test_fit_rejects_unsupported_inference_methods(inference_method):
             create_synthetic_window(),
             inference_method=inference_method,
         )
+
+
+@pytest.mark.parametrize(
+    ("inference_method", "expected"),
+    [("vi", "vi"), (" VI ", "vi"), ("mcmc", "mcmc"), ("MCMC", "mcmc")],
+)
+def test_normalize_inference_method(inference_method, expected):
+    """The shared normalizer should support CLI and programmatic spellings."""
+    assert normalize_inference_method(inference_method) == expected
+
+
+@pytest.mark.parametrize("inference_method", [None, "", "nuts"])
+def test_normalize_inference_method_rejects_unsupported_values(inference_method):
+    """The shared normalizer should reject unavailable inference methods."""
+    with pytest.raises(ValueError, match="inference_method"):
+        normalize_inference_method(inference_method)
 
 
 @pytest.mark.parametrize(

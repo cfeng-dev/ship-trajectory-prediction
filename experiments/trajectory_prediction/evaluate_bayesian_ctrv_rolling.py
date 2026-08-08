@@ -8,9 +8,12 @@ import numpy as np
 import pandas as pd
 
 if __package__:
-    from .config import RollingExperimentConfig
+    from .config import (
+        RollingExperimentConfig,
+        select_bayesian_ctrv_inference_config,
+    )
 else:
-    from config import RollingExperimentConfig
+    from config import RollingExperimentConfig, select_bayesian_ctrv_inference_config
 
 from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
@@ -122,20 +125,14 @@ def main(
     plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
-    inference_method = _normalize_inference_method(inference_method)
-    if inference_method == "vi":
-        inference_config = dict(VI_CONFIG)
-        inference_config.update(
-            algorithm=vi_algorithm,
-            grad_samples=(
-                FULLRANK_GRAD_SAMPLES
-                if vi_algorithm == "fullrank"
-                else VI_CONFIG["grad_samples"]
-            ),
-            require_converged=require_converged,
-        )
-    else:
-        inference_config = dict(MCMC_CONFIG)
+    inference_method, inference_config = select_bayesian_ctrv_inference_config(
+        inference_method,
+        vi_algorithm=vi_algorithm,
+        require_converged=require_converged,
+        vi_config=VI_CONFIG,
+        mcmc_config=MCMC_CONFIG,
+        fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    )
 
     trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
@@ -607,11 +604,11 @@ def _print_summary(summary, *, credible_interval):
     print(f"Overall ADE              : {summary.ade_m:.2f} m")
     print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
     print(
-        f"Radial {100 * credible_interval:g}% coverage   : "
+        f"Radial {100 * credible_interval:g}% coverage      : "
         f"{summary.radial_coverage:.1%}"
     )
     print(f"Mean prediction radius   : {summary.mean_prediction_radius_m:.2f} m")
-    print(f"Mean marginal width     : {summary.mean_marginal_interval_width_m:.2f} m")
+    print(f"Mean marginal width      : {summary.mean_marginal_interval_width_m:.2f} m")
     if summary.vi_convergence_rate is not None:
         print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")
     if summary.mcmc_diagnostics_pass_rate is not None:
@@ -636,7 +633,7 @@ def _print_turn_rate_and_noise_summary(predictions):
         "Maximum posterior origin turn rate : "
         f"{windows['posterior_origin_turn_rate_median_rad_s'].abs().max():.5f} rad/s"
     )
-    print(f"Windows near turn-rate limit        : {int(near_limit.sum())}")
+    print(f"Windows near turn-rate limit       : {int(near_limit.sum())}")
     print(
         "Median position process sigma      : "
         f"{windows['posterior_sigma_position_process_median'].median():.3f} m/sqrt(s)"
@@ -646,16 +643,6 @@ def _print_turn_rate_and_noise_summary(predictions):
         f"{windows['posterior_sigma_turn_rate_process_median'].median():.6f} "
         "rad/s/sqrt(s)"
     )
-
-
-def _normalize_inference_method(inference_method):
-    """Return a supported lowercase inference method."""
-    if not isinstance(inference_method, str):
-        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
-    normalized = inference_method.strip().lower()
-    if normalized not in {"vi", "mcmc"}:
-        raise ValueError("inference_method must be 'vi' or 'mcmc'.")
-    return normalized
 
 
 def _mcmc_diagnostics_ok(fit):
