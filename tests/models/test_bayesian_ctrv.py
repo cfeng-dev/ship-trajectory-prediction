@@ -15,7 +15,6 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_SPEED_LIMIT,
     DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
@@ -39,7 +38,7 @@ from ship_trajectory_prediction.simulation.synthetic_ctrv import (
 from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 
-def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):
+def create_synthetic_window(*, speed=3.0, turn_rate=0.012, variable_dt=False):
     """Create one noise-free curved window for fast interface tests."""
     time_seconds = None
     if variable_dt:
@@ -51,7 +50,7 @@ def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):
         initial_state=CTRVState(
             x=0.0,
             y=0.0,
-            speed=3.0,
+            speed=speed,
             heading=0.3,
             turn_rate=turn_rate,
         ),
@@ -91,7 +90,6 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
         abs=1e-8,
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
-    assert stan_data["speed_limit"] == pytest.approx(DEFAULT_SPEED_LIMIT)
     assert stan_data["turn_rate_limit"] == pytest.approx(DEFAULT_TURN_RATE_LIMIT)
     assert "x_state_prediction" not in stan_data
     assert "y_state_prediction" not in stan_data
@@ -321,20 +319,6 @@ def test_turn_rate_diagnostics_are_robust_and_configurable():
     assert configured.limit_rad_s == pytest.approx(0.015)
 
 
-def test_build_stan_data_accepts_configurable_speed_limit():
-    """The physical speed limit should be supplied to Stan as data."""
-    stan_data = build_stan_data(create_synthetic_window(), speed_limit=4.5)
-
-    assert stan_data["speed_limit"] == pytest.approx(4.5)
-
-
-@pytest.mark.parametrize("speed_limit", [0.0, -1.0, np.nan, np.inf, "invalid"])
-def test_build_stan_data_rejects_invalid_speed_limit(speed_limit):
-    """The speed limit must remain a positive finite scalar."""
-    with pytest.raises(ValueError, match="speed_limit"):
-        build_stan_data(create_synthetic_window(), speed_limit=speed_limit)
-
-
 @pytest.mark.parametrize(
     ("options", "message"),
     [
@@ -520,8 +504,8 @@ def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):
     assert arguments["show_console"] is True
     assert len(arguments["inits"]) == 3
     assert not np.array_equal(
-        arguments["inits"][0]["speed_state"],
-        arguments["inits"][1]["speed_state"],
+        arguments["inits"][0]["speed_state_raw"],
+        arguments["inits"][1]["speed_state_raw"],
     )
 
 
@@ -583,23 +567,23 @@ def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):
         assert second_arguments["inits"][name] == pytest.approx(first_value)
 
 
-def test_fit_initializes_position_derived_speed_inside_stan_bounds(monkeypatch):
-    """Position-derived speeds must initialize strictly inside Stan bounds."""
+def test_fit_initializes_position_derived_speed_in_softplus_coordinates(monkeypatch):
+    """Softplus initials must represent positive position-derived speeds."""
     fake_model = FakeModel()
     monkeypatch.setattr(
         model_module,
         "compile_bayesian_ctrv_model",
         lambda: fake_model,
     )
-    window = create_synthetic_window()
+    window = create_synthetic_window(speed=250.0)
 
-    speed_limit = 2.5
-    fit_bayesian_ctrv_model(window, speed_limit=speed_limit, seed=71)
+    fit_bayesian_ctrv_model(window, seed=71)
 
-    initial_speed = fake_model.arguments["inits"]["speed_state"]
-    assert fake_model.arguments["data"]["speed_limit"] == pytest.approx(speed_limit)
+    initial_speed_raw = fake_model.arguments["inits"]["speed_state_raw"]
+    initial_speed = np.logaddexp(0.0, initial_speed_raw)
+    assert "speed_limit" not in fake_model.arguments["data"]
     assert np.all(initial_speed > 0)
-    assert np.all(initial_speed < speed_limit)
+    assert np.max(initial_speed) > 100.0
 
 
 def test_gps_speed_does_not_change_seeded_vi_initial_values(monkeypatch):
@@ -903,9 +887,11 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "sigma_turn_rate_process * sqrt(dt)" in source
     assert "lower=-turn_rate_limit" in source
     assert "upper=turn_rate_limit" in source
-    assert "real<lower=0> speed_limit" in source
-    assert "vector<lower=0, upper=speed_limit>[N_observed] speed_state" in source
-    assert "fmin(speed_limit" in source
+    assert "speed_limit" not in source
+    assert "vector[N_observed] speed_state_raw" in source
+    assert "speed_state[n] = log1p_exp(speed_state_raw[n])" in source
+    assert "target += log_inv_logit(speed_state_raw[n])" in source
+    assert "real speed_current = fmax(" in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source
@@ -952,15 +938,16 @@ def test_stan_model_has_position_only_likelihood_and_named_predictions():
     reason="Set RUN_CMDSTAN_INTEGRATION=1 to run CmdStan inference.",
 )
 @pytest.mark.parametrize(
-    ("algorithm", "seed"),
-    [("meanfield", 12), ("fullrank", 13)],
+    ("algorithm", "seed", "grad_samples"),
+    [("meanfield", 12, 1), ("fullrank", 13, 10)],
 )
-def test_small_synthetic_vi_fit_is_executable(algorithm, seed):
+def test_small_synthetic_vi_fit_is_executable(algorithm, seed, grad_samples):
     """Both supported VI approximations should produce finite state draws."""
     fit = fit_bayesian_ctrv_model(
         create_synthetic_window(),
         algorithm=algorithm,
         iter=5_000,
+        grad_samples=grad_samples,
         draws=100,
         seed=seed,
         require_converged=False,

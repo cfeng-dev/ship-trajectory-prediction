@@ -35,6 +35,7 @@ PREDICTION_COUNT = 4
 PRIORS = BayesianCTRVPriors()
 VI_ITER = 20_000
 VI_GRAD_SAMPLES = 1
+FULLRANK_GRAD_SAMPLES = 10
 VI_ELBO_SAMPLES = 100
 VI_ETA = 1.0
 VI_ADAPT_ITER = 50
@@ -93,7 +94,6 @@ def main(
                 "Turn-rate state prior scale",
                 f"{stan_data['turn_rate_state_prior_scale']:.5f} rad/s",
             ),
-            ("Speed limit", f"{stan_data['speed_limit']:g} m/s"),
             ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
             ("VI tolerance", VI_TOL_REL_OBJ),
         ],
@@ -108,7 +108,11 @@ def main(
                 priors=PRIORS,
                 algorithm=algorithm,
                 iter=vi_iter,
-                grad_samples=VI_GRAD_SAMPLES,
+                grad_samples=(
+                    FULLRANK_GRAD_SAMPLES
+                    if algorithm == "fullrank"
+                    else VI_GRAD_SAMPLES
+                ),
                 elbo_samples=VI_ELBO_SAMPLES,
                 eta=VI_ETA,
                 adapt_iter=VI_ADAPT_ITER,

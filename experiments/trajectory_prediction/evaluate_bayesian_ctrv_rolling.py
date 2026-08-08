@@ -24,7 +24,6 @@ from ship_trajectory_prediction.evaluation.reporting import (
     posterior_variable_samples,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_SPEED_LIMIT,
     DEFAULT_TURN_RATE_LIMIT,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
@@ -50,7 +49,8 @@ PREDICTION_COUNT = 3
 STRIDE = None
 CREDIBLE_INTERVAL = 0.9
 VI_ALGORITHM = "meanfield"
-SPEED_LIMIT = DEFAULT_SPEED_LIMIT
+MEANFIELD_GRAD_SAMPLES = 1
+FULLRANK_GRAD_SAMPLES = 10
 TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
 PRIORS = BayesianCTRVPriors()
 SEED = 42
@@ -78,7 +78,6 @@ def main(
     prediction_count=PREDICTION_COUNT,
     stride=STRIDE,
     vi_algorithm=VI_ALGORITHM,
-    speed_limit=SPEED_LIMIT,
     turn_rate_limit=TURN_RATE_LIMIT,
     priors=PRIORS,
     seed=SEED,
@@ -117,7 +116,6 @@ def main(
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
     print(f"VI algorithm          : {vi_algorithm}")
-    print(f"Speed limit           : {speed_limit:g} m/s")
     print(f"Turn-rate limit       : {turn_rate_limit:.5f} rad/s")
     print(
         "Turn-rate prior scale : "
@@ -152,9 +150,13 @@ def main(
         fit = fit_bayesian_ctrv_model(
             window,
             priors=priors,
-            speed_limit=speed_limit,
             turn_rate_limit=turn_rate_limit,
             algorithm=vi_algorithm,
+            grad_samples=(
+                FULLRANK_GRAD_SAMPLES
+                if vi_algorithm == "fullrank"
+                else MEANFIELD_GRAD_SAMPLES
+            ),
             seed=window_seed,
             require_converged=require_converged,
         )
@@ -178,7 +180,6 @@ def main(
             longitude=longitude,
             latitude=latitude,
             converged=converged,
-            speed_limit=speed_limit,
             observed_turn_rate=observed_turn_rate,
             posterior_diagnostics=posterior_diagnostics,
         )
@@ -416,7 +417,6 @@ def _build_route_prediction_table(
     longitude,
     latitude,
     converged,
-    speed_limit,
     observed_turn_rate,
     posterior_diagnostics,
 ):
@@ -450,7 +450,6 @@ def _build_route_prediction_table(
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
     table["converged"] = converged
-    table["speed_limit_m_s"] = speed_limit
     table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
     table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
     table["observed_turn_rate_robust_scale_rad_s"] = (
@@ -598,12 +597,6 @@ def _parse_arguments():
         default=VI_ALGORITHM,
     )
     parser.add_argument(
-        "--speed-limit",
-        type=float,
-        default=SPEED_LIMIT,
-        help="Physical upper speed limit in m/s.",
-    )
-    parser.add_argument(
         "--turn-rate-limit",
         type=float,
         default=TURN_RATE_LIMIT,
@@ -645,7 +638,6 @@ if __name__ == "__main__":
         prediction_count=arguments.predictions,
         stride=arguments.stride,
         vi_algorithm=arguments.vi_algorithm,
-        speed_limit=arguments.speed_limit,
         turn_rate_limit=arguments.turn_rate_limit,
         priors=replace(
             PRIORS,

@@ -26,9 +26,7 @@ from ship_trajectory_prediction.trajectory.window import (
 
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
-DEFAULT_SPEED_LIMIT = 100.0
 SPEED_STATE_INITIAL_LOWER = 0.001
-SPEED_STATE_INITIAL_UPPER_FRACTION = 0.9999
 INITIAL_SPEED_INTERVAL_COUNT = 3
 POSITION_JITTER_THRESHOLD_METERS = 1.0
 # At 10-second sampling, 0.06 rad/s permits at most 34.38 degrees per step.
@@ -182,7 +180,6 @@ def build_stan_data(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    speed_limit: float = DEFAULT_SPEED_LIMIT,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
@@ -201,7 +198,6 @@ def build_stan_data(
         priors = BayesianCTRVPriors()
     if not isinstance(priors, BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance or None.")
-    _validate_positive_finite("speed_limit", speed_limit)
 
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
@@ -272,7 +268,6 @@ def build_stan_data(
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
         "speed_initial_prior_mean": speed_initial_prior_mean,
-        "speed_limit": float(speed_limit),
         "heading_initial_prior_mean": heading_initial_prior_mean,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
         "turn_rate_limit": turn_rate_diagnostics.limit_rad_s,
@@ -336,7 +331,6 @@ def fit_bayesian_ctrv_model(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    speed_limit: float = DEFAULT_SPEED_LIMIT,
     turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     position_observations: PositionObservations | None = None,
     inference_method: str = "vi",
@@ -446,7 +440,6 @@ def fit_bayesian_ctrv_model(
     stan_data = build_stan_data(
         window,
         priors=priors,
-        speed_limit=speed_limit,
         turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
     )
@@ -727,9 +720,9 @@ def _observed_turn_rates(time_seconds, x_meters, y_meters) -> np.ndarray:
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     """Create seeded VI initials from observed positions and times only.
 
-    Stan maps an exact constrained zero to negative infinity on its internal
-    scale. Speed initials are therefore kept slightly inside the zero-inclusive
-    model bounds even when the position-derived path is stationary.
+    Speed uses unconstrained softplus coordinates in Stan. Physical speed
+    initials are therefore kept slightly above zero and transformed back to
+    the corresponding raw coordinates.
     """
     generator = np.random.default_rng(seed)
     time_observed = np.asarray(stan_data["time_observed"], dtype=float)
@@ -742,12 +735,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         initial_prior_mean=float(stan_data["speed_initial_prior_mean"]),
     )
     turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
-    speed_limit = float(stan_data["speed_limit"])
-    speed_initial_upper = SPEED_STATE_INITIAL_UPPER_FRACTION * speed_limit
-    speed_initial_lower = min(
-        SPEED_STATE_INITIAL_LOWER,
-        (1.0 - SPEED_STATE_INITIAL_UPPER_FRACTION) * speed_limit,
-    )
     state_count = int(stan_data["N_observed"])
 
     x_jitter = min(0.1, 0.02 * stan_data["position_initial_prior_scale"])
@@ -756,14 +743,14 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         1e-4,
         0.02 * stan_data["turn_rate_state_prior_scale"],
     )
+    speed_state_initial = np.maximum(
+        speed_initial + generator.normal(0, speed_jitter, state_count),
+        SPEED_STATE_INITIAL_LOWER,
+    )
     return {
         "x_state": x_observed + generator.normal(0, x_jitter, state_count),
         "y_state": y_observed + generator.normal(0, x_jitter, state_count),
-        "speed_state": np.clip(
-            speed_initial + generator.normal(0, speed_jitter, state_count),
-            speed_initial_lower,
-            speed_initial_upper,
-        ),
+        "speed_state_raw": _inverse_softplus(speed_state_initial),
         "heading_initial": float(stan_data["heading_initial_prior_mean"])
         + generator.normal(0, 0.01),
         "turn_rate_state": np.clip(
@@ -788,6 +775,12 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             0.5 * stan_data["sigma_turn_rate_process_prior_scale"],
         ),
     }
+
+
+def _inverse_softplus(values: np.ndarray) -> np.ndarray:
+    """Map strictly positive physical values to stable softplus coordinates."""
+    values = np.asarray(values, dtype=float)
+    return values + np.log(-np.expm1(-values))
 
 
 def _position_derived_speed_initials(
