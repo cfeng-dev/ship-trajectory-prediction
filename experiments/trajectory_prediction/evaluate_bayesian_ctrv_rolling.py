@@ -25,6 +25,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
+    DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
     diagnose_observed_turn_rate,
@@ -51,6 +52,7 @@ CREDIBLE_INTERVAL = 0.9
 VI_ALGORITHM = "meanfield"
 MEANFIELD_GRAD_SAMPLES = 1
 FULLRANK_GRAD_SAMPLES = 10
+VI_ADAPT_ITER = DEFAULT_VI_ADAPT_ITER
 TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT
 PRIORS = BayesianCTRVPriors()
 SEED = 42
@@ -116,6 +118,7 @@ def main(
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
     print(f"VI algorithm          : {vi_algorithm}")
+    print(f"VI adaptation steps   : {VI_ADAPT_ITER}")
     print(f"Turn-rate limit       : {turn_rate_limit:.5f} rad/s")
     print(
         "Turn-rate prior scale : "
@@ -157,6 +160,7 @@ def main(
                 if vi_algorithm == "fullrank"
                 else MEANFIELD_GRAD_SAMPLES
             ),
+            adapt_iter=VI_ADAPT_ITER,
             seed=window_seed,
             require_converged=require_converged,
         )

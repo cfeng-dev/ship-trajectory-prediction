@@ -107,8 +107,8 @@ parameters {
   vector[N_observed] y_state;  // Latent true y-position [m]
 
   // Latent kinematic states
-  vector[N_observed] speed_state_raw;  // Unconstrained softplus speed coordinates
-  real heading_initial;                                // Unknown initial heading [rad]
+  vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
+  real heading_initial;                     // Unknown initial heading [rad]
   vector<lower=-turn_rate_limit, upper=turn_rate_limit>[N_observed] turn_rate_state;  // Latent turn rate [rad/s]
 
   // Unknown observation-noise parameter
@@ -122,16 +122,9 @@ parameters {
 
 
 transformed parameters {
-  // Derive physical speed and heading states from inferred parameters.
+  // Deterministically derive the heading trajectory from inferred parameters.
 
-  vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
   vector[N_observed] heading_state;  // Derived heading at each observation time [rad]
-
-  // Softplus preserves the physical lower bound without an exponential
-  // right tail in the unconstrained coordinates used by variational inference.
-  for (n in 1:N_observed) {
-    speed_state[n] = log1p_exp(speed_state_raw[n]);
-  }
 
   heading_state[1] = heading_initial;  // Initialize with the inferred initial heading
 
@@ -164,7 +157,6 @@ model {
 
   // Initial latent speed: p(v_1), constrained to non-negative values
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
-  target += log_inv_logit(speed_state_raw[1]);  // Softplus Jacobian
 
   // Initial heading: p(heading_1)
   heading_initial ~ normal(heading_initial_prior_mean, heading_initial_prior_scale);
@@ -228,7 +220,6 @@ model {
 
     // Gaussian random walk for latent speed.
     speed_state[n] ~ normal(speed_state[n - 1], sigma_speed_process * sqrt(dt));
-    target += log_inv_logit(speed_state_raw[n]);  // Softplus Jacobian
 
     // Gaussian random walk for latent turn rate.
     turn_rate_state[n] ~ normal(turn_rate_state[n - 1], sigma_turn_rate_process * sqrt(dt));
@@ -314,9 +305,7 @@ generated quantities {
     real y_current = normal_rng(position[2], sigma_position_process * sqrt(dt));
 
     // Sample future latent speed and preserve only the physical lower bound
-    real speed_current = fmax(
-        0,
-        normal_rng(speed_previous, sigma_speed_process * sqrt(dt)));
+    real speed_current = fmax(0, normal_rng(speed_previous, sigma_speed_process * sqrt(dt)));
 
     // Deterministic heading propagation
     real heading_current = heading_previous + turn_rate_previous * dt;

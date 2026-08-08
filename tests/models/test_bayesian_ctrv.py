@@ -16,6 +16,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
+    DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
     BayesianCTRVPriors,
@@ -470,6 +471,20 @@ def test_fit_forwards_explicit_meanfield_controls(monkeypatch):
     assert arguments["show_console"] is True
 
 
+def test_fit_uses_stable_default_vi_adaptation_length(monkeypatch):
+    """The default VI fit should adapt long enough for positive speed states."""
+    fake_model = FakeModel()
+    monkeypatch.setattr(
+        model_module,
+        "compile_bayesian_ctrv_model",
+        lambda: fake_model,
+    )
+
+    fit_bayesian_ctrv_model(create_synthetic_window())
+
+    assert fake_model.arguments["adapt_iter"] == DEFAULT_VI_ADAPT_ITER
+
+
 def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):
     """The wrapper should call NUTS with independent seeded chain initials."""
     fake_model = FakeModel()
@@ -504,8 +519,8 @@ def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):
     assert arguments["show_console"] is True
     assert len(arguments["inits"]) == 3
     assert not np.array_equal(
-        arguments["inits"][0]["speed_state_raw"],
-        arguments["inits"][1]["speed_state_raw"],
+        arguments["inits"][0]["speed_state"],
+        arguments["inits"][1]["speed_state"],
     )
 
 
@@ -567,8 +582,8 @@ def test_fit_accepts_fullrank_and_reproducible_seeded_initials(monkeypatch):
         assert second_arguments["inits"][name] == pytest.approx(first_value)
 
 
-def test_fit_initializes_position_derived_speed_in_softplus_coordinates(monkeypatch):
-    """Softplus initials must represent positive position-derived speeds."""
+def test_fit_initializes_position_derived_speed_above_zero(monkeypatch):
+    """Position-derived speeds must initialize above Stan's lower bound."""
     fake_model = FakeModel()
     monkeypatch.setattr(
         model_module,
@@ -579,8 +594,7 @@ def test_fit_initializes_position_derived_speed_in_softplus_coordinates(monkeypa
 
     fit_bayesian_ctrv_model(window, seed=71)
 
-    initial_speed_raw = fake_model.arguments["inits"]["speed_state_raw"]
-    initial_speed = np.logaddexp(0.0, initial_speed_raw)
+    initial_speed = fake_model.arguments["inits"]["speed_state"]
     assert "speed_limit" not in fake_model.arguments["data"]
     assert np.all(initial_speed > 0)
     assert np.max(initial_speed) > 100.0
@@ -888,9 +902,9 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "lower=-turn_rate_limit" in source
     assert "upper=turn_rate_limit" in source
     assert "speed_limit" not in source
-    assert "vector[N_observed] speed_state_raw" in source
-    assert "speed_state[n] = log1p_exp(speed_state_raw[n])" in source
-    assert "target += log_inv_logit(speed_state_raw[n])" in source
+    assert "vector<lower=0>[N_observed] speed_state" in source
+    assert "speed_state_raw" not in source
+    assert "log1p_exp" not in source
     assert "real speed_current = fmax(" in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source

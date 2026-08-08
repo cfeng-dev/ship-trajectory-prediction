@@ -12,6 +12,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
     print_variational_diagnostics,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
     fit_bayesian_ctrv_model,
@@ -43,7 +44,7 @@ VI_ITER = 20_000
 VI_GRAD_SAMPLES = 1
 VI_ELBO_SAMPLES = 100
 VI_ETA = 1.0
-VI_ADAPT_ITER = 50
+VI_ADAPT_ITER = DEFAULT_VI_ADAPT_ITER
 VI_TOL_REL_OBJ = 0.01
 VI_EVAL_ELBO = 100
 VI_DRAWS = 1_000

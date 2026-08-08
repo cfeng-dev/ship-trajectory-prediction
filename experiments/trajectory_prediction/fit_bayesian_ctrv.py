@@ -27,6 +27,7 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
+    DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
     build_stan_data,
@@ -69,7 +70,7 @@ VI_CONFIG = {
     "grad_samples": 1,  # Samples per gradient estimate.
     "elbo_samples": 100,  # Samples per ELBO estimate.
     "eta": 1.0,  # Initial step size.
-    "adapt_iter": 50,  # Step-size adaptation iterations.
+    "adapt_iter": DEFAULT_VI_ADAPT_ITER,  # Step-size adaptation iterations.
     "tol_rel_obj": 0.01,  # Relative ELBO stopping tolerance.
     "eval_elbo": 100,  # ELBO evaluation interval.
     "draws": 1_000,  # Posterior draws to save.
