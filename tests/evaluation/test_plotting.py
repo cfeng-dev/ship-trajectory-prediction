@@ -180,6 +180,7 @@ def test_plot_prediction_uses_equal_spatial_scale_and_professional_labels():
         label.get_fontsize() == AXIS_TICK_FONT_SIZE
         for label in (*axis.get_xticklabels(), *axis.get_yticklabels())
     )
+    assert PLOT_FIGURE_SIZE == (11, 9)
     assert figure.get_size_inches() == pytest.approx(PLOT_FIGURE_SIZE)
     assert axis.get_legend()._loc == 1
     legend_labels = [text.get_text() for text in axis.get_legend().get_texts()]
