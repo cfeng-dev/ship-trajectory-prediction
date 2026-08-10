@@ -786,34 +786,6 @@ def test_summarize_predictions_includes_latent_states_and_position_observations(
     assert "speed_gps_reference" not in summary
 
 
-def test_summarize_predictions_can_include_external_gps_speed_reference():
-    """GPS speed should be optional and explicitly labelled as external."""
-    window = create_synthetic_window()
-    variables = {
-        name: np.ones((5, window.prediction_count))
-        for name in (
-            "x_state_prediction",
-            "y_state_prediction",
-            "speed_state_prediction",
-            "heading_state_prediction",
-            "turn_rate_state_prediction",
-            "x_observation_prediction",
-            "y_observation_prediction",
-        )
-    }
-
-    summary = summarize_predictions(
-        FakeFit(**variables),
-        window,
-        include_speed_gps_reference=True,
-    )
-
-    assert summary["speed_gps_reference"].to_numpy() == pytest.approx(
-        window.gps_speed_mps[window.prediction_slice]
-    )
-    assert "speed_actual" not in summary
-
-
 def test_summarize_predictions_rejects_wrong_prediction_shape():
     """Malformed generated quantities should fail before evaluation."""
     window = create_synthetic_window()

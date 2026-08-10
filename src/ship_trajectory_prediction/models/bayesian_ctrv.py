@@ -188,11 +188,10 @@ def build_stan_data(
     All data-derived prior centers use only ``position_observations``. If they
     are omitted, the observed portion of ``window`` is copied without adding
     noise. The available positions act as noisy proxy observations for a later
-    externally observed target-vessel trajectory. GPS speed is deliberately
-    excluded from Stan data, prior construction, and initialization. Position
-    is measured in meters, latent speed in meters per second, heading in radians,
-    turn rate in radians per second, and time in seconds. Process-noise standard
-    deviations are multiplied by ``sqrt(dt)`` in Stan.
+    externally observed target-vessel trajectory. Position is measured in
+    meters, latent speed in meters per second, heading in radians, turn rate in
+    radians per second, and time in seconds. Process-noise standard deviations
+    are multiplied by ``sqrt(dt)`` in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
@@ -481,18 +480,10 @@ def summarize_predictions(
     fit: Any,
     window: TrajectoryWindowData,
     credible_interval: float = 0.9,
-    *,
-    include_speed_gps_reference: bool = False,
 ) -> pd.DataFrame:
-    """Summarize future latent states and noisy position observations.
-
-    ``speed_gps_reference`` can be included for a post-fit plausibility check.
-    It is not an observed model variable and is never used for model fitting.
-    """
+    """Summarize future latent states and noisy position observations."""
     if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
-    if not isinstance(include_speed_gps_reference, bool):
-        raise TypeError("include_speed_gps_reference must be a boolean.")
 
     prediction_variables = {
         "x_state": "x_state_prediction",
@@ -516,8 +507,6 @@ def summarize_predictions(
         "x_actual": window.x_meters[prediction],
         "y_actual": window.y_meters[prediction],
     }
-    if include_speed_gps_reference:
-        table_data["speed_gps_reference"] = window.gps_speed_mps[prediction]
     for prefix, samples in prediction_samples.items():
         table_data[f"{prefix}_median"] = np.median(samples, axis=0)
         table_data[f"{prefix}_lower"] = np.quantile(
