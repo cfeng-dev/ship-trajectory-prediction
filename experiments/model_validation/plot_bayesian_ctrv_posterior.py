@@ -77,7 +77,8 @@ def main(*, vi_algorithm="meanfield", seed=42, require_converged=False):
                 ", ".join(str(count) for count in PRIOR_UPDATE_OBSERVATION_COUNTS),
             ),
             ("Noise priors", "Fixed half-normal distributions"),
-            ("State-prior centers", "Data-informed for each prefix"),
+            ("Initial speed prior", "Fixed across every prefix"),
+            ("Heading/turn centers", "Position-informed for each prefix"),
         ],
     )
 

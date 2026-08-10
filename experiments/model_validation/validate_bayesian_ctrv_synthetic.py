@@ -85,7 +85,7 @@ def main(
             ("Observation model", "position only"),
             (
                 "Initial speed center",
-                f"{stan_data['speed_initial_prior_mean']:.3f} m/s (from positions)",
+                f"{stan_data['speed_initial_prior_mean']:.3f} m/s (fixed prior)",
             ),
             (
                 "Initial turn-rate center",

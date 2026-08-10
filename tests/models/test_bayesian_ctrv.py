@@ -17,6 +17,7 @@ from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_TURN_RATE_LIMIT,
     DEFAULT_VI_ADAPT_ITER,
+    MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
     NOISE_PARAMETER_NAMES,
     STAN_FILE,
     BayesianCTRVPriors,
@@ -26,6 +27,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     compare_vi_runs,
     diagnose_observed_turn_rate,
     estimate_initial_speed_from_positions,
+    estimate_initial_speed_prior_from_windows,
     fit_bayesian_ctrv_model,
     normalize_inference_method,
     simulate_position_observations,
@@ -72,6 +74,16 @@ def create_synthetic_window(*, speed=3.0, turn_rate=0.012, variable_dt=False):
     )
 
 
+def create_linear_window(*, speed=3.0):
+    """Create a window with exact position-only constant-speed motion."""
+    window = create_synthetic_window(speed=speed, turn_rate=0.0)
+    return replace(
+        window,
+        x_meters=speed * window.time_seconds,
+        y_meters=np.zeros_like(window.y_meters),
+    )
+
+
 def test_build_stan_data_contains_only_position_history_and_future_times():
     """Stan data should expose position history but no GPS-speed input."""
     window = create_synthetic_window(variable_dt=True)
@@ -86,7 +98,7 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     assert stan_data["time_prediction"] == pytest.approx([27.0, 32.0, 38.0])
     assert "speed_observed" not in stan_data
     assert "sigma_speed_gps_prior_scale" not in stan_data
-    assert stan_data["speed_initial_prior_mean"] == pytest.approx(3.0, abs=0.01)
+    assert stan_data["speed_initial_prior_mean"] == 0.0
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(
         0.012,
         abs=1e-8,
@@ -260,10 +272,17 @@ def test_build_stan_data_rejects_non_positive_prior_scales(scale_name):
         BayesianCTRVPriors(**{scale_name: 0.0})
 
 
+def test_prior_configuration_rejects_negative_initial_speed_mean():
+    """The configured center of a non-negative speed must not be negative."""
+    with pytest.raises(ValueError, match="speed_initial_prior_mean"):
+        BayesianCTRVPriors(speed_initial_prior_mean=-0.1)
+
+
 def test_build_stan_data_uses_typed_prior_configuration():
     """One immutable configuration should supply every Stan prior scale."""
     priors = BayesianCTRVPriors(
         position_initial_prior_scale=4.0,
+        speed_initial_prior_mean=2.5,
         speed_initial_prior_scale=0.6,
         heading_initial_prior_scale=0.25,
         turn_rate_state_prior_scale=0.004,
@@ -347,7 +366,6 @@ def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
 
     assert stan_data["heading_initial_prior_mean"] == 0.0
     assert stan_data["turn_rate_initial_prior_mean"] == 0.0
-    assert stan_data["speed_initial_prior_mean"] == 0.0
 
 
 def test_initial_speed_is_estimated_from_straight_position_motion():
@@ -362,11 +380,12 @@ def test_initial_speed_is_estimated_from_straight_position_motion():
 
 
 def test_initial_speed_supports_variable_time_intervals():
-    """Segment distance divided by its own dt should handle irregular data."""
+    """Local linear regression should handle irregular timestamps."""
     speed = estimate_initial_speed_from_positions(
         [0.0, 2.0, 5.0, 9.0],
         [0.0, 4.0, 10.0, 18.0],
         [0.0, 0.0, 0.0, 0.0],
+        point_count=4,
     )
 
     assert speed == pytest.approx(2.0)
@@ -378,9 +397,10 @@ def test_initial_speed_retains_small_displacements_without_sensor_metadata():
         [0.0, 10.0, 20.0, 30.0],
         [0.0, 0.3, -0.2, 0.4],
         [0.0, -0.2, 0.1, 0.0],
+        point_count=4,
     )
 
-    assert speed == pytest.approx(np.sqrt(0.34) / 10.0)
+    assert speed == pytest.approx(np.hypot(0.007, 0.003))
 
 
 @pytest.mark.parametrize(
@@ -394,7 +414,129 @@ def test_initial_speed_rejects_invalid_or_non_increasing_times(time_seconds):
             time_seconds,
             [0.0, 2.0, 4.0],
             [0.0, 0.0, 0.0],
+            point_count=3,
         )
+
+
+def test_local_initial_speed_uses_only_first_configured_points():
+    """Later positions must not enter the local initial-speed regression."""
+    time_seconds = [0.0, 1.0, 2.0, 3.0, 4.0, -100.0]
+    x_meters = [0.0, 2.0, 4.0, 6.0, 8.0, np.nan]
+
+    local_speed = estimate_initial_speed_from_positions(
+        time_seconds,
+        x_meters,
+        [0.0, 0.0, 0.0, 0.0, 0.0, np.nan],
+        point_count=5,
+    )
+
+    assert local_speed == pytest.approx(2.0)
+
+
+def test_historical_initial_speed_prior_uses_one_estimate_per_window():
+    """Independent window starts should define the robust prior sample."""
+    historical_windows = [
+        create_linear_window(speed=2.0),
+        create_linear_window(speed=4.0),
+        create_linear_window(speed=6.0),
+    ]
+
+    prior = estimate_initial_speed_prior_from_windows(historical_windows)
+
+    assert prior.window_estimates_mps == pytest.approx([2.0, 4.0, 6.0])
+    assert len(prior.window_estimates_mps) == len(historical_windows)
+    assert prior.mean_mps == pytest.approx(4.0)
+    assert prior.scale_mps == pytest.approx(1.4826 * 2.0)
+
+
+def test_historical_speed_prior_ignores_held_out_positions():
+    """Changing prediction positions must leave historical statistics fixed."""
+    window = create_linear_window(speed=3.0)
+    changed_x = window.x_meters.copy()
+    changed_y = window.y_meters.copy()
+    changed_x[window.prediction_slice] += 100_000.0
+    changed_y[window.prediction_slice] -= 100_000.0
+    changed_window = replace(window, x_meters=changed_x, y_meters=changed_y)
+
+    reference = estimate_initial_speed_prior_from_windows([window])
+    changed = estimate_initial_speed_prior_from_windows([changed_window])
+
+    assert changed == reference
+
+
+def test_historical_speed_prior_is_robust_to_one_extreme_window():
+    """Median and MAD should limit the influence of one implausible window."""
+    moderate = [
+        create_linear_window(speed=2.0),
+        create_linear_window(speed=3.0),
+        create_linear_window(speed=4.0),
+    ]
+
+    prior = estimate_initial_speed_prior_from_windows(
+        [*moderate, create_linear_window(speed=1_000.0)]
+    )
+
+    assert prior.mean_mps == pytest.approx(3.5)
+    assert prior.scale_mps == pytest.approx(1.4826)
+
+
+def test_stationary_historical_windows_use_positive_scale_floor():
+    """A stationary historical sample should yield a valid nondegenerate prior."""
+    prior = estimate_initial_speed_prior_from_windows(
+        [create_linear_window(speed=0.0) for _ in range(3)]
+    )
+
+    assert prior.window_estimates_mps == pytest.approx([0.0, 0.0, 0.0])
+    assert prior.mean_mps == 0.0
+    assert prior.scale_mps == pytest.approx(MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
+
+
+def test_current_window_changes_initial_values_but_not_historical_prior():
+    """Current positions may initialize numerics but never redefine the prior."""
+    historical = estimate_initial_speed_prior_from_windows(
+        [create_linear_window(speed=2.0), create_linear_window(speed=4.0)]
+    )
+    priors = BayesianCTRVPriors(
+        speed_initial_prior_mean=historical.mean_mps,
+        speed_initial_prior_scale=historical.scale_mps,
+    )
+    slow_data = build_stan_data(create_linear_window(speed=1.0), priors=priors)
+    fast_data = build_stan_data(create_linear_window(speed=8.0), priors=priors)
+
+    slow_initials = model_module._default_initial_values(slow_data, seed=19)
+    fast_initials = model_module._default_initial_values(fast_data, seed=19)
+
+    assert slow_data["speed_initial_prior_mean"] == pytest.approx(
+        fast_data["speed_initial_prior_mean"]
+    )
+    assert slow_data["speed_initial_prior_scale"] == pytest.approx(
+        fast_data["speed_initial_prior_scale"]
+    )
+    assert slow_initials["speed_state"][0] != pytest.approx(
+        fast_initials["speed_state"][0]
+    )
+
+
+def test_historical_speed_prior_ignores_gps_speed():
+    """GPS-speed values must not influence position-only prior calibration."""
+    window = create_linear_window(speed=3.0)
+    changed_window = replace(
+        window,
+        gps_speed_mps=np.full_like(window.gps_speed_mps, 10_000.0),
+    )
+
+    reference = estimate_initial_speed_prior_from_windows([window])
+    changed = estimate_initial_speed_prior_from_windows([changed_window])
+
+    assert changed == reference
+
+
+def test_historical_speed_prior_requires_enough_observed_points():
+    """The configured local regression length must fit every history window."""
+    short_window = replace(create_linear_window(), observation_count=4)
+
+    with pytest.raises(ValueError, match="at least 5"):
+        estimate_initial_speed_prior_from_windows([short_window])
 
 
 @pytest.mark.parametrize("external_speed", [np.nan, -0.1, 500.0])

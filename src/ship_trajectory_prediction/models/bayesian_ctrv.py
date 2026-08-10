@@ -27,7 +27,9 @@ from ship_trajectory_prediction.trajectory.window import (
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
-INITIAL_SPEED_INTERVAL_COUNT = 3
+DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
+ROBUST_MAD_SCALE_FACTOR = 1.4826
+MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
 # At 10-second sampling, 0.06 rad/s permits at most 34.38 degrees per step.
 DEFAULT_TURN_RATE_LIMIT = 0.06
 DEFAULT_VI_ADAPT_ITER = 100
@@ -47,9 +49,14 @@ NOISE_PARAMETER_NAMES = (
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Configurable prior scales for the Bayesian CTRV state-space model."""
+    """Configurable prior parameters for the Bayesian CTRV state-space model.
+
+    The initial-speed mean and scale remain fixed during a fit and should be
+    calibrated from independent historical windows.
+    """
 
     position_initial_prior_scale: float = 5.0
+    speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
     heading_initial_prior_scale: float = 0.35
     turn_rate_state_prior_scale: float | None = None
@@ -59,14 +66,40 @@ class BayesianCTRVPriors:
     sigma_turn_rate_process_prior_scale: float = 0.001
 
     def __post_init__(self) -> None:
-        """Normalize and validate every explicitly configured prior scale."""
+        """Normalize and validate every explicitly configured prior value."""
         for prior_field in fields(self):
             field_name = prior_field.name
             value = getattr(self, field_name)
             if field_name == "turn_rate_state_prior_scale" and value is None:
                 continue
-            _validate_positive_finite(field_name, value)
+            if field_name == "speed_initial_prior_mean":
+                value = _validate_non_negative_finite(field_name, value)
+            else:
+                _validate_positive_finite(field_name, value)
             object.__setattr__(self, field_name, float(value))
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalInitialSpeedPrior:
+    """Robust initial-speed prior estimated from independent windows."""
+
+    mean_mps: float
+    scale_mps: float
+    window_estimates_mps: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        """Validate the robust summary and its per-window speed sample."""
+        mean_mps = _validate_non_negative_finite("mean_mps", self.mean_mps)
+        _validate_positive_finite("scale_mps", self.scale_mps)
+        estimates = tuple(
+            _validate_non_negative_finite("window_estimates_mps", value)
+            for value in self.window_estimates_mps
+        )
+        if not estimates:
+            raise ValueError("window_estimates_mps must not be empty.")
+        object.__setattr__(self, "mean_mps", mean_mps)
+        object.__setattr__(self, "scale_mps", float(self.scale_mps))
+        object.__setattr__(self, "window_estimates_mps", estimates)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,13 +218,13 @@ def build_stan_data(
 ) -> dict[str, Any]:
     """Build position-only data and priors for one observed trajectory window.
 
-    All data-derived prior centers use only ``position_observations``. If they
-    are omitted, the observed portion of ``window`` is copied without adding
-    noise. The available positions act as noisy proxy observations for a later
-    externally observed target-vessel trajectory. Position is measured in
-    meters, latent speed in meters per second, heading in radians, turn rate in
-    radians per second, and time in seconds. Process-noise standard deviations
-    are multiplied by ``sqrt(dt)`` in Stan.
+    The initial-speed mean and scale are fixed values from ``priors`` and must
+    be calibrated independently of ``window``. Other data-derived state centers
+    use only ``position_observations``. If observations are omitted, the
+    observed portion of ``window`` is copied without adding noise. Position is
+    measured in meters, latent speed in meters per second, heading in radians,
+    turn rate in radians per second, and time in seconds. Process-noise standard
+    deviations are multiplied by ``sqrt(dt)`` in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
@@ -218,11 +251,6 @@ def build_stan_data(
 
     _validate_finite_vector("x_observed", x_observed)
     _validate_finite_vector("y_observed", y_observed)
-    speed_initial_prior_mean = estimate_initial_speed_from_positions(
-        time_observed,
-        x_observed,
-        y_observed,
-    )
     turn_rate_diagnostics = diagnose_observed_turn_rate(
         window,
         turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
@@ -243,8 +271,9 @@ def build_stan_data(
     else:
         turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
 
-    prior_scales = {
+    prior_parameters = {
         "position_initial_prior_scale": priors.position_initial_prior_scale,
+        "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
         "heading_initial_prior_scale": priors.heading_initial_prior_scale,
         "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
@@ -266,11 +295,10 @@ def build_stan_data(
         "time_prediction": time_prediction,
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
-        "speed_initial_prior_mean": speed_initial_prior_mean,
         "heading_initial_prior_mean": heading_initial_prior_mean,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
         "turn_rate_limit": turn_rate_diagnostics.limit_rad_s,
-        **prior_scales,
+        **prior_parameters,
     }
 
 
@@ -279,33 +307,127 @@ def estimate_initial_speed_from_positions(
     x_meters,
     y_meters,
     *,
-    interval_count: int = INITIAL_SPEED_INTERVAL_COUNT,
+    point_count: int = DEFAULT_INITIAL_SPEED_POINT_COUNT,
 ) -> float:
-    """Estimate initial latent speed from early position-only intervals.
+    """Estimate local initial speed by regressing the first positions on time.
 
-    The estimate is the median of at most the first ``interval_count`` segment
-    speeds. Every finite displacement is retained because no sensor-specific
-    position resolution is available. Times must be finite and strictly
-    increasing; all positions must be finite and shape-aligned.
+    Separate linear fits ``x(t)`` and ``y(t)`` provide the two initial velocity
+    components. Only the first ``point_count`` values are used. This estimator
+    supports both independent historical prior calibration and current-window
+    numerical initialization; its caller determines which role the data serve.
     """
     if (
-        isinstance(interval_count, bool)
-        or not isinstance(interval_count, (int, np.integer))
-        or interval_count < 1
+        isinstance(point_count, bool)
+        or not isinstance(point_count, (int, np.integer))
+        or point_count < 2
     ):
-        raise ValueError("interval_count must be a positive integer.")
+        raise ValueError("point_count must be an integer of at least 2.")
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
     y_meters = np.asarray(y_meters, dtype=float)
-    _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
+    if (
+        time_seconds.ndim != 1
+        or x_meters.shape != time_seconds.shape
+        or y_meters.shape != time_seconds.shape
+        or time_seconds.size < point_count
+    ):
+        raise ValueError(
+            "time_seconds, x_meters, and y_meters must be matching vectors "
+            f"with at least {point_count} values."
+        )
 
-    time_differences = np.diff(time_seconds)
+    selected_time = time_seconds[:point_count]
+    selected_x = x_meters[:point_count]
+    selected_y = y_meters[:point_count]
+    _validate_matching_position_time_arrays(selected_time, selected_x, selected_y)
+    time_differences = np.diff(selected_time)
     if np.any(time_differences <= 0):
         raise ValueError("time_seconds must be strictly increasing.")
-    displacements = np.hypot(np.diff(x_meters), np.diff(y_meters))
-    segment_speeds = np.divide(displacements, time_differences)
-    selected = segment_speeds[: min(interval_count, segment_speeds.size)]
-    return float(np.median(selected))
+
+    centered_time = selected_time - np.mean(selected_time)
+    time_sum_of_squares = float(np.dot(centered_time, centered_time))
+    velocity_x_mps = float(
+        np.dot(centered_time, selected_x - np.mean(selected_x)) / time_sum_of_squares
+    )
+    velocity_y_mps = float(
+        np.dot(centered_time, selected_y - np.mean(selected_y)) / time_sum_of_squares
+    )
+    initial_speed_mps = float(np.hypot(velocity_x_mps, velocity_y_mps))
+    return _validate_non_negative_finite("initial_speed_mps", initial_speed_mps)
+
+
+def estimate_initial_speed_prior_from_windows(
+    historical_windows: Sequence[TrajectoryWindowData],
+    *,
+    point_count: int = DEFAULT_INITIAL_SPEED_POINT_COUNT,
+    minimum_scale_mps: float = MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+) -> HistoricalInitialSpeedPrior:
+    """Estimate a robust position-only speed prior from historical windows.
+
+    Exactly one local initial-speed estimate is obtained from the first
+    ``point_count`` observed positions of each independent historical window.
+    Prediction positions and GPS-speed values are never read. The returned
+    center is the median and the scale is ``1.4826 * MAD`` with only a small
+    positive numerical floor.
+    """
+    if (
+        isinstance(point_count, bool)
+        or not isinstance(point_count, (int, np.integer))
+        or point_count < 2
+    ):
+        raise ValueError("point_count must be an integer of at least 2.")
+    _validate_positive_finite("minimum_scale_mps", minimum_scale_mps)
+    minimum_scale_mps = float(minimum_scale_mps)
+    try:
+        windows = tuple(historical_windows)
+    except TypeError as error:
+        raise TypeError(
+            "historical_windows must be a collection of TrajectoryWindowData."
+        ) from error
+    if not windows:
+        raise ValueError("historical_windows must contain at least one window.")
+
+    estimates = []
+    for window_index, window in enumerate(windows):
+        if not isinstance(window, TrajectoryWindowData):
+            raise TypeError(
+                "historical_windows must contain only TrajectoryWindowData "
+                f"instances; item {window_index} has type "
+                f"{type(window).__name__}."
+            )
+        if window.observation_count < point_count:
+            raise ValueError(
+                f"Historical window {window_index} has "
+                f"{window.observation_count} observed positions; at least "
+                f"{point_count} are required."
+            )
+        observed = window.observed_slice
+        estimate_mps = estimate_initial_speed_from_positions(
+            window.time_seconds[observed],
+            window.x_meters[observed],
+            window.y_meters[observed],
+            point_count=point_count,
+        )
+        estimates.append(estimate_mps)
+
+    estimates_array = np.asarray(estimates, dtype=float)
+    prior_mean_mps = _validate_non_negative_finite(
+        "speed_initial_prior_mean",
+        np.median(estimates_array),
+    )
+    median_absolute_deviation = float(
+        np.median(np.abs(estimates_array - prior_mean_mps))
+    )
+    prior_scale_mps = max(
+        ROBUST_MAD_SCALE_FACTOR * median_absolute_deviation,
+        minimum_scale_mps,
+    )
+    _validate_positive_finite("speed_initial_prior_scale", prior_scale_mps)
+    return HistoricalInitialSpeedPrior(
+        mean_mps=prior_mean_mps,
+        scale_mps=float(prior_scale_mps),
+        window_estimates_mps=tuple(float(value) for value in estimates_array),
+    )
 
 
 def compile_bayesian_ctrv_model(
@@ -701,6 +823,8 @@ def _observed_turn_rates(time_seconds, x_meters, y_meters) -> np.ndarray:
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     """Create seeded VI initials from observed positions and times only.
 
+    The current-window speed estimate is only a numerical starting guess. It
+    does not alter the fixed historical Bayesian prior stored in ``stan_data``.
     Stan maps an exact constrained zero to negative infinity on its internal
     scale. Speed initials are therefore kept slightly above the zero lower
     bound even when the position-derived path is stationary.
@@ -709,11 +833,17 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     time_observed = np.asarray(stan_data["time_observed"], dtype=float)
     x_observed = np.asarray(stan_data["x_observed"], dtype=float)
     y_observed = np.asarray(stan_data["y_observed"], dtype=float)
+    initial_speed_mps = estimate_initial_speed_from_positions(
+        time_observed,
+        x_observed,
+        y_observed,
+        point_count=min(DEFAULT_INITIAL_SPEED_POINT_COUNT, time_observed.size),
+    )
     speed_initial = _position_derived_speed_initials(
         time_observed,
         x_observed,
         y_observed,
-        initial_prior_mean=float(stan_data["speed_initial_prior_mean"]),
+        initial_speed_mps=initial_speed_mps,
     )
     turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
     state_count = int(stan_data["N_observed"])
@@ -762,7 +892,7 @@ def _position_derived_speed_initials(
     x_meters,
     y_meters,
     *,
-    initial_prior_mean: float,
+    initial_speed_mps: float,
 ) -> np.ndarray:
     """Map position-derived segment speeds onto latent state timestamps."""
     time_seconds = np.asarray(time_seconds, dtype=float)
@@ -777,8 +907,8 @@ def _position_derived_speed_initials(
     segment_speeds = displacements / time_differences
     state_speeds = np.empty(time_seconds.size, dtype=float)
     state_speeds[0] = _validate_non_negative_finite(
-        "initial_prior_mean",
-        initial_prior_mean,
+        "initial_speed_mps",
+        initial_speed_mps,
     )
     state_speeds[1:] = segment_speeds
     return state_speeds

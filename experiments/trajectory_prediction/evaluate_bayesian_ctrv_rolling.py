@@ -62,6 +62,8 @@ EXPERIMENT = RollingExperimentConfig(
 )
 PRIORS = BayesianCTRVPriors(
     position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
+    # Fixed independently of every evaluated window; use historical calibration.
+    speed_initial_prior_mean=0.0,  # Initial speed center [m/s].
     speed_initial_prior_scale=0.75,  # Initial speed uncertainty [m/s].
     heading_initial_prior_scale=0.35,  # Initial heading uncertainty [rad].
     turn_rate_state_prior_scale=None,  # Derive from observed positions.
