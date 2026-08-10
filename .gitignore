@@ -20,6 +20,7 @@ src/*.egg-info/
 *.hpp
 *.o
 *.exe
+/stan/models/bayesian_ctrv
 /stan/examples/*
 !/stan/examples/*.stan
 
