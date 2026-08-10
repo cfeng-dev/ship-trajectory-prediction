@@ -8,6 +8,9 @@ import pytest
 from matplotlib.patches import Ellipse
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
+from ship_trajectory_prediction.evaluation.metrics import (
+    empirical_covariance_regions,
+)
 from ship_trajectory_prediction.evaluation.prediction_plotting import (
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
@@ -324,6 +327,28 @@ def test_prediction_regions_are_per_time_and_nested():
     plt.close(figure)
 
 
+def test_prediction_region_geometry_uses_shared_metric_definition():
+    """The plotted ellipse must use the same geometry as coverage evaluation."""
+    fit = ManyDrawFit()
+    figure, axis = plot_prediction(
+        FakeWindow(),
+        fit,
+        show_sample_trajectories=False,
+    )
+    region = empirical_covariance_regions(
+        fit.stan_variable("x_prediction_mean")[:, 0],
+        fit.stan_variable("y_prediction_mean")[:, 0],
+        probabilities=(0.9,),
+    )[0.9]
+    patch = _region(axis, probability=0.9, time_index=0)
+
+    assert patch.center == pytest.approx(region.center)
+    assert patch.width == pytest.approx(region.width)
+    assert patch.height == pytest.approx(region.height)
+    assert patch.angle == pytest.approx(region.angle_degrees)
+    plt.close(figure)
+
+
 def test_plot_prediction_labels_selected_prediction_regions():
     """Future regions should carry unique and correct elapsed-time labels."""
     figure, axis = plot_prediction(
@@ -365,7 +390,7 @@ def test_evaluation_mode_contains_ground_truth_and_window_metrics():
     assert "Prognosehorizont: 30 s" in footer
     assert "ADE: 0,07 m" in footer
     assert "FDE: 0,07 m" in footer
-    assert "Empirische Abdeckung (90 %):" in footer
+    assert "Empirische 2D-Abdeckung (90 %):" in footer
     assert "/3 Punkte)" in footer
     assert "Kalibrierung" not in footer
     plt.close(figure)

@@ -12,6 +12,7 @@ from ship_trajectory_prediction.coordinates import (
     local_to_gps_coordinates,
 )
 from ship_trajectory_prediction.evaluation.metrics import (
+    empirical_covariance_regions,
     evaluate_position_predictions,
 )
 from ship_trajectory_prediction.evaluation.reporting import (
@@ -536,19 +537,21 @@ def _draw_prediction_regions(
     }
     centers = []
     for time_index in range(x_samples.shape[1]):
-        center, ellipse_parameters = _empirical_covariance_regions(
+        regions = empirical_covariance_regions(
             x_samples[:, time_index],
             y_samples[:, time_index],
+            probabilities=PREDICTION_REGION_LEVELS,
         )
+        center = regions[0.9].center
         centers.append(center)
         for probability in (0.9, 0.5):
             color, alpha, _ = region_styles[probability]
-            width, height, angle = ellipse_parameters[probability]
+            region = regions[probability]
             ellipse = Ellipse(
                 xy=center,
-                width=width,
-                height=height,
-                angle=angle,
+                width=region.width,
+                height=region.height,
+                angle=region.angle_degrees,
                 facecolor=color,
                 edgecolor=color,
                 linewidth=PREDICTION_REGION_EDGE_LINE_WIDTH,
@@ -578,41 +581,6 @@ def _draw_prediction_regions(
             label=region_styles[0.9][2],
         ),
     ]
-
-
-def _empirical_covariance_regions(x_values, y_values):
-    """Approximate joint empirical regions with covariance-shaped ellipses.
-
-    Orientation and eccentricity come from the joint two-dimensional sample
-    covariance. The ellipse radii use empirical quantiles of the corresponding
-    Mahalanobis distances rather than a Gaussian chi-square assumption.
-    """
-    samples = np.column_stack((x_values, y_values))
-    center = np.median(samples, axis=0)
-    centered_samples = samples - center
-    covariance = centered_samples.T @ centered_samples / max(len(samples) - 1, 1)
-    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-    largest_eigenvalue = max(float(np.max(eigenvalues)), 1e-6)
-    eigenvalues = np.maximum(eigenvalues, largest_eigenvalue * 1e-6)
-    projected_samples = centered_samples @ eigenvectors
-    squared_distances = np.sum(projected_samples**2 / eigenvalues, axis=1)
-    angle_degrees = float(
-        np.degrees(np.arctan2(eigenvectors[1, 1], eigenvectors[0, 1]))
-    )
-
-    ellipse_parameters = {}
-    for probability in PREDICTION_REGION_LEVELS:
-        squared_radius = max(
-            float(np.quantile(squared_distances, probability)),
-            1e-12,
-        )
-        half_axes = np.sqrt(squared_radius * eigenvalues)
-        ellipse_parameters[probability] = (
-            2 * float(half_axes[1]),
-            2 * float(half_axes[0]),
-            angle_degrees,
-        )
-    return center, ellipse_parameters
 
 
 def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):
@@ -709,6 +677,7 @@ def _evaluation_annotation(
         100 * evaluation.radial_coverage,
         decimal_places=1,
     )
+    interval_percent = _format_general_decimal_comma(100 * evaluation.credible_interval)
     return "\n".join(
         (
             _timing_annotation(
@@ -720,7 +689,7 @@ def _evaluation_annotation(
                 (
                     f"ADE: {ade_m} m",
                     f"FDE: {fde_m} m",
-                    "Empirische Abdeckung (90 %): "
+                    f"Empirische 2D-Abdeckung ({interval_percent} %): "
                     f"{coverage_percent} % "
                     f"({covered_count}/{prediction_count} Punkte)",
                 )

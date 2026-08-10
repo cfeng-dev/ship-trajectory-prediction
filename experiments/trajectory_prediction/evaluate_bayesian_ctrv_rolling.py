@@ -96,7 +96,7 @@ MCMC_CONFIG = {
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT  # Symmetric turn-rate limit [rad/s].
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
-PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
+PLOT_EACH_WINDOW = True  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
 
 
@@ -606,10 +606,10 @@ def _print_summary(summary, *, credible_interval):
     print(f"Overall ADE              : {summary.ade_m:.2f} m")
     print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
     print(
-        f"Radial {100 * credible_interval:g}% coverage      : "
+        f"Joint 2D {100 * credible_interval:g}% coverage    : "
         f"{summary.radial_coverage:.1%}"
     )
-    print(f"Mean prediction radius   : {summary.mean_prediction_radius_m:.2f} m")
+    print(f"Mean equivalent radius  : {summary.mean_prediction_radius_m:.2f} m")
     print(f"Mean marginal width      : {summary.mean_marginal_interval_width_m:.2f} m")
     if summary.vi_convergence_rate is not None:
         print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")

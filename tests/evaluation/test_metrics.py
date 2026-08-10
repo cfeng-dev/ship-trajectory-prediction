@@ -6,6 +6,7 @@ import pytest
 
 from ship_trajectory_prediction.evaluation.metrics import (
     PositionEvaluation,
+    empirical_covariance_regions,
     evaluate_position_predictions,
     format_position_evaluation,
     print_position_evaluation,
@@ -13,7 +14,7 @@ from ship_trajectory_prediction.evaluation.metrics import (
 
 
 def test_evaluate_position_predictions_calculates_shared_metrics():
-    """ADE, FDE, horizons, and radial coverage should use held-out positions."""
+    """ADE, FDE, horizons, and joint coverage should use held-out positions."""
     window = FakeWindow()
     fit = FakeFit(
         x_prediction=np.array(
@@ -38,11 +39,28 @@ def test_evaluate_position_predictions_calculates_shared_metrics():
     assert evaluation.errors_m == pytest.approx([1.0, 2.0])
     assert evaluation.ade_m == pytest.approx(1.5)
     assert evaluation.fde_m == pytest.approx(2.0)
-    assert evaluation.radial_coverage == pytest.approx(0.5)
+    assert evaluation.radial_coverage == pytest.approx(0.0)
     assert evaluation.prediction_table["horizon_seconds"].tolist() == [10.0, 20.0]
-    assert evaluation.prediction_table["radial_covered"].tolist() == [True, False]
-    assert evaluation.mean_prediction_radius_m == pytest.approx(np.sqrt(2))
+    assert evaluation.prediction_table["radial_covered"].tolist() == [False, False]
+    assert evaluation.mean_prediction_radius_m > 0
     assert evaluation.mean_marginal_interval_width_m > 0
+
+
+def test_joint_coverage_uses_covariance_ellipse_membership():
+    """Coverage should respect anisotropic joint posterior geometry."""
+    phase = np.linspace(0.0, 2 * np.pi, 100, endpoint=False)
+    x_samples = 4.0 * np.cos(phase)
+    y_samples = np.sin(phase)
+    region = empirical_covariance_regions(
+        x_samples,
+        y_samples,
+        probabilities=(0.9,),
+    )[0.9]
+
+    assert region.contains(3.5, 0.0)
+    assert not region.contains(0.0, 1.1)
+    assert region.width == pytest.approx(8.0, rel=0.02)
+    assert region.height == pytest.approx(2.0, rel=0.02)
 
 
 def test_evaluate_position_predictions_accepts_position_only_variable_names():
@@ -133,7 +151,7 @@ def test_format_and_print_position_evaluation(capsys):
 
     assert "ADE" in report
     assert "FDE" in report
-    assert "Radial 90% coverage" in report
+    assert "Joint 2D 90% coverage" in report
     assert "Per-horizon accuracy" in report
     assert report in captured
 
