@@ -773,8 +773,11 @@ def _print_detailed_statistics(result):
         f"{np.quantile(np.abs(result.turn_rate_rad_s), 0.9):.6f} rad/s",
     )
     print("\nSuggested empirical prior:")
-    _print_row("Prior center", f"{turn.median:+.6f} rad/s")
-    _print_row("Prior scale", f"{turn_prior_scale:.6f} rad/s")
+    _print_row(
+        "Suggested prior",
+        _format_turn_rate_prior(turn.median, turn_prior_scale),
+    )
+    print("This is a two-sided truncated Normal distribution.")
     print("\nCurrent model settings for comparison (not empirical results):")
     _print_row(
         "Scale rule",
@@ -818,8 +821,10 @@ def _print_compact_summary(result):
         "90% |turn rate|",
         f"{np.quantile(np.abs(result.turn_rate_rad_s), 0.9):.6f} rad/s",
     )
-    _print_row("Suggested prior center", f"{turn.median:+.6f} rad/s")
-    _print_row("Suggested prior scale", f"{turn_scale:.6f} rad/s")
+    _print_row(
+        "Suggested prior",
+        _format_turn_rate_prior(turn.median, turn_scale),
+    )
 
     candidates = _process_candidates(result)
     if candidates:
@@ -914,6 +919,14 @@ def _process_candidates(result):
         if scale is not None:
             candidates[name] = scale
     return candidates
+
+
+def _format_turn_rate_prior(center, scale):
+    """Format the bounded Normal turn-rate prior for terminal summaries."""
+    limit = DEFAULT_TURN_RATE_LIMIT
+    return (
+        f"Normal({center:.6f}, {scale:.6f}), bounds [-{limit:.3f}, +{limit:.3f}] rad/s"
+    )
 
 
 def _normal_density(values, center, scale):
