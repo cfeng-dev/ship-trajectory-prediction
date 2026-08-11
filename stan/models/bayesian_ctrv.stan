@@ -1,18 +1,20 @@
 functions {
   /**
    * Compute the conditional mean of the next 2D position under the
-   * constant-turn-rate-and-velocity (CTRV) model.
+   * constant-turn-rate-and-velocity (CTRV) model, including its
+   * straight-line CV limit for near-zero turn rate.
+   *
    * Speed and turn rate are assumed constant over the interval dt.
    *
    * Used in the model block for latent-state transitions and in
    * generated quantities for posterior predictive forecasting.
    *
-   * @param  dt        Time interval [s].
-   * @param  x         Current latent x-position [m].
-   * @param  y         Current latent y-position [m].
-   * @param  speed     Current latent speed [m/s].
-   * @param  heading   Current latent heading [rad].
-   * @param  turn_rate Current latent turn rate [rad/s].
+   * @param  dt        Time interval [s]
+   * @param  x         Current latent x-position [m]
+   * @param  y         Current latent y-position [m]
+   * @param  speed     Current latent speed [m/s]
+   * @param  heading   Current latent heading [rad]
+   * @param  turn_rate Current latent turn rate [rad/s]
    *
    * @return Length-2 vector with the conditional mean of next latent position:
    *         position[1] = next latent x-position mean [m],
@@ -22,11 +24,11 @@ functions {
     vector[2] position;
 
     if (abs(turn_rate) > 1e-6) {
-      // Circular-motion update for non-zero turn rate.
+      // CTRV motion for non-zero turn rate.
       position[1] = x + speed / turn_rate * (sin(heading + turn_rate * dt) - sin(heading));
       position[2] = y + speed / turn_rate * (-cos(heading + turn_rate * dt) + cos(heading));
     } else {
-      // Straight-line limit; avoids division by a near-zero turn rate.
+      // Straight-line CV limit of CTRV for near-zero turn rate.
       position[1] = x + speed * dt * cos(heading);
       position[2] = y + speed * dt * sin(heading);
     }
