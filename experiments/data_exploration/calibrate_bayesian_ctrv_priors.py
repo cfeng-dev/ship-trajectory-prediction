@@ -16,6 +16,7 @@ from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_FINAL_HEADING_POINT_COUNT,
     DEFAULT_INITIAL_SPEED_POINT_COUNT,
     MAX_TURN_RATE_PRIOR_SCALE,
     MIN_COURSE_DISPLACEMENT_METERS,
@@ -28,6 +29,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
 from ship_trajectory_prediction.models.ctrv import CTRVState, ctrv_step
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import read_ship_data
+from ship_trajectory_prediction.trajectory.window import estimate_initial_heading
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
@@ -37,6 +39,7 @@ DATA_FILE = project_path(
 RUN_ID_RANGE = range(0, 100)
 
 INITIAL_SPEED_POINT_COUNT = DEFAULT_INITIAL_SPEED_POINT_COUNT
+FINAL_HEADING_POINT_COUNT = DEFAULT_FINAL_HEADING_POINT_COUNT
 INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS = 0.1
 MAX_TIME_GAP_SECONDS = 15.0
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
@@ -83,11 +86,13 @@ class CalibrationResult:
     per_run: pd.DataFrame
     skipped_runs: tuple[tuple[int, str], ...]
     initial_speed_mps: np.ndarray
+    heading_residual_rad: np.ndarray
     turn_rate_rad_s: np.ndarray
     position_innovation: np.ndarray
     speed_innovation: np.ndarray
     turn_rate_innovation: np.ndarray
     initial_speed_summary: DistributionSummary
+    heading_residual_summary: DistributionSummary
     turn_rate_summary: DistributionSummary
 
     @property
@@ -147,6 +152,7 @@ def calibrate_position_only_priors(
     rows = []
     skipped_runs = []
     initial_speeds = []
+    pooled_heading_residuals = []
     pooled_turn_rates = []
     pooled_position_innovations = []
     pooled_speed_innovations = []
@@ -185,6 +191,11 @@ def calibrate_position_only_priors(
             max_time_gap_s=MAX_TIME_GAP_SECONDS,
         )
         finite_turn_rate = turn_rate[np.isfinite(turn_rate)]
+        heading_residual = _derive_heading_residuals(
+            time_seconds,
+            x_meters,
+            y_meters,
+        )
         process = _derive_process_innovations(
             time_seconds,
             x_meters,
@@ -193,6 +204,7 @@ def calibrate_position_only_priors(
         )
 
         initial_speeds.append(initial_speed)
+        pooled_heading_residuals.append(heading_residual)
         pooled_turn_rates.append(finite_turn_rate)
         pooled_position_innovations.append(process["position"])
         pooled_speed_innovations.append(process["speed"])
@@ -202,6 +214,7 @@ def calibrate_position_only_priors(
                 run_id,
                 n_positions=len(ordered),
                 initial_speed=initial_speed,
+                heading_residual=heading_residual,
                 turn_rate=finite_turn_rate,
                 process=process,
             )
@@ -214,6 +227,11 @@ def calibrate_position_only_priors(
         )
 
     speed_values = np.asarray(initial_speeds, dtype=float)
+    heading_residual_values = _concatenate_available(pooled_heading_residuals)
+    if heading_residual_values.size == 0:
+        raise ValueError(
+            "No valid forecast-origin heading residuals found in the selected runs."
+        )
     turn_rate_values = _concatenate_available(pooled_turn_rates)
     if turn_rate_values.size == 0:
         raise ValueError("No valid turn-rate samples found in the selected runs.")
@@ -224,11 +242,15 @@ def calibrate_position_only_priors(
         per_run=pd.DataFrame(rows),
         skipped_runs=tuple(skipped_runs),
         initial_speed_mps=speed_values,
+        heading_residual_rad=heading_residual_values,
         turn_rate_rad_s=turn_rate_values,
         position_innovation=_concatenate_available(pooled_position_innovations),
         speed_innovation=_concatenate_available(pooled_speed_innovations),
         turn_rate_innovation=_concatenate_available(pooled_turn_rate_innovations),
         initial_speed_summary=_summarize_distribution(speed_values),
+        heading_residual_summary=_summarize_circular_distribution(
+            heading_residual_values
+        ),
         turn_rate_summary=_summarize_distribution(turn_rate_values),
     )
 
@@ -257,6 +279,14 @@ def _iter_calibration_figures(
     yield (
         "initial_speed_prior",
         _plot_initial_speed(
+            result,
+            run_label,
+            show_prior_density=show_prior_density,
+        ),
+    )
+    yield (
+        "forecast_origin_heading_prior",
+        _plot_heading_residual(
             result,
             run_label,
             show_prior_density=show_prior_density,
@@ -360,6 +390,40 @@ def _estimate_run_initial_speed(time_seconds, x_meters, y_meters):
         y_meters,
         point_count=INITIAL_SPEED_POINT_COUNT,
     )
+
+
+def _derive_heading_residuals(time_seconds, x_meters, y_meters):
+    """Compare each recent-position heading with its final segment course.
+
+    Both quantities use observed positions only. Their wrapped difference is a
+    historical consistency diagnostic for the forecast-origin heading center,
+    not an error against an unavailable ground-truth heading.
+    """
+    residuals = []
+    for end_index in range(FINAL_HEADING_POINT_COUNT - 1, len(time_seconds)):
+        start_index = end_index - FINAL_HEADING_POINT_COUNT + 1
+        window_slice = slice(start_index, end_index + 1)
+        time_steps = np.diff(time_seconds[window_slice])
+        delta_x = np.diff(x_meters[window_slice])
+        delta_y = np.diff(y_meters[window_slice])
+        displacement = np.hypot(delta_x, delta_y)
+        if not (
+            np.all(np.isfinite(time_steps))
+            and np.all((time_steps > 0) & (time_steps <= MAX_TIME_GAP_SECONDS))
+            and np.all(np.isfinite(displacement))
+            and np.all(displacement >= MIN_COURSE_DISPLACEMENT_METERS)
+        ):
+            continue
+        try:
+            recent_heading = estimate_initial_heading(
+                x_meters[window_slice],
+                y_meters[window_slice],
+            )
+        except ValueError:
+            continue
+        final_segment_heading = float(np.arctan2(delta_y[-1], delta_x[-1]))
+        residuals.append(_wrap_angle(final_segment_heading - recent_heading))
+    return _finite_values(residuals)
 
 
 def _derive_process_innovations(
@@ -466,10 +530,12 @@ def _valid_run_row(
     *,
     n_positions,
     initial_speed,
+    heading_residual,
     turn_rate,
     process,
 ):
     """Build one successful per-run output row."""
+    heading_summary = _summarize_optional_circular_distribution(heading_residual)
     turn_summary = _summarize_optional_distribution(turn_rate)
     return {
         "run_id": run_id,
@@ -477,6 +543,16 @@ def _valid_run_row(
         "skip_reason": "",
         "n_positions": n_positions,
         "initial_speed_mps": initial_speed,
+        "heading_residual_count": len(heading_residual),
+        "median_heading_residual_rad": _summary_value(
+            heading_summary,
+            "median",
+        ),
+        "heading_residual_mad_rad": _summary_value(heading_summary, "mad"),
+        "heading_residual_q90_abs_rad": _safe_quantile(
+            np.abs(heading_residual),
+            0.9,
+        ),
         "turn_rate_count": len(turn_rate),
         "median_turn_rate_rad_s": _summary_value(turn_summary, "median"),
         "turn_rate_mad_rad_s": _summary_value(turn_summary, "mad"),
@@ -502,6 +578,10 @@ def _skipped_run_row(run_id, reason, *, n_positions=0):
         "skip_reason": reason,
         "n_positions": n_positions,
         "initial_speed_mps": np.nan,
+        "heading_residual_count": 0,
+        "median_heading_residual_rad": np.nan,
+        "heading_residual_mad_rad": np.nan,
+        "heading_residual_q90_abs_rad": np.nan,
         "turn_rate_count": 0,
         "median_turn_rate_rad_s": np.nan,
         "turn_rate_mad_rad_s": np.nan,
@@ -537,10 +617,47 @@ def _summarize_distribution(values) -> DistributionSummary:
     )
 
 
+def _summarize_circular_distribution(values) -> DistributionSummary:
+    """Return angle statistics without a discontinuity at minus/plus pi."""
+    values = _finite_values(values)
+    if values.size == 0:
+        raise ValueError("Circular statistics require finite angles.")
+    sine_mean = float(np.mean(np.sin(values)))
+    cosine_mean = float(np.mean(np.cos(values)))
+    mean_direction = float(np.arctan2(sine_mean, cosine_mean))
+    resultant_length = float(np.hypot(sine_mean, cosine_mean))
+    resultant_length = float(np.clip(resultant_length, np.finfo(float).tiny, 1.0))
+    circular_standard_deviation = float(np.sqrt(-2.0 * np.log(resultant_length)))
+
+    around_mean = mean_direction + _wrap_angles(values - mean_direction)
+    median = _wrap_angle(float(np.median(around_mean)))
+    around_median = median + _wrap_angles(values - median)
+    absolute_deviation = np.abs(_wrap_angles(values - median))
+    mad = float(np.median(absolute_deviation))
+    return DistributionSummary(
+        count=int(values.size),
+        minimum=float(np.min(around_median)),
+        maximum=float(np.max(around_median)),
+        mean=mean_direction,
+        standard_deviation=circular_standard_deviation,
+        median=median,
+        q25=float(np.quantile(around_median, 0.25)),
+        q75=float(np.quantile(around_median, 0.75)),
+        mad=mad,
+        robust_scale=float(ROBUST_MAD_SCALE_FACTOR * mad),
+    )
+
+
 def _summarize_optional_distribution(values):
     """Return a summary when at least one finite sample is available."""
     values = _finite_values(values)
     return _summarize_distribution(values) if values.size else None
+
+
+def _summarize_optional_circular_distribution(values):
+    """Return circular statistics when at least one angle is available."""
+    values = _finite_values(values)
+    return _summarize_circular_distribution(values) if values.size else None
 
 
 def _candidate_scale(values):
@@ -673,6 +790,67 @@ def _plot_turn_rate(
     return figure
 
 
+def _plot_heading_residual(
+    result,
+    run_label,
+    *,
+    show_prior_density,
+):
+    """Plot wrapped recent-heading residuals and their robust Normal model."""
+    summary = result.heading_residual_summary
+    centered = summary.median + _wrap_angles(
+        result.heading_residual_rad - summary.median
+    )
+    display_limit = float(np.quantile(np.abs(centered), PLOT_CENTRAL_QUANTILE))
+    display_limit = max(display_limit, np.finfo(float).eps)
+    plotted = centered[np.abs(centered) <= display_limit]
+    if show_prior_density:
+        prior_scale = max(summary.robust_scale, np.finfo(float).eps)
+        display_limit = max(
+            display_limit,
+            abs(summary.median) + 4 * prior_scale,
+        )
+
+    figure, axis = plt.subplots(figsize=FIGURE_SIZE)
+    axis.hist(
+        plotted,
+        bins=_histogram_bin_count(plotted),
+        density=True,
+        color=HISTOGRAM_COLOR,
+        alpha=0.72,
+        edgecolor="white",
+        linewidth=0.6,
+        label="Historische Heading-Abweichungen\n(zentrale 99 %)",
+    )
+    if show_prior_density:
+        x_values = np.linspace(-display_limit, display_limit, 500)
+        axis.plot(
+            x_values,
+            _normal_density(x_values, summary.median, prior_scale),
+            color=PRIOR_COLOR,
+            linewidth=2,
+            label="Empfohlene Fehlerverteilung\n(Normal, robuste Skala)",
+        )
+    axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Null")
+    axis.axvline(
+        summary.median,
+        color=MEDIAN_COLOR,
+        linewidth=1.6,
+        label=f"Median = {summary.median:+.4f} rad",
+    )
+    _style_axis(
+        axis,
+        title=f"Historische Heading-Abweichungen am Prognosebeginn ({run_label})",
+        x_label="Heading-Abweichung [rad]",
+        y_label="Dichte",
+        x_limits=(-display_limit, display_limit),
+    )
+    axis.grid(axis="y", alpha=0.2)
+    _add_legend(axis)
+    figure.tight_layout()
+    return figure
+
+
 def _plot_process_diagnostic(values, *, title, x_label):
     """Plot one process-innovation sample without implying identification."""
     values = _finite_values(values)
@@ -757,14 +935,16 @@ def _print_skipped_runs(valid_run_count, skipped_runs):
 
 
 def _print_detailed_statistics(result):
-    """Print complete initial-speed and turn-rate empirical summaries."""
+    """Print complete speed, heading, and turn-rate empirical summaries."""
     speed = result.initial_speed_summary
+    heading = result.heading_residual_summary
     turn = result.turn_rate_summary
     speed_prior_scale = max(
         speed.robust_scale,
         MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
     )
     turn_prior_scale = max(turn.robust_scale, np.finfo(float).eps)
+    heading_prior_scale = max(heading.robust_scale, np.finfo(float).eps)
 
     print("\nInitial-speed prior calibration")
     print("-" * 31)
@@ -788,6 +968,41 @@ def _print_detailed_statistics(result):
     )
     if speed.median > 0:
         print("This is a lower-truncated Normal, not a Half-Normal distribution.")
+
+    print("\nForecast-origin heading calibration")
+    print("-" * 35)
+    print(
+        "Residual = wrapped final-segment course minus the recent "
+        f"{FINAL_HEADING_POINT_COUNT}-point heading."
+    )
+    _print_row("Runs with residuals", _heading_valid_run_count(result))
+    _print_row("Valid residuals", heading.count)
+    _print_row("Circular mean", _format_signed_angle(heading.mean))
+    _print_row(
+        "Circular standard deviation",
+        _format_angle_scale(heading.standard_deviation),
+    )
+    _print_row("Median residual", _format_signed_angle(heading.median))
+    _print_row("Q25", _format_signed_angle(heading.q25))
+    _print_row("Q75", _format_signed_angle(heading.q75))
+    _print_row("Circular MAD", _format_angle_scale(heading.mad))
+    _print_row("Robust scale", _format_angle_scale(heading.robust_scale))
+    _print_row(
+        "90% |centered residual|",
+        _format_angle_scale(_heading_q90_absolute_residual(result)),
+    )
+    print("\nSuggested empirical heading-error model:")
+    _print_row(
+        "Suggested distribution",
+        _format_heading_error_model(heading.median, heading_prior_scale),
+    )
+    _print_row(
+        "heading_final_prior_scale",
+        f"{heading_prior_scale:.6f} rad",
+    )
+    print("The center remains the recent-position heading of the current window.")
+    print("This residual is a position-only consistency proxy, not ground truth.")
+    print("Overlapping windows are pooled; samples within one run are correlated.")
 
     print("\nHistorical turn-rate distribution")
     print("-" * 33)
@@ -825,6 +1040,7 @@ def _print_detailed_statistics(result):
 def _print_compact_summary(result):
     """Print the final screenshot-friendly calibration summary."""
     speed = result.initial_speed_summary
+    heading = result.heading_residual_summary
     turn = result.turn_rate_summary
     speed_scale = max(speed.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
     speed_standard_scale = max(
@@ -833,6 +1049,11 @@ def _print_compact_summary(result):
     )
     turn_scale = max(turn.robust_scale, np.finfo(float).eps)
     turn_standard_scale = max(turn.standard_deviation, np.finfo(float).eps)
+    heading_scale = max(heading.robust_scale, np.finfo(float).eps)
+    heading_circular_scale = max(
+        heading.standard_deviation,
+        np.finfo(float).eps,
+    )
 
     print("\n" + "=" * 72)
     print("Bayesian CTRV Historical Prior Calibration")
@@ -855,6 +1076,31 @@ def _print_compact_summary(result):
     _print_row(
         "Sensitivity alternative (SD)",
         f"Normal({speed.median:.3f}, {speed_standard_scale:.3f}), lower bound 0",
+    )
+    print("\nForecast-origin heading")
+    print("-" * 23)
+    _print_row("Runs with residuals", _heading_valid_run_count(result))
+    _print_row("Median residual", _format_signed_angle(heading.median))
+    _print_row("Circular MAD", _format_angle_scale(heading.mad))
+    _print_row(
+        "Robust scale (1.4826 · MAD)",
+        _format_angle_scale(heading_scale),
+    )
+    _print_row(
+        "Circular standard deviation",
+        _format_angle_scale(heading.standard_deviation),
+    )
+    _print_row(
+        "90% |centered residual|",
+        _format_angle_scale(_heading_q90_absolute_residual(result)),
+    )
+    _print_row(
+        "Suggested prior (robust)",
+        _format_heading_error_model(heading.median, heading_scale),
+    )
+    _print_row(
+        "Sensitivity alt. (circ. SD)",
+        _format_heading_error_model(heading.median, heading_circular_scale),
     )
     print("\nTurn rate")
     print("-" * 9)
@@ -896,6 +1142,7 @@ def _print_compact_summary(result):
             )
     print("\nDiagnostics use reconstructed kinematics and mix process mismatch with")
     print("GPS measurement error; they are empirical candidates, not ground truth.")
+    print("Heading residuals pool overlapping, correlated windows within each run.")
     print("sigma_position_gps is intentionally not calibrated from these trajectories.")
     print("Keep calibration runs disjoint from later evaluation runs.")
     print("=" * 72)
@@ -918,6 +1165,34 @@ def _process_candidates(result):
 def _format_turn_rate_prior(center, scale):
     """Format the unbounded Normal turn-rate prior for terminal summaries."""
     return f"Normal({center:.6f}, {scale:.6f}) rad/s"
+
+
+def _format_heading_error_model(center, scale):
+    """Format the data-informed forecast-origin heading distribution."""
+    return f"Normal(recent heading {center:+.6f}, {scale:.6f}) rad"
+
+
+def _format_signed_angle(value):
+    """Format one signed angle in radians and degrees."""
+    return f"{value:+.6f} rad ({np.degrees(value):+.3f} deg)"
+
+
+def _format_angle_scale(value):
+    """Format one non-negative angular scale in radians and degrees."""
+    return f"{value:.6f} rad ({np.degrees(value):.3f} deg)"
+
+
+def _heading_q90_absolute_residual(result):
+    """Return the 90th percentile of deviations around the circular median."""
+    centered = _wrap_angles(
+        result.heading_residual_rad - result.heading_residual_summary.median
+    )
+    return float(np.quantile(np.abs(centered), 0.9))
+
+
+def _heading_valid_run_count(result):
+    """Return the number of runs contributing forecast-origin residuals."""
+    return int((result.per_run["heading_residual_count"] > 0).sum())
 
 
 def _normal_density(values, center, scale):
@@ -960,7 +1235,13 @@ def _central_signed_values(values):
 
 def _wrap_angle(value):
     """Wrap one course difference to the principal radian interval."""
-    return float(np.arctan2(np.sin(value), np.cos(value)))
+    return float(_wrap_angles(value))
+
+
+def _wrap_angles(values):
+    """Wrap scalar or vector angles to the principal radian interval."""
+    values = np.asarray(values, dtype=float)
+    return np.arctan2(np.sin(values), np.cos(values))
 
 
 def _finite_values(values):
