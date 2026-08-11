@@ -10,6 +10,7 @@ from math import erf, pi, sqrt
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
 from ship_trajectory_prediction.coordinates import (
     calculate_signed_turn_rate_from_gps,
@@ -39,6 +40,7 @@ DATA_FILE = project_path(
 RUN_ID_RANGE = range(0, 100)
 
 INITIAL_SPEED_POINT_COUNT = DEFAULT_INITIAL_SPEED_POINT_COUNT
+INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS = 0.1
 MAX_TIME_GAP_SECONDS = 15.0
 OUTPUT_DIRECTORY = project_path("outputs/data_exploration/prior_calibration")
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
@@ -537,7 +539,7 @@ def _plot_initial_speed(result, run_label):
     figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         result.initial_speed_mps,
-        bins=_histogram_bin_count(result.initial_speed_mps),
+        bins=_initial_speed_histogram_bin_edges(result.initial_speed_mps),
         density=True,
         color=HISTOGRAM_COLOR,
         alpha=0.72,
@@ -585,6 +587,8 @@ def _plot_initial_speed(result, run_label):
         y_label="Dichte",
         x_limits=(0, None),
     )
+    axis.xaxis.set_major_locator(MultipleLocator(0.5))
+    axis.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
     axis.grid(axis="y", alpha=0.2)
     _add_legend(axis)
     figure.tight_layout()
@@ -928,6 +932,18 @@ def _lower_truncated_normal_density(values, *, center, scale):
 def _histogram_bin_count(values):
     """Keep histograms legible for both short and large empirical samples."""
     return int(np.clip(np.sqrt(len(values)), 10, 60))
+
+
+def _initial_speed_histogram_bin_edges(values):
+    """Return 0.1 m/s-aligned bin edges for per-run initial speeds."""
+    values = _finite_values(values)
+    bin_width = INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS
+    lower_edge = float(np.floor(np.min(values) / bin_width) * bin_width)
+    upper_edge = float(np.ceil(np.max(values) / bin_width) * bin_width)
+    if upper_edge <= lower_edge:
+        upper_edge = lower_edge + bin_width
+    bin_count = int(round((upper_edge - lower_edge) / bin_width))
+    return lower_edge + bin_width * np.arange(bin_count + 1)
 
 
 def _central_signed_values(values):
