@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import dataclass
 from math import erf, pi, sqrt
 
@@ -32,8 +31,7 @@ from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import read_ship_data
 
 DATA_FILE = project_path(
-    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_"
-    "2026-02-02T00-00-00+01-00_10.csv"
+    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 # The stop value is exclusive: this default requests run IDs 0 through 99.
@@ -42,10 +40,10 @@ RUN_ID_RANGE = range(0, 100)
 INITIAL_SPEED_POINT_COUNT = DEFAULT_INITIAL_SPEED_POINT_COUNT
 INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS = 0.1
 MAX_TIME_GAP_SECONDS = 15.0
-OUTPUT_DIRECTORY = project_path("outputs/data_exploration/prior_calibration")
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
 REPORT_LABEL_WIDTH = 28
 PLOT_CENTRAL_QUANTILE = 0.99
+SHOW_RECOMMENDED_PRIOR_DENSITY = True
 
 HISTOGRAM_COLOR = "#4C78A8"
 PRIOR_COLOR = "#B44C43"
@@ -108,10 +106,9 @@ def main(
     *,
     run_start: int = RUN_ID_RANGE.start,
     run_stop: int = RUN_ID_RANGE.stop,
-    save_plots: bool = False,
-    save_results: bool = False,
+    show_prior_density: bool = SHOW_RECOMMENDED_PRIOR_DENSITY,
 ) -> CalibrationResult:
-    """Run calibration, print the report, optionally save, and show plots."""
+    """Run calibration, print the report, and show plots sequentially."""
     run_ids = _validate_run_range(run_start, run_stop)
     _print_requested_range(run_start, run_stop)
 
@@ -127,15 +124,11 @@ def main(
 
     _print_skipped_runs(result.valid_run_count, result.skipped_runs)
     _print_detailed_statistics(result)
-    if save_plots or save_results:
-        OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    if save_results:
-        _save_results(result)
-
     _print_compact_summary(result)
-    for name, figure in _iter_calibration_figures(result):
-        if save_plots:
-            _save_figure(name, figure, result)
+    for _, figure in _iter_calibration_figures(
+        result,
+        show_prior_density=show_prior_density,
+    ):
         plt.show(block=True)
         plt.close(figure)
     return result
@@ -241,16 +234,43 @@ def calibrate_position_only_priors(
     )
 
 
-def create_calibration_figures(result: CalibrationResult) -> dict[str, plt.Figure]:
+def create_calibration_figures(
+    result: CalibrationResult,
+    *,
+    show_prior_density: bool = SHOW_RECOMMENDED_PRIOR_DENSITY,
+) -> dict[str, plt.Figure]:
     """Create clean prior and process-diagnostic figures."""
-    return dict(_iter_calibration_figures(result))
+    return dict(
+        _iter_calibration_figures(
+            result,
+            show_prior_density=show_prior_density,
+        )
+    )
 
 
-def _iter_calibration_figures(result: CalibrationResult):
+def _iter_calibration_figures(
+    result: CalibrationResult,
+    *,
+    show_prior_density: bool,
+):
     """Yield calibration figures in their interactive display order."""
     run_label = f"Run-IDs {result.run_start}-{result.run_stop - 1}"
-    yield "initial_speed_prior", _plot_initial_speed(result, run_label)
-    yield "turn_rate_prior", _plot_turn_rate(result, run_label)
+    yield (
+        "initial_speed_prior",
+        _plot_initial_speed(
+            result,
+            run_label,
+            show_prior_density=show_prior_density,
+        ),
+    )
+    yield (
+        "turn_rate_prior",
+        _plot_turn_rate(
+            result,
+            run_label,
+            show_prior_density=show_prior_density,
+        ),
+    )
     process_specs = (
         (
             "position_process",
@@ -532,10 +552,14 @@ def _candidate_scale(values):
     return _summarize_distribution(values).robust_scale
 
 
-def _plot_initial_speed(result, run_label):
+def _plot_initial_speed(
+    result,
+    run_label,
+    *,
+    show_prior_density,
+):
     """Plot per-run initial speeds and the recommended truncated Normal."""
     summary = result.initial_speed_summary
-    prior_scale = max(summary.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
     figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         result.initial_speed_mps,
@@ -547,19 +571,21 @@ def _plot_initial_speed(result, run_label):
         linewidth=0.6,
         label="Historische Schätzungen",
     )
-    x_max = max(summary.maximum, summary.median + 4 * prior_scale)
-    x_values = np.linspace(0, max(x_max, 1e-6), 500)
-    axis.plot(
-        x_values,
-        _lower_truncated_normal_density(
+    if show_prior_density:
+        prior_scale = max(summary.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
+        x_max = max(summary.maximum, summary.median + 4 * prior_scale)
+        x_values = np.linspace(0, max(x_max, 1e-6), 500)
+        axis.plot(
             x_values,
-            center=summary.median,
-            scale=prior_scale,
-        ),
-        color=PRIOR_COLOR,
-        linewidth=2,
-        label="Empfohlener Prior\n(Normal, Untergrenze 0)",
-    )
+            _lower_truncated_normal_density(
+                x_values,
+                center=summary.median,
+                scale=prior_scale,
+            ),
+            color=PRIOR_COLOR,
+            linewidth=2,
+            label="Empfohlener Prior\n(Normal, Untergrenze 0)",
+        )
     axis.axvline(
         summary.median,
         color=MEDIAN_COLOR,
@@ -595,12 +621,19 @@ def _plot_initial_speed(result, run_label):
     return figure
 
 
-def _plot_turn_rate(result, run_label):
+def _plot_turn_rate(
+    result,
+    run_label,
+    *,
+    show_prior_density,
+):
     """Plot the pooled empirical turn-rate distribution and suggested prior."""
     summary = result.turn_rate_summary
-    prior_scale = max(summary.robust_scale, np.finfo(float).eps)
     plotted = _central_signed_values(result.turn_rate_rad_s)
-    display_limit = max(float(np.max(np.abs(plotted))), prior_scale)
+    display_limit = max(float(np.max(np.abs(plotted))), np.finfo(float).eps)
+    if show_prior_density:
+        prior_scale = max(summary.robust_scale, np.finfo(float).eps)
+        display_limit = max(display_limit, prior_scale)
     figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         plotted,
@@ -612,14 +645,15 @@ def _plot_turn_rate(result, run_label):
         linewidth=0.6,
         label="Empirische Drehraten\n(zentrale 99 %)",
     )
-    x_values = np.linspace(-display_limit, display_limit, 500)
-    axis.plot(
-        x_values,
-        _normal_density(x_values, summary.median, prior_scale),
-        color=PRIOR_COLOR,
-        linewidth=2,
-        label="Empfohlener Normal-Prior",
-    )
+    if show_prior_density:
+        x_values = np.linspace(-display_limit, display_limit, 500)
+        axis.plot(
+            x_values,
+            _normal_density(x_values, summary.median, prior_scale),
+            color=PRIOR_COLOR,
+            linewidth=2,
+            label="Empfohlener Normal-Prior",
+        )
     axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Null")
     axis.axvline(
         summary.median,
@@ -852,61 +886,6 @@ def _print_compact_summary(result):
     print("=" * 72)
 
 
-def _save_figure(name, figure, result):
-    """Save one figure with an explicit run-range filename."""
-    suffix = f"runs_{result.run_start}_{result.run_stop - 1}.png"
-    output_path = OUTPUT_DIRECTORY / f"{name}_{suffix}"
-    figure.savefig(output_path, dpi=300, bbox_inches="tight")
-    print(f"Saved plot             : {output_path}")
-
-
-def _save_results(result):
-    """Save per-run CSV and compact JSON hyperparameter suggestions."""
-    suffix = f"runs_{result.run_start}_{result.run_stop - 1}"
-    per_run_path = OUTPUT_DIRECTORY / f"prior_calibration_{suffix}.csv"
-    summary_path = OUTPUT_DIRECTORY / f"prior_calibration_summary_{suffix}.json"
-    result.per_run.to_csv(per_run_path, index=False)
-    summary_path.write_text(
-        json.dumps(_summary_payload(result), indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    print(f"Saved per-run results  : {per_run_path}")
-    print(f"Saved summary          : {summary_path}")
-
-
-def _summary_payload(result):
-    """Return JSON-safe recommended values and diagnostic caveats."""
-    speed = result.initial_speed_summary
-    turn = result.turn_rate_summary
-    return {
-        "data_file": str(DATA_FILE),
-        "run_start": result.run_start,
-        "run_stop_exclusive": result.run_stop,
-        "requested_runs": result.requested_run_count,
-        "valid_runs": result.valid_run_count,
-        "skipped_runs": len(result.skipped_runs),
-        "speed_initial_prior_mean_mps": speed.median,
-        "speed_initial_prior_scale_mps": max(
-            speed.robust_scale,
-            MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
-        ),
-        "turn_rate_prior_center_rad_s": turn.median,
-        "turn_rate_prior_scale_rad_s": max(
-            turn.robust_scale,
-            np.finfo(float).eps,
-        ),
-        "turn_rate_q90_absolute_rad_s": float(
-            np.quantile(np.abs(result.turn_rate_rad_s), 0.9)
-        ),
-        "process_noise_calibration_candidates": _process_candidates(result),
-        "observation_noise_calibrated": False,
-        "diagnostic_note": (
-            "Position-derived innovations combine process mismatch and GPS "
-            "measurement error; they are not ground-truth noise parameters."
-        ),
-    }
-
-
 def _process_candidates(result):
     """Return only process candidates supported by at least two values."""
     candidates = {}
@@ -1052,16 +1031,20 @@ def _parse_arguments():
         default=RUN_ID_RANGE.stop,
         help="Final calibration run boundary (exclusive).",
     )
-    parser.add_argument(
-        "--save-plots",
+    prior_density_group = parser.add_mutually_exclusive_group()
+    prior_density_group.add_argument(
+        "--show-prior-density",
+        dest="show_prior_density",
         action="store_true",
-        help=f"Save 300 dpi figures below {OUTPUT_DIRECTORY}.",
+        help="Show the recommended prior density curves (default).",
     )
-    parser.add_argument(
-        "--save-results",
-        action="store_true",
-        help=f"Save per-run CSV and summary JSON below {OUTPUT_DIRECTORY}.",
+    prior_density_group.add_argument(
+        "--hide-prior-density",
+        dest="show_prior_density",
+        action="store_false",
+        help="Hide the recommended prior density curves.",
     )
+    parser.set_defaults(show_prior_density=SHOW_RECOMMENDED_PRIOR_DENSITY)
     return parser.parse_args()
 
 
@@ -1070,6 +1053,5 @@ if __name__ == "__main__":
     main(
         run_start=arguments.run_start,
         run_stop=arguments.run_stop,
-        save_plots=arguments.save_plots,
-        save_results=arguments.save_results,
+        show_prior_density=arguments.show_prior_density,
     )
