@@ -58,16 +58,13 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
-	// Initial-heading prior hyperparameters [rad]
-	real heading_initial_prior_mean;
-	real<lower=0> heading_initial_prior_scale;
+	// Final-heading prior hyperparameters at the forecast origin [rad]
+	real heading_final_prior_mean;
+	real<lower=0> heading_final_prior_scale;
 
 	// Turn-rate prior hyperparameters [rad/s]
 	real turn_rate_initial_prior_mean;
 	real<lower=0> turn_rate_state_prior_scale;
-
-	// Physical constraint on turn rate [rad/s]
-	real<lower=0> turn_rate_limit;
 
   // Prior scales for observation and process noise
   real<lower=0> sigma_position_gps_prior_scale;         // Observation-noise prior scale [m]
@@ -110,8 +107,8 @@ parameters {
 
   // Latent kinematic states
   vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
-  real heading_initial;                     // Unknown initial heading [rad]
-  vector<lower=-turn_rate_limit, upper=turn_rate_limit>[N_observed] turn_rate_state;  // Latent turn rate [rad/s]
+  real heading_final;                       // Unknown heading at the forecast origin [rad]
+  vector[N_observed] turn_rate_state;       // Latent turn rate [rad/s]
 
   // Unknown observation-noise parameter
   real<lower=1e-6> sigma_position_gps;  // SD between observed and latent positions [m]
@@ -128,13 +125,14 @@ transformed parameters {
 
   vector[N_observed] heading_state;  // Derived heading at each observation time [rad]
 
-  heading_state[1] = heading_initial;  // Initialize with the inferred initial heading
+  heading_state[N_observed] = heading_final;
 
-  // Propagate heading by integrating the latent turn rate.
-  for (n in 2:N_observed) {
-    real dt = time_observed[n] - time_observed[n - 1];
+  // Reconstruct earlier headings by integrating the latent turn rate backward.
+  for (reverse_index in 1:(N_observed - 1)) {
+    int n = N_observed - reverse_index;
+    real dt = time_observed[n + 1] - time_observed[n];
 
-    heading_state[n] = heading_state[n - 1] + turn_rate_state[n - 1] * dt;
+    heading_state[n] = heading_state[n + 1] - turn_rate_state[n] * dt;
   }
 }
 
@@ -160,8 +158,8 @@ model {
   // Initial latent speed: p(v_1), constrained to non-negative values
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
-  // Initial heading: p(heading_1)
-  heading_initial ~ normal(heading_initial_prior_mean, heading_initial_prior_scale);
+  // Heading at the forecast origin: p(heading_N)
+  heading_final ~ normal(heading_final_prior_mean, heading_final_prior_scale);
 
 
   // ------------------------------------------------------------------
@@ -312,8 +310,8 @@ generated quantities {
     // Deterministic heading propagation
     real heading_current = heading_previous + turn_rate_previous * dt;
 
-    // Sample future latent turn rate within the admissible range
-    real turn_rate_current = fmin(turn_rate_limit, fmax(-turn_rate_limit, normal_rng(turn_rate_previous, sigma_turn_rate_process * sqrt(dt))));
+    // Sample future latent turn rate from the unbounded process model
+    real turn_rate_current = normal_rng(turn_rate_previous, sigma_turn_rate_process * sqrt(dt));
 
     // Store posterior predictive latent states
     x_state_prediction[n] = x_current;

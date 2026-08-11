@@ -28,10 +28,9 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
+DEFAULT_FINAL_HEADING_POINT_COUNT = 5
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
-# At 10-second sampling, 0.06 rad/s permits at most 34.38 degrees per step.
-DEFAULT_TURN_RATE_LIMIT = 0.06
 DEFAULT_VI_ADAPT_ITER = 100
 # Robust window-specific scales are kept informative but not degenerate.
 MIN_TURN_RATE_PRIOR_SCALE = 0.002
@@ -58,7 +57,7 @@ class BayesianCTRVPriors:
     position_initial_prior_scale: float = 5.0
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
-    heading_initial_prior_scale: float = 0.35
+    heading_final_prior_scale: float = 0.10
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.5
@@ -167,7 +166,6 @@ class TurnRateDiagnostics:
     robust_scale_rad_s: float
     q90_absolute_rad_s: float
     prior_scale_rad_s: float
-    limit_rad_s: float
 
 
 def simulate_position_observations(
@@ -213,18 +211,19 @@ def build_stan_data(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
     """Build position-only data and priors for one observed trajectory window.
 
     The initial-speed mean and scale are fixed values from ``priors`` and must
-    be calibrated independently of ``window``. Other data-derived state centers
-    use only ``position_observations``. If observations are omitted, the
-    observed portion of ``window`` is copied without adding noise. Position is
-    measured in meters, latent speed in meters per second, heading in radians,
-    turn rate in radians per second, and time in seconds. Process-noise standard
-    deviations are multiplied by ``sqrt(dt)`` in Stan.
+    be calibrated independently of ``window``. The final-heading center is
+    estimated from the last five observed positions at the forecast origin;
+    other data-derived state centers also use only ``position_observations``.
+    If observations are omitted, the observed portion of ``window`` is copied
+    without adding noise. Position is measured in meters, latent speed in
+    meters per second, heading in radians, turn rate in radians per second, and
+    time in seconds. Process-noise standard deviations are multiplied by
+    ``sqrt(dt)`` in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
@@ -254,19 +253,19 @@ def build_stan_data(
     turn_rate_diagnostics = diagnose_observed_turn_rate(
         window,
         turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
-        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
     )
+    recent_heading_slice = slice(-DEFAULT_FINAL_HEADING_POINT_COUNT, None)
     try:
-        heading_initial_prior_mean = estimate_initial_heading(
-            x_observed,
-            y_observed,
+        heading_final_prior_mean = estimate_initial_heading(
+            x_observed[recent_heading_slice],
+            y_observed[recent_heading_slice],
         )
     except ValueError:
         # Heading and turn rate are not identifiable while the ship is
         # stationary. Neutral centers keep such windows valid without deriving
         # arbitrary motion from GPS jitter.
-        heading_initial_prior_mean = 0.0
+        heading_final_prior_mean = 0.0
         turn_rate_initial_prior_mean = 0.0
     else:
         turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
@@ -275,7 +274,7 @@ def build_stan_data(
         "position_initial_prior_scale": priors.position_initial_prior_scale,
         "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
-        "heading_initial_prior_scale": priors.heading_initial_prior_scale,
+        "heading_final_prior_scale": priors.heading_final_prior_scale,
         "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
         "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
         "sigma_position_process_prior_scale": (
@@ -295,9 +294,8 @@ def build_stan_data(
         "time_prediction": time_prediction,
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
-        "heading_initial_prior_mean": heading_initial_prior_mean,
+        "heading_final_prior_mean": heading_final_prior_mean,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
-        "turn_rate_limit": turn_rate_diagnostics.limit_rad_s,
         **prior_parameters,
     }
 
@@ -444,7 +442,6 @@ def fit_bayesian_ctrv_model(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     position_observations: PositionObservations | None = None,
     inference_method: str = "vi",
     algorithm: str = "meanfield",
@@ -553,7 +550,6 @@ def fit_bayesian_ctrv_model(
     stan_data = build_stan_data(
         window,
         priors=priors,
-        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
     )
     model = compile_bayesian_ctrv_model()
@@ -731,7 +727,6 @@ def diagnose_observed_turn_rate(
     window: TrajectoryWindowData,
     *,
     turn_rate_state_prior_scale: float | None = None,
-    turn_rate_limit: float = DEFAULT_TURN_RATE_LIMIT,
     position_observations: PositionObservations | None = None,
 ) -> TurnRateDiagnostics:
     """Summarize course-derived turn rates from observed positions only.
@@ -741,7 +736,6 @@ def diagnose_observed_turn_rate(
     Supplied position observations override the clean observed coordinates;
     the held-out part of ``window`` is never inspected.
     """
-    _validate_positive_finite("turn_rate_limit", turn_rate_limit)
     if turn_rate_state_prior_scale is not None:
         _validate_positive_finite(
             "turn_rate_state_prior_scale",
@@ -776,14 +770,12 @@ def diagnose_observed_turn_rate(
                 MAX_TURN_RATE_PRIOR_SCALE,
             )
         )
-    center_limit = 0.95 * turn_rate_limit
     return TurnRateDiagnostics(
         sample_count=int(rates.size),
-        median_rad_s=float(np.clip(median, -center_limit, center_limit)),
+        median_rad_s=median,
         robust_scale_rad_s=robust_scale,
         q90_absolute_rad_s=q90_absolute,
         prior_scale_rad_s=prior_scale,
-        limit_rad_s=float(turn_rate_limit),
     )
 
 
@@ -861,13 +853,10 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             speed_initial + generator.normal(0, speed_jitter, state_count),
             SPEED_STATE_INITIAL_LOWER,
         ),
-        "heading_initial": float(stan_data["heading_initial_prior_mean"])
+        "heading_final": float(stan_data["heading_final_prior_mean"])
         + generator.normal(0, 0.01),
-        "turn_rate_state": np.clip(
-            turn_rate_center + generator.normal(0, turn_jitter, state_count),
-            -0.99 * stan_data["turn_rate_limit"],
-            0.99 * stan_data["turn_rate_limit"],
-        ),
+        "turn_rate_state": turn_rate_center
+        + generator.normal(0, turn_jitter, state_count),
         "sigma_position_gps": max(
             1e-3,
             0.5 * stan_data["sigma_position_gps_prior_scale"],

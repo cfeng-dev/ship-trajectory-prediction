@@ -26,7 +26,6 @@ from ship_trajectory_prediction.evaluation.reporting import (
     print_variational_diagnostics,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_TURN_RATE_LIMIT,
     DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
@@ -56,11 +55,11 @@ EXPERIMENT = ExperimentConfig(
 )
 PRIORS = BayesianCTRVPriors(
     position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
-    # Fixed independently of this fit; replace with historical calibration.
-    speed_initial_prior_mean=0.0,  # Initial speed center [m/s].
-    speed_initial_prior_scale=0.75,  # Initial speed uncertainty [m/s].
-    heading_initial_prior_scale=0.35,  # Initial heading uncertainty [rad].
-    turn_rate_state_prior_scale=None,  # Derive from observed positions.
+    # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
+    speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
+    speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
+    heading_final_prior_scale=0.10,  # Forecast-origin heading uncertainty [rad].
+    turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
@@ -88,7 +87,6 @@ MCMC_CONFIG = {
     "max_treedepth": 10,  # Maximum NUTS tree depth.
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
-TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT  # Symmetric turn-rate limit [rad/s].
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
 
 
@@ -99,7 +97,6 @@ def main(
     seed=EXPERIMENT.inference_seed,
     position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
     position_noise_seed=EXPERIMENT.position_noise_seed,
-    turn_rate_limit=TURN_RATE_LIMIT,
     require_converged=VI_CONFIG["require_converged"],
     plot_coordinate_mode=PLOT_COORDINATE_MODE,
 ):
@@ -128,7 +125,6 @@ def main(
     stan_data = build_stan_data(
         window,
         priors=PRIORS,
-        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
     )
     forecast_horizon_seconds = float(
@@ -136,7 +132,15 @@ def main(
     )
     inference_rows = [
         ("Inference method", inference_method.upper()),
-        ("Turn-rate limit", f"{stan_data['turn_rate_limit']:.5f} rad/s"),
+        (
+            "Forecast-origin heading center",
+            f"{stan_data['heading_final_prior_mean']:.4f} rad "
+            f"({np.degrees(stan_data['heading_final_prior_mean']):.1f} deg)",
+        ),
+        (
+            "Forecast-origin heading scale",
+            f"{stan_data['heading_final_prior_scale']:.3f} rad",
+        ),
     ]
     if inference_method == "vi":
         inference_rows.append(("VI algorithm", inference_config["algorithm"]))
@@ -162,7 +166,6 @@ def main(
     fit = fit_bayesian_ctrv_model(
         window,
         priors=PRIORS,
-        turn_rate_limit=turn_rate_limit,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,
@@ -187,7 +190,7 @@ def main(
     print(
         posterior_parameter_summary(
             fit,
-            ["heading_initial", *NOISE_PARAMETER_NAMES],
+            ["heading_final", *NOISE_PARAMETER_NAMES],
         )
     )
 
@@ -304,12 +307,6 @@ def _parse_arguments():
         help="Seed used only to generate the in-memory position perturbation.",
     )
     parser.add_argument(
-        "--turn-rate-limit",
-        type=float,
-        default=TURN_RATE_LIMIT,
-        help="Physical absolute turn-rate limit in rad/s.",
-    )
-    parser.add_argument(
         "--require-converged",
         action="store_true",
         default=VI_CONFIG["require_converged"],
@@ -335,7 +332,6 @@ if __name__ == "__main__":
         seed=arguments.seed,
         position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
-        turn_rate_limit=arguments.turn_rate_limit,
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
     )

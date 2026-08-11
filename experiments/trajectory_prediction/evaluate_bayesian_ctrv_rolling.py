@@ -32,7 +32,6 @@ from ship_trajectory_prediction.evaluation.reporting import (
     posterior_variable_samples,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_TURN_RATE_LIMIT,
     DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
@@ -62,11 +61,11 @@ EXPERIMENT = RollingExperimentConfig(
 )
 PRIORS = BayesianCTRVPriors(
     position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
-    # Fixed independently of every evaluated window; use historical calibration.
-    speed_initial_prior_mean=0.0,  # Initial speed center [m/s].
-    speed_initial_prior_scale=0.75,  # Initial speed uncertainty [m/s].
-    heading_initial_prior_scale=0.35,  # Initial heading uncertainty [rad].
-    turn_rate_state_prior_scale=None,  # Derive from observed positions.
+    # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
+    speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
+    speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
+    heading_final_prior_scale=0.10,  # Forecast-origin heading uncertainty [rad].
+    turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
@@ -94,7 +93,6 @@ MCMC_CONFIG = {
     "max_treedepth": 10,  # Maximum NUTS tree depth.
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
-TURN_RATE_LIMIT = DEFAULT_TURN_RATE_LIMIT  # Symmetric turn-rate limit [rad/s].
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = True  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
@@ -119,7 +117,6 @@ def main(
     stride=EXPERIMENT.stride,
     inference_method=EXPERIMENT.inference_method,
     vi_algorithm=VI_CONFIG["algorithm"],
-    turn_rate_limit=TURN_RATE_LIMIT,
     priors=PRIORS,
     seed=EXPERIMENT.inference_seed,
     require_converged=VI_CONFIG["require_converged"],
@@ -176,7 +173,6 @@ def main(
         print(f"MCMC chains           : {inference_config['chains']}")
         print(f"MCMC warmup/chain     : {inference_config['iter_warmup']}")
         print(f"MCMC samples/chain    : {inference_config['iter_sampling']}")
-    print(f"Turn-rate limit       : {turn_rate_limit:.5f} rad/s")
     print(
         "Turn-rate prior scale : "
         + (
@@ -204,13 +200,11 @@ def main(
         )
         observed_turn_rate = diagnose_observed_turn_rate(
             window,
-            turn_rate_limit=turn_rate_limit,
             turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         )
         fit = fit_bayesian_ctrv_model(
             window,
             priors=priors,
-            turn_rate_limit=turn_rate_limit,
             inference_method=inference_method,
             seed=window_seed,
             **inference_config,
@@ -527,7 +521,6 @@ def _build_route_prediction_table(
         observed_turn_rate.q90_absolute_rad_s
     )
     table["turn_rate_prior_scale_rad_s"] = observed_turn_rate.prior_scale_rad_s
-    table["turn_rate_limit_rad_s"] = observed_turn_rate.limit_rad_s
     for name, value in posterior_diagnostics.items():
         table[name] = value
     table["forecast_origin_time"] = window.timestamps[
@@ -622,10 +615,6 @@ def _print_summary(summary, *, credible_interval):
 def _print_turn_rate_and_noise_summary(predictions):
     """Print one-row-per-window diagnostics for model identifiability."""
     windows = predictions.groupby("window_index", sort=True).first()
-    near_limit = (
-        windows["posterior_origin_turn_rate_median_rad_s"].abs()
-        >= 0.8 * windows["turn_rate_limit_rad_s"]
-    )
     print("\nTurn-rate and process-noise diagnostics:")
     print(
         "Median absolute observed turn rate : "
@@ -635,7 +624,6 @@ def _print_turn_rate_and_noise_summary(predictions):
         "Maximum posterior origin turn rate : "
         f"{windows['posterior_origin_turn_rate_median_rad_s'].abs().max():.5f} rad/s"
     )
-    print(f"Windows near turn-rate limit       : {int(near_limit.sum())}")
     print(
         "Median position process sigma      : "
         f"{windows['posterior_sigma_position_process_median'].median():.3f} m/sqrt(s)"
@@ -684,12 +672,6 @@ def _parse_arguments():
         default=VI_CONFIG["algorithm"],
     )
     parser.add_argument(
-        "--turn-rate-limit",
-        type=float,
-        default=TURN_RATE_LIMIT,
-        help="Physical absolute turn-rate limit in rad/s.",
-    )
-    parser.add_argument(
         "--turn-rate-prior-scale",
         type=float,
         default=PRIORS.turn_rate_state_prior_scale,
@@ -726,7 +708,6 @@ if __name__ == "__main__":
         stride=arguments.stride,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
-        turn_rate_limit=arguments.turn_rate_limit,
         priors=replace(
             PRIORS,
             turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,

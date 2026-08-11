@@ -17,7 +17,6 @@ from ship_trajectory_prediction.coordinates import (
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_INITIAL_SPEED_POINT_COUNT,
-    DEFAULT_TURN_RATE_LIMIT,
     MAX_TURN_RATE_PRIOR_SCALE,
     MIN_COURSE_DISPLACEMENT_METERS,
     MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
@@ -811,7 +810,7 @@ def _print_detailed_statistics(result):
         "Suggested prior",
         _format_turn_rate_prior(turn.median, turn_prior_scale),
     )
-    print("This is a two-sided truncated Normal distribution.")
+    print("This is an unbounded Normal distribution.")
     print("\nCurrent model settings for comparison (not empirical results):")
     _print_row(
         "Scale rule",
@@ -821,7 +820,6 @@ def _print_detailed_statistics(result):
         "Scale clipping",
         f"{MIN_TURN_RATE_PRIOR_SCALE:.3f} ... {MAX_TURN_RATE_PRIOR_SCALE:.3f} rad/s",
     )
-    _print_row("Physical state limit", f"+/-{DEFAULT_TURN_RATE_LIMIT:.3f} rad/s")
 
 
 def _print_compact_summary(result):
@@ -918,11 +916,8 @@ def _process_candidates(result):
 
 
 def _format_turn_rate_prior(center, scale):
-    """Format the bounded Normal turn-rate prior for terminal summaries."""
-    limit = DEFAULT_TURN_RATE_LIMIT
-    return (
-        f"Normal({center:.6f}, {scale:.6f}), bounds [-{limit:.3f}, +{limit:.3f}] rad/s"
-    )
+    """Format the unbounded Normal turn-rate prior for terminal summaries."""
+    return f"Normal({center:.6f}, {scale:.6f}) rad/s"
 
 
 def _normal_density(values, center, scale):

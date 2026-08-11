@@ -114,16 +114,10 @@ def simulate_synthetic_ctrv_data(
                     ),
                 ),
                 heading=deterministic.heading,
-                turn_rate=float(
-                    np.clip(
-                        deterministic.turn_rate
-                        + generator.normal(
-                            0,
-                            noise.sigma_turn_rate_process * np.sqrt(dt),
-                        ),
-                        -0.1,
-                        0.1,
-                    )
+                turn_rate=deterministic.turn_rate
+                + generator.normal(
+                    0,
+                    noise.sigma_turn_rate_process * np.sqrt(dt),
                 ),
             )
         )

@@ -31,7 +31,11 @@ RUN_ID = 1
 START_INDEX = 0
 OBSERVATION_COUNT = 20
 PREDICTION_COUNT = 5
-PRIORS = BayesianCTRVPriors()
+PRIORS = BayesianCTRVPriors(
+    speed_initial_prior_mean=3.524,
+    speed_initial_prior_scale=0.365,
+    turn_rate_state_prior_scale=0.001698,
+)
 POSTERIOR_TIME_INDICES = (0, OBSERVATION_COUNT - 1)
 CREDIBLE_INTERVAL = 0.9
 PRIOR_UPDATE_OBSERVATION_COUNTS = (5, 10, 15, OBSERVATION_COUNT)
