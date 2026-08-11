@@ -49,6 +49,7 @@ HISTOGRAM_COLOR = "#4C78A8"
 PRIOR_COLOR = "#B44C43"
 MEDIAN_COLOR = "#222222"
 QUARTILE_COLOR = "#666666"
+FIGURE_SIZE = (10.5, 5.2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,17 +118,17 @@ def main(
 
     _print_skipped_runs(result.valid_run_count, result.skipped_runs)
     _print_detailed_statistics(result)
-    figures = create_calibration_figures(result)
-
     if save_plots or save_results:
         OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    if save_plots:
-        _save_figures(figures, result)
     if save_results:
         _save_results(result)
 
     _print_compact_summary(result)
-    plt.show()
+    for name, figure in _iter_calibration_figures(result):
+        if save_plots:
+            _save_figure(name, figure, result)
+        plt.show(block=True)
+        plt.close(figure)
     return result
 
 
@@ -233,11 +234,14 @@ def calibrate_position_only_priors(
 
 def create_calibration_figures(result: CalibrationResult) -> dict[str, plt.Figure]:
     """Create clean prior and process-diagnostic figures."""
+    return dict(_iter_calibration_figures(result))
+
+
+def _iter_calibration_figures(result: CalibrationResult):
+    """Yield calibration figures in their interactive display order."""
     run_label = f"Run IDs {result.run_start}-{result.run_stop - 1}"
-    figures = {
-        "initial_speed_prior": _plot_initial_speed(result, run_label),
-        "turn_rate_prior": _plot_turn_rate(result, run_label),
-    }
+    yield "initial_speed_prior", _plot_initial_speed(result, run_label)
+    yield "turn_rate_prior", _plot_turn_rate(result, run_label)
     process_specs = (
         (
             "position_process",
@@ -260,12 +264,14 @@ def create_calibration_figures(result: CalibrationResult) -> dict[str, plt.Figur
     )
     for name, values, title, x_label in process_specs:
         if _candidate_scale(values) is not None:
-            figures[name] = _plot_process_diagnostic(
-                values,
-                title=f"{title} ({run_label})",
-                x_label=x_label,
+            yield (
+                name,
+                _plot_process_diagnostic(
+                    values,
+                    title=f"{title} ({run_label})",
+                    x_label=x_label,
+                ),
             )
-    return figures
 
 
 def _prepare_run(run_data):
@@ -521,7 +527,7 @@ def _plot_initial_speed(result, run_label):
     """Plot per-run initial speeds and the recommended truncated Normal."""
     summary = result.initial_speed_summary
     prior_scale = max(summary.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
-    figure, axis = plt.subplots(figsize=(8.5, 5.2))
+    figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         result.initial_speed_mps,
         bins=_histogram_bin_count(result.initial_speed_mps),
@@ -543,7 +549,7 @@ def _plot_initial_speed(result, run_label):
         ),
         color=PRIOR_COLOR,
         linewidth=2,
-        label="Recommended lower-truncated Normal",
+        label="Recommended prior\n(lower-truncated Normal)",
     )
     axis.axvline(
         summary.median,
@@ -572,7 +578,7 @@ def _plot_initial_speed(result, run_label):
         xlim=(0, None),
     )
     axis.grid(axis="y", alpha=0.2)
-    axis.legend(frameon=False)
+    _add_legend(axis)
     figure.tight_layout()
     return figure
 
@@ -583,7 +589,7 @@ def _plot_turn_rate(result, run_label):
     prior_scale = max(summary.robust_scale, np.finfo(float).eps)
     plotted = _central_signed_values(result.turn_rate_rad_s)
     display_limit = max(float(np.max(np.abs(plotted))), prior_scale)
-    figure, axis = plt.subplots(figsize=(8.5, 5.2))
+    figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         plotted,
         bins=_histogram_bin_count(plotted),
@@ -592,7 +598,7 @@ def _plot_turn_rate(result, run_label):
         alpha=0.72,
         edgecolor="white",
         linewidth=0.6,
-        label="Historical turn rates (central 99% shown)",
+        label="Historical turn rates\n(central 99% shown)",
     )
     x_values = np.linspace(-display_limit, display_limit, 500)
     axis.plot(
@@ -616,7 +622,7 @@ def _plot_turn_rate(result, run_label):
         xlim=(-display_limit, display_limit),
     )
     axis.grid(axis="y", alpha=0.2)
-    axis.legend(frameon=False)
+    _add_legend(axis)
     figure.tight_layout()
     return figure
 
@@ -627,7 +633,7 @@ def _plot_process_diagnostic(values, *, title, x_label):
     summary = _summarize_distribution(values)
     plotted = _central_signed_values(values)
     display_limit = max(float(np.max(np.abs(plotted))), np.finfo(float).eps)
-    figure, axis = plt.subplots(figsize=(8.5, 5.2))
+    figure, axis = plt.subplots(figsize=FIGURE_SIZE)
     axis.hist(
         plotted,
         bins=_histogram_bin_count(plotted),
@@ -636,7 +642,7 @@ def _plot_process_diagnostic(values, *, title, x_label):
         alpha=0.72,
         edgecolor="white",
         linewidth=0.6,
-        label="Position-derived innovations (central 99% shown)",
+        label="Position-derived innovations\n(central 99% shown)",
     )
     axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Zero")
     axis.axvline(
@@ -652,9 +658,23 @@ def _plot_process_diagnostic(values, *, title, x_label):
         xlim=(-display_limit, display_limit),
     )
     axis.grid(axis="y", alpha=0.2)
-    axis.legend(frameon=False)
+    _add_legend(axis)
     figure.tight_layout()
     return figure
+
+
+def _add_legend(axis):
+    """Place a compact bordered legend inside the upper-right corner."""
+    legend = axis.legend(
+        loc="upper right",
+        bbox_to_anchor=(0.99, 0.99),
+        borderaxespad=0.0,
+        frameon=True,
+        framealpha=1.0,
+        facecolor="white",
+        edgecolor="#4A4A4A",
+    )
+    legend.get_frame().set_linewidth(0.8)
 
 
 def _print_requested_range(run_start, run_stop):
@@ -799,13 +819,12 @@ def _print_compact_summary(result):
     print("=" * 72)
 
 
-def _save_figures(figures, result):
-    """Save all supported figures with explicit run-range filenames."""
+def _save_figure(name, figure, result):
+    """Save one figure with an explicit run-range filename."""
     suffix = f"runs_{result.run_start}_{result.run_stop - 1}.png"
-    for name, figure in figures.items():
-        output_path = OUTPUT_DIRECTORY / f"{name}_{suffix}"
-        figure.savefig(output_path, dpi=300, bbox_inches="tight")
-        print(f"Saved plot             : {output_path}")
+    output_path = OUTPUT_DIRECTORY / f"{name}_{suffix}"
+    figure.savefig(output_path, dpi=300, bbox_inches="tight")
+    print(f"Saved plot             : {output_path}")
 
 
 def _save_results(result):
