@@ -282,6 +282,11 @@ def test_prior_configuration_rejects_negative_initial_speed_mean():
         BayesianCTRVPriors(speed_initial_prior_mean=-0.1)
 
 
+def test_default_final_heading_scale_uses_historical_circular_deviation():
+    """The default heading uncertainty should match historical calibration."""
+    assert BayesianCTRVPriors().heading_final_prior_scale == pytest.approx(0.117502)
+
+
 def test_build_stan_data_uses_typed_prior_configuration():
     """One immutable configuration should supply every Stan prior scale."""
     priors = BayesianCTRVPriors(

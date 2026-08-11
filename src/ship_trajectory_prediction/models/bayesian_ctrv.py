@@ -50,14 +50,14 @@ NOISE_PARAMETER_NAMES = (
 class BayesianCTRVPriors:
     """Configurable prior parameters for the Bayesian CTRV state-space model.
 
-    The initial-speed mean and scale remain fixed during a fit and should be
-    calibrated from independent historical windows.
+    The initial-speed parameters and final-heading scale remain fixed during a
+    fit and should be calibrated from independent historical windows.
     """
 
     position_initial_prior_scale: float = 5.0
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
-    heading_final_prior_scale: float = 0.10
+    heading_final_prior_scale: float = 0.117502
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.5
