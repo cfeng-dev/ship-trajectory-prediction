@@ -51,6 +51,13 @@ MEDIAN_COLOR = "#222222"
 QUARTILE_COLOR = "#666666"
 FIGURE_SIZE = (10.5, 5.2)
 
+# Match the scientific typography used by ``explore_ship_data.py``.
+TITLE_PAD = 16
+TITLE_FONT_SIZE = 13
+TITLE_FONT_WEIGHT = "bold"
+AXIS_LABEL_FONT_SIZE = 13
+AXIS_TICK_FONT_SIZE = 11
+
 
 @dataclass(frozen=True, slots=True)
 class DistributionSummary:
@@ -239,27 +246,27 @@ def create_calibration_figures(result: CalibrationResult) -> dict[str, plt.Figur
 
 def _iter_calibration_figures(result: CalibrationResult):
     """Yield calibration figures in their interactive display order."""
-    run_label = f"Run IDs {result.run_start}-{result.run_stop - 1}"
+    run_label = f"Run-IDs {result.run_start}-{result.run_stop - 1}"
     yield "initial_speed_prior", _plot_initial_speed(result, run_label)
     yield "turn_rate_prior", _plot_turn_rate(result, run_label)
     process_specs = (
         (
             "position_process",
             result.position_innovation,
-            "Position-Process Innovation Diagnostics",
-            "Position innovation [m/sqrt(s)]",
+            "Diagnostik der Positionsprozess-Innovationen",
+            "Positionsinnovation [m/√s]",
         ),
         (
             "speed_process",
             result.speed_innovation,
-            "Speed-Process Innovation Diagnostics",
-            "Speed innovation [(m/s)/sqrt(s)]",
+            "Diagnostik der Geschwindigkeitsprozess-Innovationen",
+            "Geschwindigkeitsinnovation [(m/s)/√s]",
         ),
         (
             "turn_rate_process",
             result.turn_rate_innovation,
-            "Turn-Rate-Process Innovation Diagnostics",
-            "Turn-rate innovation [(rad/s)/sqrt(s)]",
+            "Diagnostik der Drehratenprozess-Innovationen",
+            "Drehrateninnovation [(rad/s)/√s]",
         ),
     )
     for name, values, title, x_label in process_specs:
@@ -536,7 +543,7 @@ def _plot_initial_speed(result, run_label):
         alpha=0.72,
         edgecolor="white",
         linewidth=0.6,
-        label="Historical run estimates",
+        label="Historische Schätzungen",
     )
     x_max = max(summary.maximum, summary.median + 4 * prior_scale)
     x_values = np.linspace(0, max(x_max, 1e-6), 500)
@@ -549,7 +556,7 @@ def _plot_initial_speed(result, run_label):
         ),
         color=PRIOR_COLOR,
         linewidth=2,
-        label="Recommended prior\n(lower-truncated Normal)",
+        label="Empfohlener Prior\n(Normal, Untergrenze 0)",
     )
     axis.axvline(
         summary.median,
@@ -571,11 +578,12 @@ def _plot_initial_speed(result, run_label):
         linewidth=1.2,
         label="_nolegend_",
     )
-    axis.set(
-        title=f"Historical Initial-Speed Distribution ({run_label})",
-        xlabel="Initial speed [m/s]",
-        ylabel="Density",
-        xlim=(0, None),
+    _style_axis(
+        axis,
+        title=f"Historische Verteilung der Anfangsgeschwindigkeit ({run_label})",
+        x_label="Anfangsgeschwindigkeit [m/s]",
+        y_label="Dichte",
+        x_limits=(0, None),
     )
     axis.grid(axis="y", alpha=0.2)
     _add_legend(axis)
@@ -598,7 +606,7 @@ def _plot_turn_rate(result, run_label):
         alpha=0.72,
         edgecolor="white",
         linewidth=0.6,
-        label="Historical turn rates\n(central 99% shown)",
+        label="Empirische Drehraten\n(zentrale 99 %)",
     )
     x_values = np.linspace(-display_limit, display_limit, 500)
     axis.plot(
@@ -606,20 +614,21 @@ def _plot_turn_rate(result, run_label):
         _normal_density(x_values, summary.median, prior_scale),
         color=PRIOR_COLOR,
         linewidth=2,
-        label="Recommended Normal density",
+        label="Empfohlener Normal-Prior",
     )
-    axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Zero")
+    axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Null")
     axis.axvline(
         summary.median,
         color=MEDIAN_COLOR,
         linewidth=1.6,
         label=f"Median = {summary.median:+.5f} rad/s",
     )
-    axis.set(
-        title=f"Historical Turn-Rate Distribution ({run_label})",
-        xlabel="Turn rate [rad/s]",
-        ylabel="Density",
-        xlim=(-display_limit, display_limit),
+    _style_axis(
+        axis,
+        title=f"Historische Drehratenverteilung ({run_label})",
+        x_label="Drehrate [rad/s]",
+        y_label="Dichte",
+        x_limits=(-display_limit, display_limit),
     )
     axis.grid(axis="y", alpha=0.2)
     _add_legend(axis)
@@ -642,25 +651,40 @@ def _plot_process_diagnostic(values, *, title, x_label):
         alpha=0.72,
         edgecolor="white",
         linewidth=0.6,
-        label="Position-derived innovations\n(central 99% shown)",
+        label="Rekonstruierte Innovationen\n(zentrale 99 %)",
     )
-    axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Zero")
+    axis.axvline(0, color=QUARTILE_COLOR, linestyle=":", label="Null")
     axis.axvline(
         summary.median,
         color=MEDIAN_COLOR,
         linewidth=1.5,
         label=f"Median = {summary.median:+.4g}",
     )
-    axis.set(
+    _style_axis(
+        axis,
         title=title,
-        xlabel=x_label,
-        ylabel="Density",
-        xlim=(-display_limit, display_limit),
+        x_label=x_label,
+        y_label="Dichte",
+        x_limits=(-display_limit, display_limit),
     )
     axis.grid(axis="y", alpha=0.2)
     _add_legend(axis)
     figure.tight_layout()
     return figure
+
+
+def _style_axis(axis, *, title, x_label, y_label, x_limits):
+    """Apply the scientific typography shared with ``explore_ship_data.py``."""
+    axis.set_title(
+        title,
+        pad=TITLE_PAD,
+        fontsize=TITLE_FONT_SIZE,
+        fontweight=TITLE_FONT_WEIGHT,
+    )
+    axis.set_xlabel(x_label, fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.set_ylabel(y_label, fontsize=AXIS_LABEL_FONT_SIZE)
+    axis.set_xlim(*x_limits)
+    axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
 
 
 def _add_legend(axis):
