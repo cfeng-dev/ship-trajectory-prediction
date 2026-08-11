@@ -35,6 +35,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
     BayesianCTRVPriors,
+    PositionObservations,
     diagnose_observed_turn_rate,
     fit_bayesian_ctrv_model,
     variational_converged,
@@ -55,6 +56,8 @@ EXPERIMENT = RollingExperimentConfig(
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=20,  # Position points used by the first fit.
     prediction_count=3,  # Held-out future points per rolling forecast.
+    additional_position_noise_std_m=2.0,  # Per x/y axis [m]; 0 disables.
+    position_noise_seed=2026,  # Reproduces route-wide added position noise.
     stride=None,  # Forecast-origin step; None uses prediction_count.
     inference_method="vi",  # Fast "vi" or reference "mcmc".
     inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
@@ -119,6 +122,8 @@ def main(
     vi_algorithm=VI_CONFIG["algorithm"],
     priors=PRIORS,
     seed=EXPERIMENT.inference_seed,
+    position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
+    position_noise_seed=EXPERIMENT.position_noise_seed,
     require_converged=VI_CONFIG["require_converged"],
     max_windows=MAX_WINDOWS,
     plot_each_window=PLOT_EACH_WINDOW,
@@ -151,6 +156,11 @@ def main(
         windows = windows[:max_windows]
 
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    route_noise_x, route_noise_y = _simulate_route_position_noise(
+        len(trajectory_data),
+        additional_noise_std_m=position_noise_std_m,
+        seed=position_noise_seed,
+    )
     effective_stride = prediction_count if stride is None else stride
     print("=" * 72)
     print("Bayesian CTRV Rolling-Window Evaluation")
@@ -163,6 +173,12 @@ def main(
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
     print(f"Inference method      : {inference_method.upper()}")
+    noise_description = (
+        f"{position_noise_std_m:g} m (seed={position_noise_seed})"
+        if position_noise_std_m > 0
+        else "disabled"
+    )
+    print(f"Additional pos. noise : {noise_description}")
     if inference_method == "vi":
         print(f"VI algorithm          : {vi_algorithm}")
         print(f"VI adaptation steps   : {inference_config['adapt_iter']}")
@@ -198,13 +214,23 @@ def main(
             prediction_count=specification.prediction_count,
             start_index=specification.start_index,
         )
+        position_observations = _build_window_position_observations(
+            window,
+            route_start_index=specification.start_index,
+            route_noise_x=route_noise_x,
+            route_noise_y=route_noise_y,
+            additional_noise_std_m=position_noise_std_m,
+            noise_seed=position_noise_seed,
+        )
         observed_turn_rate = diagnose_observed_turn_rate(
             window,
             turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
+            position_observations=position_observations,
         )
         fit = fit_bayesian_ctrv_model(
             window,
             priors=priors,
+            position_observations=position_observations,
             inference_method=inference_method,
             seed=window_seed,
             **inference_config,
@@ -240,6 +266,8 @@ def main(
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
             observed_turn_rate=observed_turn_rate,
             posterior_diagnostics=posterior_diagnostics,
+            additional_position_noise_std_m=position_noise_std_m,
+            position_noise_seed=position_noise_seed,
         )
         prediction_tables.append(table)
         posterior_plot_groups.append(
@@ -269,6 +297,16 @@ def main(
                     "x_state_prediction",
                     "y_state_prediction",
                 ),
+                observed_position_values=(
+                    position_observations.x_meters,
+                    position_observations.y_meters,
+                ),
+                observed_trajectory_label=(
+                    "Verrauschte Beobachtungen"
+                    if position_noise_std_m > 0
+                    else "Beobachtungen"
+                ),
+                additional_position_noise_std_m=position_noise_std_m,
             )
             plt.close(figure)
 
@@ -283,6 +321,13 @@ def main(
         initial_observation_count=observation_count,
         window_mode=window_mode,
         sample_seed=seed,
+        observed_route_x=route_x + route_noise_x,
+        observed_route_y=route_y + route_noise_y,
+        observed_trajectory_label=(
+            "Verrauschte Anfangsbeobachtungen"
+            if position_noise_std_m > 0
+            else "Anfängliche Beobachtungen"
+        ),
     )
     return predictions, summary
 
@@ -296,6 +341,9 @@ def plot_rolling_predictions(
     window_mode,
     sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
     sample_seed=EXPERIMENT.inference_seed,
+    observed_route_x=None,
+    observed_route_y=None,
+    observed_trajectory_label="Anfängliche Beobachtungen",
 ):
     """Plot route-wide rolling posterior paths and predictive uncertainty."""
     window_mode_label = {
@@ -305,6 +353,10 @@ def plot_rolling_predictions(
     posterior_plot_groups = tuple(posterior_plot_groups)
     if not posterior_plot_groups:
         raise ValueError("posterior_plot_groups must not be empty.")
+    if observed_route_x is None:
+        observed_route_x = route_x
+    if observed_route_y is None:
+        observed_route_y = route_y
 
     forecast_paths = tuple(
         (
@@ -327,8 +379,8 @@ def plot_rolling_predictions(
 
     figure, axis = plot_trajectory_paths(
         observed_path=(
-            route_x[:initial_observation_count],
-            route_y[:initial_observation_count],
+            observed_route_x[:initial_observation_count],
+            observed_route_y[:initial_observation_count],
         ),
         reference_path=(route_x, route_y),
         forecast_paths=forecast_paths,
@@ -342,7 +394,7 @@ def plot_rolling_predictions(
         ),
         annotate_prediction_regions=False,
         title=f"Rollierende bayessche CTRV-Prognose ({window_mode_label})",
-        observed_label="Anfängliche Beobachtungen",
+        observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
         forecast_label="Rollierende Posterior-Mediane",
         sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
@@ -479,6 +531,8 @@ def _build_route_prediction_table(
     mcmc_diagnostics_ok,
     observed_turn_rate,
     posterior_diagnostics,
+    additional_position_noise_std_m,
+    position_noise_seed,
 ):
     """Add rolling metadata and one route-wide coordinate frame."""
     table = prediction_table.copy()
@@ -512,6 +566,8 @@ def _build_route_prediction_table(
     table["inference_method"] = inference_method
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
+    table["additional_position_noise_std_m"] = additional_position_noise_std_m
+    table["position_noise_seed"] = position_noise_seed
     table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
     table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
     table["observed_turn_rate_robust_scale_rad_s"] = (
@@ -568,6 +624,74 @@ def _prepare_route_coordinates(trajectory_data):
     )
     route_x, route_y = gps_to_local_coordinates(longitude, latitude, unit="m")
     return route_x, route_y, longitude, latitude
+
+
+def _simulate_route_position_noise(
+    position_count,
+    *,
+    additional_noise_std_m,
+    seed,
+):
+    """Generate one reproducible x/y perturbation for every route position."""
+    if (
+        isinstance(additional_noise_std_m, bool)
+        or not np.isfinite(additional_noise_std_m)
+        or additional_noise_std_m < 0
+    ):
+        raise ValueError(
+            "additional_position_noise_std_m must be finite and non-negative."
+        )
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
+        raise ValueError("position_noise_seed must be a non-negative integer.")
+    if isinstance(position_count, bool) or not isinstance(
+        position_count,
+        (int, np.integer),
+    ):
+        raise ValueError("position_count must be a positive integer.")
+    if position_count < 1:
+        raise ValueError("position_count must be a positive integer.")
+
+    if additional_noise_std_m == 0:
+        zeros = np.zeros(int(position_count), dtype=float)
+        return zeros, zeros.copy()
+    generator = np.random.default_rng(int(seed))
+    noise = generator.normal(
+        0.0,
+        float(additional_noise_std_m),
+        size=(int(position_count), 2),
+    )
+    return noise[:, 0], noise[:, 1]
+
+
+def _build_window_position_observations(
+    window,
+    *,
+    route_start_index,
+    route_noise_x,
+    route_noise_y,
+    additional_noise_std_m,
+    noise_seed,
+):
+    """Apply the fixed route perturbation to one rolling observed window."""
+    route_noise_x = np.asarray(route_noise_x, dtype=float)
+    route_noise_y = np.asarray(route_noise_y, dtype=float)
+    route_stop_index = route_start_index + window.observation_count
+    if (
+        route_start_index < 0
+        or route_noise_x.ndim != 1
+        or route_noise_y.shape != route_noise_x.shape
+        or route_stop_index > route_noise_x.size
+    ):
+        raise ValueError("Route position noise does not cover the rolling window.")
+    route_slice = slice(route_start_index, route_stop_index)
+    observed = window.observed_slice
+    return PositionObservations(
+        time_seconds=window.time_seconds[observed],
+        x_meters=window.x_meters[observed] + route_noise_x[route_slice],
+        y_meters=window.y_meters[observed] + route_noise_y[route_slice],
+        additional_noise_std_m=additional_noise_std_m,
+        noise_seed=noise_seed,
+    )
 
 
 def _gps_to_route_coordinates(
@@ -679,6 +803,18 @@ def _parse_arguments():
     )
     parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
     parser.add_argument(
+        "--position-noise-std-m",
+        type=float,
+        default=EXPERIMENT.additional_position_noise_std_m,
+        help="Additional Gaussian x/y observation noise in meters; 0 disables.",
+    )
+    parser.add_argument(
+        "--position-noise-seed",
+        type=int,
+        default=EXPERIMENT.position_noise_seed,
+        help="Seed for one route-wide reproducible position perturbation.",
+    )
+    parser.add_argument(
         "--require-converged",
         action="store_true",
         default=VI_CONFIG["require_converged"],
@@ -713,6 +849,8 @@ if __name__ == "__main__":
             turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
         ),
         seed=arguments.seed,
+        position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,
         plot_each_window=arguments.plot_each_window,

@@ -28,7 +28,7 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
-DEFAULT_FINAL_HEADING_POINT_COUNT = 5
+DEFAULT_FINAL_HEADING_POINT_COUNT = 2
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
 DEFAULT_VI_ADAPT_ITER = 100
@@ -217,7 +217,7 @@ def build_stan_data(
 
     The initial-speed mean and scale are fixed values from ``priors`` and must
     be calibrated independently of ``window``. The final-heading center is
-    estimated from the last five observed positions at the forecast origin;
+    estimated from the last two observed positions at the forecast origin;
     other data-derived state centers also use only ``position_observations``.
     If observations are omitted, the observed portion of ``window`` is copied
     without adding noise. Position is measured in meters, latent speed in

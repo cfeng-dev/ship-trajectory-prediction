@@ -104,7 +104,7 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
     assert stan_data["heading_final_prior_mean"] == pytest.approx(
-        0.456,
+        0.528,
         abs=1e-8,
     )
     assert "heading_initial_prior_mean" not in stan_data
@@ -330,8 +330,8 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
 
 
-def test_final_heading_prior_uses_only_recent_observed_positions():
-    """The forecast-origin heading should follow the end of the observed path."""
+def test_final_heading_prior_uses_last_two_observed_positions():
+    """The forecast-origin heading should follow the final observed segment."""
     window = create_synthetic_window()
     observations = PositionObservations(
         time_seconds=window.time_seconds[window.observed_slice],
@@ -343,7 +343,7 @@ def test_final_heading_prior_uses_only_recent_observed_positions():
 
     stan_data = build_stan_data(window, position_observations=observations)
 
-    assert stan_data["heading_final_prior_mean"] == pytest.approx(np.pi / 4)
+    assert stan_data["heading_final_prior_mean"] == pytest.approx(np.pi / 2)
     assert "heading_initial_prior_mean" not in stan_data
 
 

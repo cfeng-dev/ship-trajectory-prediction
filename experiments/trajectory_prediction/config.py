@@ -31,6 +31,8 @@ class RollingExperimentConfig:
     window_mode: str
     observation_count: int
     prediction_count: int
+    additional_position_noise_std_m: float
+    position_noise_seed: int
     stride: int | None
     inference_method: str
     inference_seed: int

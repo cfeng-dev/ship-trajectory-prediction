@@ -40,6 +40,7 @@ RUN_ID_RANGE = range(0, 100)
 
 INITIAL_SPEED_POINT_COUNT = DEFAULT_INITIAL_SPEED_POINT_COUNT
 FINAL_HEADING_POINT_COUNT = DEFAULT_FINAL_HEADING_POINT_COUNT
+HEADING_REFERENCE_POINT_COUNT = 5
 INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS = 0.1
 MAX_TIME_GAP_SECONDS = 15.0
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
@@ -393,19 +394,21 @@ def _estimate_run_initial_speed(time_seconds, x_meters, y_meters):
 
 
 def _derive_heading_residuals(time_seconds, x_meters, y_meters):
-    """Compare each recent-position heading with its final segment course.
+    """Compare each two-point heading with a stable five-point reference.
 
     Both quantities use observed positions only. Their wrapped difference is a
     historical consistency diagnostic for the forecast-origin heading center,
     not an error against an unavailable ground-truth heading.
     """
     residuals = []
-    for end_index in range(FINAL_HEADING_POINT_COUNT - 1, len(time_seconds)):
-        start_index = end_index - FINAL_HEADING_POINT_COUNT + 1
-        window_slice = slice(start_index, end_index + 1)
-        time_steps = np.diff(time_seconds[window_slice])
-        delta_x = np.diff(x_meters[window_slice])
-        delta_y = np.diff(y_meters[window_slice])
+    for end_index in range(HEADING_REFERENCE_POINT_COUNT - 1, len(time_seconds)):
+        reference_start = end_index - HEADING_REFERENCE_POINT_COUNT + 1
+        reference_slice = slice(reference_start, end_index + 1)
+        recent_start = end_index - FINAL_HEADING_POINT_COUNT + 1
+        recent_slice = slice(recent_start, end_index + 1)
+        time_steps = np.diff(time_seconds[reference_slice])
+        delta_x = np.diff(x_meters[reference_slice])
+        delta_y = np.diff(y_meters[reference_slice])
         displacement = np.hypot(delta_x, delta_y)
         if not (
             np.all(np.isfinite(time_steps))
@@ -416,13 +419,16 @@ def _derive_heading_residuals(time_seconds, x_meters, y_meters):
             continue
         try:
             recent_heading = estimate_initial_heading(
-                x_meters[window_slice],
-                y_meters[window_slice],
+                x_meters[recent_slice],
+                y_meters[recent_slice],
+            )
+            reference_heading = estimate_initial_heading(
+                x_meters[reference_slice],
+                y_meters[reference_slice],
             )
         except ValueError:
             continue
-        final_segment_heading = float(np.arctan2(delta_y[-1], delta_x[-1]))
-        residuals.append(_wrap_angle(final_segment_heading - recent_heading))
+        residuals.append(_wrap_angle(reference_heading - recent_heading))
     return _finite_values(residuals)
 
 
@@ -972,8 +978,8 @@ def _print_detailed_statistics(result):
     print("\nForecast-origin heading calibration")
     print("-" * 35)
     print(
-        "Residual = wrapped final-segment course minus the recent "
-        f"{FINAL_HEADING_POINT_COUNT}-point heading."
+        f"Residual = wrapped {HEADING_REFERENCE_POINT_COUNT}-point reference "
+        f"minus the recent {FINAL_HEADING_POINT_COUNT}-point heading."
     )
     _print_row("Runs with residuals", _heading_valid_run_count(result))
     _print_row("Valid residuals", heading.count)
