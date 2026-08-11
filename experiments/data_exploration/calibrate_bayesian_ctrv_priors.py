@@ -829,7 +829,12 @@ def _print_compact_summary(result):
     speed = result.initial_speed_summary
     turn = result.turn_rate_summary
     speed_scale = max(speed.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
+    speed_standard_scale = max(
+        speed.standard_deviation,
+        MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+    )
     turn_scale = max(turn.robust_scale, np.finfo(float).eps)
+    turn_standard_scale = max(turn.standard_deviation, np.finfo(float).eps)
 
     print("\n" + "=" * 72)
     print("Bayesian CTRV Historical Prior Calibration")
@@ -842,22 +847,34 @@ def _print_compact_summary(result):
     print("\nInitial speed")
     print("-" * 13)
     _print_row("Median", f"{speed.median:.3f} m/s")
-    _print_row("Robust scale (1.4826 MAD)", f"{speed_scale:.3f} m/s")
+    _print_row("MAD", f"{speed.mad:.3f} m/s")
+    _print_row("Robust scale (1.4826 · MAD)", f"{speed_scale:.3f} m/s")
+    _print_row("Standard deviation", f"{speed.standard_deviation:.3f} m/s")
     _print_row(
-        "Suggested prior",
+        "Suggested prior (robust)",
         f"Normal({speed.median:.3f}, {speed_scale:.3f}), lower bound 0",
+    )
+    _print_row(
+        "Sensitivity alternative (SD)",
+        f"Normal({speed.median:.3f}, {speed_standard_scale:.3f}), lower bound 0",
     )
     print("\nTurn rate")
     print("-" * 9)
     _print_row("Median", f"{turn.median:+.6f} rad/s")
-    _print_row("Robust scale", f"{turn_scale:.6f} rad/s")
+    _print_row("MAD", f"{turn.mad:.6f} rad/s")
+    _print_row("Robust scale (1.4826 · MAD)", f"{turn_scale:.6f} rad/s")
+    _print_row("Standard deviation", f"{turn.standard_deviation:.6f} rad/s")
     _print_row(
         "90% |turn rate|",
         f"{np.quantile(np.abs(result.turn_rate_rad_s), 0.9):.6f} rad/s",
     )
     _print_row(
-        "Suggested prior",
+        "Suggested prior (robust)",
         _format_turn_rate_prior(turn.median, turn_scale),
+    )
+    _print_row(
+        "Sensitivity alternative (SD)",
+        _format_turn_rate_prior(turn.median, turn_standard_scale),
     )
 
     candidates = _process_candidates(result)
