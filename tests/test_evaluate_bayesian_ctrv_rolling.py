@@ -170,6 +170,28 @@ class FakeFit:
         return self.variables[name]
 
 
+def test_window_diagnostics_report_deterministic_forecast_turn_rate():
+    """Rolling diagnostics should report the rate actually used by the forecast."""
+    fit = FakeFit(sigma_speed_process=[0.05])
+    fit.variables.update(
+        {
+            "turn_rate_state_prediction": np.array(
+                [[0.02, 0.02], [0.02, 0.02]],
+            ),
+            "heading_state": np.array([[0.3, 0.4], [0.3, 0.4]]),
+            "heading_state_prediction": np.array(
+                [[0.5, 0.7], [0.5, 0.7]],
+            ),
+        }
+    )
+
+    diagnostics = experiment._posterior_window_diagnostics(fit)
+
+    assert diagnostics["forecast_origin_turn_rate_rad_s"] == pytest.approx(0.02)
+    assert diagnostics["forecast_heading_change_rad"] == pytest.approx(0.3)
+    assert "posterior_origin_turn_rate_median_rad_s" not in diagnostics
+
+
 def test_numerically_exploded_vi_fit_is_retried_with_next_seed(
     monkeypatch,
     capsys,

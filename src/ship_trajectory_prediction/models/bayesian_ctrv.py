@@ -20,17 +20,15 @@ from ship_trajectory_prediction.evaluation.reporting import (
 )
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import TrajectoryWindowData
-from ship_trajectory_prediction.trajectory.window import (
-    estimate_initial_heading,
-)
 
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
-DEFAULT_FINAL_HEADING_POINT_COUNT = 2
+DEFAULT_FINAL_MOTION_POINT_COUNT = 8
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
+MIN_FINAL_MOTION_SPEED_MPS = 1.0
 DEFAULT_VI_ADAPT_ITER = 100
 # Robust window-specific scales are kept informative but not degenerate.
 MIN_TURN_RATE_PRIOR_SCALE = 0.002
@@ -51,7 +49,8 @@ class BayesianCTRVPriors:
     """Configurable prior parameters for the Bayesian CTRV state-space model.
 
     Fixed prior parameters should be calibrated from independent historical
-    windows. The forecast-origin heading is derived from current observations.
+    windows. Forecast-origin heading and turn rate are derived from current
+    observations.
     """
 
     position_initial_prior_scale: float = 5.0
@@ -215,8 +214,8 @@ def build_stan_data(
     """Build position-only data and priors for one observed trajectory window.
 
     The initial-speed mean and scale are fixed values from ``priors`` and must
-    be calibrated independently of ``window``. The final-heading center is
-    estimated from the last two observed positions at the forecast origin;
+    be calibrated independently of ``window``. Final heading and forecast turn
+    rate are estimated together from the last eight observed positions;
     other data-derived state centers also use only ``position_observations``.
     If observations are omitted, the observed portion of ``window`` is copied
     without adding noise. Position is measured in meters, latent speed in
@@ -254,17 +253,18 @@ def build_stan_data(
         turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         position_observations=position_observations,
     )
-    recent_heading_slice = slice(-DEFAULT_FINAL_HEADING_POINT_COUNT, None)
     try:
-        heading_final = estimate_initial_heading(
-            x_observed[recent_heading_slice],
-            y_observed[recent_heading_slice],
+        heading_final, turn_rate_final = estimate_final_motion_from_positions(
+            time_observed,
+            x_observed,
+            y_observed,
         )
     except ValueError:
         # Heading and turn rate are not identifiable while the ship is
         # stationary. Neutral centers keep such windows valid without deriving
         # arbitrary motion from GPS jitter.
         heading_final = 0.0
+        turn_rate_final = 0.0
         turn_rate_initial_prior_mean = 0.0
     else:
         turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
@@ -293,9 +293,74 @@ def build_stan_data(
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
         "heading_final": heading_final,
+        "turn_rate_final": turn_rate_final,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
         **prior_parameters,
     }
+
+
+def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
+    """Estimate deterministic heading and turn rate at the forecast origin.
+
+    Quadratic least-squares fits of x(t) and y(t) over the final observations
+    provide terminal velocity and acceleration. Their direction gives the
+    heading, while their signed cross product gives angular velocity. This
+    smooths position noise without introducing another stochastic forecast
+    state. With fewer than three points or insufficient terminal speed, the
+    final segment course is retained and turn rate falls back to zero.
+    """
+    time_seconds = np.asarray(time_seconds, dtype=float)
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
+    if time_seconds.size < 2:
+        raise ValueError("At least two observed positions are required.")
+    if np.any(np.diff(time_seconds) <= 0):
+        raise ValueError("time_seconds must be strictly increasing.")
+
+    delta_x_final = float(x_meters[-1] - x_meters[-2])
+    delta_y_final = float(y_meters[-1] - y_meters[-2])
+    final_displacement = float(np.hypot(delta_x_final, delta_y_final))
+    if final_displacement <= 1e-8:
+        raise ValueError("Final observed positions do not contain movement.")
+
+    final_course = float(np.arctan2(delta_y_final, delta_x_final))
+    if time_seconds.size < 3:
+        return final_course, 0.0
+
+    point_count = min(DEFAULT_FINAL_MOTION_POINT_COUNT, time_seconds.size)
+    centered_time = time_seconds[-point_count:] - time_seconds[-1]
+    design_matrix = np.column_stack(
+        (
+            np.ones(point_count),
+            centered_time,
+            np.square(centered_time),
+        )
+    )
+    x_coefficients = np.linalg.lstsq(
+        design_matrix,
+        x_meters[-point_count:],
+        rcond=None,
+    )[0]
+    y_coefficients = np.linalg.lstsq(
+        design_matrix,
+        y_meters[-point_count:],
+        rcond=None,
+    )[0]
+    velocity_x = float(x_coefficients[1])
+    velocity_y = float(y_coefficients[1])
+    acceleration_x = float(2.0 * x_coefficients[2])
+    acceleration_y = float(2.0 * y_coefficients[2])
+    speed_squared = velocity_x**2 + velocity_y**2
+    if speed_squared < MIN_FINAL_MOTION_SPEED_MPS**2:
+        return final_course, 0.0
+
+    heading_final = float(np.arctan2(velocity_y, velocity_x))
+    turn_rate_final = float(
+        (velocity_x * acceleration_y - velocity_y * acceleration_x)
+        / speed_squared
+    )
+    return heading_final, turn_rate_final
 
 
 def estimate_initial_speed_from_positions(

@@ -25,6 +25,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     build_stan_data,
     compare_vi_runs,
     diagnose_observed_turn_rate,
+    estimate_final_motion_from_positions,
     estimate_initial_speed_from_positions,
     estimate_initial_speed_prior_from_windows,
     fit_bayesian_ctrv_model,
@@ -104,9 +105,10 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
     assert stan_data["heading_final"] == pytest.approx(
-        0.528,
-        abs=1e-8,
+        0.552,
+        abs=1e-3,
     )
+    assert stan_data["turn_rate_final"] == pytest.approx(0.012, abs=1e-3)
     assert "heading_final_prior_mean" not in stan_data
     assert "heading_final_prior_scale" not in stan_data
     assert "heading_initial_prior_mean" not in stan_data
@@ -325,8 +327,8 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
 
 
-def test_fixed_final_heading_uses_last_two_observed_positions():
-    """The fixed forecast-origin heading should follow the final observed segment."""
+def test_fixed_final_motion_uses_smoothed_terminal_positions():
+    """Forecast-origin motion should smooth the final observed positions."""
     window = create_synthetic_window()
     observations = PositionObservations(
         time_seconds=window.time_seconds[window.observed_slice],
@@ -339,6 +341,7 @@ def test_fixed_final_heading_uses_last_two_observed_positions():
     stan_data = build_stan_data(window, position_observations=observations)
 
     assert stan_data["heading_final"] == pytest.approx(np.pi / 2)
+    assert stan_data["turn_rate_final"] == pytest.approx(0.0)
     assert "heading_final_prior_mean" not in stan_data
     assert "heading_final_prior_scale" not in stan_data
     assert "heading_initial_prior_mean" not in stan_data
@@ -346,6 +349,31 @@ def test_fixed_final_heading_uses_last_two_observed_positions():
         stan_data,
         seed=19,
     )
+
+
+def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
+    """Quadratic position fits should provide deterministic terminal motion."""
+    time_seconds = np.arange(5.0)
+    heading, turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        2.0 * time_seconds,
+        0.5 * np.square(time_seconds),
+    )
+
+    assert heading == pytest.approx(np.arctan2(4.0, 2.0))
+    assert turn_rate == pytest.approx(0.1)
+
+
+def test_final_motion_uses_zero_turn_rate_at_insufficient_fitted_speed():
+    """Slow terminal motion should not turn based on position jitter."""
+    heading, turn_rate = estimate_final_motion_from_positions(
+        np.arange(5.0),
+        [0.0, 0.2, 0.4, 0.6, 0.8],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+
+    assert heading == pytest.approx(0.0)
+    assert turn_rate == pytest.approx(0.0)
 
 
 def test_turn_rate_diagnostics_are_robust_and_configurable():
@@ -395,6 +423,7 @@ def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
     stan_data = build_stan_data(stationary_window)
 
     assert stan_data["heading_final"] == 0.0
+    assert stan_data["turn_rate_final"] == 0.0
     assert stan_data["turn_rate_initial_prior_mean"] == 0.0
 
 
@@ -1073,9 +1102,12 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "speed_state_raw" not in source
     assert "log1p_exp" not in source
     assert "real speed_current = fmax(" in source
-    assert "real turn_rate_current = normal_rng(" in source
+    assert "real turn_rate_current = turn_rate_previous" in source
+    assert "normal_rng(turn_rate_previous" not in source
     assert "real heading_final" in data_block
+    assert "real turn_rate_final" in data_block
     assert "heading_final" not in parameter_block
+    assert "turn_rate_final" not in parameter_block
     assert "heading_state[N_observed] = heading_final" in source
     assert "heading_final ~" not in source
     assert "heading_final_prior" not in source
@@ -1083,6 +1115,7 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source
+    assert "real turn_rate_previous = turn_rate_final" in source
 
 
 def test_stan_ctrv_calls_never_use_observed_positions_as_transition_inputs():

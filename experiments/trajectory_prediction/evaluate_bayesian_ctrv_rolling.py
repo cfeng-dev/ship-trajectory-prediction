@@ -286,9 +286,9 @@ def main(
         print(
             f"ADE={evaluation.ade_m:.2f} m, "
             f"FDE={evaluation.fde_m:.2f} m, "
-            f"turn-rate observed/posterior="
+            f"turn-rate observed/forecast="
             f"{observed_turn_rate.median_rad_s:+.5f}/"
-            f"{posterior_diagnostics['posterior_origin_turn_rate_median_rad_s']:+.5f} "
+            f"{posterior_diagnostics['forecast_origin_turn_rate_rad_s']:+.5f} "
             f"rad/s, {inference_status}"
         )
         if plot_each_window:
@@ -594,18 +594,21 @@ def _build_route_prediction_table(
 
 
 def _posterior_window_diagnostics(fit):
-    """Return turn-rate and noise medians for one fitted rolling window."""
-    turn_rate_state = posterior_variable_samples(fit, "turn_rate_state")
+    """Return forecast-motion values and posterior noise medians for one window."""
+    turn_rate_prediction = posterior_variable_samples(
+        fit,
+        "turn_rate_state_prediction",
+    )
     heading_state = posterior_variable_samples(fit, "heading_state")
     heading_state_prediction = posterior_variable_samples(
         fit,
         "heading_state_prediction",
     )
     diagnostics = {
-        "posterior_origin_turn_rate_median_rad_s": float(
-            np.median(turn_rate_state[:, -1])
+        "forecast_origin_turn_rate_rad_s": float(
+            np.median(turn_rate_prediction[:, 0])
         ),
-        "posterior_heading_change_median_rad": float(
+        "forecast_heading_change_rad": float(
             np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
         ),
     }
@@ -810,8 +813,8 @@ def _print_turn_rate_and_noise_summary(predictions):
         f"{windows['observed_turn_rate_median_rad_s'].abs().median():.5f} rad/s"
     )
     print(
-        "Maximum posterior origin turn rate : "
-        f"{windows['posterior_origin_turn_rate_median_rad_s'].abs().max():.5f} rad/s"
+        "Maximum forecast-origin turn rate  : "
+        f"{windows['forecast_origin_turn_rate_rad_s'].abs().max():.5f} rad/s"
     )
     print(
         "Median position process sigma      : "

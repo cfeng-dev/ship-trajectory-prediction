@@ -58,8 +58,9 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
-	// Fixed heading derived from the final two observed positions [rad]
-	real heading_final;
+	// Fixed terminal motion derived from the final eight observed positions
+	real heading_final;   // Endpoint heading [rad]
+	real turn_rate_final; // Local turn rate [rad/s]
 
 	// Turn-rate prior hyperparameters [rad/s]
 	real turn_rate_initial_prior_mean;
@@ -263,7 +264,7 @@ generated quantities {
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
   real heading_previous = heading_state[N_observed];
-  real turn_rate_previous = turn_rate_state[N_observed];
+  real turn_rate_previous = turn_rate_final;
   real time_previous = time_observed[N_observed];
 
 
@@ -304,8 +305,8 @@ generated quantities {
     // Deterministic heading propagation
     real heading_current = heading_previous + turn_rate_previous * dt;
 
-    // Sample future latent turn rate from the unbounded process model
-    real turn_rate_current = normal_rng(turn_rate_previous, sigma_turn_rate_process * sqrt(dt));
+    // Keep the observation-derived forecast turn rate constant.
+    real turn_rate_current = turn_rate_previous;
 
     // Store posterior predictive latent states
     x_state_prediction[n] = x_current;
