@@ -25,7 +25,7 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
-DEFAULT_FINAL_MOTION_POINT_COUNT = 8
+FINAL_MOTION_HISTORY_SECONDS = 60
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
@@ -215,7 +215,7 @@ def build_stan_data(
 
     The initial-speed mean and scale are fixed values from ``priors`` and must
     be calibrated independently of ``window``. Final heading and forecast turn
-    rate are estimated together from the last eight observed positions;
+    rate are estimated together from the configured recent time span;
     other data-derived state centers also use only ``position_observations``.
     If observations are omitted, the observed portion of ``window`` is copied
     without adding noise. Position is measured in meters, latent speed in
@@ -302,12 +302,13 @@ def build_stan_data(
 def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
     """Estimate deterministic heading and turn rate at the forecast origin.
 
-    Quadratic least-squares fits of x(t) and y(t) over the final observations
-    provide terminal velocity and acceleration. Their direction gives the
-    heading, while their signed cross product gives angular velocity. This
-    smooths position noise without introducing another stochastic forecast
-    state. With fewer than three points or insufficient terminal speed, the
-    final segment course is retained and turn rate falls back to zero.
+    Quadratic least-squares fits of x(t) and y(t) over observations within
+    ``FINAL_MOTION_HISTORY_SECONDS`` of the final timestamp provide terminal
+    velocity and acceleration. Their direction gives the heading, while their
+    signed cross product gives angular velocity. This smooths position noise
+    without introducing another stochastic forecast state. With fewer than
+    three recent points or insufficient terminal speed, the final segment
+    course is retained and turn rate falls back to zero.
     """
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
@@ -325,11 +326,16 @@ def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
         raise ValueError("Final observed positions do not contain movement.")
 
     final_course = float(np.arctan2(delta_y_final, delta_x_final))
-    if time_seconds.size < 3:
+    history_start_time = time_seconds[-1] - FINAL_MOTION_HISTORY_SECONDS
+    history_mask = time_seconds >= history_start_time
+    history_time = time_seconds[history_mask]
+    history_x = x_meters[history_mask]
+    history_y = y_meters[history_mask]
+    point_count = history_time.size
+    if point_count < 3:
         return final_course, 0.0
 
-    point_count = min(DEFAULT_FINAL_MOTION_POINT_COUNT, time_seconds.size)
-    centered_time = time_seconds[-point_count:] - time_seconds[-1]
+    centered_time = history_time - time_seconds[-1]
     design_matrix = np.column_stack(
         (
             np.ones(point_count),
@@ -339,12 +345,12 @@ def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
     )
     x_coefficients = np.linalg.lstsq(
         design_matrix,
-        x_meters[-point_count:],
+        history_x,
         rcond=None,
     )[0]
     y_coefficients = np.linalg.lstsq(
         design_matrix,
-        y_meters[-point_count:],
+        history_y,
         rcond=None,
     )[0]
     velocity_x = float(x_coefficients[1])
@@ -357,8 +363,7 @@ def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
 
     heading_final = float(np.arctan2(velocity_y, velocity_x))
     turn_rate_final = float(
-        (velocity_x * acceleration_y - velocity_y * acceleration_x)
-        / speed_squared
+        (velocity_x * acceleration_y - velocity_y * acceleration_x) / speed_squared
     )
     return heading_final, turn_rate_final
 

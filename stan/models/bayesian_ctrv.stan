@@ -58,7 +58,7 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
-	// Fixed terminal motion derived from the final eight observed positions
+	// Fixed terminal motion derived from recent observed positions
 	real heading_final;   // Endpoint heading [rad]
 	real turn_rate_final; // Local turn rate [rad/s]
 

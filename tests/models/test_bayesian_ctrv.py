@@ -364,6 +364,33 @@ def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
     assert turn_rate == pytest.approx(0.1)
 
 
+def test_final_motion_ignores_positions_older_than_history_span():
+    """Terminal motion should use time span rather than observation count."""
+    recent_time = np.arange(-70.0, 10.0, 10.0)
+    time_seconds = np.concatenate(([-100.0], recent_time))
+    x_meters = np.concatenate(
+        (
+            [10_000.0],
+            500.0 + 4.0 * recent_time - 0.002 * np.square(recent_time),
+        )
+    )
+    y_meters = np.concatenate(
+        (
+            [-10_000.0],
+            1_000.0 + 3.0 * recent_time + 0.004 * np.square(recent_time),
+        )
+    )
+
+    heading, turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        x_meters,
+        y_meters,
+    )
+
+    assert heading == pytest.approx(np.arctan2(3.0, 4.0))
+    assert turn_rate == pytest.approx(0.00176)
+
+
 def test_final_motion_uses_zero_turn_rate_at_insufficient_fitted_speed():
     """Slow terminal motion should not turn based on position jitter."""
     heading, turn_rate = estimate_final_motion_from_positions(
