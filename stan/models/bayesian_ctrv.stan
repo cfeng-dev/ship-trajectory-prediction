@@ -58,9 +58,8 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
-	// Final-heading prior hyperparameters at the forecast origin [rad]
-	real heading_final_prior_mean;
-	real<lower=0> heading_final_prior_scale;
+	// Fixed heading derived from the final two observed positions [rad]
+	real heading_final;
 
 	// Turn-rate prior hyperparameters [rad/s]
 	real turn_rate_initial_prior_mean;
@@ -107,7 +106,6 @@ parameters {
 
   // Latent kinematic states
   vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
-  real heading_final;                       // Unknown heading at the forecast origin [rad]
   vector[N_observed] turn_rate_state;       // Latent turn rate [rad/s]
 
   // Unknown observation-noise parameter
@@ -157,10 +155,6 @@ model {
 
   // Initial latent speed: p(v_1), constrained to non-negative values
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
-
-  // Heading at the forecast origin: p(heading_N)
-  heading_final ~ normal(heading_final_prior_mean, heading_final_prior_scale);
-
 
   // ------------------------------------------------------------------
   // 2. PRIOR REGULARIZATION OF THE LATENT TURN-RATE TRAJECTORY

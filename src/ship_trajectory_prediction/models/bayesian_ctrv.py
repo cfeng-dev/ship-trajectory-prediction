@@ -50,14 +50,13 @@ NOISE_PARAMETER_NAMES = (
 class BayesianCTRVPriors:
     """Configurable prior parameters for the Bayesian CTRV state-space model.
 
-    The initial-speed parameters and final-heading scale remain fixed during a
-    fit and should be calibrated from independent historical windows.
+    Fixed prior parameters should be calibrated from independent historical
+    windows. The forecast-origin heading is derived from current observations.
     """
 
     position_initial_prior_scale: float = 5.0
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
-    heading_final_prior_scale: float = 0.117502
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.5
@@ -257,7 +256,7 @@ def build_stan_data(
     )
     recent_heading_slice = slice(-DEFAULT_FINAL_HEADING_POINT_COUNT, None)
     try:
-        heading_final_prior_mean = estimate_initial_heading(
+        heading_final = estimate_initial_heading(
             x_observed[recent_heading_slice],
             y_observed[recent_heading_slice],
         )
@@ -265,7 +264,7 @@ def build_stan_data(
         # Heading and turn rate are not identifiable while the ship is
         # stationary. Neutral centers keep such windows valid without deriving
         # arbitrary motion from GPS jitter.
-        heading_final_prior_mean = 0.0
+        heading_final = 0.0
         turn_rate_initial_prior_mean = 0.0
     else:
         turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
@@ -274,7 +273,6 @@ def build_stan_data(
         "position_initial_prior_scale": priors.position_initial_prior_scale,
         "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
-        "heading_final_prior_scale": priors.heading_final_prior_scale,
         "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
         "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
         "sigma_position_process_prior_scale": (
@@ -294,7 +292,7 @@ def build_stan_data(
         "time_prediction": time_prediction,
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
-        "heading_final_prior_mean": heading_final_prior_mean,
+        "heading_final": heading_final,
         "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
         **prior_parameters,
     }
@@ -853,8 +851,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             speed_initial + generator.normal(0, speed_jitter, state_count),
             SPEED_STATE_INITIAL_LOWER,
         ),
-        "heading_final": float(stan_data["heading_final_prior_mean"])
-        + generator.normal(0, 0.01),
         "turn_rate_state": turn_rate_center
         + generator.normal(0, turn_jitter, state_count),
         "sigma_position_gps": max(

@@ -1,12 +1,10 @@
 """Tests for the Bayesian CTRV rolling-evaluation experiment."""
 
 import numpy as np
+import pytest
 
-from experiments.trajectory_prediction.evaluate_bayesian_ctrv_rolling import (
-    EXPERIMENT,
-    _build_window_position_observations,
-    _simulate_route_position_noise,
-)
+import experiments.trajectory_prediction.evaluate_bayesian_ctrv_rolling as experiment
+from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
 from ship_trajectory_prediction.models.ctrv import CTRVState
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     SyntheticCTRVNoise,
@@ -40,18 +38,18 @@ def _create_route():
 
 def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
     """The rolling default should match the single-fit 2 m noise scenario."""
-    assert EXPERIMENT.additional_position_noise_std_m == 2.0
-    assert EXPERIMENT.position_noise_seed == 2026
+    assert experiment.EXPERIMENT.additional_position_noise_std_m == 2.0
+    assert experiment.EXPERIMENT.position_noise_seed == 2026
 
-    first_x, first_y = _simulate_route_position_noise(
+    first_x, first_y = experiment._simulate_route_position_noise(
         10,
-        additional_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
-        seed=EXPERIMENT.position_noise_seed,
+        additional_noise_std_m=(experiment.EXPERIMENT.additional_position_noise_std_m),
+        seed=experiment.EXPERIMENT.position_noise_seed,
     )
-    second_x, second_y = _simulate_route_position_noise(
+    second_x, second_y = experiment._simulate_route_position_noise(
         10,
-        additional_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
-        seed=EXPERIMENT.position_noise_seed,
+        additional_noise_std_m=(experiment.EXPERIMENT.additional_position_noise_std_m),
+        seed=experiment.EXPERIMENT.position_noise_seed,
     )
 
     np.testing.assert_array_equal(first_x, second_x)
@@ -63,7 +61,7 @@ def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
 def test_overlapping_windows_reuse_the_same_route_position_noise():
     """One physical observation must retain its perturbation across windows."""
     route = _create_route()
-    route_noise_x, route_noise_y = _simulate_route_position_noise(
+    route_noise_x, route_noise_y = experiment._simulate_route_position_noise(
         len(route),
         additional_noise_std_m=2.0,
         seed=2026,
@@ -81,7 +79,7 @@ def test_overlapping_windows_reuse_the_same_route_position_noise():
         start_index=2,
     )
 
-    first_observations = _build_window_position_observations(
+    first_observations = experiment._build_window_position_observations(
         first_window,
         route_start_index=0,
         route_noise_x=route_noise_x,
@@ -89,7 +87,7 @@ def test_overlapping_windows_reuse_the_same_route_position_noise():
         additional_noise_std_m=2.0,
         noise_seed=2026,
     )
-    second_observations = _build_window_position_observations(
+    second_observations = experiment._build_window_position_observations(
         second_window,
         route_start_index=2,
         route_noise_x=route_noise_x,
@@ -129,12 +127,12 @@ def test_zero_position_noise_keeps_the_recorded_route_unchanged():
         observation_count=5,
         prediction_count=2,
     )
-    route_noise_x, route_noise_y = _simulate_route_position_noise(
+    route_noise_x, route_noise_y = experiment._simulate_route_position_noise(
         len(route),
         additional_noise_std_m=0.0,
         seed=2026,
     )
-    observations = _build_window_position_observations(
+    observations = experiment._build_window_position_observations(
         window,
         route_start_index=0,
         route_noise_x=route_noise_x,
@@ -151,3 +149,100 @@ def test_zero_position_noise_keeps_the_recorded_route_unchanged():
         observations.y_meters,
         window.y_meters[window.observed_slice],
     )
+
+
+class FakeFit:
+    """Provide CmdStanVB-like scalar noise draws for retry tests."""
+
+    variational_sample = object()
+
+    def __init__(self, *, sigma_speed_process):
+        self.variables = {
+            "sigma_position_gps": np.array([5.0]),
+            "sigma_position_process": np.array([0.5]),
+            "sigma_speed_process": np.asarray(sigma_speed_process, dtype=float),
+            "sigma_turn_rate_process": np.array([0.001]),
+        }
+
+    def stan_variable(self, name, mean=False):
+        """Return one stored fake posterior variable."""
+        del mean
+        return self.variables[name]
+
+
+def test_numerically_exploded_vi_fit_is_retried_with_next_seed(
+    monkeypatch,
+    capsys,
+):
+    """A catastrophic VI tail should be discarded instead of breaking the plot."""
+    unstable = FakeFit(sigma_speed_process=[0.05, 1e100])
+    stable = FakeFit(sigma_speed_process=[0.04, 0.06])
+    fits = iter((unstable, stable))
+    used_seeds = []
+
+    def fake_fit(*args, seed, **kwargs):
+        del args, kwargs
+        used_seeds.append(seed)
+        return next(fits)
+
+    monkeypatch.setattr(experiment, "fit_bayesian_ctrv_model", fake_fit)
+
+    fit, seed = experiment._fit_rolling_window(
+        object(),
+        priors=BayesianCTRVPriors(),
+        position_observations=object(),
+        inference_method="vi",
+        inference_config={},
+        initial_seed=62,
+    )
+
+    assert fit is stable
+    assert seed == 63
+    assert used_seeds == [62, 63]
+    assert "retrying with seed=63" in capsys.readouterr().out
+
+
+def test_repeated_numerical_vi_instability_fails_clearly(monkeypatch):
+    """Rolling evaluation must not plot an approximation that remains invalid."""
+    unstable = FakeFit(sigma_speed_process=[1e100])
+    monkeypatch.setattr(
+        experiment,
+        "fit_bayesian_ctrv_model",
+        lambda *args, **kwargs: unstable,
+    )
+
+    with pytest.raises(RuntimeError, match="remained numerically unstable"):
+        experiment._fit_rolling_window(
+            object(),
+            priors=BayesianCTRVPriors(),
+            position_observations=object(),
+            inference_method="vi",
+            inference_config={},
+            initial_seed=62,
+        )
+
+
+def test_mcmc_fit_is_never_subjected_to_vi_retry(monkeypatch):
+    """Reference MCMC output should bypass the VI-specific stability policy."""
+    fit = object()
+    used_seeds = []
+
+    def fake_fit(*args, seed, **kwargs):
+        del args, kwargs
+        used_seeds.append(seed)
+        return fit
+
+    monkeypatch.setattr(experiment, "fit_bayesian_ctrv_model", fake_fit)
+
+    result, seed = experiment._fit_rolling_window(
+        object(),
+        priors=BayesianCTRVPriors(),
+        position_observations=object(),
+        inference_method="mcmc",
+        inference_config={},
+        initial_seed=62,
+    )
+
+    assert result is fit
+    assert seed == 62
+    assert used_seeds == [62]

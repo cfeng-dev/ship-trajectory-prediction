@@ -58,7 +58,6 @@ PRIORS = BayesianCTRVPriors(
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
-    heading_final_prior_scale=0.117502,  # Circular-SD heading scale [rad].
     turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
@@ -133,13 +132,9 @@ def main(
     inference_rows = [
         ("Inference method", inference_method.upper()),
         (
-            "Forecast-origin heading center",
-            f"{stan_data['heading_final_prior_mean']:.4f} rad "
-            f"({np.degrees(stan_data['heading_final_prior_mean']):.1f} deg)",
-        ),
-        (
-            "Forecast-origin heading scale",
-            f"{stan_data['heading_final_prior_scale']:.6f} rad",
+            "Forecast-origin heading (2 points)",
+            f"{stan_data['heading_final']:.4f} rad "
+            f"({np.degrees(stan_data['heading_final']):.1f} deg)",
         ),
     ]
     if inference_method == "vi":
@@ -190,7 +185,7 @@ def main(
     print(
         posterior_parameter_summary(
             fit,
-            ["heading_final", *NOISE_PARAMETER_NAMES],
+            NOISE_PARAMETER_NAMES,
         )
     )
 

@@ -103,10 +103,12 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
         abs=1e-8,
     )
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
-    assert stan_data["heading_final_prior_mean"] == pytest.approx(
+    assert stan_data["heading_final"] == pytest.approx(
         0.528,
         abs=1e-8,
     )
+    assert "heading_final_prior_mean" not in stan_data
+    assert "heading_final_prior_scale" not in stan_data
     assert "heading_initial_prior_mean" not in stan_data
     assert "turn_rate_limit" not in stan_data
     assert "x_state_prediction" not in stan_data
@@ -262,7 +264,6 @@ def test_build_stan_data_does_not_use_held_out_measurements():
     [
         "position_initial_prior_scale",
         "speed_initial_prior_scale",
-        "heading_final_prior_scale",
         "turn_rate_state_prior_scale",
         "sigma_position_gps_prior_scale",
         "sigma_position_process_prior_scale",
@@ -282,18 +283,12 @@ def test_prior_configuration_rejects_negative_initial_speed_mean():
         BayesianCTRVPriors(speed_initial_prior_mean=-0.1)
 
 
-def test_default_final_heading_scale_uses_historical_circular_deviation():
-    """The default heading uncertainty should match historical calibration."""
-    assert BayesianCTRVPriors().heading_final_prior_scale == pytest.approx(0.117502)
-
-
 def test_build_stan_data_uses_typed_prior_configuration():
     """One immutable configuration should supply every Stan prior scale."""
     priors = BayesianCTRVPriors(
         position_initial_prior_scale=4.0,
         speed_initial_prior_mean=2.5,
         speed_initial_prior_scale=0.6,
-        heading_final_prior_scale=0.25,
         turn_rate_state_prior_scale=0.004,
         sigma_position_gps_prior_scale=3.0,
         sigma_position_process_prior_scale=0.3,
@@ -330,8 +325,8 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
 
 
-def test_final_heading_prior_uses_last_two_observed_positions():
-    """The forecast-origin heading should follow the final observed segment."""
+def test_fixed_final_heading_uses_last_two_observed_positions():
+    """The fixed forecast-origin heading should follow the final observed segment."""
     window = create_synthetic_window()
     observations = PositionObservations(
         time_seconds=window.time_seconds[window.observed_slice],
@@ -343,8 +338,14 @@ def test_final_heading_prior_uses_last_two_observed_positions():
 
     stan_data = build_stan_data(window, position_observations=observations)
 
-    assert stan_data["heading_final_prior_mean"] == pytest.approx(np.pi / 2)
+    assert stan_data["heading_final"] == pytest.approx(np.pi / 2)
+    assert "heading_final_prior_mean" not in stan_data
+    assert "heading_final_prior_scale" not in stan_data
     assert "heading_initial_prior_mean" not in stan_data
+    assert "heading_final" not in model_module._default_initial_values(
+        stan_data,
+        seed=19,
+    )
 
 
 def test_turn_rate_diagnostics_are_robust_and_configurable():
@@ -393,7 +394,7 @@ def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
 
     stan_data = build_stan_data(stationary_window)
 
-    assert stan_data["heading_final_prior_mean"] == 0.0
+    assert stan_data["heading_final"] == 0.0
     assert stan_data["turn_rate_initial_prior_mean"] == 0.0
 
 
@@ -1053,6 +1054,12 @@ def test_synthetic_data_retains_truth_noise_and_is_seed_reproducible():
 def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     """The Stan source should retain exact, straight, and scaled transitions."""
     source = STAN_FILE.read_text(encoding="utf-8")
+    data_block = re.search(r"data\s*\{(.*?)\n\}", source, flags=re.DOTALL).group(1)
+    parameter_block = re.search(
+        r"parameters\s*\{(.*?)\n\}",
+        source,
+        flags=re.DOTALL,
+    ).group(1)
 
     assert "speed / turn_rate" in source
     assert "x + speed * dt * cos(heading)" in source
@@ -1067,9 +1074,11 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "log1p_exp" not in source
     assert "real speed_current = fmax(" in source
     assert "real turn_rate_current = normal_rng(" in source
-    assert "real heading_final" in source
+    assert "real heading_final" in data_block
+    assert "heading_final" not in parameter_block
     assert "heading_state[N_observed] = heading_final" in source
-    assert "heading_final ~ normal(heading_final_prior_mean" in source
+    assert "heading_final ~" not in source
+    assert "heading_final_prior" not in source
     assert "heading_initial" not in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source

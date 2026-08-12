@@ -67,7 +67,6 @@ PRIORS = BayesianCTRVPriors(
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
-    heading_final_prior_scale=0.117502,  # Circular-SD heading scale [rad].
     turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
@@ -97,8 +96,11 @@ MCMC_CONFIG = {
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
-PLOT_EACH_WINDOW = True  # Show the individual fit of every rolling window.
+PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
+VI_NUMERICAL_STABILITY_RETRIES = 2
+# Numerical guard only: this does not constrain or trim valid posterior draws.
+VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,13 +229,13 @@ def main(
             turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
             position_observations=position_observations,
         )
-        fit = fit_bayesian_ctrv_model(
+        fit, window_seed = _fit_rolling_window(
             window,
             priors=priors,
             position_observations=position_observations,
             inference_method=inference_method,
-            seed=window_seed,
-            **inference_config,
+            inference_config=inference_config,
+            initial_seed=window_seed,
         )
         if inference_method == "vi":
             converged = variational_converged(fit)
@@ -612,6 +614,69 @@ def _posterior_window_diagnostics(fit):
             np.median(posterior_variable_samples(fit, name))
         )
     return diagnostics
+
+
+def _fit_rolling_window(
+    window,
+    *,
+    priors,
+    position_observations,
+    inference_method,
+    inference_config,
+    initial_seed,
+):
+    """Fit one window and retry only numerically exploded VI approximations."""
+    seed = initial_seed
+    for attempt in range(VI_NUMERICAL_STABILITY_RETRIES + 1):
+        fit = fit_bayesian_ctrv_model(
+            window,
+            priors=priors,
+            position_observations=position_observations,
+            inference_method=inference_method,
+            seed=seed,
+            **inference_config,
+        )
+        if inference_method != "vi":
+            return fit, seed
+
+        instability = _vi_numerical_instability_reason(fit, priors)
+        if instability is None:
+            return fit, seed
+        if attempt == VI_NUMERICAL_STABILITY_RETRIES:
+            raise RuntimeError(
+                "VI remained numerically unstable after "
+                f"{VI_NUMERICAL_STABILITY_RETRIES + 1} attempts: {instability}"
+            )
+
+        next_seed = seed + 1
+        print(
+            "WARNING: Discarding numerically unstable VI fit "
+            f"(seed={seed}: {instability}); retrying with seed={next_seed}."
+        )
+        seed = next_seed
+
+    raise AssertionError("Unreachable VI retry state.")
+
+
+def _vi_numerical_instability_reason(fit, priors):
+    """Describe posterior noise draws that indicate a failed VI approximation."""
+    prior_scales = {
+        "sigma_position_gps": priors.sigma_position_gps_prior_scale,
+        "sigma_position_process": priors.sigma_position_process_prior_scale,
+        "sigma_speed_process": priors.sigma_speed_process_prior_scale,
+        "sigma_turn_rate_process": priors.sigma_turn_rate_process_prior_scale,
+    }
+    for name, prior_scale in prior_scales.items():
+        samples = posterior_variable_samples(fit, name)
+        if samples.size == 0 or not np.all(np.isfinite(samples)):
+            return f"{name} contains empty or non-finite posterior draws"
+        maximum_ratio = float(np.max(samples) / prior_scale)
+        if maximum_ratio > VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO:
+            return (
+                f"{name} maximum/prior-scale ratio={maximum_ratio:.3e} "
+                f"> {VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO:.3e}"
+            )
+    return None
 
 
 def _prepare_route_coordinates(trajectory_data):
