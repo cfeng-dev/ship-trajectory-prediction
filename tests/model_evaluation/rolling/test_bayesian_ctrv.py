@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import experiments.model_evaluation.rolling.bayesian_ctrv as experiment
-from experiments.trajectory_prediction.config import (
+from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
     normalize_bayesian_ctrv_model_variant,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors

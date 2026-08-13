@@ -1,4 +1,4 @@
-"""Shared configuration types for trajectory-prediction experiments."""
+"""Shared Bayesian CTRV evaluation configuration helpers."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass

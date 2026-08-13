@@ -5,19 +5,11 @@ from time import perf_counter
 
 import numpy as np
 
-if __package__:
-    from .config import (
-        ExperimentConfig,
-        normalize_bayesian_ctrv_model_variant,
-        select_bayesian_ctrv_inference_config,
-    )
-else:
-    from config import (
-        ExperimentConfig,
-        normalize_bayesian_ctrv_model_variant,
-        select_bayesian_ctrv_inference_config,
-    )
-
+from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+    ExperimentConfig,
+    normalize_bayesian_ctrv_model_variant,
+    select_bayesian_ctrv_inference_config,
+)
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
     print_position_evaluation,

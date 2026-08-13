@@ -1,27 +1,11 @@
 """Evaluate fully Bayesian CTRV forecasts across rolling windows."""
 
 import argparse
-import sys
 from dataclasses import replace
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-if __package__:
-    from experiments.trajectory_prediction.config import (
-        RollingExperimentConfig,
-        normalize_bayesian_ctrv_model_variant,
-        select_bayesian_ctrv_inference_config,
-    )
-else:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-    from experiments.trajectory_prediction.config import (
-        RollingExperimentConfig,
-        normalize_bayesian_ctrv_model_variant,
-        select_bayesian_ctrv_inference_config,
-    )
 
 from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
@@ -34,6 +18,11 @@ from ship_trajectory_prediction.evaluation import (
 )
 from ship_trajectory_prediction.evaluation import (
     plot_prediction as plot_window_prediction,
+)
+from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+    RollingExperimentConfig,
+    normalize_bayesian_ctrv_model_variant,
+    select_bayesian_ctrv_inference_config,
 )
 from ship_trajectory_prediction.evaluation.plotting import (
     RollingPosteriorPlotData,
@@ -500,9 +489,7 @@ def _posterior_window_diagnostics(fit):
         "heading_state_prediction",
     )
     diagnostics = {
-        "forecast_origin_turn_rate_rad_s": float(
-            np.median(turn_rate_forecast_origin)
-        ),
+        "forecast_origin_turn_rate_rad_s": float(np.median(turn_rate_forecast_origin)),
         "forecast_heading_change_rad": float(
             np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
         ),
