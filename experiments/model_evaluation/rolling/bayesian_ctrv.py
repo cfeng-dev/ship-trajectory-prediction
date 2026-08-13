@@ -1,4 +1,4 @@
-"""Compare fully Bayesian or hybrid CTRV rolling forecasts."""
+"""Evaluate fully Bayesian CTRV forecasts across rolling windows."""
 
 import argparse
 import sys
@@ -11,7 +11,6 @@ import pandas as pd
 
 if __package__:
     from experiments.trajectory_prediction.config import (
-        BAYESIAN_CTRV_MODEL_VARIANTS,
         RollingExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
@@ -19,7 +18,6 @@ if __package__:
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     from experiments.trajectory_prediction.config import (
-        BAYESIAN_CTRV_MODEL_VARIANTS,
         RollingExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
@@ -112,7 +110,7 @@ CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
-MODEL_VARIANT = "hybrid"  # Stable hybrid default; "bayesian" is the full reference.
+MODEL_VARIANT = "bayesian"
 VI_NUMERICAL_STABILITY_RETRIES = 2
 # Numerical guard only: this does not constrain or trim valid posterior draws.
 VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
@@ -864,14 +862,8 @@ def _mcmc_diagnostics_ok(fit):
     return "no problems detected" in fit.diagnose().lower()
 
 
-def _parse_arguments():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--model",
-        choices=BAYESIAN_CTRV_MODEL_VARIANTS,
-        default=MODEL_VARIANT,
-        help="Use fully Bayesian terminal motion or the deterministic hybrid.",
-    )
+def _parse_arguments(*, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
         choices=("sliding", "expanding"),
@@ -939,10 +931,11 @@ def _parse_arguments():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    arguments = _parse_arguments()
+def run_cli(*, model_variant=MODEL_VARIANT, description=__doc__):
+    """Parse shared options and evaluate one fixed Bayesian CTRV variant."""
+    arguments = _parse_arguments(description=description)
     main(
-        model_variant=arguments.model,
+        model_variant=model_variant,
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
@@ -960,3 +953,7 @@ if __name__ == "__main__":
         max_windows=arguments.max_windows,
         plot_each_window=arguments.plot_each_window,
     )
+
+
+if __name__ == "__main__":
+    run_cli()
