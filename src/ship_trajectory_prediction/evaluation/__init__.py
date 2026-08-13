@@ -1,4 +1,4 @@
-"""Evaluation and visualization of probabilistic trajectory predictions."""
+"""Evaluation and visualization of deterministic and probabilistic trajectories."""
 
 from ship_trajectory_prediction.evaluation.metrics import (
     PositionEvaluation,
@@ -13,6 +13,11 @@ from ship_trajectory_prediction.evaluation.motion_priors import (
     plot_motion_prior_distributions,
     print_motion_prior_report,
     suggest_prior_scales,
+)
+from ship_trajectory_prediction.evaluation.plotting import (
+    RollingPosteriorPlotData,
+    plot_bayesian_rolling_predictions,
+    plot_deterministic_rolling_predictions,
 )
 from ship_trajectory_prediction.evaluation.posterior_plotting import (
     plot_scalar_posterior,
@@ -42,12 +47,15 @@ __all__ = [
     "MotionPriorSamples",
     "PriorSuggestions",
     "RollingPositionSummary",
+    "RollingPosteriorPlotData",
     "RollingWindowSpec",
     "build_rolling_window_specs",
     "collect_motion_prior_samples",
     "evaluate_position_predictions",
     "format_position_evaluation",
     "plot_operational_prediction",
+    "plot_bayesian_rolling_predictions",
+    "plot_deterministic_rolling_predictions",
     "plot_prediction",
     "plot_trajectory_paths",
     "plot_motion_prior_distributions",

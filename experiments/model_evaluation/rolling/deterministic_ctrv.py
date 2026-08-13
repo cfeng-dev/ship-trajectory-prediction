@@ -5,7 +5,6 @@ import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -23,6 +22,9 @@ from ship_trajectory_prediction.coordinates import (
     local_to_gps_coordinates,
 )
 from ship_trajectory_prediction.evaluation import build_rolling_window_specs
+from ship_trajectory_prediction.evaluation.plotting import (
+    plot_deterministic_rolling_predictions,
+)
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import (
     prepare_trajectory_window,
@@ -152,11 +154,12 @@ def main(
     summary = summarize_deterministic_predictions(predictions)
     _print_summary(summary)
     if show_plot:
-        plot_rolling_predictions(
+        plot_deterministic_rolling_predictions(
             route_x,
             route_y,
             predictions,
             initial_observation_count=observation_count,
+            window_mode=window_mode,
             observed_route_x=route_x + route_noise_x,
             observed_route_y=route_y + route_noise_y,
             position_noise_std_m=position_noise_std_m,
@@ -202,76 +205,6 @@ def summarize_deterministic_predictions(predictions):
         fde_m=float(per_horizon.iloc[-1]["ade_m"]),
         per_horizon_table=per_horizon,
     )
-
-
-def plot_rolling_predictions(
-    route_x,
-    route_y,
-    predictions,
-    *,
-    initial_observation_count,
-    observed_route_x,
-    observed_route_y,
-    position_noise_std_m,
-):
-    """Plot all deterministic rolling forecasts in the common route frame."""
-    figure, axis = plt.subplots(figsize=(10, 8))
-    axis.plot(
-        route_x,
-        route_y,
-        color="black",
-        linestyle="--",
-        linewidth=2,
-        label="Referenztrajektorie",
-    )
-    axis.plot(
-        observed_route_x[:initial_observation_count],
-        observed_route_y[:initial_observation_count],
-        color="tab:blue",
-        linewidth=2,
-        label=(
-            "Verrauschte Anfangsbeobachtungen"
-            if position_noise_std_m > 0
-            else "Anfängliche Beobachtungen"
-        ),
-    )
-
-    for group_number, (_, group) in enumerate(
-        predictions.groupby("window_index", sort=True)
-    ):
-        predicted_x = np.concatenate(
-            ([group["forecast_origin_x_route"].iloc[0]], group["x_predicted_route"])
-        )
-        predicted_y = np.concatenate(
-            ([group["forecast_origin_y_route"].iloc[0]], group["y_predicted_route"])
-        )
-        axis.plot(
-            predicted_x,
-            predicted_y,
-            color="tab:red",
-            linewidth=1.3,
-            alpha=0.65,
-            label="Deterministische CTRV-Prognosen" if group_number == 0 else None,
-        )
-
-    origins = predictions.groupby("window_index", sort=True).first()
-    axis.scatter(
-        origins["forecast_origin_x_route"],
-        origins["forecast_origin_y_route"],
-        s=22,
-        color="tab:blue",
-        zorder=3,
-        label="Prognosebeginn",
-    )
-    axis.set_title("Deterministische CTRV Rolling-Window-Auswertung")
-    axis.set_xlabel("Ostposition x [m]")
-    axis.set_ylabel("Nordposition y [m]")
-    axis.set_aspect("equal", adjustable="box")
-    axis.grid(alpha=0.25)
-    axis.legend()
-    figure.tight_layout()
-    plt.show()
-    return figure, axis
 
 
 def _prepare_route_coordinates(trajectory_data):
