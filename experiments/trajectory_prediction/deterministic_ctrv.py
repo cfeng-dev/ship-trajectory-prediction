@@ -1,6 +1,7 @@
 """Run one deterministic CTRV trajectory prediction."""
 
 import argparse
+from dataclasses import dataclass, replace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,10 +20,27 @@ DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
-RUN_ID = 1
-START_INDEX = 0
-OBSERVATION_COUNT = 20
-PREDICTION_COUNT = 5
+
+@dataclass(frozen=True, slots=True)
+class DeterministicExperimentConfig:
+    """Configuration of one deterministic recorded-trajectory experiment."""
+
+    run_id: int
+    start_index: int
+    observation_count: int
+    prediction_count: int
+    additional_position_noise_std_m: float
+    position_noise_seed: int
+
+
+EXPERIMENT = DeterministicExperimentConfig(
+    run_id=1,  # Trajectory run to predict.
+    start_index=0,  # First point of the selected window.
+    observation_count=20,  # Position points used for state estimation.
+    prediction_count=5,  # Held-out future position points.
+    additional_position_noise_std_m=2.0,  # Per x/y axis [m]; 0 disables.
+    position_noise_seed=2026,  # Reproduces the added position noise.
+)
 SPEED_ESTIMATION_POINTS = 5
 HEADING_ESTIMATION_SEGMENTS = 5
 MINIMUM_MOVEMENT_METERS = 1e-6
@@ -88,6 +106,40 @@ def estimate_ctrv_state(
     )
 
 
+def _add_position_observation_noise(
+    window: TrajectoryWindowData,
+    *,
+    additional_noise_std_m: float,
+    seed: int,
+) -> TrajectoryWindowData:
+    """Return a window with reproducible noise on observed positions only."""
+    if (
+        isinstance(additional_noise_std_m, bool)
+        or not np.isfinite(additional_noise_std_m)
+        or additional_noise_std_m < 0
+    ):
+        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
+        raise ValueError("seed must be a non-negative integer.")
+
+    x_meters = np.asarray(window.x_meters, dtype=float).copy()
+    y_meters = np.asarray(window.y_meters, dtype=float).copy()
+    if additional_noise_std_m > 0:
+        generator = np.random.default_rng(int(seed))
+        observed_count = window.observation_count
+        x_meters[window.observed_slice] += generator.normal(
+            0.0,
+            additional_noise_std_m,
+            observed_count,
+        )
+        y_meters[window.observed_slice] += generator.normal(
+            0.0,
+            additional_noise_std_m,
+            observed_count,
+        )
+    return replace(window, x_meters=x_meters, y_meters=y_meters)
+
+
 def build_prediction_table(
     window: TrajectoryWindowData,
     initial_state: CTRVState,
@@ -138,6 +190,8 @@ def build_prediction_table(
 def plot_prediction(
     window: TrajectoryWindowData,
     prediction_table: pd.DataFrame,
+    *,
+    additional_position_noise_std_m=0.0,
 ):
     """Plot observed, held-out, and deterministic CTRV trajectories."""
     observed = window.observed_slice
@@ -156,7 +210,11 @@ def plot_prediction(
         window.y_meters[observed],
         color="tab:blue",
         linewidth=2,
-        label="Observed trajectory",
+        label=(
+            "Noisy observations"
+            if additional_position_noise_std_m > 0
+            else "Observed trajectory"
+        ),
     )
     axis.plot(
         held_out_x,
@@ -192,14 +250,24 @@ def plot_prediction(
     return figure, axis
 
 
-def main(*, show_plot=True):
+def main(
+    *,
+    position_noise_std_m=EXPERIMENT.additional_position_noise_std_m,
+    position_noise_seed=EXPERIMENT.position_noise_seed,
+    show_plot=True,
+):
     """Estimate one CTRV state and predict a real held-out trajectory."""
-    trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
+    trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
     window = prepare_trajectory_window(
         trajectory_data,
-        observation_count=OBSERVATION_COUNT,
-        prediction_count=PREDICTION_COUNT,
-        start_index=START_INDEX,
+        observation_count=EXPERIMENT.observation_count,
+        prediction_count=EXPERIMENT.prediction_count,
+        start_index=EXPERIMENT.start_index,
+    )
+    window = _add_position_observation_noise(
+        window,
+        additional_noise_std_m=position_noise_std_m,
+        seed=position_noise_seed,
     )
     initial_state = estimate_ctrv_state(window)
     prediction_table = build_prediction_table(window, initial_state)
@@ -207,9 +275,17 @@ def main(*, show_plot=True):
     print_prediction_setup(
         "Deterministic CTRV Trajectory Prediction",
         data_file=DATA_FILE,
-        run_id=RUN_ID,
+        run_id=EXPERIMENT.run_id,
         window=window,
         extra_rows=[
+            (
+                "Additional position noise",
+                (
+                    f"{position_noise_std_m:g} m (seed={position_noise_seed})"
+                    if position_noise_std_m > 0
+                    else "disabled"
+                ),
+            ),
             ("Estimated speed", f"{initial_state.speed:.3f} m/s"),
             ("Estimated heading", f"{initial_state.heading:.5f} rad"),
             ("Estimated turn rate", f"{initial_state.turn_rate:.6f} rad/s"),
@@ -221,20 +297,40 @@ def main(*, show_plot=True):
     print(f"FDE: {prediction_table['position_error_m'].iloc[-1]:.2f} m")
 
     if show_plot:
-        plot_prediction(window, prediction_table)
+        plot_prediction(
+            window,
+            prediction_table,
+            additional_position_noise_std_m=position_noise_std_m,
+        )
     return prediction_table
 
 
-def _parse_arguments():
+def _parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--position-noise-std-m",
+        type=float,
+        default=EXPERIMENT.additional_position_noise_std_m,
+        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+    )
+    parser.add_argument(
+        "--position-noise-seed",
+        type=int,
+        default=EXPERIMENT.position_noise_seed,
+        help="Seed used only to generate the in-memory position perturbation.",
+    )
     parser.add_argument(
         "--no-plot",
         action="store_true",
         help="Print prediction metrics without opening a plot window.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
     arguments = _parse_arguments()
-    main(show_plot=not arguments.no_plot)
+    main(
+        position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_seed=arguments.position_noise_seed,
+        show_plot=not arguments.no_plot,
+    )
