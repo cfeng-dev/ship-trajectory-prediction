@@ -25,7 +25,6 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     build_stan_data,
     compare_vi_runs,
     diagnose_observed_turn_rate,
-    estimate_final_motion_from_positions,
     estimate_initial_speed_from_positions,
     estimate_initial_speed_prior_from_windows,
     fit_bayesian_ctrv_model,
@@ -99,16 +98,10 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     assert "speed_observed" not in stan_data
     assert "sigma_speed_gps_prior_scale" not in stan_data
     assert stan_data["speed_initial_prior_mean"] == 0.0
-    assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(
-        0.012,
-        abs=1e-8,
-    )
+    assert stan_data["turn_rate_initial_prior_mean"] == 0.0
     assert stan_data["turn_rate_state_prior_scale"] == pytest.approx(0.002)
-    assert stan_data["heading_final"] == pytest.approx(
-        0.552,
-        abs=1e-3,
-    )
-    assert stan_data["turn_rate_final"] == pytest.approx(0.012, abs=1e-3)
+    assert "heading_final" not in stan_data
+    assert "turn_rate_final" not in stan_data
     assert "heading_final_prior_mean" not in stan_data
     assert "heading_final_prior_scale" not in stan_data
     assert "heading_initial_prior_mean" not in stan_data
@@ -116,6 +109,9 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
     assert "x_state_prediction" not in stan_data
     assert "y_state_prediction" not in stan_data
     assert "speed_state_prediction" not in stan_data
+    initial_values = model_module._default_initial_values(stan_data, seed=19)
+    assert -np.pi <= initial_values["heading_final"] <= np.pi
+    assert initial_values["turn_rate_state"].shape == (6,)
 
 
 def test_simulate_position_observations_is_reproducible_and_keeps_window_clean():
@@ -291,6 +287,7 @@ def test_build_stan_data_uses_typed_prior_configuration():
         position_initial_prior_scale=4.0,
         speed_initial_prior_mean=2.5,
         speed_initial_prior_scale=0.6,
+        turn_rate_initial_prior_mean=-0.003,
         turn_rate_state_prior_scale=0.004,
         sigma_position_gps_prior_scale=3.0,
         sigma_position_process_prior_scale=0.3,
@@ -305,19 +302,15 @@ def test_build_stan_data_uses_typed_prior_configuration():
         assert stan_data[field_name] == pytest.approx(getattr(priors, field_name))
 
 
-@pytest.mark.parametrize(("turn_rate", "expected_sign"), [(0.012, 1), (-0.012, -1)])
-def test_turn_rate_prior_preserves_positive_and_negative_turning(
-    turn_rate,
-    expected_sign,
-):
-    """Observed course changes should retain their signed turning direction."""
-    stan_data = build_stan_data(create_synthetic_window(turn_rate=turn_rate))
-
-    assert np.sign(stan_data["turn_rate_initial_prior_mean"]) == expected_sign
-    assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(
-        turn_rate,
-        abs=1e-8,
+@pytest.mark.parametrize("prior_mean", [0.012, -0.012])
+def test_turn_rate_prior_uses_configured_signed_center(prior_mean):
+    """The full Bayesian prior center must not be learned from current data."""
+    stan_data = build_stan_data(
+        create_synthetic_window(turn_rate=-prior_mean),
+        priors=BayesianCTRVPriors(turn_rate_initial_prior_mean=prior_mean),
     )
+
+    assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(prior_mean)
 
 
 def test_turn_rate_prior_is_zero_for_straight_motion():
@@ -327,80 +320,10 @@ def test_turn_rate_prior_is_zero_for_straight_motion():
     assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(0.0, abs=1e-9)
 
 
-def test_fixed_final_motion_uses_smoothed_terminal_positions():
-    """Forecast-origin motion should smooth the final observed positions."""
-    window = create_synthetic_window()
-    observations = PositionObservations(
-        time_seconds=window.time_seconds[window.observed_slice],
-        x_meters=np.array([0.0, 1.0, 2.0, 3.0, 4.0, 4.0, 4.0]),
-        y_meters=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0]),
-        additional_noise_std_m=0.0,
-        noise_seed=0,
-    )
-
-    stan_data = build_stan_data(window, position_observations=observations)
-
-    assert stan_data["heading_final"] == pytest.approx(np.pi / 2)
-    assert stan_data["turn_rate_final"] == pytest.approx(0.0)
-    assert "heading_final_prior_mean" not in stan_data
-    assert "heading_final_prior_scale" not in stan_data
-    assert "heading_initial_prior_mean" not in stan_data
-    assert "heading_final" not in model_module._default_initial_values(
-        stan_data,
-        seed=19,
-    )
-
-
-def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
-    """Quadratic position fits should provide deterministic terminal motion."""
-    time_seconds = np.arange(5.0)
-    heading, turn_rate = estimate_final_motion_from_positions(
-        time_seconds,
-        2.0 * time_seconds,
-        0.5 * np.square(time_seconds),
-    )
-
-    assert heading == pytest.approx(np.arctan2(4.0, 2.0))
-    assert turn_rate == pytest.approx(0.1)
-
-
-def test_final_motion_ignores_positions_older_than_history_span():
-    """Terminal motion should use time span rather than observation count."""
-    recent_time = np.arange(-70.0, 10.0, 10.0)
-    time_seconds = np.concatenate(([-100.0], recent_time))
-    x_meters = np.concatenate(
-        (
-            [10_000.0],
-            500.0 + 4.0 * recent_time - 0.002 * np.square(recent_time),
-        )
-    )
-    y_meters = np.concatenate(
-        (
-            [-10_000.0],
-            1_000.0 + 3.0 * recent_time + 0.004 * np.square(recent_time),
-        )
-    )
-
-    heading, turn_rate = estimate_final_motion_from_positions(
-        time_seconds,
-        x_meters,
-        y_meters,
-    )
-
-    assert heading == pytest.approx(np.arctan2(3.0, 4.0))
-    assert turn_rate == pytest.approx(0.00176)
-
-
-def test_final_motion_uses_zero_turn_rate_at_insufficient_fitted_speed():
-    """Slow terminal motion should not turn based on position jitter."""
-    heading, turn_rate = estimate_final_motion_from_positions(
-        np.arange(5.0),
-        [0.0, 0.2, 0.4, 0.6, 0.8],
-        [0.0, 0.0, 0.0, 0.0, 0.0],
-    )
-
-    assert heading == pytest.approx(0.0)
-    assert turn_rate == pytest.approx(0.0)
+def test_turn_rate_prior_center_must_be_finite():
+    """A signed turn-rate center may be negative but never non-finite."""
+    with pytest.raises(ValueError, match="turn_rate_initial_prior_mean"):
+        BayesianCTRVPriors(turn_rate_initial_prior_mean=np.inf)
 
 
 def test_turn_rate_diagnostics_are_robust_and_configurable():
@@ -449,8 +372,8 @@ def test_stationary_observations_use_neutral_heading_and_turn_rate_centers():
 
     stan_data = build_stan_data(stationary_window)
 
-    assert stan_data["heading_final"] == 0.0
-    assert stan_data["turn_rate_final"] == 0.0
+    assert "heading_final" not in stan_data
+    assert "turn_rate_final" not in stan_data
     assert stan_data["turn_rate_initial_prior_mean"] == 0.0
 
 
@@ -1122,27 +1045,28 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "y + speed * dt * sin(heading)" in source
     assert "sigma_speed_process * sqrt(dt)" in source
     assert "sigma_turn_rate_process * sqrt(dt)" in source
-    assert "vector[N_observed] turn_rate_state" in source
+    assert "vector[N_observed - 1] turn_rate_state" in source
     assert "turn_rate_limit" not in source
     assert "speed_limit" not in source
     assert "vector<lower=0>[N_observed] speed_state" in source
     assert "speed_state_raw" not in source
     assert "log1p_exp" not in source
     assert "real speed_current = fmax(" in source
-    assert "real turn_rate_current = turn_rate_previous" in source
-    assert "normal_rng(turn_rate_previous" not in source
-    assert "real heading_final" in data_block
-    assert "real turn_rate_final" in data_block
-    assert "heading_final" not in parameter_block
-    assert "turn_rate_final" not in parameter_block
+    assert "real turn_rate_current = normal_rng(" in source
+    assert "real heading_final" not in data_block
+    assert "real turn_rate_final" not in data_block
+    assert "real<lower=-pi(), upper=pi()> heading_final" in parameter_block
     assert "heading_state[N_observed] = heading_final" in source
-    assert "heading_final ~" not in source
+    assert "heading_final ~ uniform(-pi(), pi())" in source
     assert "heading_final_prior" not in source
     assert "heading_initial" not in source
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source
-    assert "real turn_rate_previous = turn_rate_final" in source
+    assert (
+        "real turn_rate_forecast_origin = turn_rate_state[N_observed - 1]" in source
+    )
+    assert "real turn_rate_previous = turn_rate_forecast_origin" in source
 
 
 def test_stan_ctrv_calls_never_use_observed_positions_as_transition_inputs():

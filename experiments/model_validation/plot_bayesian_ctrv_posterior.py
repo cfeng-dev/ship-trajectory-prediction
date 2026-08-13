@@ -34,6 +34,7 @@ PREDICTION_COUNT = 5
 PRIORS = BayesianCTRVPriors(
     speed_initial_prior_mean=3.524,
     speed_initial_prior_scale=0.365,
+    turn_rate_initial_prior_mean=0.0,
     turn_rate_state_prior_scale=0.001698,
 )
 POSTERIOR_TIME_INDICES = (0, OBSERVATION_COUNT - 1)

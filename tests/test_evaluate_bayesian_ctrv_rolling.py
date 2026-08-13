@@ -4,6 +4,9 @@ import numpy as np
 import pytest
 
 import experiments.trajectory_prediction.evaluate_bayesian_ctrv_rolling as experiment
+from experiments.trajectory_prediction.config import (
+    normalize_bayesian_ctrv_model_variant,
+)
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
 from ship_trajectory_prediction.models.ctrv import CTRVState
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
@@ -56,6 +59,21 @@ def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
     np.testing.assert_array_equal(first_y, second_y)
     assert np.any(first_x != 0.0)
     assert np.any(first_y != 0.0)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("bayesian", "bayesian"), (" HYBRID ", "hybrid")],
+)
+def test_model_variant_normalization(value, expected):
+    """Shared experiments should select exactly one explicit model variant."""
+    assert normalize_bayesian_ctrv_model_variant(value) == expected
+
+
+def test_invalid_model_variant_is_rejected():
+    """Ambiguous CTRV model labels should fail before fitting."""
+    with pytest.raises(ValueError, match="bayesian.*hybrid"):
+        normalize_bayesian_ctrv_model_variant("automatic")
 
 
 def test_overlapping_windows_reuse_the_same_route_position_noise():
@@ -175,9 +193,7 @@ def test_window_diagnostics_report_deterministic_forecast_turn_rate():
     fit = FakeFit(sigma_speed_process=[0.05])
     fit.variables.update(
         {
-            "turn_rate_state_prediction": np.array(
-                [[0.02, 0.02], [0.02, 0.02]],
-            ),
+            "turn_rate_forecast_origin": np.array([0.02, 0.02]),
             "heading_state": np.array([[0.3, 0.4], [0.3, 0.4]]),
             "heading_state_prediction": np.array(
                 [[0.5, 0.7], [0.5, 0.7]],

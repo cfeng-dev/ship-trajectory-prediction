@@ -1,4 +1,4 @@
-"""Evaluate Bayesian CTRV forecasts over a complete recorded trajectory."""
+"""Compare fully Bayesian or hybrid CTRV rolling forecasts."""
 
 import argparse
 from dataclasses import dataclass, replace
@@ -9,11 +9,18 @@ import pandas as pd
 
 if __package__:
     from .config import (
+        BAYESIAN_CTRV_MODEL_VARIANTS,
         RollingExperimentConfig,
+        normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
     )
 else:
-    from config import RollingExperimentConfig, select_bayesian_ctrv_inference_config
+    from config import (
+        BAYESIAN_CTRV_MODEL_VARIANTS,
+        RollingExperimentConfig,
+        normalize_bayesian_ctrv_model_variant,
+        select_bayesian_ctrv_inference_config,
+    )
 
 from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
@@ -39,6 +46,9 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     diagnose_observed_turn_rate,
     fit_bayesian_ctrv_model,
     variational_converged,
+)
+from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    fit_hybrid_bayesian_ctrv_model,
 )
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import (
@@ -67,6 +77,7 @@ PRIORS = BayesianCTRVPriors(
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
+    turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
     turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
@@ -98,6 +109,7 @@ CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
+MODEL_VARIANT = "hybrid"  # Stable hybrid default; "bayesian" is the full reference.
 VI_NUMERICAL_STABILITY_RETRIES = 2
 # Numerical guard only: this does not constrain or trim valid posterior draws.
 VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
@@ -116,6 +128,7 @@ class RollingPosteriorPlotData:
 
 def main(
     *,
+    model_variant=MODEL_VARIANT,
     window_mode=EXPERIMENT.window_mode,
     observation_count=EXPERIMENT.observation_count,
     prediction_count=EXPERIMENT.prediction_count,
@@ -131,6 +144,12 @@ def main(
     plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
+    model_variant = normalize_bayesian_ctrv_model_variant(model_variant)
+    fit_model = (
+        fit_hybrid_bayesian_ctrv_model
+        if model_variant == "hybrid"
+        else fit_bayesian_ctrv_model
+    )
     inference_method, inference_config = select_bayesian_ctrv_inference_config(
         inference_method,
         vi_algorithm=vi_algorithm,
@@ -174,6 +193,7 @@ def main(
     print(f"Prediction horizon    : {prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
+    print(f"Model variant         : {model_variant}")
     print(f"Inference method      : {inference_method.upper()}")
     noise_description = (
         f"{position_noise_std_m:g} m (seed={position_noise_seed})"
@@ -236,6 +256,7 @@ def main(
             inference_method=inference_method,
             inference_config=inference_config,
             initial_seed=window_seed,
+            fit_model=fit_model,
         )
         if inference_method == "vi":
             converged = variational_converged(fit)
@@ -270,6 +291,7 @@ def main(
             posterior_diagnostics=posterior_diagnostics,
             additional_position_noise_std_m=position_noise_std_m,
             position_noise_seed=position_noise_seed,
+            model_variant=model_variant,
         )
         prediction_tables.append(table)
         posterior_plot_groups.append(
@@ -535,6 +557,7 @@ def _build_route_prediction_table(
     posterior_diagnostics,
     additional_position_noise_std_m,
     position_noise_seed,
+    model_variant="bayesian",
 ):
     """Add rolling metadata and one route-wide coordinate frame."""
     table = prediction_table.copy()
@@ -566,6 +589,7 @@ def _build_route_prediction_table(
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
     table["inference_method"] = inference_method
+    table["model_variant"] = model_variant
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["additional_position_noise_std_m"] = additional_position_noise_std_m
@@ -595,9 +619,9 @@ def _build_route_prediction_table(
 
 def _posterior_window_diagnostics(fit):
     """Return forecast-motion values and posterior noise medians for one window."""
-    turn_rate_prediction = posterior_variable_samples(
+    turn_rate_forecast_origin = posterior_variable_samples(
         fit,
-        "turn_rate_state_prediction",
+        "turn_rate_forecast_origin",
     )
     heading_state = posterior_variable_samples(fit, "heading_state")
     heading_state_prediction = posterior_variable_samples(
@@ -606,7 +630,7 @@ def _posterior_window_diagnostics(fit):
     )
     diagnostics = {
         "forecast_origin_turn_rate_rad_s": float(
-            np.median(turn_rate_prediction[:, 0])
+            np.median(turn_rate_forecast_origin)
         ),
         "forecast_heading_change_rad": float(
             np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
@@ -627,11 +651,14 @@ def _fit_rolling_window(
     inference_method,
     inference_config,
     initial_seed,
+    fit_model=None,
 ):
     """Fit one window and retry only numerically exploded VI approximations."""
+    if fit_model is None:
+        fit_model = fit_bayesian_ctrv_model
     seed = initial_seed
     for attempt in range(VI_NUMERICAL_STABILITY_RETRIES + 1):
-        fit = fit_bayesian_ctrv_model(
+        fit = fit_model(
             window,
             priors=priors,
             position_observations=position_observations,
@@ -837,6 +864,12 @@ def _mcmc_diagnostics_ok(fit):
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--model",
+        choices=BAYESIAN_CTRV_MODEL_VARIANTS,
+        default=MODEL_VARIANT,
+        help="Use fully Bayesian terminal motion or the deterministic hybrid.",
+    )
+    parser.add_argument(
         "--window-mode",
         choices=("sliding", "expanding"),
         default=EXPERIMENT.window_mode,
@@ -906,6 +939,7 @@ def _parse_arguments():
 if __name__ == "__main__":
     arguments = _parse_arguments()
     main(
+        model_variant=arguments.model,
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,

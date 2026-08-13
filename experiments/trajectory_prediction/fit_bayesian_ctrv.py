@@ -1,4 +1,4 @@
-"""Fit the Bayesian CTRV model to one recorded trajectory window."""
+"""Fit a fully Bayesian or hybrid CTRV model to one trajectory window."""
 
 import argparse
 from time import perf_counter
@@ -6,9 +6,19 @@ from time import perf_counter
 import numpy as np
 
 if __package__:
-    from .config import ExperimentConfig, select_bayesian_ctrv_inference_config
+    from .config import (
+        BAYESIAN_CTRV_MODEL_VARIANTS,
+        ExperimentConfig,
+        normalize_bayesian_ctrv_model_variant,
+        select_bayesian_ctrv_inference_config,
+    )
 else:
-    from config import ExperimentConfig, select_bayesian_ctrv_inference_config
+    from config import (
+        BAYESIAN_CTRV_MODEL_VARIANTS,
+        ExperimentConfig,
+        normalize_bayesian_ctrv_model_variant,
+        select_bayesian_ctrv_inference_config,
+    )
 
 from ship_trajectory_prediction.evaluation.metrics import (
     evaluate_position_predictions,
@@ -34,6 +44,13 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     simulate_position_observations,
     variational_converged,
 )
+from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    FINAL_MOTION_HISTORY_SECONDS,
+    fit_hybrid_bayesian_ctrv_model,
+)
+from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    build_stan_data as build_hybrid_stan_data,
+)
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 from ship_trajectory_prediction.trajectory.io import read_ship_data
@@ -58,6 +75,7 @@ PRIORS = BayesianCTRVPriors(
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
+    turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
     turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
@@ -87,10 +105,12 @@ MCMC_CONFIG = {
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
+MODEL_VARIANT = "hybrid"  # Stable hybrid default; "bayesian" is the full reference.
 
 
 def main(
     *,
+    model_variant=MODEL_VARIANT,
     inference_method=EXPERIMENT.inference_method,
     vi_algorithm=VI_CONFIG["algorithm"],
     seed=EXPERIMENT.inference_seed,
@@ -100,6 +120,15 @@ def main(
     plot_coordinate_mode=PLOT_COORDINATE_MODE,
 ):
     """Fit one recorded run with selected inference and evaluate predictions."""
+    model_variant = normalize_bayesian_ctrv_model_variant(model_variant)
+    if model_variant == "hybrid":
+        stan_data_builder = build_hybrid_stan_data
+        fit_model = fit_hybrid_bayesian_ctrv_model
+        model_label = "Hybrid Bayesian CTRV"
+    else:
+        stan_data_builder = build_stan_data
+        fit_model = fit_bayesian_ctrv_model
+        model_label = "Fully Bayesian CTRV"
     inference_method, inference_config = select_bayesian_ctrv_inference_config(
         inference_method,
         vi_algorithm=vi_algorithm,
@@ -121,7 +150,7 @@ def main(
         additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
-    stan_data = build_stan_data(
+    stan_data = stan_data_builder(
         window,
         priors=PRIORS,
         position_observations=position_observations,
@@ -130,13 +159,29 @@ def main(
         stan_data["time_prediction"][-1] - stan_data["time_observed"][-1]
     )
     inference_rows = [
+        ("Model variant", model_variant),
         ("Inference method", inference_method.upper()),
-        (
-            "Forecast-origin heading (2 points)",
-            f"{stan_data['heading_final']:.4f} rad "
-            f"({np.degrees(stan_data['heading_final']):.1f} deg)",
-        ),
     ]
+    if model_variant == "hybrid":
+        inference_rows.extend(
+            [
+                (
+                    "Deterministic terminal heading",
+                    f"{stan_data['heading_final']:.4f} rad "
+                    f"({np.degrees(stan_data['heading_final']):.1f} deg)",
+                ),
+                (
+                    "Deterministic terminal turn rate",
+                    f"{stan_data['turn_rate_final']:.5f} rad/s",
+                ),
+                (
+                    "Terminal-motion history",
+                    f"{FINAL_MOTION_HISTORY_SECONDS:g} s",
+                ),
+            ]
+        )
+    else:
+        inference_rows.append(("Terminal heading and turn rate", "latent posterior"))
     if inference_method == "vi":
         inference_rows.append(("VI algorithm", inference_config["algorithm"]))
     else:
@@ -149,6 +194,7 @@ def main(
             ]
         )
     _print_ctrv_setup(
+        model_label=model_label,
         window=window,
         inference_rows=inference_rows,
         inference_seed=seed,
@@ -158,7 +204,7 @@ def main(
     )
 
     fit_started = perf_counter()
-    fit = fit_bayesian_ctrv_model(
+    fit = fit_model(
         window,
         priors=PRIORS,
         position_observations=position_observations,
@@ -247,6 +293,7 @@ def main(
 
 def _print_ctrv_setup(
     *,
+    model_label,
     window,
     inference_rows,
     inference_seed,
@@ -262,7 +309,7 @@ def _print_ctrv_setup(
         else "disabled"
     )
     print_prediction_setup(
-        "Bayesian CTRV State-Space Prediction",
+        f"{model_label} State-Space Prediction",
         data_file=DATA_FILE,
         run_id=EXPERIMENT.run_id,
         window=window,
@@ -278,6 +325,12 @@ def _print_ctrv_setup(
 
 def _parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--model",
+        choices=BAYESIAN_CTRV_MODEL_VARIANTS,
+        default=MODEL_VARIANT,
+        help="Use fully Bayesian terminal motion or the deterministic hybrid.",
+    )
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
@@ -322,6 +375,7 @@ def _parse_arguments():
 if __name__ == "__main__":
     arguments = _parse_arguments()
     main(
+        model_variant=arguments.model,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,

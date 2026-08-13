@@ -58,6 +58,10 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
+	// Fixed terminal motion derived from recent observed positions
+	real heading_final;   // Endpoint heading [rad]
+	real turn_rate_final; // Local turn rate [rad/s]
+
 	// Turn-rate prior hyperparameters [rad/s]
 	real turn_rate_initial_prior_mean;
 	real<lower=0> turn_rate_state_prior_scale;
@@ -102,9 +106,8 @@ parameters {
   vector[N_observed] y_state;  // Latent true y-position [m]
 
   // Latent kinematic states
-  vector<lower=0>[N_observed] speed_state;      // Latent non-negative speed [m/s]
-  vector[N_observed - 1] turn_rate_state;       // Latent interval turn rate [rad/s]
-  real<lower=-pi(), upper=pi()> heading_final;  // Latent endpoint heading [rad]
+  vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
+  vector[N_observed] turn_rate_state;       // Latent turn rate [rad/s]
 
   // Unknown observation-noise parameter
   real<lower=1e-6> sigma_position_gps;  // SD between observed and latent positions [m]
@@ -154,9 +157,6 @@ model {
   // Initial latent speed: p(v_1), constrained to non-negative values
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
-  // Uniform circular prior for the unknown endpoint heading.
-  heading_final ~ uniform(-pi(), pi());
-
   // ------------------------------------------------------------------
   // 2. PRIOR REGULARIZATION OF THE LATENT TURN-RATE TRAJECTORY
   // ------------------------------------------------------------------
@@ -164,7 +164,7 @@ model {
   /*
    * Marginal prior for the latent turn-rate path:
    *
-   *   p(turn_rate_1, ..., turn_rate_(N-1))
+   *   p(turn_rate_1, ..., turn_rate_N)
    *
    * Regularizes all turn-rate states around the specified prior mean.
    */
@@ -216,12 +216,8 @@ model {
     // Gaussian random walk for latent speed.
     speed_state[n] ~ normal(speed_state[n - 1], sigma_speed_process * sqrt(dt));
 
-    // Gaussian random walk for latent interval turn rate.
-    if (n < N_observed) {
-      turn_rate_state[n] ~ normal(
-          turn_rate_state[n - 1],
-          sigma_turn_rate_process * sqrt(dt));
-    }
+    // Gaussian random walk for latent turn rate.
+    turn_rate_state[n] ~ normal(turn_rate_state[n - 1], sigma_turn_rate_process * sqrt(dt));
   }
 
 
@@ -268,7 +264,7 @@ generated quantities {
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
   real heading_previous = heading_state[N_observed];
-  real turn_rate_forecast_origin = turn_rate_state[N_observed - 1];
+  real turn_rate_forecast_origin = turn_rate_final;
   real turn_rate_previous = turn_rate_forecast_origin;
   real time_previous = time_observed[N_observed];
 
@@ -310,10 +306,8 @@ generated quantities {
     // Deterministic heading propagation
     real heading_current = heading_previous + turn_rate_previous * dt;
 
-    // Propagate posterior turn-rate uncertainty into the forecast.
-    real turn_rate_current = normal_rng(
-        turn_rate_previous,
-        sigma_turn_rate_process * sqrt(dt));
+    // Keep the observation-derived forecast turn rate constant.
+    real turn_rate_current = turn_rate_previous;
 
     // Store posterior predictive latent states
     x_state_prediction[n] = x_current;

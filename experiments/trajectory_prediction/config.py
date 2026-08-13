@@ -8,6 +8,8 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     normalize_inference_method,
 )
 
+BAYESIAN_CTRV_MODEL_VARIANTS = ("bayesian", "hybrid")
+
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfig:
@@ -36,6 +38,16 @@ class RollingExperimentConfig:
     stride: int | None
     inference_method: str
     inference_seed: int
+
+
+def normalize_bayesian_ctrv_model_variant(model_variant: str) -> str:
+    """Return one supported fully Bayesian or hybrid model identifier."""
+    if not isinstance(model_variant, str):
+        raise ValueError("model_variant must be 'bayesian' or 'hybrid'.")
+    normalized = model_variant.strip().lower()
+    if normalized not in BAYESIAN_CTRV_MODEL_VARIANTS:
+        raise ValueError("model_variant must be 'bayesian' or 'hybrid'.")
+    return normalized
 
 
 def select_bayesian_ctrv_inference_config(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -25,10 +25,8 @@ STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
-FINAL_MOTION_HISTORY_SECONDS = 60
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
-MIN_FINAL_MOTION_SPEED_MPS = 1.0
 DEFAULT_VI_ADAPT_ITER = 100
 # Robust window-specific scales are kept informative but not degenerate.
 MIN_TURN_RATE_PRIOR_SCALE = 0.002
@@ -49,13 +47,14 @@ class BayesianCTRVPriors:
     """Configurable prior parameters for the Bayesian CTRV state-space model.
 
     Fixed prior parameters should be calibrated from independent historical
-    windows. Forecast-origin heading and turn rate are derived from current
-    observations.
+    windows. Forecast-origin heading and turn rate remain latent in the fully
+    Bayesian model.
     """
 
     position_initial_prior_scale: float = 5.0
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
+    turn_rate_initial_prior_mean: float = 0.0
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.5
@@ -71,6 +70,8 @@ class BayesianCTRVPriors:
                 continue
             if field_name == "speed_initial_prior_mean":
                 value = _validate_non_negative_finite(field_name, value)
+            elif field_name == "turn_rate_initial_prior_mean":
+                value = _validate_finite_scalar(field_name, value)
             else:
                 _validate_positive_finite(field_name, value)
             object.__setattr__(self, field_name, float(value))
@@ -214,9 +215,9 @@ def build_stan_data(
     """Build position-only data and priors for one observed trajectory window.
 
     The initial-speed mean and scale are fixed values from ``priors`` and must
-    be calibrated independently of ``window``. Final heading and forecast turn
-    rate are estimated together from the configured recent time span;
-    other data-derived state centers also use only ``position_observations``.
+    be calibrated independently of ``window``. Data-derived turn-rate prior
+    diagnostics use only ``position_observations``; terminal heading and turn
+    rate remain latent parameters of the Stan model.
     If observations are omitted, the observed portion of ``window`` is copied
     without adding noise. Position is measured in meters, latent speed in
     meters per second, heading in radians, turn rate in radians per second, and
@@ -253,26 +254,11 @@ def build_stan_data(
         turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
         position_observations=position_observations,
     )
-    try:
-        heading_final, turn_rate_final = estimate_final_motion_from_positions(
-            time_observed,
-            x_observed,
-            y_observed,
-        )
-    except ValueError:
-        # Heading and turn rate are not identifiable while the ship is
-        # stationary. Neutral centers keep such windows valid without deriving
-        # arbitrary motion from GPS jitter.
-        heading_final = 0.0
-        turn_rate_final = 0.0
-        turn_rate_initial_prior_mean = 0.0
-    else:
-        turn_rate_initial_prior_mean = turn_rate_diagnostics.median_rad_s
-
     prior_parameters = {
         "position_initial_prior_scale": priors.position_initial_prior_scale,
         "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
+        "turn_rate_initial_prior_mean": priors.turn_rate_initial_prior_mean,
         "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
         "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
         "sigma_position_process_prior_scale": (
@@ -292,80 +278,8 @@ def build_stan_data(
         "time_prediction": time_prediction,
         "x_initial_prior_mean": float(x_observed[0]),
         "y_initial_prior_mean": float(y_observed[0]),
-        "heading_final": heading_final,
-        "turn_rate_final": turn_rate_final,
-        "turn_rate_initial_prior_mean": turn_rate_initial_prior_mean,
         **prior_parameters,
     }
-
-
-def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
-    """Estimate deterministic heading and turn rate at the forecast origin.
-
-    Quadratic least-squares fits of x(t) and y(t) over observations within
-    ``FINAL_MOTION_HISTORY_SECONDS`` of the final timestamp provide terminal
-    velocity and acceleration. Their direction gives the heading, while their
-    signed cross product gives angular velocity. This smooths position noise
-    without introducing another stochastic forecast state. With fewer than
-    three recent points or insufficient terminal speed, the final segment
-    course is retained and turn rate falls back to zero.
-    """
-    time_seconds = np.asarray(time_seconds, dtype=float)
-    x_meters = np.asarray(x_meters, dtype=float)
-    y_meters = np.asarray(y_meters, dtype=float)
-    _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
-    if time_seconds.size < 2:
-        raise ValueError("At least two observed positions are required.")
-    if np.any(np.diff(time_seconds) <= 0):
-        raise ValueError("time_seconds must be strictly increasing.")
-
-    delta_x_final = float(x_meters[-1] - x_meters[-2])
-    delta_y_final = float(y_meters[-1] - y_meters[-2])
-    final_displacement = float(np.hypot(delta_x_final, delta_y_final))
-    if final_displacement <= 1e-8:
-        raise ValueError("Final observed positions do not contain movement.")
-
-    final_course = float(np.arctan2(delta_y_final, delta_x_final))
-    history_start_time = time_seconds[-1] - FINAL_MOTION_HISTORY_SECONDS
-    history_mask = time_seconds >= history_start_time
-    history_time = time_seconds[history_mask]
-    history_x = x_meters[history_mask]
-    history_y = y_meters[history_mask]
-    point_count = history_time.size
-    if point_count < 3:
-        return final_course, 0.0
-
-    centered_time = history_time - time_seconds[-1]
-    design_matrix = np.column_stack(
-        (
-            np.ones(point_count),
-            centered_time,
-            np.square(centered_time),
-        )
-    )
-    x_coefficients = np.linalg.lstsq(
-        design_matrix,
-        history_x,
-        rcond=None,
-    )[0]
-    y_coefficients = np.linalg.lstsq(
-        design_matrix,
-        history_y,
-        rcond=None,
-    )[0]
-    velocity_x = float(x_coefficients[1])
-    velocity_y = float(y_coefficients[1])
-    acceleration_x = float(2.0 * x_coefficients[2])
-    acceleration_y = float(2.0 * y_coefficients[2])
-    speed_squared = velocity_x**2 + velocity_y**2
-    if speed_squared < MIN_FINAL_MOTION_SPEED_MPS**2:
-        return final_course, 0.0
-
-    heading_final = float(np.arctan2(velocity_y, velocity_x))
-    turn_rate_final = float(
-        (velocity_x * acceleration_y - velocity_y * acceleration_x) / speed_squared
-    )
-    return heading_final, turn_rate_final
 
 
 def estimate_initial_speed_from_positions(
@@ -535,6 +449,8 @@ def fit_bayesian_ctrv_model(
     show_console: bool = False,
     variational_options: Mapping[str, Any] | None = None,
     mcmc_options: Mapping[str, Any] | None = None,
+    _stan_data_builder: Callable[..., dict[str, Any]] | None = None,
+    _model_compiler: Callable[[], CmdStanModel] | None = None,
 ) -> CmdStanVB | CmdStanMCMC:
     """Fit the Bayesian CTRV model with selectable VI or MCMC inference.
 
@@ -615,12 +531,16 @@ def fit_bayesian_ctrv_model(
         }
         _reject_conflicting_options("mcmc_options", options, controlled_options)
 
-    stan_data = build_stan_data(
+    if _stan_data_builder is None:
+        _stan_data_builder = build_stan_data
+    if _model_compiler is None:
+        _model_compiler = compile_bayesian_ctrv_model
+    stan_data = _stan_data_builder(
         window,
         priors=priors,
         position_observations=position_observations,
     )
-    model = compile_bayesian_ctrv_model()
+    model = _model_compiler()
     if inference_method == "vi":
         if inits is None:
             inits = _default_initial_values(stan_data, seed=seed)
@@ -799,8 +719,8 @@ def diagnose_observed_turn_rate(
 ) -> TurnRateDiagnostics:
     """Summarize course-derived turn rates from observed positions only.
 
-    The median supplies the signed prior center. A MAD-based robust scale keeps
-    isolated position changes from making the state prior arbitrarily wide.
+    The median reports a signed empirical center that the hybrid model may use.
+    A MAD-based robust scale provides a configurable diagnostic candidate.
     Supplied position observations override the clean observed coordinates;
     the held-out part of ``window`` is never inspected.
     """
@@ -907,6 +827,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     )
     turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
     state_count = int(stan_data["N_observed"])
+    turn_rate_count = state_count if "heading_final" in stan_data else state_count - 1
 
     x_jitter = min(0.1, 0.02 * stan_data["position_initial_prior_scale"])
     speed_jitter = min(0.02, 0.02 * stan_data["speed_initial_prior_scale"])
@@ -914,7 +835,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         1e-4,
         0.02 * stan_data["turn_rate_state_prior_scale"],
     )
-    return {
+    initial_values = {
         "x_state": x_observed + generator.normal(0, x_jitter, state_count),
         "y_state": y_observed + generator.normal(0, x_jitter, state_count),
         "speed_state": np.maximum(
@@ -922,7 +843,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             SPEED_STATE_INITIAL_LOWER,
         ),
         "turn_rate_state": turn_rate_center
-        + generator.normal(0, turn_jitter, state_count),
+        + generator.normal(0, turn_jitter, turn_rate_count),
         "sigma_position_gps": max(
             1e-3,
             0.5 * stan_data["sigma_position_gps_prior_scale"],
@@ -940,6 +861,21 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             0.5 * stan_data["sigma_turn_rate_process_prior_scale"],
         ),
     }
+    if "heading_final" not in stan_data:
+        final_course = float(
+            np.arctan2(
+                y_observed[-1] - y_observed[-2],
+                x_observed[-1] - x_observed[-2],
+            )
+        )
+        heading_jitter = generator.normal(0.0, 0.01)
+        initial_values["heading_final"] = float(
+            np.arctan2(
+                np.sin(final_course + heading_jitter),
+                np.cos(final_course + heading_jitter),
+            )
+        )
+    return initial_values
 
 
 def _position_derived_speed_initials(
@@ -1132,6 +1068,17 @@ def _validate_non_negative_finite(name: str, value: float) -> float:
         raise ValueError(f"{name} must be a non-negative finite value.") from error
     if not np.isfinite(numeric_value) or numeric_value < 0:
         raise ValueError(f"{name} must be a non-negative finite value.")
+    return numeric_value
+
+
+def _validate_finite_scalar(name: str, value: float) -> float:
+    """Validate and return a signed finite scalar."""
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{name} must be a finite value.") from error
+    if not np.isfinite(numeric_value):
+        raise ValueError(f"{name} must be a finite value.")
     return numeric_value
 
 

@@ -1,0 +1,189 @@
+"""Tests for deterministic terminal motion in the hybrid Bayesian CTRV model."""
+
+from __future__ import annotations
+
+import os
+import re
+
+import numpy as np
+import pytest
+
+from ship_trajectory_prediction.evaluation.reporting import (
+    posterior_variable_samples,
+)
+from ship_trajectory_prediction.models.ctrv import CTRVState
+from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    FINAL_MOTION_HISTORY_SECONDS,
+    STAN_FILE,
+    BayesianCTRVPriors,
+    build_stan_data,
+    estimate_final_motion_from_positions,
+    fit_hybrid_bayesian_ctrv_model,
+)
+from ship_trajectory_prediction.simulation.synthetic_ctrv import (
+    SyntheticCTRVNoise,
+    simulate_synthetic_ctrv_data,
+)
+from ship_trajectory_prediction.trajectory import prepare_trajectory_window
+
+
+def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):
+    """Create one noise-free curved window for hybrid interface tests."""
+    time_seconds = None
+    if variable_dt:
+        time_seconds = [0.0, 2.0, 5.0, 9.0, 12.0, 17.0, 21.0, 27.0, 32.0, 38.0]
+    data = simulate_synthetic_ctrv_data(
+        count=10,
+        dt_seconds=5.0,
+        time_seconds=time_seconds,
+        initial_state=CTRVState(
+            x=0.0,
+            y=0.0,
+            speed=3.0,
+            heading=0.3,
+            turn_rate=turn_rate,
+        ),
+        noise=SyntheticCTRVNoise(
+            sigma_position_gps=0.0,
+            sigma_speed_gps=0.0,
+            sigma_position_process=0.0,
+            sigma_speed_process=0.0,
+            sigma_turn_rate_process=0.0,
+        ),
+        seed=7,
+    )
+    return prepare_trajectory_window(
+        data,
+        observation_count=7,
+        prediction_count=3,
+    )
+
+
+def test_hybrid_data_contains_deterministic_terminal_motion():
+    """Hybrid Stan data should include the smoothed endpoint motion."""
+    stan_data = build_stan_data(create_synthetic_window(variable_dt=True))
+
+    assert stan_data["heading_final"] == pytest.approx(0.552, abs=1e-3)
+    assert stan_data["turn_rate_final"] == pytest.approx(0.012, abs=1e-3)
+
+
+def test_hybrid_prior_center_remains_observation_derived():
+    """The hybrid should preserve its current-window empirical center."""
+    stan_data = build_stan_data(
+        create_synthetic_window(turn_rate=-0.012),
+        priors=BayesianCTRVPriors(turn_rate_initial_prior_mean=0.5),
+    )
+
+    assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(-0.012)
+
+
+def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
+    """Quadratic position fits should provide deterministic terminal motion."""
+    time_seconds = np.arange(5.0)
+    heading, turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        2.0 * time_seconds,
+        0.5 * np.square(time_seconds),
+    )
+
+    assert heading == pytest.approx(np.arctan2(4.0, 2.0))
+    assert turn_rate == pytest.approx(0.1)
+
+
+def test_final_motion_ignores_positions_older_than_history_span():
+    """Terminal motion should use time span rather than observation count."""
+    recent_time = np.arange(
+        -FINAL_MOTION_HISTORY_SECONDS,
+        10.0,
+        10.0,
+    )
+    time_seconds = np.concatenate(
+        (([-FINAL_MOTION_HISTORY_SECONDS - 10.0]), recent_time)
+    )
+    x_meters = np.concatenate(
+        (
+            [10_000.0],
+            500.0 + 4.0 * recent_time - 0.002 * np.square(recent_time),
+        )
+    )
+    y_meters = np.concatenate(
+        (
+            [-10_000.0],
+            1_000.0 + 3.0 * recent_time + 0.004 * np.square(recent_time),
+        )
+    )
+
+    heading, turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        x_meters,
+        y_meters,
+    )
+
+    assert heading == pytest.approx(np.arctan2(3.0, 4.0))
+    assert turn_rate == pytest.approx(0.00176)
+
+
+def test_final_motion_uses_zero_turn_rate_at_insufficient_fitted_speed():
+    """Slow terminal motion should not turn based on position jitter."""
+    heading, turn_rate = estimate_final_motion_from_positions(
+        np.arange(5.0),
+        [0.0, 0.2, 0.4, 0.6, 0.8],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+
+    assert heading == pytest.approx(0.0)
+    assert turn_rate == pytest.approx(0.0)
+
+
+def test_final_motion_falls_back_to_two_point_heading():
+    """Two observations should define heading with neutral turn rate."""
+    heading, turn_rate = estimate_final_motion_from_positions(
+        [0.0, 10.0],
+        [0.0, 0.0],
+        [0.0, 5.0],
+    )
+
+    assert heading == pytest.approx(np.pi / 2)
+    assert turn_rate == 0.0
+
+
+def test_hybrid_stan_model_keeps_terminal_motion_fixed():
+    """The hybrid forecast should not sample heading or future turn rate."""
+    source = STAN_FILE.read_text(encoding="utf-8")
+    data_block = re.search(r"data\s*\{(.*?)\n\}", source, flags=re.DOTALL).group(1)
+    parameter_block = re.search(
+        r"parameters\s*\{(.*?)\n\}",
+        source,
+        flags=re.DOTALL,
+    ).group(1)
+
+    assert "real heading_final" in data_block
+    assert "real turn_rate_final" in data_block
+    assert "heading_final" not in parameter_block
+    assert "turn_rate_final" not in parameter_block
+    assert "real turn_rate_forecast_origin = turn_rate_final" in source
+    assert "real turn_rate_previous = turn_rate_forecast_origin" in source
+    assert "real turn_rate_current = turn_rate_previous" in source
+    assert "normal_rng(turn_rate_previous" not in source
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.getenv("RUN_CMDSTAN_INTEGRATION") != "1",
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run CmdStan inference.",
+)
+def test_small_hybrid_vi_fit_is_executable():
+    """The separate hybrid model should compile and return finite draws."""
+    fit = fit_hybrid_bayesian_ctrv_model(
+        create_synthetic_window(),
+        iter=5_000,
+        draws=100,
+        seed=15,
+        require_converged=False,
+    )
+
+    assert posterior_variable_samples(fit, "x_state").shape == (100, 7)
+    assert posterior_variable_samples(fit, "turn_rate_state_prediction").shape == (
+        100,
+        3,
+    )
