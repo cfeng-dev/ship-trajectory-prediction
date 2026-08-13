@@ -2,6 +2,7 @@
 
 import argparse
 from dataclasses import replace
+from functools import partial
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -41,6 +42,8 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     variational_converged,
 )
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    DEFAULT_HYBRID_CONFIG,
+    HybridBayesianCTRVConfig,
     fit_hybrid_bayesian_ctrv_model,
 )
 from ship_trajectory_prediction.paths import project_path
@@ -111,6 +114,14 @@ VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
 def main(
     *,
     model_variant=MODEL_VARIANT,
+    data_file=DATA_FILE,
+    experiment=EXPERIMENT,
+    vi_config=VI_CONFIG,
+    mcmc_config=MCMC_CONFIG,
+    fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    credible_interval=CREDIBLE_INTERVAL,
+    sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
     window_mode=EXPERIMENT.window_mode,
     observation_count=EXPERIMENT.observation_count,
     prediction_count=EXPERIMENT.prediction_count,
@@ -127,24 +138,26 @@ def main(
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
     model_variant = normalize_bayesian_ctrv_model_variant(model_variant)
-    fit_model = (
-        fit_hybrid_bayesian_ctrv_model
-        if model_variant == "hybrid"
-        else fit_bayesian_ctrv_model
-    )
+    if model_variant == "hybrid":
+        fit_model = partial(
+            fit_hybrid_bayesian_ctrv_model,
+            hybrid_config=hybrid_config,
+        )
+    else:
+        fit_model = fit_bayesian_ctrv_model
     inference_method, inference_config = select_bayesian_ctrv_inference_config(
         inference_method,
         vi_algorithm=vi_algorithm,
         require_converged=require_converged,
-        vi_config=VI_CONFIG,
-        mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
     )
 
-    trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
+    trajectory_data = read_ship_data(data_file, run_id=experiment.run_id)
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={EXPERIMENT.run_id}.")
+        raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
     windows = build_rolling_window_specs(
         len(trajectory_data),
@@ -168,8 +181,8 @@ def main(
     print("=" * 72)
     print("Bayesian CTRV Rolling-Window Evaluation")
     print("=" * 72)
-    print(f"Data file             : {DATA_FILE}")
-    print(f"Run ID                : {EXPERIMENT.run_id}")
+    print(f"Data file             : {data_file}")
+    print(f"Run ID                : {experiment.run_id}")
     print(f"Window mode           : {window_mode}")
     print(f"Initial observations  : {observation_count}")
     print(f"Prediction horizon    : {prediction_count}")
@@ -252,7 +265,7 @@ def main(
         evaluation = evaluate_position_predictions(
             fit,
             window,
-            credible_interval=CREDIBLE_INTERVAL,
+            credible_interval=credible_interval,
             position_variable_names=(
                 "x_observation_prediction",
                 "y_observation_prediction",
@@ -318,7 +331,7 @@ def main(
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = summarize_rolling_predictions(predictions)
-    _print_summary(summary, credible_interval=CREDIBLE_INTERVAL)
+    _print_summary(summary, credible_interval=credible_interval)
     _print_turn_rate_and_noise_summary(predictions)
     plot_bayesian_rolling_predictions(
         route_x,
@@ -326,7 +339,7 @@ def main(
         posterior_plot_groups,
         initial_observation_count=observation_count,
         window_mode=window_mode,
-        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         sample_seed=seed,
         observed_route_x=route_x + route_noise_x,
         observed_route_y=route_y + route_noise_y,
@@ -719,80 +732,118 @@ def _mcmc_diagnostics_ok(fit):
     return "no problems detected" in fit.diagnose().lower()
 
 
-def _parse_arguments(*, description=__doc__):
+def _parse_arguments(
+    *,
+    description=__doc__,
+    experiment=EXPERIMENT,
+    priors=PRIORS,
+    vi_config=VI_CONFIG,
+    max_windows=MAX_WINDOWS,
+    plot_each_window=PLOT_EACH_WINDOW,
+):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
         choices=("sliding", "expanding"),
-        default=EXPERIMENT.window_mode,
+        default=experiment.window_mode,
         help="Keep a fixed history or expand it from the beginning of the run.",
     )
     parser.add_argument(
-        "--observations", type=int, default=EXPERIMENT.observation_count
+        "--observations", type=int, default=experiment.observation_count
     )
-    parser.add_argument("--predictions", type=int, default=EXPERIMENT.prediction_count)
+    parser.add_argument("--predictions", type=int, default=experiment.prediction_count)
     parser.add_argument(
         "--stride",
         type=int,
-        default=EXPERIMENT.stride,
+        default=experiment.stride,
         help="Forecast-origin step; defaults to the prediction horizon.",
     )
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
-        default=EXPERIMENT.inference_method,
+        default=experiment.inference_method,
         help="Fast variational inference or reference MCMC for every window.",
     )
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default=VI_CONFIG["algorithm"],
+        default=vi_config["algorithm"],
     )
     parser.add_argument(
         "--turn-rate-prior-scale",
         type=float,
-        default=PRIORS.turn_rate_state_prior_scale,
+        default=priors.turn_rate_state_prior_scale,
         help="Optional fixed state-prior scale; defaults to observed-history MAD.",
     )
-    parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
+    parser.add_argument("--seed", type=int, default=experiment.inference_seed)
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=EXPERIMENT.additional_position_noise_std_m,
+        default=experiment.additional_position_noise_std_m,
         help="Additional Gaussian x/y observation noise in meters; 0 disables.",
     )
     parser.add_argument(
         "--position-noise-seed",
         type=int,
-        default=EXPERIMENT.position_noise_seed,
+        default=experiment.position_noise_seed,
         help="Seed for one route-wide reproducible position perturbation.",
     )
     parser.add_argument(
         "--require-converged",
         action="store_true",
-        default=VI_CONFIG["require_converged"],
+        default=vi_config["require_converged"],
         help="Abort when any rolling VI fit misses its convergence criterion.",
     )
     parser.add_argument(
         "--max-windows",
         type=int,
-        default=MAX_WINDOWS,
+        default=max_windows,
         help="Optional smoke-test limit; omit it to evaluate the complete run.",
     )
     parser.add_argument(
         "--plot-each-window",
         action="store_true",
-        default=PLOT_EACH_WINDOW,
+        default=plot_each_window,
         help="Show each fitted window and continue after its plot is closed.",
     )
     return parser.parse_args()
 
 
-def run_cli(*, model_variant=MODEL_VARIANT, description=__doc__):
+def run_cli(
+    *,
+    model_variant=MODEL_VARIANT,
+    description=__doc__,
+    data_file=DATA_FILE,
+    experiment=EXPERIMENT,
+    priors=PRIORS,
+    vi_config=VI_CONFIG,
+    mcmc_config=MCMC_CONFIG,
+    fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    credible_interval=CREDIBLE_INTERVAL,
+    max_windows=MAX_WINDOWS,
+    plot_each_window=PLOT_EACH_WINDOW,
+    sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
+):
     """Parse shared options and evaluate one fixed Bayesian CTRV variant."""
-    arguments = _parse_arguments(description=description)
+    arguments = _parse_arguments(
+        description=description,
+        experiment=experiment,
+        priors=priors,
+        vi_config=vi_config,
+        max_windows=max_windows,
+        plot_each_window=plot_each_window,
+    )
     main(
         model_variant=model_variant,
+        data_file=data_file,
+        experiment=experiment,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
+        credible_interval=credible_interval,
+        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+        hybrid_config=hybrid_config,
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
@@ -800,7 +851,7 @@ def run_cli(*, model_variant=MODEL_VARIANT, description=__doc__):
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         priors=replace(
-            PRIORS,
+            priors,
             turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
         ),
         seed=arguments.seed,

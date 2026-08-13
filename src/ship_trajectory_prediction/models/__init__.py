@@ -11,6 +11,7 @@ from ship_trajectory_prediction.models.deterministic_ctrv import (
     predict_ctrv,
 )
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
+    HybridBayesianCTRVConfig,
     compile_hybrid_bayesian_ctrv_model,
     fit_hybrid_bayesian_ctrv_model,
 )
@@ -18,6 +19,7 @@ from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
 __all__ = [
     "BayesianCTRVPriors",
     "CTRVState",
+    "HybridBayesianCTRVConfig",
     "compile_bayesian_ctrv_model",
     "compile_hybrid_bayesian_ctrv_model",
     "ctrv_step",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -36,11 +38,33 @@ FINAL_MOTION_HISTORY_SECONDS = 60
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
 
 
+@dataclass(frozen=True, slots=True)
+class HybridBayesianCTRVConfig:
+    """Settings for deterministic terminal-motion estimation."""
+
+    final_motion_history_seconds: float = FINAL_MOTION_HISTORY_SECONDS
+    min_final_motion_speed_mps: float = MIN_FINAL_MOTION_SPEED_MPS
+
+    def __post_init__(self) -> None:
+        """Validate and normalize the hybrid-specific settings."""
+        for name in (
+            "final_motion_history_seconds",
+            "min_final_motion_speed_mps",
+        ):
+            value = getattr(self, name)
+            _bayesian._validate_positive_finite(name, value)
+            object.__setattr__(self, name, float(value))
+
+
+DEFAULT_HYBRID_CONFIG = HybridBayesianCTRVConfig()
+
+
 def build_stan_data(
     window: TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
     position_observations: PositionObservations | None = None,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
 ) -> dict[str, Any]:
     """Build hybrid data with deterministic terminal heading and turn rate."""
     stan_data = _bayesian.build_stan_data(
@@ -65,6 +89,7 @@ def build_stan_data(
             observations.time_seconds,
             observations.x_meters,
             observations.y_meters,
+            hybrid_config=hybrid_config,
         )
     except ValueError:
         heading_final = 0.0
@@ -75,7 +100,13 @@ def build_stan_data(
     return stan_data
 
 
-def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
+def estimate_final_motion_from_positions(
+    time_seconds,
+    x_meters,
+    y_meters,
+    *,
+    hybrid_config=DEFAULT_HYBRID_CONFIG,
+):
     """Estimate deterministic terminal motion over the configured history."""
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
@@ -96,7 +127,7 @@ def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
         raise ValueError("Final observed positions do not contain movement.")
     final_course = float(np.arctan2(delta_y_final, delta_x_final))
 
-    history_start_time = time_seconds[-1] - FINAL_MOTION_HISTORY_SECONDS
+    history_start_time = time_seconds[-1] - hybrid_config.final_motion_history_seconds
     history_mask = time_seconds >= history_start_time
     history_time = time_seconds[history_mask]
     history_x = x_meters[history_mask]
@@ -124,7 +155,7 @@ def estimate_final_motion_from_positions(time_seconds, x_meters, y_meters):
     acceleration_x = float(2.0 * x_coefficients[2])
     acceleration_y = float(2.0 * y_coefficients[2])
     speed_squared = velocity_x**2 + velocity_y**2
-    if speed_squared < MIN_FINAL_MOTION_SPEED_MPS**2:
+    if speed_squared < hybrid_config.min_final_motion_speed_mps**2:
         return final_course, 0.0
 
     heading_final = float(np.arctan2(velocity_y, velocity_x))
@@ -143,6 +174,8 @@ def compile_hybrid_bayesian_ctrv_model(
 
 def fit_hybrid_bayesian_ctrv_model(
     window: TrajectoryWindowData,
+    *,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
     **kwargs: Any,
 ) -> CmdStanVB | CmdStanMCMC:
     """Fit the hybrid model through the shared VI/MCMC implementation."""
@@ -152,7 +185,10 @@ def fit_hybrid_bayesian_ctrv_model(
         raise ValueError(f"Hybrid backend options are internal: {names}.")
     return _bayesian.fit_bayesian_ctrv_model(
         window,
-        _stan_data_builder=build_stan_data,
+        _stan_data_builder=partial(
+            build_stan_data,
+            hybrid_config=hybrid_config,
+        ),
         _model_compiler=compile_hybrid_bayesian_ctrv_model,
         **kwargs,
     )
@@ -160,12 +196,14 @@ def fit_hybrid_bayesian_ctrv_model(
 
 __all__ = [
     "DEFAULT_VI_ADAPT_ITER",
+    "DEFAULT_HYBRID_CONFIG",
     "FINAL_MOTION_HISTORY_SECONDS",
     "MIN_FINAL_MOTION_SPEED_MPS",
     "NOISE_PARAMETER_NAMES",
     "STAN_FILE",
     "BayesianCTRVPriors",
     "HistoricalInitialSpeedPrior",
+    "HybridBayesianCTRVConfig",
     "PositionObservations",
     "TurnRateDiagnostics",
     "VIRunResult",

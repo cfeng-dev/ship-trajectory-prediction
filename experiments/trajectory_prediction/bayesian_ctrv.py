@@ -1,6 +1,7 @@
 """Run one fully Bayesian CTRV trajectory prediction."""
 
 import argparse
+from functools import partial
 from time import perf_counter
 
 import numpy as np
@@ -35,7 +36,8 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     variational_converged,
 )
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
-    FINAL_MOTION_HISTORY_SECONDS,
+    DEFAULT_HYBRID_CONFIG,
+    HybridBayesianCTRVConfig,
     fit_hybrid_bayesian_ctrv_model,
 )
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
@@ -101,6 +103,14 @@ MODEL_VARIANT = "bayesian"
 def main(
     *,
     model_variant=MODEL_VARIANT,
+    data_file=DATA_FILE,
+    experiment=EXPERIMENT,
+    priors=PRIORS,
+    vi_config=VI_CONFIG,
+    mcmc_config=MCMC_CONFIG,
+    fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    credible_interval=CREDIBLE_INTERVAL,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
     inference_method=EXPERIMENT.inference_method,
     vi_algorithm=VI_CONFIG["algorithm"],
     seed=EXPERIMENT.inference_seed,
@@ -112,8 +122,14 @@ def main(
     """Fit one recorded run with selected inference and evaluate predictions."""
     model_variant = normalize_bayesian_ctrv_model_variant(model_variant)
     if model_variant == "hybrid":
-        stan_data_builder = build_hybrid_stan_data
-        fit_model = fit_hybrid_bayesian_ctrv_model
+        stan_data_builder = partial(
+            build_hybrid_stan_data,
+            hybrid_config=hybrid_config,
+        )
+        fit_model = partial(
+            fit_hybrid_bayesian_ctrv_model,
+            hybrid_config=hybrid_config,
+        )
         model_label = "Hybrid Bayesian CTRV"
     else:
         stan_data_builder = build_stan_data
@@ -123,17 +139,17 @@ def main(
         inference_method,
         vi_algorithm=vi_algorithm,
         require_converged=require_converged,
-        vi_config=VI_CONFIG,
-        mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
     )
     plot_coordinate_mode = normalize_plot_coordinate_mode(plot_coordinate_mode)
-    trajectory_data = read_ship_data(DATA_FILE, run_id=EXPERIMENT.run_id)
+    trajectory_data = read_ship_data(data_file, run_id=experiment.run_id)
     window = prepare_trajectory_window(
         trajectory_data,
-        observation_count=EXPERIMENT.observation_count,
-        prediction_count=EXPERIMENT.prediction_count,
-        start_index=EXPERIMENT.start_index,
+        observation_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
+        start_index=experiment.start_index,
     )
     position_observations = simulate_position_observations(
         window,
@@ -142,7 +158,7 @@ def main(
     )
     stan_data = stan_data_builder(
         window,
-        priors=PRIORS,
+        priors=priors,
         position_observations=position_observations,
     )
     forecast_horizon_seconds = float(
@@ -166,7 +182,7 @@ def main(
                 ),
                 (
                     "Terminal-motion history",
-                    f"{FINAL_MOTION_HISTORY_SECONDS:g} s",
+                    f"{hybrid_config.final_motion_history_seconds:g} s",
                 ),
             ]
         )
@@ -191,12 +207,14 @@ def main(
         position_observations=position_observations,
         forecast_horizon_seconds=forecast_horizon_seconds,
         plot_coordinate_mode=plot_coordinate_mode,
+        data_file=data_file,
+        run_id=experiment.run_id,
     )
 
     fit_started = perf_counter()
     fit = fit_model(
         window,
-        priors=PRIORS,
+        priors=priors,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,
@@ -252,7 +270,7 @@ def main(
     evaluation = evaluate_position_predictions(
         fit,
         window,
-        credible_interval=CREDIBLE_INTERVAL,
+        credible_interval=credible_interval,
         position_variable_names=(
             "x_state_prediction",
             "y_state_prediction",
@@ -290,6 +308,8 @@ def _print_ctrv_setup(
     position_observations,
     forecast_horizon_seconds,
     plot_coordinate_mode,
+    data_file,
+    run_id,
 ):
     """Print the concise, reproducible setup for one Bayesian CTRV run."""
     noise_std_m = position_observations.additional_noise_std_m
@@ -300,8 +320,8 @@ def _print_ctrv_setup(
     )
     print_prediction_setup(
         f"{model_label} State-Space Prediction",
-        data_file=DATA_FILE,
-        run_id=EXPERIMENT.run_id,
+        data_file=data_file,
+        run_id=run_id,
         window=window,
         extra_rows=[
             *inference_rows,
@@ -313,41 +333,47 @@ def _print_ctrv_setup(
     )
 
 
-def _parse_arguments(*, description=__doc__):
+def _parse_arguments(
+    *,
+    description=__doc__,
+    experiment=EXPERIMENT,
+    vi_config=VI_CONFIG,
+    plot_coordinate_mode=PLOT_COORDINATE_MODE,
+):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
-        default=EXPERIMENT.inference_method,
+        default=experiment.inference_method,
     )
     parser.add_argument(
         "--vi-algorithm",
         choices=("meanfield", "fullrank"),
-        default=VI_CONFIG["algorithm"],
+        default=vi_config["algorithm"],
     )
-    parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
+    parser.add_argument("--seed", type=int, default=experiment.inference_seed)
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=EXPERIMENT.additional_position_noise_std_m,
+        default=experiment.additional_position_noise_std_m,
         help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
     )
     parser.add_argument(
         "--position-noise-seed",
         type=int,
-        default=EXPERIMENT.position_noise_seed,
+        default=experiment.position_noise_seed,
         help="Seed used only to generate the in-memory position perturbation.",
     )
     parser.add_argument(
         "--require-converged",
         action="store_true",
-        default=VI_CONFIG["require_converged"],
+        default=vi_config["require_converged"],
         help="Abort instead of plotting if CmdStan reports non-converged VI.",
     )
     parser.add_argument(
         "--plot-coordinates",
         metavar="{" + ",".join(PLOT_COORDINATE_MODES) + "}",
-        default=PLOT_COORDINATE_MODE,
+        default=plot_coordinate_mode,
         help=(
             "Display local meters, local kilometers, or GPS coordinates; "
             "invalid values fall back to meters."
@@ -356,11 +382,37 @@ def _parse_arguments(*, description=__doc__):
     return parser.parse_args()
 
 
-def run_cli(*, model_variant=MODEL_VARIANT, description=__doc__):
+def run_cli(
+    *,
+    model_variant=MODEL_VARIANT,
+    description=__doc__,
+    data_file=DATA_FILE,
+    experiment=EXPERIMENT,
+    priors=PRIORS,
+    vi_config=VI_CONFIG,
+    mcmc_config=MCMC_CONFIG,
+    fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+    credible_interval=CREDIBLE_INTERVAL,
+    plot_coordinate_mode=PLOT_COORDINATE_MODE,
+    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
+):
     """Parse shared options and run one fixed Bayesian CTRV variant."""
-    arguments = _parse_arguments(description=description)
+    arguments = _parse_arguments(
+        description=description,
+        experiment=experiment,
+        vi_config=vi_config,
+        plot_coordinate_mode=plot_coordinate_mode,
+    )
     main(
         model_variant=model_variant,
+        data_file=data_file,
+        experiment=experiment,
+        priors=priors,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
+        credible_interval=credible_interval,
+        hybrid_config=hybrid_config,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,

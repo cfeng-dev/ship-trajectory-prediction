@@ -1,13 +1,13 @@
-"""Tests for the hybrid Bayesian CTRV rolling entry point."""
+"""Tests for the hybrid Bayesian CTRV single-window entry point."""
 
 import sys
 
-import experiments.model_evaluation.rolling.bayesian_ctrv as bayesian_experiment
-import experiments.model_evaluation.rolling.hybrid_bayesian_ctrv as experiment
+import experiments.trajectory_prediction.bayesian_ctrv as bayesian_experiment
+import experiments.trajectory_prediction.hybrid_bayesian_ctrv as experiment
 
 
-def test_main_selects_hybrid_model(monkeypatch):
-    """The dedicated entry point should not require a model-selection flag."""
+def test_main_passes_independent_hybrid_configuration(monkeypatch):
+    """The hybrid entry point should pass its own visible configuration."""
     captured = {}
     monkeypatch.setattr(
         experiment,
@@ -19,7 +19,7 @@ def test_main_selects_hybrid_model(monkeypatch):
 
     assert captured == {
         "model_variant": "hybrid",
-        "description": "Evaluate hybrid Bayesian CTRV forecasts across rolling windows.",
+        "description": "Run one hybrid Bayesian CTRV trajectory prediction.",
         "data_file": experiment.DATA_FILE,
         "experiment": experiment.EXPERIMENT,
         "priors": experiment.PRIORS,
@@ -27,17 +27,13 @@ def test_main_selects_hybrid_model(monkeypatch):
         "mcmc_config": experiment.MCMC_CONFIG,
         "fullrank_grad_samples": experiment.FULLRANK_GRAD_SAMPLES,
         "credible_interval": experiment.CREDIBLE_INTERVAL,
-        "max_windows": experiment.MAX_WINDOWS,
-        "plot_each_window": experiment.PLOT_EACH_WINDOW,
-        "sample_trajectories_per_forecast": (
-            experiment.SAMPLE_TRAJECTORIES_PER_FORECAST
-        ),
+        "plot_coordinate_mode": experiment.PLOT_COORDINATE_MODE,
         "hybrid_config": experiment.HYBRID_CONFIG,
     }
 
 
 def test_hybrid_configuration_does_not_alias_bayesian_defaults():
-    """Editing rolling hybrid settings should not mutate Bayesian defaults."""
+    """Editing hybrid settings should not mutate the Bayesian experiment."""
     assert experiment.EXPERIMENT is not bayesian_experiment.EXPERIMENT
     assert experiment.PRIORS is not bayesian_experiment.PRIORS
     assert experiment.VI_CONFIG is not bayesian_experiment.VI_CONFIG
@@ -45,7 +41,7 @@ def test_hybrid_configuration_does_not_alias_bayesian_defaults():
 
 
 def test_shared_cli_forwards_hybrid_configuration(monkeypatch):
-    """The shared rolling CLI should use the hybrid entry point's defaults."""
+    """The shared CLI should use the selected entry point's defaults."""
     captured = {}
     monkeypatch.setattr(sys, "argv", ["hybrid_bayesian_ctrv.py"])
     monkeypatch.setattr(
@@ -59,10 +55,7 @@ def test_shared_cli_forwards_hybrid_configuration(monkeypatch):
     assert captured["model_variant"] == "hybrid"
     assert captured["data_file"] == experiment.DATA_FILE
     assert captured["experiment"] is experiment.EXPERIMENT
-    assert captured["priors"] is not experiment.PRIORS
-    assert captured["priors"].turn_rate_state_prior_scale == (
-        experiment.PRIORS.turn_rate_state_prior_scale
-    )
+    assert captured["priors"] is experiment.PRIORS
     assert captured["vi_config"] is experiment.VI_CONFIG
     assert captured["mcmc_config"] is experiment.MCMC_CONFIG
     assert captured["hybrid_config"] is experiment.HYBRID_CONFIG

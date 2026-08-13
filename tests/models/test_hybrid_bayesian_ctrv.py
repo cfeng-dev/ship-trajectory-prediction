@@ -11,11 +11,13 @@ import pytest
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_variable_samples,
 )
+from ship_trajectory_prediction.models import hybrid_bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     FINAL_MOTION_HISTORY_SECONDS,
     STAN_FILE,
     BayesianCTRVPriors,
+    HybridBayesianCTRVConfig,
     build_stan_data,
     estimate_final_motion_from_positions,
     fit_hybrid_bayesian_ctrv_model,
@@ -133,6 +135,62 @@ def test_final_motion_uses_zero_turn_rate_at_insufficient_fitted_speed():
 
     assert heading == pytest.approx(0.0)
     assert turn_rate == pytest.approx(0.0)
+
+
+def test_final_motion_uses_configured_minimum_speed():
+    """The hybrid speed guard should be configurable per experiment."""
+    _, turn_rate = estimate_final_motion_from_positions(
+        np.arange(5.0),
+        2.0 * np.arange(5.0),
+        0.5 * np.square(np.arange(5.0)),
+        hybrid_config=HybridBayesianCTRVConfig(
+            min_final_motion_speed_mps=10.0,
+        ),
+    )
+
+    assert turn_rate == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"final_motion_history_seconds": 0.0},
+        {"min_final_motion_speed_mps": 0.0},
+    ],
+)
+def test_hybrid_configuration_requires_positive_values(settings):
+    """Hybrid-specific motion settings should reject invalid values."""
+    with pytest.raises(ValueError, match="positive finite"):
+        HybridBayesianCTRVConfig(**settings)
+
+
+def test_fit_forwards_hybrid_configuration_to_stan_data(monkeypatch):
+    """The fitting wrapper should use the selected terminal-motion settings."""
+    captured = {}
+    expected_fit = object()
+
+    def fake_fit(window, **kwargs):
+        captured.update(kwargs)
+        captured["window"] = window
+        return expected_fit
+
+    monkeypatch.setattr(
+        model_module._bayesian,
+        "fit_bayesian_ctrv_model",
+        fake_fit,
+    )
+    window = create_synthetic_window(variable_dt=True)
+    hybrid_config = HybridBayesianCTRVConfig(min_final_motion_speed_mps=10.0)
+
+    fit = fit_hybrid_bayesian_ctrv_model(
+        window,
+        hybrid_config=hybrid_config,
+    )
+    stan_data = captured["_stan_data_builder"](window)
+
+    assert fit is expected_fit
+    assert captured["window"] is window
+    assert stan_data["turn_rate_final"] == pytest.approx(0.0)
 
 
 def test_final_motion_falls_back_to_two_point_heading():
