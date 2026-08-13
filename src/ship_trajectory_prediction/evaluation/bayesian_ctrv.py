@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_VI_ADAPT_ITER,
     normalize_inference_method,
 )
 
 BAYESIAN_CTRV_MODEL_VARIANTS = ("bayesian", "hybrid")
+DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +40,34 @@ class RollingExperimentConfig:
     stride: int | None
     inference_method: str
     inference_seed: int
+
+
+def create_default_vi_config() -> dict[str, Any]:
+    """Return independent default CmdStan variational-inference options."""
+    return {
+        "algorithm": "meanfield",
+        "iter": 20_000,
+        "grad_samples": 1,
+        "elbo_samples": 100,
+        "eta": 1.0,
+        "adapt_iter": DEFAULT_VI_ADAPT_ITER,
+        "tol_rel_obj": 0.01,
+        "eval_elbo": 100,
+        "draws": 1_000,
+        "require_converged": False,
+    }
+
+
+def create_default_mcmc_config() -> dict[str, Any]:
+    """Return independent default CmdStan MCMC options."""
+    return {
+        "chains": 4,
+        "parallel_chains": 4,
+        "iter_warmup": 1_000,
+        "iter_sampling": 1_000,
+        "adapt_delta": 0.9,
+        "max_treedepth": 10,
+    }
 
 
 def normalize_bayesian_ctrv_model_variant(model_variant: str) -> str:

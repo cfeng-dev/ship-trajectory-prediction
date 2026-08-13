@@ -25,7 +25,7 @@ def test_main_passes_independent_hybrid_configuration(monkeypatch):
         "priors": experiment.PRIORS,
         "vi_config": experiment.VI_CONFIG,
         "mcmc_config": experiment.MCMC_CONFIG,
-        "fullrank_grad_samples": experiment.FULLRANK_GRAD_SAMPLES,
+        "fullrank_grad_samples": experiment.DEFAULT_FULLRANK_GRAD_SAMPLES,
         "credible_interval": experiment.CREDIBLE_INTERVAL,
         "plot_coordinate_mode": experiment.PLOT_COORDINATE_MODE,
         "hybrid_config": experiment.HYBRID_CONFIG,

@@ -1,8 +1,12 @@
 """Run one hybrid Bayesian CTRV trajectory prediction."""
 
-from ship_trajectory_prediction.evaluation.bayesian_ctrv import ExperimentConfig
+from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+    DEFAULT_FULLRANK_GRAD_SAMPLES,
+    ExperimentConfig,
+    create_default_mcmc_config,
+    create_default_vi_config,
+)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_VI_ADAPT_ITER,
     BayesianCTRVPriors,
 )
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
@@ -45,27 +49,8 @@ HYBRID_CONFIG = HybridBayesianCTRVConfig(
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.
     min_final_motion_speed_mps=1.0,  # Below this, use neutral turn rate [m/s].
 )
-VI_CONFIG = {
-    "algorithm": "meanfield",  # "meanfield" or "fullrank".
-    "iter": 20_000,  # Maximum optimization iterations.
-    "grad_samples": 1,  # Samples per gradient estimate.
-    "elbo_samples": 100,  # Samples per ELBO estimate.
-    "eta": 1.0,  # Initial step size.
-    "adapt_iter": DEFAULT_VI_ADAPT_ITER,  # Step-size adaptation iterations.
-    "tol_rel_obj": 0.01,  # Relative ELBO stopping tolerance.
-    "eval_elbo": 100,  # ELBO evaluation interval.
-    "draws": 1_000,  # Posterior draws to save.
-    "require_converged": False,  # Allow preliminary non-converged VI.
-}
-FULLRANK_GRAD_SAMPLES = 10
-MCMC_CONFIG = {
-    "chains": 4,  # Independent NUTS chains.
-    "parallel_chains": 4,  # Chains run concurrently.
-    "iter_warmup": 1_000,  # Warmup iterations per chain.
-    "iter_sampling": 1_000,  # Saved draws per chain.
-    "adapt_delta": 0.9,  # Target acceptance probability.
-    "max_treedepth": 10,  # Maximum NUTS tree depth.
-}
+VI_CONFIG = create_default_vi_config()
+MCMC_CONFIG = create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
 MODEL_VARIANT = "hybrid"
@@ -81,7 +66,7 @@ def main():
         priors=PRIORS,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=FULLRANK_GRAD_SAMPLES,
+        fullrank_grad_samples=DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         plot_coordinate_mode=PLOT_COORDINATE_MODE,
         hybrid_config=HYBRID_CONFIG,
