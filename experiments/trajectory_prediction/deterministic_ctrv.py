@@ -1,12 +1,15 @@
 """Run one deterministic CTRV trajectory prediction."""
 
 import argparse
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from ship_trajectory_prediction.evaluation.deterministic_ctrv import (
+    DeterministicExperimentConfig,
+)
 from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, predict_ctrv
 from ship_trajectory_prediction.paths import project_path
@@ -19,19 +22,6 @@ from ship_trajectory_prediction.trajectory import (
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class DeterministicExperimentConfig:
-    """Configuration of one deterministic recorded-trajectory experiment."""
-
-    run_id: int
-    start_index: int
-    observation_count: int
-    prediction_count: int
-    additional_position_noise_std_m: float
-    position_noise_seed: int
-
 
 EXPERIMENT = DeterministicExperimentConfig(
     run_id=1,  # Trajectory run to predict.
