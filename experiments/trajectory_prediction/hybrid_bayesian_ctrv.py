@@ -1,10 +1,18 @@
 """Run one hybrid Bayesian CTRV trajectory prediction."""
 
+import argparse
+
 from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     ExperimentConfig,
     create_default_mcmc_config,
     create_default_vi_config,
+)
+from ship_trajectory_prediction.evaluation.bayesian_ctrv_prediction import (
+    run_hybrid_bayesian_ctrv_prediction,
+)
+from ship_trajectory_prediction.evaluation.prediction_plotting import (
+    PLOT_COORDINATE_MODES,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     BayesianCTRVPriors,
@@ -13,11 +21,6 @@ from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     HybridBayesianCTRVConfig,
 )
 from ship_trajectory_prediction.paths import project_path
-
-if __package__:
-    from .bayesian_ctrv import run_cli
-else:
-    from bayesian_ctrv import run_cli
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
@@ -53,23 +56,70 @@ VI_CONFIG = create_default_vi_config()
 MCMC_CONFIG = create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
-MODEL_VARIANT = "hybrid"
 
 
-def main():
-    """Run the shared trajectory-prediction pipeline with the hybrid model."""
-    run_cli(
-        model_variant=MODEL_VARIANT,
-        description=__doc__,
+def _parse_arguments(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--inference",
+        choices=("vi", "mcmc"),
+        default=EXPERIMENT.inference_method,
+    )
+    parser.add_argument(
+        "--vi-algorithm",
+        choices=("meanfield", "fullrank"),
+        default=VI_CONFIG["algorithm"],
+    )
+    parser.add_argument("--seed", type=int, default=EXPERIMENT.inference_seed)
+    parser.add_argument(
+        "--position-noise-std-m",
+        type=float,
+        default=EXPERIMENT.additional_position_noise_std_m,
+        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+    )
+    parser.add_argument(
+        "--position-noise-seed",
+        type=int,
+        default=EXPERIMENT.position_noise_seed,
+        help="Seed used only to generate the in-memory position perturbation.",
+    )
+    parser.add_argument(
+        "--require-converged",
+        action="store_true",
+        default=VI_CONFIG["require_converged"],
+        help="Abort instead of plotting if CmdStan reports non-converged VI.",
+    )
+    parser.add_argument(
+        "--plot-coordinates",
+        metavar="{" + ",".join(PLOT_COORDINATE_MODES) + "}",
+        default=PLOT_COORDINATE_MODE,
+        help=(
+            "Display local meters, local kilometers, or GPS coordinates; "
+            "invalid values fall back to meters."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    """Run the configured hybrid Bayesian CTRV experiment."""
+    arguments = _parse_arguments(argv)
+    return run_hybrid_bayesian_ctrv_prediction(
         data_file=DATA_FILE,
         experiment=EXPERIMENT,
         priors=PRIORS,
+        hybrid_config=HYBRID_CONFIG,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
         fullrank_grad_samples=DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
-        plot_coordinate_mode=PLOT_COORDINATE_MODE,
-        hybrid_config=HYBRID_CONFIG,
+        inference_method=arguments.inference,
+        vi_algorithm=arguments.vi_algorithm,
+        seed=arguments.seed,
+        position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_seed=arguments.position_noise_seed,
+        require_converged=arguments.require_converged,
+        plot_coordinate_mode=arguments.plot_coordinates,
     )
 
 
