@@ -11,17 +11,15 @@ import pandas as pd
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from experiments.trajectory_prediction.deterministic_ctrv import (
-    HEADING_ESTIMATION_SEGMENTS,
-    SPEED_ESTIMATION_POINTS,
-    build_prediction_table,
-    estimate_ctrv_state,
-)
 from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
     local_to_gps_coordinates,
 )
 from ship_trajectory_prediction.evaluation import build_rolling_window_specs
+from ship_trajectory_prediction.evaluation.deterministic_ctrv import (
+    build_prediction_table,
+    estimate_ctrv_state,
+)
 from ship_trajectory_prediction.evaluation.plotting import (
     plot_deterministic_rolling_predictions,
 )
@@ -42,6 +40,8 @@ STRIDE = None
 POSITION_NOISE_STD_M = 2.0
 POSITION_NOISE_SEED = 2026
 MAX_WINDOWS = None
+SPEED_ESTIMATION_POINTS = 5
+HEADING_ESTIMATION_SEGMENTS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,9 +88,7 @@ def main(
             raise ValueError("max_windows must be a positive integer or None.")
         windows = windows[:max_windows]
 
-    route_x, route_y, longitude, latitude = _prepare_route_coordinates(
-        trajectory_data
-    )
+    route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
         standard_deviation_m=position_noise_std_m,
@@ -212,9 +210,9 @@ def _prepare_route_coordinates(trajectory_data):
     longitude = pd.to_numeric(
         trajectory_data["gps_longitude"], errors="coerce"
     ).to_numpy(dtype=float)
-    latitude = pd.to_numeric(
-        trajectory_data["gps_latitude"], errors="coerce"
-    ).to_numpy(dtype=float)
+    latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
+        dtype=float
+    )
     route_x, route_y = gps_to_local_coordinates(longitude, latitude, unit="m")
     return route_x, route_y, longitude, latitude
 
@@ -344,8 +342,7 @@ def _print_setup(**values):
     print(f"Speed history points  : {values['speed_estimation_points']}")
     print(f"Heading segments      : {values['heading_estimation_segments']}")
     noise = (
-        f"{values['position_noise_std_m']:g} m "
-        f"(seed={values['position_noise_seed']})"
+        f"{values['position_noise_std_m']:g} m (seed={values['position_noise_seed']})"
         if values["position_noise_std_m"] > 0
         else "disabled"
     )
