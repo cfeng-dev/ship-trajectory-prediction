@@ -1,4 +1,4 @@
-"""Run one fully Bayesian or hybrid CTRV trajectory prediction."""
+"""Run one fully Bayesian CTRV trajectory prediction."""
 
 import argparse
 from time import perf_counter
@@ -7,14 +7,12 @@ import numpy as np
 
 if __package__:
     from .config import (
-        BAYESIAN_CTRV_MODEL_VARIANTS,
         ExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
     )
 else:
     from config import (
-        BAYESIAN_CTRV_MODEL_VARIANTS,
         ExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
@@ -105,7 +103,7 @@ MCMC_CONFIG = {
 }
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
-MODEL_VARIANT = "hybrid"  # Stable hybrid default; "bayesian" is the full reference.
+MODEL_VARIANT = "bayesian"
 
 
 def main(
@@ -323,14 +321,8 @@ def _print_ctrv_setup(
     )
 
 
-def _parse_arguments():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--model",
-        choices=BAYESIAN_CTRV_MODEL_VARIANTS,
-        default=MODEL_VARIANT,
-        help="Use fully Bayesian terminal motion or the deterministic hybrid.",
-    )
+def _parse_arguments(*, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),
@@ -372,10 +364,11 @@ def _parse_arguments():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    arguments = _parse_arguments()
+def run_cli(*, model_variant=MODEL_VARIANT, description=__doc__):
+    """Parse shared options and run one fixed Bayesian CTRV variant."""
+    arguments = _parse_arguments(description=description)
     main(
-        model_variant=arguments.model,
+        model_variant=model_variant,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,
@@ -384,3 +377,7 @@ if __name__ == "__main__":
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
     )
+
+
+if __name__ == "__main__":
+    run_cli()
