@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
-from ship_trajectory_prediction.models.ctrv import CTRVState, ctrv_step
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
 
 
 @dataclass(frozen=True, slots=True)

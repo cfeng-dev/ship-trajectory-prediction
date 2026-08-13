@@ -8,7 +8,7 @@ from experiments.trajectory_prediction.config import (
     normalize_bayesian_ctrv_model_variant,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
-from ship_trajectory_prediction.models.ctrv import CTRVState
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     SyntheticCTRVNoise,
     simulate_synthetic_ctrv_data,

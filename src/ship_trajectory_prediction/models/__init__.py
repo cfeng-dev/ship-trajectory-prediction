@@ -5,7 +5,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     compile_bayesian_ctrv_model,
     fit_bayesian_ctrv_model,
 )
-from ship_trajectory_prediction.models.ctrv import (
+from ship_trajectory_prediction.models.deterministic_ctrv import (
     CTRVState,
     ctrv_step,
     predict_ctrv,

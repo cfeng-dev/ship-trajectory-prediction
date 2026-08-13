@@ -1,4 +1,4 @@
-"""Fit a fully Bayesian or hybrid CTRV model to one trajectory window."""
+"""Run one fully Bayesian or hybrid CTRV trajectory prediction."""
 
 import argparse
 from time import perf_counter

@@ -23,7 +23,7 @@ from ship_trajectory_prediction.evaluation.motion_priors import (  # noqa: E402
     print_motion_prior_report,
     suggest_prior_scales,
 )
-from ship_trajectory_prediction.models.ctrv import CTRVState  # noqa: E402
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState  # noqa: E402
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (  # noqa: E402
     SyntheticCTRVNoise,
     simulate_synthetic_ctrv_data,

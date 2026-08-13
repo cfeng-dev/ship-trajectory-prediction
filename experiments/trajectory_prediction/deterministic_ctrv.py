@@ -1,4 +1,4 @@
-"""Predict one held-out trajectory window with deterministic CTRV motion."""
+"""Run one deterministic CTRV trajectory prediction."""
 
 import argparse
 
@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ship_trajectory_prediction.evaluation.reporting import print_prediction_setup
-from ship_trajectory_prediction.models.ctrv import CTRVState, predict_ctrv
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, predict_ctrv
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import (
     TrajectoryWindowData,

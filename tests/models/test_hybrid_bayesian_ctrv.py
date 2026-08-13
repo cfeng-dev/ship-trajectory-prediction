@@ -11,7 +11,7 @@ import pytest
 from ship_trajectory_prediction.evaluation.reporting import (
     posterior_variable_samples,
 )
-from ship_trajectory_prediction.models.ctrv import CTRVState
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     FINAL_MOTION_HISTORY_SECONDS,
     STAN_FILE,

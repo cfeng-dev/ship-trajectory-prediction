@@ -25,7 +25,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     TURN_RATE_PRIOR_SCALE_MULTIPLIER,
     estimate_initial_speed_from_positions,
 )
-from ship_trajectory_prediction.models.ctrv import CTRVState, ctrv_step
+from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
 from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.trajectory import read_ship_data
 

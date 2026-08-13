@@ -1,4 +1,4 @@
-"""Deterministic constant-turn-rate-and-velocity motion model."""
+"""Deterministic constant-turn-rate-and-velocity (CTRV) motion model."""
 
 from dataclasses import dataclass
 from math import cos, isfinite, sin

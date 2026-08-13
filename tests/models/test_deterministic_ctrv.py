@@ -4,7 +4,7 @@ from math import cos, pi, sin
 
 import pytest
 
-from ship_trajectory_prediction.models.ctrv import (
+from ship_trajectory_prediction.models.deterministic_ctrv import (
     SMALL_TURN_ANGLE,
     CTRVState,
     ctrv_step,
