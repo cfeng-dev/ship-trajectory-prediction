@@ -1,21 +1,24 @@
 """Compare fully Bayesian or hybrid CTRV rolling forecasts."""
 
 import argparse
+import sys
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 if __package__:
-    from .config import (
+    from experiments.trajectory_prediction.config import (
         BAYESIAN_CTRV_MODEL_VARIANTS,
         RollingExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
         select_bayesian_ctrv_inference_config,
     )
 else:
-    from config import (
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from experiments.trajectory_prediction.config import (
         BAYESIAN_CTRV_MODEL_VARIANTS,
         RollingExperimentConfig,
         normalize_bayesian_ctrv_model_variant,
