@@ -38,7 +38,11 @@ def _create_route():
 
 def test_main_evaluates_deterministic_rolling_windows(monkeypatch):
     route = _create_route()
-    monkeypatch.setattr(experiment, "read_ship_data", lambda *args, **kwargs: route)
+    monkeypatch.setattr(
+        experiment.observations_io,
+        "read_ship_data",
+        lambda *args, **kwargs: route,
+    )
 
     predictions, summary = experiment.main(
         observation_count=5,

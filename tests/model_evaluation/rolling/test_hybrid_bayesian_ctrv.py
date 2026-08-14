@@ -10,7 +10,7 @@ def test_main_selects_hybrid_model(monkeypatch):
     """The dedicated entry point should not require a model-selection flag."""
     captured = {}
     monkeypatch.setattr(
-        experiment,
+        experiment.rolling_bayesian,
         "run_cli",
         lambda **kwargs: captured.update(kwargs),
     )
@@ -25,7 +25,7 @@ def test_main_selects_hybrid_model(monkeypatch):
         "priors": experiment.PRIORS,
         "vi_config": experiment.VI_CONFIG,
         "mcmc_config": experiment.MCMC_CONFIG,
-        "fullrank_grad_samples": experiment.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        "fullrank_grad_samples": experiment.forecasting.DEFAULT_FULLRANK_GRAD_SAMPLES,
         "credible_interval": experiment.CREDIBLE_INTERVAL,
         "max_windows": experiment.MAX_WINDOWS,
         "plot_each_window": experiment.PLOT_EACH_WINDOW,

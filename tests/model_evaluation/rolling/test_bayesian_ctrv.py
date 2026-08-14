@@ -223,7 +223,11 @@ def test_numerically_exploded_vi_fit_is_retried_with_next_seed(
         used_seeds.append(seed)
         return next(fits)
 
-    monkeypatch.setattr(experiment, "fit_bayesian_ctrv_model", fake_fit)
+    monkeypatch.setattr(
+        experiment.bayesian_model,
+        "fit_bayesian_ctrv_model",
+        fake_fit,
+    )
 
     fit, seed = experiment._fit_rolling_window(
         object(),
@@ -244,7 +248,7 @@ def test_repeated_numerical_vi_instability_fails_clearly(monkeypatch):
     """Rolling evaluation must not plot an approximation that remains invalid."""
     unstable = FakeFit(sigma_speed_process=[1e100])
     monkeypatch.setattr(
-        experiment,
+        experiment.bayesian_model,
         "fit_bayesian_ctrv_model",
         lambda *args, **kwargs: unstable,
     )
@@ -270,7 +274,11 @@ def test_mcmc_fit_is_never_subjected_to_vi_retry(monkeypatch):
         used_seeds.append(seed)
         return fit
 
-    monkeypatch.setattr(experiment, "fit_bayesian_ctrv_model", fake_fit)
+    monkeypatch.setattr(
+        experiment.bayesian_model,
+        "fit_bayesian_ctrv_model",
+        fake_fit,
+    )
 
     result, seed = experiment._fit_rolling_window(
         object(),

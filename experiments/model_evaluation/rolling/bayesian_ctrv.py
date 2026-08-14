@@ -8,58 +8,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
-    DEFAULT_FULLRANK_GRAD_SAMPLES,
-    RollingExperimentConfig,
-    create_default_mcmc_config,
-    create_default_vi_config,
-    normalize_bayesian_ctrv_model_variant,
-    select_bayesian_ctrv_inference_config,
-)
-from ship_trajectory_prediction.models.bayesian_ctrv import (
-    NOISE_PARAMETER_NAMES,
-    BayesianCTRVPriors,
-    PositionObservations,
-    diagnose_observed_turn_rate,
-    fit_bayesian_ctrv_model,
-    variational_converged,
-)
-from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
-    DEFAULT_HYBRID_CONFIG,
-    HybridBayesianCTRVConfig,
-    fit_hybrid_bayesian_ctrv_model,
-)
-from ship_trajectory_prediction.observations import (
-    prepare_trajectory_window,
-    read_ship_data,
-)
-from ship_trajectory_prediction.observations.coordinates import (
-    gps_to_local_coordinates,
-    local_to_gps_coordinates,
-)
-from ship_trajectory_prediction.observations.paths import data_path
-from ship_trajectory_prediction.validation import (
-    build_rolling_window_specs,
-    evaluate_position_predictions,
-    summarize_rolling_predictions,
-)
-from ship_trajectory_prediction.validation import (
-    plot_prediction as plot_window_prediction,
-)
-from ship_trajectory_prediction.validation.plotting import (
-    RollingPosteriorPlotData,
-    plot_bayesian_rolling_predictions,
-)
-from ship_trajectory_prediction.validation.reporting import (
-    posterior_variable_samples,
-)
+import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
+import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.paths as paths
+import ship_trajectory_prediction.observations.window as observation_window
+import ship_trajectory_prediction.validation.metrics as metrics
+import ship_trajectory_prediction.validation.plotting as plotting
+import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
+import ship_trajectory_prediction.validation.reporting as reporting
+import ship_trajectory_prediction.validation.rolling as rolling_validation
 
-DATA_FILE = data_path(
+DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 
-EXPERIMENT = RollingExperimentConfig(
+EXPERIMENT = forecasting.RollingExperimentConfig(
     run_id=1,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=20,  # Position points used by the first fit.
@@ -70,7 +37,7 @@ EXPERIMENT = RollingExperimentConfig(
     inference_method="vi",  # Fast "vi" or reference "mcmc".
     inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
 )
-PRIORS = BayesianCTRVPriors(
+PRIORS = bayesian_model.BayesianCTRVPriors(
     position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
@@ -82,8 +49,8 @@ PRIORS = BayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
     sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
 )
-VI_CONFIG = create_default_vi_config()
-MCMC_CONFIG = create_default_mcmc_config()
+VI_CONFIG = forecasting.create_default_vi_config()
+MCMC_CONFIG = forecasting.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
@@ -101,10 +68,12 @@ def main(
     experiment=EXPERIMENT,
     vi_config=VI_CONFIG,
     mcmc_config=MCMC_CONFIG,
-    fullrank_grad_samples=DEFAULT_FULLRANK_GRAD_SAMPLES,
+    fullrank_grad_samples=forecasting.DEFAULT_FULLRANK_GRAD_SAMPLES,
     credible_interval=CREDIBLE_INTERVAL,
     sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
-    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
+    hybrid_config: hybrid_model.HybridBayesianCTRVConfig = (
+        hybrid_model.DEFAULT_HYBRID_CONFIG
+    ),
     window_mode=EXPERIMENT.window_mode,
     observation_count=EXPERIMENT.observation_count,
     prediction_count=EXPERIMENT.prediction_count,
@@ -120,29 +89,34 @@ def main(
     plot_each_window=PLOT_EACH_WINDOW,
 ):
     """Fit and evaluate rolling CTRV forecasts across one complete run."""
-    model_variant = normalize_bayesian_ctrv_model_variant(model_variant)
+    model_variant = forecasting.normalize_bayesian_ctrv_model_variant(model_variant)
     if model_variant == "hybrid":
         fit_model = partial(
-            fit_hybrid_bayesian_ctrv_model,
+            hybrid_model.fit_hybrid_bayesian_ctrv_model,
             hybrid_config=hybrid_config,
         )
     else:
-        fit_model = fit_bayesian_ctrv_model
-    inference_method, inference_config = select_bayesian_ctrv_inference_config(
-        inference_method,
-        vi_algorithm=vi_algorithm,
-        require_converged=require_converged,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
+        fit_model = bayesian_model.fit_bayesian_ctrv_model
+    inference_method, inference_config = (
+        forecasting.select_bayesian_ctrv_inference_config(
+            inference_method,
+            vi_algorithm=vi_algorithm,
+            require_converged=require_converged,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+        )
     )
 
-    trajectory_data = read_ship_data(data_file, run_id=experiment.run_id)
+    trajectory_data = observations_io.read_ship_data(
+        data_file,
+        run_id=experiment.run_id,
+    )
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
-    windows = build_rolling_window_specs(
+    windows = rolling_validation.build_rolling_window_specs(
         len(trajectory_data),
         initial_observation_count=observation_count,
         prediction_count=prediction_count,
@@ -208,7 +182,7 @@ def main(
             f"observations={specification.observation_count}, "
             f"predictions={specification.prediction_count}, seed={window_seed}"
         )
-        window = prepare_trajectory_window(
+        window = observation_window.prepare_trajectory_window(
             trajectory_data,
             observation_count=specification.observation_count,
             prediction_count=specification.prediction_count,
@@ -222,7 +196,7 @@ def main(
             additional_noise_std_m=position_noise_std_m,
             noise_seed=position_noise_seed,
         )
-        observed_turn_rate = diagnose_observed_turn_rate(
+        observed_turn_rate = bayesian_model.diagnose_observed_turn_rate(
             window,
             turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
             position_observations=position_observations,
@@ -237,7 +211,7 @@ def main(
             fit_model=fit_model,
         )
         if inference_method == "vi":
-            converged = variational_converged(fit)
+            converged = bayesian_model.variational_converged(fit)
             mcmc_diagnostics_ok = None
             inference_status = f"VI converged={converged}"
         else:
@@ -245,7 +219,7 @@ def main(
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
         posterior_diagnostics = _posterior_window_diagnostics(fit)
-        evaluation = evaluate_position_predictions(
+        evaluation = metrics.evaluate_position_predictions(
             fit,
             window,
             credible_interval=credible_interval,
@@ -292,7 +266,7 @@ def main(
             f"rad/s, {inference_status}"
         )
         if plot_each_window:
-            figure, _ = plot_window_prediction(
+            figure, _ = prediction_plotting.plot_prediction(
                 window,
                 fit,
                 state_prediction_variable_names=(
@@ -313,10 +287,10 @@ def main(
             plt.close(figure)
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
-    summary = summarize_rolling_predictions(predictions)
+    summary = rolling_validation.summarize_rolling_predictions(predictions)
     _print_summary(summary, credible_interval=credible_interval)
     _print_turn_rate_and_noise_summary(predictions)
-    plot_bayesian_rolling_predictions(
+    plotting.plot_bayesian_rolling_predictions(
         route_x,
         route_y,
         posterior_plot_groups,
@@ -346,8 +320,8 @@ def _build_rolling_posterior_plot_data(
     latitude,
 ):
     """Transform one window's posterior paths into the common route frame."""
-    x_samples = posterior_variable_samples(fit, "x_state_prediction")
-    y_samples = posterior_variable_samples(fit, "y_state_prediction")
+    x_samples = reporting.posterior_variable_samples(fit, "x_state_prediction")
+    y_samples = reporting.posterior_variable_samples(fit, "y_state_prediction")
     if x_samples.ndim != 2:
         raise ValueError(
             "Rolling posterior position draws must be finite aligned matrices."
@@ -365,7 +339,7 @@ def _build_rolling_posterior_plot_data(
         )
 
     sample_shape = x_samples.shape
-    predicted_longitude, predicted_latitude = local_to_gps_coordinates(
+    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
         x_samples.ravel(),
         y_samples.ravel(),
         reference_longitude=longitude[specification.start_index],
@@ -386,7 +360,7 @@ def _build_rolling_posterior_plot_data(
         window.time_seconds[window.prediction_slice],
         dtype=float,
     )
-    return RollingPosteriorPlotData(
+    return plotting.RollingPosteriorPlotData(
         forecast_origin_x=float(route_x[forecast_origin_index]),
         forecast_origin_y=float(route_y[forecast_origin_index]),
         x_samples=x_route.reshape(sample_shape),
@@ -422,7 +396,7 @@ def _build_route_prediction_table(
         specification.forecast_start_index + specification.prediction_count,
     )
     reference_index = specification.start_index
-    predicted_longitude, predicted_latitude = local_to_gps_coordinates(
+    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
         table["x_median"],
         table["y_median"],
         reference_longitude=longitude[reference_index],
@@ -475,12 +449,12 @@ def _build_route_prediction_table(
 
 def _posterior_window_diagnostics(fit):
     """Return forecast-motion values and posterior noise medians for one window."""
-    turn_rate_forecast_origin = posterior_variable_samples(
+    turn_rate_forecast_origin = reporting.posterior_variable_samples(
         fit,
         "turn_rate_forecast_origin",
     )
-    heading_state = posterior_variable_samples(fit, "heading_state")
-    heading_state_prediction = posterior_variable_samples(
+    heading_state = reporting.posterior_variable_samples(fit, "heading_state")
+    heading_state_prediction = reporting.posterior_variable_samples(
         fit,
         "heading_state_prediction",
     )
@@ -490,9 +464,9 @@ def _posterior_window_diagnostics(fit):
             np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
         ),
     }
-    for name in NOISE_PARAMETER_NAMES:
+    for name in bayesian_model.NOISE_PARAMETER_NAMES:
         diagnostics[f"posterior_{name}_median"] = float(
-            np.median(posterior_variable_samples(fit, name))
+            np.median(reporting.posterior_variable_samples(fit, name))
         )
     return diagnostics
 
@@ -509,7 +483,7 @@ def _fit_rolling_window(
 ):
     """Fit one window and retry only numerically exploded VI approximations."""
     if fit_model is None:
-        fit_model = fit_bayesian_ctrv_model
+        fit_model = bayesian_model.fit_bayesian_ctrv_model
     seed = initial_seed
     for attempt in range(VI_NUMERICAL_STABILITY_RETRIES + 1):
         fit = fit_model(
@@ -551,7 +525,7 @@ def _vi_numerical_instability_reason(fit, priors):
         "sigma_turn_rate_process": priors.sigma_turn_rate_process_prior_scale,
     }
     for name, prior_scale in prior_scales.items():
-        samples = posterior_variable_samples(fit, name)
+        samples = reporting.posterior_variable_samples(fit, name)
         if samples.size == 0 or not np.all(np.isfinite(samples)):
             return f"{name} contains empty or non-finite posterior draws"
         maximum_ratio = float(np.max(samples) / prior_scale)
@@ -571,7 +545,11 @@ def _prepare_route_coordinates(trajectory_data):
     latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
         dtype=float
     )
-    route_x, route_y = gps_to_local_coordinates(longitude, latitude, unit="m")
+    route_x, route_y = coordinates.gps_to_local_coordinates(
+        longitude,
+        latitude,
+        unit="m",
+    )
     return route_x, route_y, longitude, latitude
 
 
@@ -634,7 +612,7 @@ def _build_window_position_observations(
         raise ValueError("Route position noise does not cover the rolling window.")
     route_slice = slice(route_start_index, route_stop_index)
     observed = window.observed_slice
-    return PositionObservations(
+    return bayesian_model.PositionObservations(
         time_seconds=window.time_seconds[observed],
         x_meters=window.x_meters[observed] + route_noise_x[route_slice],
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
@@ -653,7 +631,7 @@ def _gps_to_route_coordinates(
     """Convert GPS points to the local coordinate frame of the complete run."""
     longitude_with_reference = np.concatenate(([reference_longitude], longitude))
     latitude_with_reference = np.concatenate(([reference_latitude], latitude))
-    x_route, y_route = gps_to_local_coordinates(
+    x_route, y_route = coordinates.gps_to_local_coordinates(
         longitude_with_reference,
         latitude_with_reference,
         unit="m",
@@ -801,12 +779,14 @@ def run_cli(
     priors=PRIORS,
     vi_config=VI_CONFIG,
     mcmc_config=MCMC_CONFIG,
-    fullrank_grad_samples=DEFAULT_FULLRANK_GRAD_SAMPLES,
+    fullrank_grad_samples=forecasting.DEFAULT_FULLRANK_GRAD_SAMPLES,
     credible_interval=CREDIBLE_INTERVAL,
     max_windows=MAX_WINDOWS,
     plot_each_window=PLOT_EACH_WINDOW,
     sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
-    hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
+    hybrid_config: hybrid_model.HybridBayesianCTRVConfig = (
+        hybrid_model.DEFAULT_HYBRID_CONFIG
+    ),
 ):
     """Parse shared options and evaluate one fixed Bayesian CTRV variant."""
     arguments = _parse_arguments(

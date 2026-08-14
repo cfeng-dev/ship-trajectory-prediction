@@ -11,25 +11,15 @@ import pandas as pd
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
-    build_prediction_table,
-    estimate_ctrv_state,
-)
-from ship_trajectory_prediction.observations import (
-    prepare_trajectory_window,
-    read_ship_data,
-)
-from ship_trajectory_prediction.observations.coordinates import (
-    gps_to_local_coordinates,
-    local_to_gps_coordinates,
-)
-from ship_trajectory_prediction.observations.paths import data_path
-from ship_trajectory_prediction.validation import build_rolling_window_specs
-from ship_trajectory_prediction.validation.plotting import (
-    plot_deterministic_rolling_predictions,
-)
+import ship_trajectory_prediction.forecasting.deterministic_ctrv as forecasting
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.paths as paths
+import ship_trajectory_prediction.observations.window as observation_window
+import ship_trajectory_prediction.validation.plotting as plotting
+import ship_trajectory_prediction.validation.rolling as rolling_validation
 
-DATA_FILE = data_path(
+DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 RUN_ID = 1
@@ -69,12 +59,12 @@ def main(
     show_plot=True,
 ):
     """Estimate and evaluate deterministic CTRV in every rolling window."""
-    trajectory_data = read_ship_data(DATA_FILE, run_id=RUN_ID)
+    trajectory_data = observations_io.read_ship_data(DATA_FILE, run_id=RUN_ID)
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={RUN_ID}.")
 
-    windows = build_rolling_window_specs(
+    windows = rolling_validation.build_rolling_window_specs(
         len(trajectory_data),
         initial_observation_count=observation_count,
         prediction_count=prediction_count,
@@ -109,7 +99,7 @@ def main(
 
     prediction_tables = []
     for number, specification in enumerate(windows, start=1):
-        window = prepare_trajectory_window(
+        window = observation_window.prepare_trajectory_window(
             trajectory_data,
             observation_count=specification.observation_count,
             prediction_count=specification.prediction_count,
@@ -121,12 +111,15 @@ def main(
             route_noise_x=route_noise_x,
             route_noise_y=route_noise_y,
         )
-        initial_state = estimate_ctrv_state(
+        initial_state = forecasting.estimate_ctrv_state(
             estimation_window,
             speed_estimation_points=speed_estimation_points,
             heading_estimation_segments=heading_estimation_segments,
         )
-        local_table = build_prediction_table(estimation_window, initial_state)
+        local_table = forecasting.build_prediction_table(
+            estimation_window,
+            initial_state,
+        )
         table = _build_route_prediction_table(
             local_table,
             specification=specification,
@@ -152,7 +145,7 @@ def main(
     summary = summarize_deterministic_predictions(predictions)
     _print_summary(summary)
     if show_plot:
-        plot_deterministic_rolling_predictions(
+        plotting.plot_deterministic_rolling_predictions(
             route_x,
             route_y,
             predictions,
@@ -213,7 +206,11 @@ def _prepare_route_coordinates(trajectory_data):
     latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
         dtype=float
     )
-    route_x, route_y = gps_to_local_coordinates(longitude, latitude, unit="m")
+    route_x, route_y = coordinates.gps_to_local_coordinates(
+        longitude,
+        latitude,
+        unit="m",
+    )
     return route_x, route_y, longitude, latitude
 
 
@@ -281,14 +278,14 @@ def _build_route_prediction_table(
 ):
     """Attach rolling metadata and convert predictions to one route frame."""
     table = local_table.copy()
-    predicted_longitude, predicted_latitude = local_to_gps_coordinates(
+    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
         table["x_predicted"],
         table["y_predicted"],
         reference_longitude=window.reference_longitude,
         reference_latitude=window.reference_latitude,
         unit="m",
     )
-    x_predicted_route, y_predicted_route = gps_to_local_coordinates(
+    x_predicted_route, y_predicted_route = coordinates.gps_to_local_coordinates(
         np.concatenate(([longitude[0]], predicted_longitude)),
         np.concatenate(([latitude[0]], predicted_latitude)),
         unit="m",
