@@ -2,8 +2,8 @@
 
 import sys
 
-import experiments.model_evaluation.rolling.bayesian_ctrv as bayesian_experiment
-import experiments.model_evaluation.rolling.hybrid_bayesian_ctrv as experiment
+import experiments.model_evaluation.bayesian_ctrv as bayesian_experiment
+import experiments.model_evaluation.hybrid_bayesian_ctrv as experiment
 
 
 def test_main_selects_hybrid_model(monkeypatch):

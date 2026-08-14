@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import experiments.model_evaluation.rolling.deterministic_ctrv as experiment
+import experiments.model_evaluation.deterministic_ctrv as experiment
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
