@@ -1,20 +1,17 @@
 """Evaluate hybrid Bayesian CTRV forecasts across rolling windows."""
 
-import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
+import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.paths as paths
-
-if __package__:
-    from . import bayesian_ctrv as rolling_bayesian
-else:
-    import bayesian_ctrv as rolling_bayesian
+import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
+import ship_trajectory_prediction.validation.cli as cli
 
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
-EXPERIMENT = forecasting.RollingExperimentConfig(
+EXPERIMENT = config.RollingExperimentConfig(
     run_id=1,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=20,  # Position points used by the first fit.
@@ -41,31 +38,36 @@ HYBRID_CONFIG = hybrid_model.HybridBayesianCTRVConfig(
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.
     min_final_motion_speed_mps=1.0,  # Below this, use neutral turn rate [m/s].
 )
-VI_CONFIG = forecasting.create_default_vi_config()
-MCMC_CONFIG = forecasting.create_default_mcmc_config()
+VI_CONFIG = config.create_default_vi_config()
+MCMC_CONFIG = config.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
-MODEL_VARIANT = "hybrid"
 
 
-def main():
-    """Run the shared rolling evaluation with the hybrid Bayesian model."""
-    rolling_bayesian.run_cli(
-        model_variant=MODEL_VARIANT,
+def main(argv=None):
+    """Run the configured hybrid Bayesian CTRV rolling evaluation."""
+    options = cli.parse_bayesian_ctrv_evaluation_arguments(
         description=__doc__,
-        data_file=DATA_FILE,
         experiment=EXPERIMENT,
         priors=PRIORS,
         vi_config=VI_CONFIG,
-        mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=forecasting.DEFAULT_FULLRANK_GRAD_SAMPLES,
-        credible_interval=CREDIBLE_INTERVAL,
         max_windows=MAX_WINDOWS,
         plot_each_window=PLOT_EACH_WINDOW,
-        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+        argv=argv,
+    )
+    return workflow.run_hybrid_bayesian_ctrv_evaluation(
+        data_file=DATA_FILE,
+        experiment=EXPERIMENT,
+        priors=PRIORS,
         hybrid_config=HYBRID_CONFIG,
+        vi_config=VI_CONFIG,
+        mcmc_config=MCMC_CONFIG,
+        fullrank_grad_samples=config.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        credible_interval=CREDIBLE_INTERVAL,
+        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+        options=options,
     )
 
 

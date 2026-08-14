@@ -6,7 +6,6 @@ from typing import Any
 
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 
-BAYESIAN_CTRV_MODEL_VARIANTS = ("bayesian", "hybrid")
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 
 
@@ -65,16 +64,6 @@ def create_default_mcmc_config() -> dict[str, Any]:
         "adapt_delta": 0.9,
         "max_treedepth": 10,
     }
-
-
-def normalize_bayesian_ctrv_model_variant(model_variant: str) -> str:
-    """Return one supported fully Bayesian or hybrid model identifier."""
-    if not isinstance(model_variant, str):
-        raise ValueError("model_variant must be 'bayesian' or 'hybrid'.")
-    normalized = model_variant.strip().lower()
-    if normalized not in BAYESIAN_CTRV_MODEL_VARIANTS:
-        raise ValueError("model_variant must be 'bayesian' or 'hybrid'.")
-    return normalized
 
 
 def select_bayesian_ctrv_inference_config(

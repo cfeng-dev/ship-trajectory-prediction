@@ -4,9 +4,7 @@ import numpy as np
 import pytest
 
 import experiments.model_evaluation.bayesian_ctrv as experiment
-from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
-    normalize_bayesian_ctrv_model_variant,
-)
+import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.observations import prepare_trajectory_window
@@ -44,12 +42,12 @@ def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
     assert experiment.EXPERIMENT.additional_position_noise_std_m == 2.0
     assert experiment.EXPERIMENT.position_noise_seed == 2026
 
-    first_x, first_y = experiment._simulate_route_position_noise(
+    first_x, first_y = workflow._simulate_route_position_noise(
         10,
         additional_noise_std_m=(experiment.EXPERIMENT.additional_position_noise_std_m),
         seed=experiment.EXPERIMENT.position_noise_seed,
     )
-    second_x, second_y = experiment._simulate_route_position_noise(
+    second_x, second_y = workflow._simulate_route_position_noise(
         10,
         additional_noise_std_m=(experiment.EXPERIMENT.additional_position_noise_std_m),
         seed=experiment.EXPERIMENT.position_noise_seed,
@@ -61,25 +59,93 @@ def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
     assert np.any(first_y != 0.0)
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [("bayesian", "bayesian"), (" HYBRID ", "hybrid")],
-)
-def test_model_variant_normalization(value, expected):
-    """Shared experiments should select exactly one explicit model variant."""
-    assert normalize_bayesian_ctrv_model_variant(value) == expected
+def test_main_calls_fully_bayesian_workflow_without_model_variant(monkeypatch):
+    """The Bayesian entry point should call its dedicated rolling workflow."""
+    captured = {}
+    expected_result = object()
+    monkeypatch.setattr(
+        experiment.workflow,
+        "_run_bayesian_ctrv_evaluation",
+        lambda **kwargs: captured.update(kwargs) or expected_result,
+    )
+
+    result = experiment.main([])
+
+    assert result is expected_result
+    assert not hasattr(experiment, "MODEL_VARIANT")
+    assert captured["model_name"] == "bayesian"
+    assert captured["model_label"] == "Fully Bayesian CTRV"
+    assert captured["fit_model"] is workflow.bayesian_model.fit_bayesian_ctrv_model
+    assert captured["data_file"] == experiment.DATA_FILE
+    assert captured["experiment"] is not experiment.EXPERIMENT
+    assert captured["experiment"] == experiment.EXPERIMENT
+    assert captured["priors"] is not experiment.PRIORS
+    assert captured["vi_config"] is experiment.VI_CONFIG
+    assert captured["mcmc_config"] is experiment.MCMC_CONFIG
+    assert captured["experiment"].inference_method == (
+        experiment.EXPERIMENT.inference_method
+    )
+    assert captured["vi_algorithm"] == experiment.VI_CONFIG["algorithm"]
 
 
-def test_invalid_model_variant_is_rejected():
-    """Ambiguous CTRV model labels should fail before fitting."""
-    with pytest.raises(ValueError, match="bayesian.*hybrid"):
-        normalize_bayesian_ctrv_model_variant("automatic")
+def test_cli_options_are_applied_inside_the_src_workflow(monkeypatch):
+    """Rolling CLI overrides should become independent workflow configs."""
+    captured = {}
+    monkeypatch.setattr(
+        experiment.workflow,
+        "_run_bayesian_ctrv_evaluation",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    experiment.main(
+        [
+            "--window-mode",
+            "expanding",
+            "--observations",
+            "17",
+            "--predictions",
+            "4",
+            "--stride",
+            "2",
+            "--inference",
+            "mcmc",
+            "--vi-algorithm",
+            "fullrank",
+            "--turn-rate-prior-scale",
+            "0.003",
+            "--seed",
+            "99",
+            "--position-noise-std-m",
+            "1.25",
+            "--position-noise-seed",
+            "7",
+            "--require-converged",
+            "--max-windows",
+            "5",
+            "--plot-each-window",
+        ]
+    )
+
+    configured = captured["experiment"]
+    assert configured.window_mode == "expanding"
+    assert configured.observation_count == 17
+    assert configured.prediction_count == 4
+    assert configured.stride == 2
+    assert configured.inference_method == "mcmc"
+    assert configured.inference_seed == 99
+    assert configured.additional_position_noise_std_m == 1.25
+    assert configured.position_noise_seed == 7
+    assert captured["priors"].turn_rate_state_prior_scale == pytest.approx(0.003)
+    assert captured["vi_algorithm"] == "fullrank"
+    assert captured["require_converged"] is True
+    assert captured["max_windows"] == 5
+    assert captured["plot_each_window"] is True
 
 
 def test_overlapping_windows_reuse_the_same_route_position_noise():
     """One physical observation must retain its perturbation across windows."""
     route = _create_route()
-    route_noise_x, route_noise_y = experiment._simulate_route_position_noise(
+    route_noise_x, route_noise_y = workflow._simulate_route_position_noise(
         len(route),
         additional_noise_std_m=2.0,
         seed=2026,
@@ -97,7 +163,7 @@ def test_overlapping_windows_reuse_the_same_route_position_noise():
         start_index=2,
     )
 
-    first_observations = experiment._build_window_position_observations(
+    first_observations = workflow._build_window_position_observations(
         first_window,
         route_start_index=0,
         route_noise_x=route_noise_x,
@@ -105,7 +171,7 @@ def test_overlapping_windows_reuse_the_same_route_position_noise():
         additional_noise_std_m=2.0,
         noise_seed=2026,
     )
-    second_observations = experiment._build_window_position_observations(
+    second_observations = workflow._build_window_position_observations(
         second_window,
         route_start_index=2,
         route_noise_x=route_noise_x,
@@ -145,12 +211,12 @@ def test_zero_position_noise_keeps_the_recorded_route_unchanged():
         observation_count=5,
         prediction_count=2,
     )
-    route_noise_x, route_noise_y = experiment._simulate_route_position_noise(
+    route_noise_x, route_noise_y = workflow._simulate_route_position_noise(
         len(route),
         additional_noise_std_m=0.0,
         seed=2026,
     )
-    observations = experiment._build_window_position_observations(
+    observations = workflow._build_window_position_observations(
         window,
         route_start_index=0,
         route_noise_x=route_noise_x,
@@ -201,7 +267,7 @@ def test_window_diagnostics_report_deterministic_forecast_turn_rate():
         }
     )
 
-    diagnostics = experiment._posterior_window_diagnostics(fit)
+    diagnostics = workflow._posterior_window_diagnostics(fit)
 
     assert diagnostics["forecast_origin_turn_rate_rad_s"] == pytest.approx(0.02)
     assert diagnostics["forecast_heading_change_rad"] == pytest.approx(0.3)
@@ -224,12 +290,12 @@ def test_numerically_exploded_vi_fit_is_retried_with_next_seed(
         return next(fits)
 
     monkeypatch.setattr(
-        experiment.bayesian_model,
+        workflow.bayesian_model,
         "fit_bayesian_ctrv_model",
         fake_fit,
     )
 
-    fit, seed = experiment._fit_rolling_window(
+    fit, seed = workflow._fit_rolling_window(
         object(),
         priors=BayesianCTRVPriors(),
         position_observations=object(),
@@ -248,13 +314,13 @@ def test_repeated_numerical_vi_instability_fails_clearly(monkeypatch):
     """Rolling evaluation must not plot an approximation that remains invalid."""
     unstable = FakeFit(sigma_speed_process=[1e100])
     monkeypatch.setattr(
-        experiment.bayesian_model,
+        workflow.bayesian_model,
         "fit_bayesian_ctrv_model",
         lambda *args, **kwargs: unstable,
     )
 
     with pytest.raises(RuntimeError, match="remained numerically unstable"):
-        experiment._fit_rolling_window(
+        workflow._fit_rolling_window(
             object(),
             priors=BayesianCTRVPriors(),
             position_observations=object(),
@@ -275,12 +341,12 @@ def test_mcmc_fit_is_never_subjected_to_vi_retry(monkeypatch):
         return fit
 
     monkeypatch.setattr(
-        experiment.bayesian_model,
+        workflow.bayesian_model,
         "fit_bayesian_ctrv_model",
         fake_fit,
     )
 
-    result, seed = experiment._fit_rolling_window(
+    result, seed = workflow._fit_rolling_window(
         object(),
         priors=BayesianCTRVPriors(),
         position_observations=object(),
