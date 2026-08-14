@@ -8,9 +8,6 @@ import re
 import numpy as np
 import pytest
 
-from ship_trajectory_prediction.evaluation.reporting import (
-    posterior_variable_samples,
-)
 from ship_trajectory_prediction.models import hybrid_bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
@@ -22,11 +19,14 @@ from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     estimate_final_motion_from_positions,
     fit_hybrid_bayesian_ctrv_model,
 )
+from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     SyntheticCTRVNoise,
     simulate_synthetic_ctrv_data,
 )
-from ship_trajectory_prediction.trajectory import prepare_trajectory_window
+from ship_trajectory_prediction.validation.reporting import (
+    posterior_variable_samples,
+)
 
 
 def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):

@@ -11,15 +11,15 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-from ship_trajectory_prediction.evaluation.metrics import (
+from ship_trajectory_prediction.observations import TrajectoryWindowData
+from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.validation.metrics import (
     evaluate_position_predictions,
 )
-from ship_trajectory_prediction.evaluation.reporting import (
+from ship_trajectory_prediction.validation.reporting import (
     posterior_variable_samples,
     variational_elbo_history,
 )
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 
 STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
 

@@ -1,6 +1,6 @@
 """Evaluate hybrid Bayesian CTRV forecasts across rolling windows."""
 
-from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     RollingExperimentConfig,
     create_default_mcmc_config,

@@ -12,28 +12,13 @@ from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
     local_to_gps_coordinates,
 )
-from ship_trajectory_prediction.evaluation import (
-    build_rolling_window_specs,
-    evaluate_position_predictions,
-    summarize_rolling_predictions,
-)
-from ship_trajectory_prediction.evaluation import (
-    plot_prediction as plot_window_prediction,
-)
-from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     RollingExperimentConfig,
     create_default_mcmc_config,
     create_default_vi_config,
     normalize_bayesian_ctrv_model_variant,
     select_bayesian_ctrv_inference_config,
-)
-from ship_trajectory_prediction.evaluation.plotting import (
-    RollingPosteriorPlotData,
-    plot_bayesian_rolling_predictions,
-)
-from ship_trajectory_prediction.evaluation.reporting import (
-    posterior_variable_samples,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     NOISE_PARAMETER_NAMES,
@@ -48,10 +33,25 @@ from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     HybridBayesianCTRVConfig,
     fit_hybrid_bayesian_ctrv_model,
 )
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import (
+from ship_trajectory_prediction.observations import (
     prepare_trajectory_window,
     read_ship_data,
+)
+from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.validation import (
+    build_rolling_window_specs,
+    evaluate_position_predictions,
+    summarize_rolling_predictions,
+)
+from ship_trajectory_prediction.validation import (
+    plot_prediction as plot_window_prediction,
+)
+from ship_trajectory_prediction.validation.plotting import (
+    RollingPosteriorPlotData,
+    plot_bayesian_rolling_predictions,
+)
+from ship_trajectory_prediction.validation.reporting import (
+    posterior_variable_samples,
 )
 
 DATA_FILE = project_path(

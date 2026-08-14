@@ -4,16 +4,16 @@ import numpy as np
 import pytest
 
 import experiments.model_evaluation.rolling.bayesian_ctrv as experiment
-from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     normalize_bayesian_ctrv_model_variant,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
+from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     SyntheticCTRVNoise,
     simulate_synthetic_ctrv_data,
 )
-from ship_trajectory_prediction.trajectory import prepare_trajectory_window
 
 
 def _create_route():

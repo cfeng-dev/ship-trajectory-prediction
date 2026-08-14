@@ -1,13 +1,13 @@
 """Explore empirical motion distributions for Bayesian CTRV prior design."""
 
-from ship_trajectory_prediction.evaluation.motion_priors import (
+from ship_trajectory_prediction.calibration.motion_priors import (
     collect_motion_prior_samples,
     plot_motion_prior_distributions,
     print_motion_prior_report,
     suggest_prior_scales,
 )
+from ship_trajectory_prediction.observations import read_ship_data
 from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import read_ship_data
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

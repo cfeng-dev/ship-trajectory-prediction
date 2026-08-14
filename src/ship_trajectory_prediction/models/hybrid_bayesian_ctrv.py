@@ -28,8 +28,8 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     summarize_predictions,
     variational_converged,
 )
+from ship_trajectory_prediction.observations import TrajectoryWindowData
 from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import TrajectoryWindowData
 
 STAN_FILE = project_path("stan/models/hybrid_bayesian_ctrv.stan")
 

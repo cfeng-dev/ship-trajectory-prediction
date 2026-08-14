@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 
-from ship_trajectory_prediction.evaluation.motion_priors import (  # noqa: E402
+from ship_trajectory_prediction.calibration.motion_priors import (  # noqa: E402
     AXIS_LABEL_FONT_SIZE,
     AXIS_TICK_FONT_SIZE,
     HISTOGRAM_ALPHA,

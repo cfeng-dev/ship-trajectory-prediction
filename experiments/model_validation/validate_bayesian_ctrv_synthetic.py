@@ -8,13 +8,6 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.evaluation.prediction_plotting import plot_prediction
-from ship_trajectory_prediction.evaluation.reporting import (
-    posterior_parameter_summary,
-    posterior_variable_samples,
-    print_prediction_setup,
-    print_variational_diagnostics,
-)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
@@ -26,10 +19,17 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     summarize_predictions,
     variational_converged,
 )
+from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     simulate_synthetic_ctrv_data,
 )
-from ship_trajectory_prediction.trajectory import prepare_trajectory_window
+from ship_trajectory_prediction.validation.prediction_plotting import plot_prediction
+from ship_trajectory_prediction.validation.reporting import (
+    posterior_parameter_summary,
+    posterior_variable_samples,
+    print_prediction_setup,
+    print_variational_diagnostics,
+)
 
 OBSERVATION_COUNT = 12
 PREDICTION_COUNT = 4

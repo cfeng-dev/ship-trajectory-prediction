@@ -1,15 +1,15 @@
 """Run one deterministic CTRV trajectory prediction."""
 
-from ship_trajectory_prediction.evaluation.deterministic_ctrv import (
-    DeterministicExperimentConfig,
-)
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.prediction.cli import (
+from ship_trajectory_prediction.forecasting.cli import (
     parse_deterministic_ctrv_prediction_arguments,
 )
-from ship_trajectory_prediction.prediction.deterministic_ctrv import (
+from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
+    DeterministicExperimentConfig,
+)
+from ship_trajectory_prediction.forecasting.deterministic_ctrv_workflow import (
     run_deterministic_ctrv_prediction,
 )
+from ship_trajectory_prediction.paths import project_path
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

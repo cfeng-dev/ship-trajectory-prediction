@@ -1,11 +1,11 @@
 """Load, resample, and plot a saved simulated ship trajectory."""
 
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory.io import (
+from ship_trajectory_prediction.observations.io import (
     read_ship_data,
     resample_trajectory_data,
 )
-from ship_trajectory_prediction.trajectory.plotting import plot_ship_trajectory
+from ship_trajectory_prediction.observations.plotting import plot_ship_trajectory
+from ship_trajectory_prediction.paths import project_path
 
 DATA_FILE = project_path("data/simulated/example_simulated_trajectory.csv")
 

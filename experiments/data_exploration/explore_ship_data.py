@@ -5,17 +5,17 @@ import numpy as np
 from ship_trajectory_prediction.coordinates import (
     calculate_signed_turn_rate_from_gps,
 )
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory.io import (
+from ship_trajectory_prediction.observations.io import (
     print_ship_data_summary,
     read_ship_data,
 )
-from ship_trajectory_prediction.trajectory.plotting import (
+from ship_trajectory_prediction.observations.plotting import (
     ShipDataPlotStyle,
     plot_ship_curvature,
     plot_ship_speeds,
     plot_ship_trajectory,
 )
+from ship_trajectory_prediction.paths import project_path
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

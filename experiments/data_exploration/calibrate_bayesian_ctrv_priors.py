@@ -26,8 +26,8 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     estimate_initial_speed_from_positions,
 )
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
+from ship_trajectory_prediction.observations import read_ship_data
 from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import read_ship_data
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

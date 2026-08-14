@@ -1,7 +1,7 @@
 """Tests for the deterministic CTRV single-window entry point."""
 
 import experiments.trajectory_prediction.deterministic_ctrv as experiment
-from ship_trajectory_prediction.evaluation.deterministic_ctrv import (
+from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
     DeterministicExperimentConfig,
 )
 

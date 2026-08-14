@@ -10,9 +10,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from ship_trajectory_prediction.evaluation.reporting import (
-    posterior_variable_samples,
-)
 from ship_trajectory_prediction.models import bayesian_ctrv as model_module
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_VI_ADAPT_ITER,
@@ -34,11 +31,14 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     variational_converged,
 )
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
+from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
     SyntheticCTRVNoise,
     simulate_synthetic_ctrv_data,
 )
-from ship_trajectory_prediction.trajectory import prepare_trajectory_window
+from ship_trajectory_prediction.validation.reporting import (
+    posterior_variable_samples,
+)
 
 
 def create_synthetic_window(*, speed=3.0, turn_rate=0.012, variable_dt=False):
@@ -1063,9 +1063,7 @@ def test_stan_model_contains_ctrv_branches_and_variable_dt_diffusion():
     assert "turn_rate_state ~ normal(turn_rate_initial_prior_mean" in source
     assert "real x_previous = x_state[N_observed]" in source
     assert "real y_previous = y_state[N_observed]" in source
-    assert (
-        "real turn_rate_forecast_origin = turn_rate_state[N_observed - 1]" in source
-    )
+    assert "real turn_rate_forecast_origin = turn_rate_state[N_observed - 1]" in source
     assert "real turn_rate_previous = turn_rate_forecast_origin" in source
 
 

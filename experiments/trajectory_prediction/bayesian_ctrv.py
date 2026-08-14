@@ -1,21 +1,21 @@
 """Run one fully Bayesian CTRV trajectory prediction."""
 
-from ship_trajectory_prediction.evaluation.bayesian_ctrv import (
+from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     ExperimentConfig,
     create_default_mcmc_config,
     create_default_vi_config,
 )
+from ship_trajectory_prediction.forecasting.bayesian_ctrv_workflow import (
+    run_fully_bayesian_ctrv_prediction,
+)
+from ship_trajectory_prediction.forecasting.cli import (
+    parse_bayesian_ctrv_prediction_arguments,
+)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     BayesianCTRVPriors,
 )
 from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.prediction.bayesian_ctrv import (
-    run_fully_bayesian_ctrv_prediction,
-)
-from ship_trajectory_prediction.prediction.cli import (
-    parse_bayesian_ctrv_prediction_arguments,
-)
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

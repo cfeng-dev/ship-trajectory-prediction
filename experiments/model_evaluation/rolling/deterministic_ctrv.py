@@ -15,18 +15,18 @@ from ship_trajectory_prediction.coordinates import (
     gps_to_local_coordinates,
     local_to_gps_coordinates,
 )
-from ship_trajectory_prediction.evaluation import build_rolling_window_specs
-from ship_trajectory_prediction.evaluation.deterministic_ctrv import (
+from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
     build_prediction_table,
     estimate_ctrv_state,
 )
-from ship_trajectory_prediction.evaluation.plotting import (
-    plot_deterministic_rolling_predictions,
-)
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import (
+from ship_trajectory_prediction.observations import (
     prepare_trajectory_window,
     read_ship_data,
+)
+from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.validation import build_rolling_window_specs
+from ship_trajectory_prediction.validation.plotting import (
+    plot_deterministic_rolling_predictions,
 )
 
 DATA_FILE = project_path(

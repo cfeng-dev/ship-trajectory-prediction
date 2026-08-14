@@ -2,15 +2,6 @@
 
 import argparse
 
-from ship_trajectory_prediction.evaluation.posterior_plotting import (
-    show_bayesian_ctrv_posterior_plots,
-    show_bayesian_ctrv_prior_update_plots,
-)
-from ship_trajectory_prediction.evaluation.reporting import (
-    posterior_parameter_summary,
-    print_prediction_setup,
-    print_variational_diagnostics,
-)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_VI_ADAPT_ITER,
     NOISE_PARAMETER_NAMES,
@@ -18,9 +9,18 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     fit_bayesian_ctrv_model,
     variational_converged,
 )
+from ship_trajectory_prediction.observations import prepare_trajectory_window
+from ship_trajectory_prediction.observations.io import read_ship_data
 from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.trajectory import prepare_trajectory_window
-from ship_trajectory_prediction.trajectory.io import read_ship_data
+from ship_trajectory_prediction.validation.posterior_plotting import (
+    show_bayesian_ctrv_posterior_plots,
+    show_bayesian_ctrv_prior_update_plots,
+)
+from ship_trajectory_prediction.validation.reporting import (
+    posterior_parameter_summary,
+    print_prediction_setup,
+    print_variational_diagnostics,
+)
 
 DATA_FILE = project_path(
     "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
