@@ -1,4 +1,4 @@
-"""Single-window deterministic CTRV prediction and evaluation workflow."""
+"""Single-window deterministic CTRV prediction workflow."""
 
 from dataclasses import replace
 

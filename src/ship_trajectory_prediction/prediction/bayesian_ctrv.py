@@ -1,4 +1,4 @@
-"""Single-window Bayesian CTRV prediction and evaluation workflow."""
+"""Single-window Bayesian CTRV prediction workflow."""
 
 from collections.abc import Mapping
 from functools import partial

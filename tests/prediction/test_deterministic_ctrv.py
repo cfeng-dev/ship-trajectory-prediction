@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.evaluation.deterministic_ctrv_prediction import (
+from ship_trajectory_prediction.prediction.deterministic_ctrv import (
     _add_position_observation_noise,
 )
 from ship_trajectory_prediction.trajectory import TrajectoryWindowData

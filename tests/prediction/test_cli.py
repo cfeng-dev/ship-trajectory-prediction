@@ -1,7 +1,7 @@
-"""Tests for the shared Bayesian CTRV command-line arguments."""
+"""Tests for single-window CTRV command-line arguments."""
 
 from ship_trajectory_prediction.evaluation.bayesian_ctrv import ExperimentConfig
-from ship_trajectory_prediction.evaluation.bayesian_ctrv_cli import (
+from ship_trajectory_prediction.prediction.cli import (
     parse_bayesian_ctrv_prediction_arguments,
 )
 
