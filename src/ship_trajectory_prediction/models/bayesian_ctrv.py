@@ -13,12 +13,8 @@ from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
 from ship_trajectory_prediction.models.paths import stan_path
 from ship_trajectory_prediction.observations import TrajectoryWindowData
-from ship_trajectory_prediction.validation.metrics import (
-    evaluate_position_predictions,
-)
 from ship_trajectory_prediction.validation.reporting import (
     posterior_variable_samples,
-    variational_elbo_history,
 )
 
 STAN_FILE = stan_path("models/bayesian_ctrv.stan")
@@ -143,17 +139,6 @@ class PositionObservations:
             additional_noise_std_m,
         )
         object.__setattr__(self, "noise_seed", noise_seed)
-
-
-@dataclass(frozen=True)
-class VIRunResult:
-    """One fitted VI run together with reproducibility metadata."""
-
-    seed: int
-    algorithm: str
-    fit: CmdStanVB
-    runtime_seconds: float
-    converged: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -626,75 +611,6 @@ def summarize_predictions(
             axis=0,
         )
     return pd.DataFrame(table_data)
-
-
-def compare_vi_runs(
-    runs: Sequence[VIRunResult],
-    window: TrajectoryWindowData,
-    *,
-    credible_interval: float = 0.9,
-) -> pd.DataFrame:
-    """Compare VI seeds using posterior, ELBO, accuracy, and coverage metrics."""
-    if not runs:
-        raise ValueError("runs must contain at least one variational fit.")
-
-    rows = []
-    for run in runs:
-        if run.algorithm not in {"meanfield", "fullrank"}:
-            raise ValueError("Each VI run must use 'meanfield' or 'fullrank'.")
-        if not np.isfinite(run.runtime_seconds) or run.runtime_seconds < 0:
-            raise ValueError("runtime_seconds must be a finite non-negative value.")
-
-        history = variational_elbo_history(run.fit)
-        final_elbo = history.iloc[-1]
-        evaluation = evaluate_position_predictions(
-            run.fit,
-            window,
-            credible_interval=credible_interval,
-            position_variable_names=(
-                "x_observation_prediction",
-                "y_observation_prediction",
-            ),
-        )
-        x_prediction = _prediction_samples(
-            run.fit,
-            "x_state_prediction",
-            window.prediction_count,
-        )
-        y_prediction = _prediction_samples(
-            run.fit,
-            "y_state_prediction",
-            window.prediction_count,
-        )
-        row = {
-            "seed": run.seed,
-            "algorithm": run.algorithm,
-            "converged": run.converged,
-            "runtime_seconds": run.runtime_seconds,
-            "final_iteration": int(final_elbo["iteration"]),
-            "final_elbo": float(final_elbo["elbo"]),
-            "final_delta_elbo_mean": float(final_elbo["delta_elbo_mean"]),
-            "final_delta_elbo_median": float(final_elbo["delta_elbo_median"]),
-            "endpoint_x_m": float(np.median(x_prediction[:, -1])),
-            "endpoint_y_m": float(np.median(y_prediction[:, -1])),
-            "ade_m": evaluation.ade_m,
-            "fde_m": evaluation.fde_m,
-            "mean_interval_width_m": (evaluation.mean_marginal_interval_width_m),
-            "radial_coverage": evaluation.radial_coverage,
-        }
-        for parameter_name in NOISE_PARAMETER_NAMES:
-            samples = posterior_variable_samples(run.fit, parameter_name)
-            if samples.ndim != 1 or samples.size == 0:
-                raise ValueError(
-                    f"Posterior variable {parameter_name!r} must contain scalar draws."
-                )
-            row[f"{parameter_name}_mean"] = float(np.mean(samples))
-            row[f"{parameter_name}_std"] = float(
-                np.std(samples, ddof=1) if samples.size > 1 else 0.0
-            )
-        rows.append(row)
-
-    return pd.DataFrame(rows)
 
 
 def variational_converged(fit: Any) -> bool:

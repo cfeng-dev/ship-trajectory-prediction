@@ -11,16 +11,6 @@ from ship_trajectory_prediction.validation.plotting import (
     plot_bayesian_rolling_predictions,
     plot_deterministic_rolling_predictions,
 )
-from ship_trajectory_prediction.validation.posterior_plotting import (
-    plot_scalar_posterior,
-    plot_scalar_posterior_comparison,
-    plot_scalar_prior_to_posterior_update,
-    plot_state_credible_band,
-    plot_state_posterior_at_time,
-    save_bayesian_ctrv_posterior_plots,
-    show_bayesian_ctrv_posterior_plots,
-    show_bayesian_ctrv_prior_update_plots,
-)
 from ship_trajectory_prediction.validation.prediction_plotting import (
     plot_operational_prediction,
     plot_prediction,
@@ -47,15 +37,7 @@ __all__ = [
     "plot_deterministic_rolling_predictions",
     "plot_prediction",
     "plot_trajectory_paths",
-    "plot_scalar_posterior",
-    "plot_scalar_posterior_comparison",
-    "plot_scalar_prior_to_posterior_update",
-    "plot_state_credible_band",
-    "plot_state_posterior_at_time",
     "print_prediction_setup",
     "print_position_evaluation",
-    "save_bayesian_ctrv_posterior_plots",
-    "show_bayesian_ctrv_posterior_plots",
-    "show_bayesian_ctrv_prior_update_plots",
     "summarize_rolling_predictions",
 ]

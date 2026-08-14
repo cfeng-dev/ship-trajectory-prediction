@@ -18,9 +18,7 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     STAN_FILE,
     BayesianCTRVPriors,
     PositionObservations,
-    VIRunResult,
     build_stan_data,
-    compare_vi_runs,
     diagnose_observed_turn_rate,
     estimate_initial_speed_from_positions,
     estimate_initial_speed_prior_from_windows,
@@ -956,49 +954,6 @@ def test_summarize_predictions_rejects_wrong_prediction_shape():
 
     with pytest.raises(ValueError, match="unexpected shape"):
         summarize_predictions(FakeFit(**variables), window)
-
-
-def test_compare_vi_runs_reports_noise_prediction_and_elbo_metrics(tmp_path):
-    """Cross-seed comparison should expose all required stability quantities."""
-    window = create_synthetic_window()
-    prediction_count = window.prediction_count
-    x_actual = window.x_meters[window.prediction_slice]
-    y_actual = window.y_meters[window.prediction_slice]
-    variables = {
-        "x_observation_prediction": np.vstack([x_actual - 1, x_actual, x_actual + 1]),
-        "y_observation_prediction": np.vstack([y_actual - 1, y_actual, y_actual + 1]),
-        "x_state_prediction": np.vstack([x_actual - 1, x_actual, x_actual + 1]),
-        "y_state_prediction": np.vstack([y_actual - 1, y_actual, y_actual + 1]),
-    }
-    for parameter_name in NOISE_PARAMETER_NAMES:
-        variables[parameter_name] = np.asarray([0.1, 0.2, 0.3])
-    stdout_path = tmp_path / "variational-stdout.txt"
-    stdout_path.write_text(
-        "  iter             ELBO   delta_ELBO_mean   delta_ELBO_med\n"
-        "   100          -12.5             0.01             0.01\n",
-        encoding="utf-8",
-    )
-    fit = FakeFit(stdout_path=stdout_path, **variables)
-
-    comparison = compare_vi_runs(
-        [
-            VIRunResult(
-                seed=4,
-                algorithm="meanfield",
-                fit=fit,
-                runtime_seconds=1.25,
-            )
-        ],
-        window,
-    )
-
-    assert comparison.loc[0, "final_elbo"] == pytest.approx(-12.5)
-    assert comparison.loc[0, "ade_m"] == pytest.approx(0.0)
-    assert comparison.loc[0, "fde_m"] == pytest.approx(0.0)
-    assert comparison.loc[0, "radial_coverage"] == pytest.approx(1.0)
-    assert comparison.loc[0, "sigma_position_gps_mean"] == pytest.approx(0.2)
-    assert not any("sigma_speed_gps" in name for name in comparison.columns)
-    assert prediction_count == 3
 
 
 @pytest.mark.parametrize(("warning", "expected"), [(False, True), (True, False)])
