@@ -6,8 +6,8 @@ from tkinter import filedialog, messagebox
 
 import numpy as np
 
-from ship_trajectory_prediction.simulation.controls import create_styled_button
-from ship_trajectory_prediction.simulation.io import (
+from .controls import create_styled_button
+from .io import (
     DATA_DIR,
     create_simulation_dataframe,
     save_trajectory_data,

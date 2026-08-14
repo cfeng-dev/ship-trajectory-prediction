@@ -8,10 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.coordinates import (
-    gps_to_local_coordinates,
-    local_to_gps_coordinates,
-)
 from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     RollingExperimentConfig,
@@ -37,7 +33,11 @@ from ship_trajectory_prediction.observations import (
     prepare_trajectory_window,
     read_ship_data,
 )
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.observations.coordinates import (
+    gps_to_local_coordinates,
+    local_to_gps_coordinates,
+)
+from ship_trajectory_prediction.observations.paths import data_path
 from ship_trajectory_prediction.validation import (
     build_rolling_window_specs,
     evaluate_position_predictions,
@@ -54,8 +54,8 @@ from ship_trajectory_prediction.validation.reporting import (
     posterior_variable_samples,
 )
 
-DATA_FILE = project_path(
-    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+DATA_FILE = data_path(
+    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 

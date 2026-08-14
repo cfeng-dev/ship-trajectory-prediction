@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse, Patch
 
-from ship_trajectory_prediction.coordinates import (
+from ship_trajectory_prediction.observations.coordinates import (
     METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )

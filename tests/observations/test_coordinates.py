@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ship_trajectory_prediction.coordinates import (
+from ship_trajectory_prediction.observations.coordinates import (
     calculate_gps_distances,
     calculate_signed_curvature_from_gps,
     calculate_signed_turn_rate_from_gps,

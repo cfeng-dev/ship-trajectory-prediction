@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
+from ship_trajectory_prediction.models.paths import stan_path
 from ship_trajectory_prediction.observations import TrajectoryWindowData
-from ship_trajectory_prediction.paths import project_path
 from ship_trajectory_prediction.validation.metrics import (
     evaluate_position_predictions,
 )
@@ -21,7 +21,7 @@ from ship_trajectory_prediction.validation.reporting import (
     variational_elbo_history,
 )
 
-STAN_FILE = project_path("stan/models/bayesian_ctrv.stan")
+STAN_FILE = stan_path("models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5

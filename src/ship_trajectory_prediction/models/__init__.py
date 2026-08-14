@@ -15,15 +15,18 @@ from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     compile_hybrid_bayesian_ctrv_model,
     fit_hybrid_bayesian_ctrv_model,
 )
+from ship_trajectory_prediction.models.paths import STAN_ROOT, stan_path
 
 __all__ = [
     "BayesianCTRVPriors",
     "CTRVState",
     "HybridBayesianCTRVConfig",
+    "STAN_ROOT",
     "compile_bayesian_ctrv_model",
     "compile_hybrid_bayesian_ctrv_model",
     "ctrv_step",
     "fit_bayesian_ctrv_model",
     "fit_hybrid_bayesian_ctrv_model",
     "predict_ctrv",
+    "stan_path",
 ]

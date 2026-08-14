@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 from matplotlib.patches import Ellipse
 
-from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
+from ship_trajectory_prediction.observations.coordinates import (
+    local_to_gps_coordinates,
+)
 from ship_trajectory_prediction.validation.metrics import (
     empirical_covariance_regions,
 )

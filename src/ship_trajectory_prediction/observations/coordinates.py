@@ -1,4 +1,4 @@
-"""Shared coordinate and movement calculations."""
+"""Geospatial coordinate and motion calculations for trajectory data."""
 
 import numpy as np
 

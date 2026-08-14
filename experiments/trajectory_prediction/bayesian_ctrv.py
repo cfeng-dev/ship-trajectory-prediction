@@ -15,10 +15,10 @@ from ship_trajectory_prediction.forecasting.cli import (
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     BayesianCTRVPriors,
 )
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.observations.paths import data_path
 
-DATA_FILE = project_path(
-    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+DATA_FILE = data_path(
+    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 

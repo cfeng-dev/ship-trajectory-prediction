@@ -2,10 +2,10 @@
 
 from cmdstanpy import CmdStanModel
 
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.models.paths import stan_path
 
 # Path to the Stan model
-STAN_FILE = project_path("stan/examples/bernoulli.stan")
+STAN_FILE = stan_path("examples/bernoulli.stan")
 
 
 def main():

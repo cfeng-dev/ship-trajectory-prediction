@@ -28,10 +28,10 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
     summarize_predictions,
     variational_converged,
 )
+from ship_trajectory_prediction.models.paths import stan_path
 from ship_trajectory_prediction.observations import TrajectoryWindowData
-from ship_trajectory_prediction.paths import project_path
 
-STAN_FILE = project_path("stan/models/hybrid_bayesian_ctrv.stan")
+STAN_FILE = stan_path("models/hybrid_bayesian_ctrv.stan")
 
 # Terminal-motion settings for the deterministic part of the hybrid model.
 FINAL_MOTION_HISTORY_SECONDS = 60

@@ -2,7 +2,7 @@
 
 import tkinter as tk
 
-from ship_trajectory_prediction.simulation.gui import ShipTrajectoryGUI
+from .gui import ShipTrajectoryGUI
 
 
 def main():

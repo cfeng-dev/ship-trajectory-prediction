@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from ship_trajectory_prediction.simulation.config import GUIConfig
-from ship_trajectory_prediction.simulation.core import ShipSimulator
+from .config import GUIConfig
+from .core import ShipSimulator
 
 
 class ShipTrajectoryGUI:
@@ -97,7 +97,7 @@ class ShipTrajectoryGUI:
 
     def create_menu_bar(self):
         """Create the desktop-style application menu bar."""
-        from ship_trajectory_prediction.simulation.view import create_menu_bar
+        from .view import create_menu_bar
 
         create_menu_bar(self)
 
@@ -105,13 +105,13 @@ class ShipTrajectoryGUI:
         """
         Create buttons, sliders, labels, and plot area.
         """
-        from ship_trajectory_prediction.simulation.controls import create_gui_widgets
+        from .controls import create_gui_widgets
 
         create_gui_widgets(self)
 
     def bind_keyboard_controls(self):
         """Bind keyboard controls to the main window."""
-        from ship_trajectory_prediction.simulation.controls import (
+        from .controls import (
             bind_keyboard_controls,
         )
 
@@ -121,7 +121,7 @@ class ShipTrajectoryGUI:
         """
         Show a help window with keyboard shortcuts and basic usage.
         """
-        from ship_trajectory_prediction.simulation.help import show_help_window
+        from .help import show_help_window
 
         show_help_window(
             root=self.root,
@@ -353,7 +353,7 @@ class ShipTrajectoryGUI:
 
     def show_gps_start_position_dialog(self):
         """Open a dialog for configuring the GPS position of the local origin."""
-        from ship_trajectory_prediction.simulation.dialogs import (
+        from .dialogs import (
             show_gps_start_position_dialog,
         )
 
@@ -361,7 +361,7 @@ class ShipTrajectoryGUI:
 
     def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
         """Validate and apply the GPS position of the local simulation origin."""
-        from ship_trajectory_prediction.simulation.dialogs import (
+        from .dialogs import (
             apply_gps_start_position,
         )
 
@@ -374,7 +374,7 @@ class ShipTrajectoryGUI:
 
     def save_csv(self):
         """Save the simulated trajectory as CSV."""
-        from ship_trajectory_prediction.simulation.dialogs import save_csv
+        from .dialogs import save_csv
 
         save_csv(self)
 
@@ -404,7 +404,7 @@ class ShipTrajectoryGUI:
 
     def update_status(self):
         """Update the status display."""
-        from ship_trajectory_prediction.simulation.view import update_status_display
+        from .view import update_status_display
 
         update_status_display(self)
 
@@ -412,6 +412,6 @@ class ShipTrajectoryGUI:
         """
         Update the trajectory plot.
         """
-        from ship_trajectory_prediction.simulation.plotting import update_plot
+        from .plotting import update_plot
 
         update_plot(self)

@@ -1,6 +1,6 @@
 """Recorded ship observations, preprocessing, and exploratory plotting."""
 
-from ship_trajectory_prediction.coordinates import (
+from ship_trajectory_prediction.observations.coordinates import (
     calculate_gps_distances,
     calculate_signed_curvature_from_gps,
     calculate_signed_turn_rate_from_gps,
@@ -12,6 +12,7 @@ from ship_trajectory_prediction.observations.io import (
     read_ship_data,
     resample_trajectory_data,
 )
+from ship_trajectory_prediction.observations.paths import DATA_ROOT, data_path
 from ship_trajectory_prediction.observations.window import (
     DEFAULT_GPS_SPEED_UNIT,
     DEFAULT_MAX_TIME_GAP_SECONDS,
@@ -22,10 +23,12 @@ from ship_trajectory_prediction.observations.window import (
 __all__ = [
     "DEFAULT_GPS_SPEED_UNIT",
     "DEFAULT_MAX_TIME_GAP_SECONDS",
+    "DATA_ROOT",
     "calculate_gps_distances",
     "calculate_signed_curvature_from_gps",
     "calculate_signed_turn_rate_from_gps",
     "calculate_speed_from_gps",
+    "data_path",
     "gps_to_local_coordinates",
     "local_to_gps_coordinates",
     "prepare_trajectory_window",

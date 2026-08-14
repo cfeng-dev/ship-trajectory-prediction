@@ -2,9 +2,9 @@
 
 from cmdstanpy import CmdStanModel, cmdstan_path
 
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.models.paths import stan_path
 
-STAN_FILE = project_path("stan/examples/test_cmdstan.stan")
+STAN_FILE = stan_path("examples/test_cmdstan.stan")
 
 
 def main():

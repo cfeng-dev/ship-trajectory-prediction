@@ -6,14 +6,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.coordinates import (
-    local_to_gps_coordinates,
-)
-from ship_trajectory_prediction.paths import project_path
-from ship_trajectory_prediction.simulation.core import add_observation_noise
+from .coordinates import local_to_gps_coordinates
+from .core import add_observation_noise
+from .paths import default_simulation_data_directory
 
 METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6
-DATA_DIR = project_path("data/simulated")
+DATA_DIR = default_simulation_data_directory()
 
 
 @dataclass(frozen=True)

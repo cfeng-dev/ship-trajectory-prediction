@@ -4,7 +4,7 @@ import tkinter as tk
 
 import numpy as np
 
-from ship_trajectory_prediction.coordinates import (
+from .coordinates import (
     METERS_PER_KILOMETER,
     local_to_gps_coordinates,
 )

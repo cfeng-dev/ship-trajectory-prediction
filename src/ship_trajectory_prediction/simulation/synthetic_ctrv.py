@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.coordinates import local_to_gps_coordinates
-from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
+from .coordinates import local_to_gps_coordinates
+from .ctrv import CTRVState, as_ctrv_state, ctrv_step
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +81,7 @@ def simulate_synthetic_ctrv_data(
             heading=0.35,
             turn_rate=0.012,
         )
-    if not isinstance(initial_state, CTRVState):
-        raise TypeError("initial_state must be a CTRVState instance.")
+    initial_state = as_ctrv_state(initial_state)
     if noise is None:
         noise = SyntheticCTRVNoise()
     if not isinstance(noise, SyntheticCTRVNoise):

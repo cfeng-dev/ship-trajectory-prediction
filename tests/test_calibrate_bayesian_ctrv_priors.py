@@ -13,7 +13,7 @@ from experiments.data_exploration.calibrate_bayesian_ctrv_priors import (  # noq
     calibrate_position_only_priors,
     create_calibration_figures,
 )
-from ship_trajectory_prediction.coordinates import (  # noqa: E402
+from ship_trajectory_prediction.observations.coordinates import (  # noqa: E402
     local_to_gps_coordinates,
 )
 

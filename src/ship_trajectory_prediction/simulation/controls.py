@@ -2,7 +2,7 @@
 
 import tkinter as tk
 
-from ship_trajectory_prediction.simulation.plotting import (
+from .plotting import (
     create_plot_panel,
 )
 

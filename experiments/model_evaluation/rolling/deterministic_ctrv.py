@@ -11,10 +11,6 @@ import pandas as pd
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from ship_trajectory_prediction.coordinates import (
-    gps_to_local_coordinates,
-    local_to_gps_coordinates,
-)
 from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
     build_prediction_table,
     estimate_ctrv_state,
@@ -23,14 +19,18 @@ from ship_trajectory_prediction.observations import (
     prepare_trajectory_window,
     read_ship_data,
 )
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.observations.coordinates import (
+    gps_to_local_coordinates,
+    local_to_gps_coordinates,
+)
+from ship_trajectory_prediction.observations.paths import data_path
 from ship_trajectory_prediction.validation import build_rolling_window_specs
 from ship_trajectory_prediction.validation.plotting import (
     plot_deterministic_rolling_predictions,
 )
 
-DATA_FILE = project_path(
-    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+DATA_FILE = data_path(
+    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 RUN_ID = 1
 WINDOW_MODE = "sliding"

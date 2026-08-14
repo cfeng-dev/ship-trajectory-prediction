@@ -8,7 +8,7 @@ from matplotlib import dates as mdates
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
-from ship_trajectory_prediction.coordinates import (
+from ship_trajectory_prediction.observations.coordinates import (
     calculate_gps_distances,
     calculate_signed_curvature_from_gps,
     calculate_speed_from_gps,

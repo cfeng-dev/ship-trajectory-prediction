@@ -11,10 +11,6 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
-from ship_trajectory_prediction.coordinates import (
-    calculate_signed_turn_rate_from_gps,
-    gps_to_local_coordinates,
-)
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_INITIAL_SPEED_POINT_COUNT,
     MAX_TURN_RATE_PRIOR_SCALE,
@@ -27,10 +23,14 @@ from ship_trajectory_prediction.models.bayesian_ctrv import (
 )
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
 from ship_trajectory_prediction.observations import read_ship_data
-from ship_trajectory_prediction.paths import project_path
+from ship_trajectory_prediction.observations.coordinates import (
+    calculate_signed_turn_rate_from_gps,
+    gps_to_local_coordinates,
+)
+from ship_trajectory_prediction.observations.paths import data_path
 
-DATA_FILE = project_path(
-    "data/raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+DATA_FILE = data_path(
+    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 # The stop value is exclusive: this default requests run IDs 0 through 99.

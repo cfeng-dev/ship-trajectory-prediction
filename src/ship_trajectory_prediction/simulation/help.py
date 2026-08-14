@@ -3,7 +3,7 @@
 import tkinter as tk
 from collections.abc import Callable
 
-from ship_trajectory_prediction.simulation.controls import (
+from .controls import (
     bind_mouse_wheel_to_canvas,
     create_styled_button,
 )

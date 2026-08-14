@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.coordinates import gps_to_local_coordinates
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
+from ship_trajectory_prediction.observations.coordinates import (
+    gps_to_local_coordinates,
+)
 from ship_trajectory_prediction.observations.window import (
     KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
 )
