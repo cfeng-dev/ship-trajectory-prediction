@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from .config import GUIConfig
-from .core import ShipSimulator
+from . import config, core
 
 
 class ShipTrajectoryGUI:
@@ -28,13 +27,13 @@ class ShipTrajectoryGUI:
         self.root.title("2D Ship Trajectory Simulator")
 
         # Load all adjustable GUI, plot, and simulation settings.
-        self.config = GUIConfig()
+        self.config = config.GUIConfig()
         self.apply_config()
 
         # ==================================================
         # Simulation object
         # ==================================================
-        self.simulator = ShipSimulator(
+        self.simulator = core.ShipSimulator(
             v=self.initial_speed,
             sigma=self.observation_noise_sigma,
             dt=self.simulation_dt,

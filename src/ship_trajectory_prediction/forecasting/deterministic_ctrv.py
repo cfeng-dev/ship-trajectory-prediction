@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, predict_ctrv
-from ship_trajectory_prediction.observations import TrajectoryWindowData
+import ship_trajectory_prediction.models.deterministic_ctrv as deterministic_model
+import ship_trajectory_prediction.observations.window as observation_window
 
 DEFAULT_SPEED_ESTIMATION_POINTS = 5
 DEFAULT_HEADING_ESTIMATION_SEGMENTS = 5
@@ -26,11 +26,11 @@ class DeterministicExperimentConfig:
 
 
 def estimate_ctrv_state(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     speed_estimation_points=DEFAULT_SPEED_ESTIMATION_POINTS,
     heading_estimation_segments=DEFAULT_HEADING_ESTIMATION_SEGMENTS,
-) -> CTRVState:
+) -> deterministic_model.CTRVState:
     """Estimate the final CTRV state from observed trajectory values only."""
     if (
         isinstance(speed_estimation_points, bool)
@@ -76,7 +76,7 @@ def estimate_ctrv_state(
     )
     heading = heading_intercept + turn_rate * time_observed[-1]
 
-    return CTRVState(
+    return deterministic_model.CTRVState(
         x=float(x_observed[-1]),
         y=float(y_observed[-1]),
         speed=speed,
@@ -86,8 +86,8 @@ def estimate_ctrv_state(
 
 
 def build_prediction_table(
-    window: TrajectoryWindowData,
-    initial_state: CTRVState,
+    window: observation_window.TrajectoryWindowData,
+    initial_state: deterministic_model.CTRVState,
 ) -> pd.DataFrame:
     """Predict and compare deterministic positions at held-out timestamps."""
     observed_end_time = float(window.time_seconds[window.observation_count - 1])
@@ -105,7 +105,7 @@ def build_prediction_table(
             "future timestamps."
         )
 
-    predicted_states = predict_ctrv(
+    predicted_states = deterministic_model.predict_ctrv(
         initial_state,
         dt=prediction_interval,
         steps=window.prediction_count,

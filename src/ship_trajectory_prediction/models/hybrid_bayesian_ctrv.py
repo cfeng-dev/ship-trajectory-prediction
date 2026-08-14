@@ -10,26 +10,30 @@ from typing import Any
 import numpy as np
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-from ship_trajectory_prediction.models import bayesian_ctrv as _bayesian
-from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_VI_ADAPT_ITER,
-    NOISE_PARAMETER_NAMES,
-    BayesianCTRVPriors,
-    HistoricalInitialSpeedPrior,
-    PositionObservations,
-    TurnRateDiagnostics,
-    diagnose_observed_turn_rate,
-    estimate_initial_speed_from_positions,
-    estimate_initial_speed_prior_from_windows,
-    normalize_inference_method,
-    simulate_position_observations,
-    summarize_predictions,
-    variational_converged,
-)
-from ship_trajectory_prediction.models.paths import stan_path
-from ship_trajectory_prediction.observations import TrajectoryWindowData
+import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.paths as paths
+import ship_trajectory_prediction.observations.window as observation_window
 
-STAN_FILE = stan_path("models/hybrid_bayesian_ctrv.stan")
+STAN_FILE = paths.stan_path("models/hybrid_bayesian_ctrv.stan")
+
+# Preserve the model's established convenience exports.
+DEFAULT_VI_ADAPT_ITER = bayesian_model.DEFAULT_VI_ADAPT_ITER
+NOISE_PARAMETER_NAMES = bayesian_model.NOISE_PARAMETER_NAMES
+BayesianCTRVPriors = bayesian_model.BayesianCTRVPriors
+HistoricalInitialSpeedPrior = bayesian_model.HistoricalInitialSpeedPrior
+PositionObservations = bayesian_model.PositionObservations
+TurnRateDiagnostics = bayesian_model.TurnRateDiagnostics
+diagnose_observed_turn_rate = bayesian_model.diagnose_observed_turn_rate
+estimate_initial_speed_from_positions = (
+    bayesian_model.estimate_initial_speed_from_positions
+)
+estimate_initial_speed_prior_from_windows = (
+    bayesian_model.estimate_initial_speed_prior_from_windows
+)
+normalize_inference_method = bayesian_model.normalize_inference_method
+simulate_position_observations = bayesian_model.simulate_position_observations
+summarize_predictions = bayesian_model.summarize_predictions
+variational_converged = bayesian_model.variational_converged
 
 # Terminal-motion settings for the deterministic part of the hybrid model.
 FINAL_MOTION_HISTORY_SECONDS = 60
@@ -50,7 +54,7 @@ class HybridBayesianCTRVConfig:
             "min_final_motion_speed_mps",
         ):
             value = getattr(self, name)
-            _bayesian._validate_positive_finite(name, value)
+            bayesian_model._validate_positive_finite(name, value)
             object.__setattr__(self, name, float(value))
 
 
@@ -58,23 +62,23 @@ DEFAULT_HYBRID_CONFIG = HybridBayesianCTRVConfig()
 
 
 def build_stan_data(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
     position_observations: PositionObservations | None = None,
     hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
 ) -> dict[str, Any]:
     """Build hybrid data with deterministic terminal heading and turn rate."""
-    stan_data = _bayesian.build_stan_data(
+    stan_data = bayesian_model.build_stan_data(
         window,
         priors=priors,
         position_observations=position_observations,
     )
-    observations = _bayesian._resolve_position_observations(
+    observations = bayesian_model._resolve_position_observations(
         window,
         position_observations,
     )
-    turn_rate_diagnostics = _bayesian.diagnose_observed_turn_rate(
+    turn_rate_diagnostics = bayesian_model.diagnose_observed_turn_rate(
         window,
         turn_rate_state_prior_scale=(
             None if priors is None else priors.turn_rate_state_prior_scale
@@ -109,7 +113,7 @@ def estimate_final_motion_from_positions(
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
     y_meters = np.asarray(y_meters, dtype=float)
-    _bayesian._validate_matching_position_time_arrays(
+    bayesian_model._validate_matching_position_time_arrays(
         time_seconds,
         x_meters,
         y_meters,
@@ -167,11 +171,11 @@ def compile_hybrid_bayesian_ctrv_model(
     stan_file: str | Path = STAN_FILE,
 ) -> CmdStanModel:
     """Compile and return the hybrid Bayesian CTRV CmdStan model."""
-    return _bayesian.compile_bayesian_ctrv_model(stan_file)
+    return bayesian_model.compile_bayesian_ctrv_model(stan_file)
 
 
 def fit_hybrid_bayesian_ctrv_model(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
     **kwargs: Any,
@@ -181,7 +185,7 @@ def fit_hybrid_bayesian_ctrv_model(
     if conflicting:
         names = ", ".join(sorted(conflicting))
         raise ValueError(f"Hybrid backend options are internal: {names}.")
-    return _bayesian.fit_bayesian_ctrv_model(
+    return bayesian_model.fit_bayesian_ctrv_model(
         window,
         _stan_data_builder=partial(
             build_stan_data,

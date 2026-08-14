@@ -3,10 +3,7 @@
 import tkinter as tk
 from collections.abc import Callable
 
-from .controls import (
-    bind_mouse_wheel_to_canvas,
-    create_styled_button,
-)
+from . import controls
 
 HELP_CONTENT_MAX_SCREEN_RATIO = 0.65
 
@@ -297,14 +294,14 @@ def show_help_window(
     footer_frame = tk.Frame(main_frame, bg=app_background_color)
     footer_frame.pack(fill=tk.X, padx=24, pady=(16, 18))
 
-    create_styled_button(
+    controls.create_styled_button(
         footer_frame,
         text="OK",
         width=12,
         command=close_help_window,
     ).pack(anchor="e")
 
-    bind_mouse_wheel_to_canvas(help_content_frame, help_canvas)
+    controls.bind_mouse_wheel_to_canvas(help_content_frame, help_canvas)
     _fit_scrollable_content_to_screen(
         help_window,
         help_canvas,

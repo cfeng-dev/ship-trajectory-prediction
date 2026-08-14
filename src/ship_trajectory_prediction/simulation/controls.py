@@ -2,9 +2,7 @@
 
 import tkinter as tk
 
-from .plotting import (
-    create_plot_panel,
-)
+from . import plotting
 
 
 def create_styled_button(parent, *, text, command, width):
@@ -68,7 +66,7 @@ def create_gui_widgets(gui):
     content_frame.pack(fill=tk.BOTH, expand=True)
 
     create_control_panel(gui, content_frame)
-    create_plot_panel(gui, content_frame)
+    plotting.create_plot_panel(gui, content_frame)
 
 
 def create_control_panel(gui, parent):

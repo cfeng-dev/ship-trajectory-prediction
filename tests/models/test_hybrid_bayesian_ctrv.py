@@ -175,7 +175,7 @@ def test_fit_forwards_hybrid_configuration_to_stan_data(monkeypatch):
         return expected_fit
 
     monkeypatch.setattr(
-        model_module._bayesian,
+        model_module.bayesian_model,
         "fit_bayesian_ctrv_model",
         fake_fit,
     )

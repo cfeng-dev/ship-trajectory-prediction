@@ -5,9 +5,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ship_trajectory_prediction.validation.prediction_plotting import (
-    plot_trajectory_paths,
-)
+import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 
 ROLLING_FIGURE_SIZE = (11, 8)
 DEFAULT_SAMPLE_TRAJECTORIES_PER_FORECAST = 15
@@ -66,7 +64,7 @@ def plot_bayesian_rolling_predictions(
         sample_seed=sample_seed,
     )
 
-    figure, axis = plot_trajectory_paths(
+    figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
             observed_route_x[:initial_observation_count],
             observed_route_y[:initial_observation_count],
@@ -132,7 +130,7 @@ def plot_deterministic_rolling_predictions(
         forecast_origin_x.append(group["forecast_origin_x_route"].iloc[0])
         forecast_origin_y.append(group["forecast_origin_y_route"].iloc[0])
 
-    figure, axis = plot_trajectory_paths(
+    figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
             observed_route_x[:initial_observation_count],
             observed_route_y[:initial_observation_count],

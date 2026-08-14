@@ -7,17 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Ellipse, Patch
 
-from ship_trajectory_prediction.observations.coordinates import (
-    METERS_PER_KILOMETER,
-    local_to_gps_coordinates,
-)
-from ship_trajectory_prediction.validation.metrics import (
-    empirical_covariance_regions,
-    evaluate_position_predictions,
-)
-from ship_trajectory_prediction.validation.reporting import (
-    posterior_variable_samples,
-)
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.validation.metrics as metrics
+import ship_trajectory_prediction.validation.reporting as reporting
 
 MAX_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
@@ -310,7 +302,7 @@ def plot_prediction(
         additional_position_noise_std_m=additional_position_noise_std_m,
     )
     if plot_mode == "evaluation":
-        evaluation = evaluate_position_predictions(
+        evaluation = metrics.evaluate_position_predictions(
             fit,
             window,
             credible_interval=0.9,
@@ -412,8 +404,8 @@ def _prepare_prediction_plot_data(
         window,
         observed_position_values,
     )
-    x_samples = posterior_variable_samples(fit, variable_names[0])
-    y_samples = posterior_variable_samples(fit, variable_names[1])
+    x_samples = reporting.posterior_variable_samples(fit, variable_names[0])
+    y_samples = reporting.posterior_variable_samples(fit, variable_names[1])
     _validate_prediction_samples(window, x_samples, y_samples)
     if not isinstance(show_sample_trajectories, bool):
         raise ValueError("show_sample_trajectories must be a boolean.")
@@ -537,7 +529,7 @@ def _draw_prediction_regions(
     }
     centers = []
     for time_index in range(x_samples.shape[1]):
-        regions = empirical_covariance_regions(
+        regions = metrics.empirical_covariance_regions(
             x_samples[:, time_index],
             y_samples[:, time_index],
             probabilities=PREDICTION_REGION_LEVELS,
@@ -838,12 +830,12 @@ def _convert_plot_coordinates(
         return x_meters, y_meters
     if coordinate_mode == "km":
         return (
-            x_meters / METERS_PER_KILOMETER,
-            y_meters / METERS_PER_KILOMETER,
+            x_meters / coordinates.METERS_PER_KILOMETER,
+            y_meters / coordinates.METERS_PER_KILOMETER,
         )
 
     reference_longitude, reference_latitude = _reference_gps_coordinates(window)
-    longitude, latitude = local_to_gps_coordinates(
+    longitude, latitude = coordinates.local_to_gps_coordinates(
         x_meters.ravel(),
         y_meters.ravel(),
         reference_longitude,

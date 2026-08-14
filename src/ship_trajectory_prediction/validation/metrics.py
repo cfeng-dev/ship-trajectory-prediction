@@ -5,9 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.validation.reporting import (
-    posterior_variable_samples,
-)
+import ship_trajectory_prediction.validation.reporting as reporting
 
 
 @dataclass(frozen=True)
@@ -316,7 +314,7 @@ def _prediction_samples(fit, variable_name, prediction_count):
     if not hasattr(fit, "stan_variable"):
         raise TypeError("fit must provide CmdStan-style posterior variables.")
 
-    samples = posterior_variable_samples(fit, variable_name)
+    samples = reporting.posterior_variable_samples(fit, variable_name)
     if samples.ndim != 2 or samples.shape[1] != prediction_count:
         raise ValueError(
             f"Posterior variable {variable_name!r} has an unexpected shape."

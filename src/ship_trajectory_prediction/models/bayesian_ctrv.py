@@ -11,13 +11,11 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-from ship_trajectory_prediction.models.paths import stan_path
-from ship_trajectory_prediction.observations import TrajectoryWindowData
-from ship_trajectory_prediction.validation.reporting import (
-    posterior_variable_samples,
-)
+import ship_trajectory_prediction.models.paths as model_paths
+import ship_trajectory_prediction.observations.window as observation_window
+import ship_trajectory_prediction.validation.reporting as reporting
 
-STAN_FILE = stan_path("models/bayesian_ctrv.stan")
+STAN_FILE = model_paths.stan_path("models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
@@ -153,7 +151,7 @@ class TurnRateDiagnostics:
 
 
 def simulate_position_observations(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     additional_noise_std_m: float = 0.0,
     seed: int = 2026,
@@ -192,7 +190,7 @@ def simulate_position_observations(
 
 
 def build_stan_data(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
     position_observations: PositionObservations | None = None,
@@ -322,7 +320,7 @@ def estimate_initial_speed_from_positions(
 
 
 def estimate_initial_speed_prior_from_windows(
-    historical_windows: Sequence[TrajectoryWindowData],
+    historical_windows: Sequence[observation_window.TrajectoryWindowData],
     *,
     point_count: int = DEFAULT_INITIAL_SPEED_POINT_COUNT,
     minimum_scale_mps: float = MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
@@ -354,7 +352,7 @@ def estimate_initial_speed_prior_from_windows(
 
     estimates = []
     for window_index, window in enumerate(windows):
-        if not isinstance(window, TrajectoryWindowData):
+        if not isinstance(window, observation_window.TrajectoryWindowData):
             raise TypeError(
                 "historical_windows must contain only TrajectoryWindowData "
                 f"instances; item {window_index} has type "
@@ -406,7 +404,7 @@ def compile_bayesian_ctrv_model(
 
 
 def fit_bayesian_ctrv_model(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
     position_observations: PositionObservations | None = None,
@@ -569,7 +567,7 @@ def fit_bayesian_ctrv_model(
 
 def summarize_predictions(
     fit: Any,
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     credible_interval: float = 0.9,
 ) -> pd.DataFrame:
     """Summarize future latent states and noisy position observations."""
@@ -628,7 +626,7 @@ def variational_converged(fit: Any) -> bool:
 
 
 def diagnose_observed_turn_rate(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     turn_rate_state_prior_scale: float | None = None,
     position_observations: PositionObservations | None = None,
@@ -685,7 +683,7 @@ def diagnose_observed_turn_rate(
 
 def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):
     """Extract and validate one finite posterior prediction matrix."""
-    samples = posterior_variable_samples(fit, variable_name)
+    samples = reporting.posterior_variable_samples(fit, variable_name)
     if samples.ndim != 2 or samples.shape[1] != prediction_count:
         raise ValueError(
             f"Posterior variable {variable_name!r} has an unexpected shape."
@@ -938,7 +936,7 @@ def _validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) ->
 
 
 def _resolve_position_observations(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     position_observations: PositionObservations | None,
 ) -> PositionObservations:
     """Return observations aligned with the observed part of ``window``."""

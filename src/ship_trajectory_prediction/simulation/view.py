@@ -4,10 +4,7 @@ import tkinter as tk
 
 import numpy as np
 
-from .coordinates import (
-    METERS_PER_KILOMETER,
-    local_to_gps_coordinates,
-)
+from . import coordinates
 
 
 def create_menu_bar(gui):
@@ -96,7 +93,7 @@ def update_status_display(gui):
     )
 
     if gui.coordinate_display_mode == "gps":
-        longitude, latitude = local_to_gps_coordinates(
+        longitude, latitude = coordinates.local_to_gps_coordinates(
             [gui.simulator.x_current],
             [gui.simulator.y_current],
             reference_longitude=gui.reference_longitude,
@@ -105,8 +102,8 @@ def update_status_display(gui):
         position_text = f"lon = {longitude[0]:.4f}°\nlat = {latitude[0]:.4f}°"
     elif gui.coordinate_display_mode == "km":
         position_text = (
-            f"x = {gui.simulator.x_current / METERS_PER_KILOMETER:.3f} km\n"
-            f"y = {gui.simulator.y_current / METERS_PER_KILOMETER:.3f} km"
+            f"x = {gui.simulator.x_current / coordinates.METERS_PER_KILOMETER:.3f} km\n"
+            f"y = {gui.simulator.y_current / coordinates.METERS_PER_KILOMETER:.3f} km"
         )
     else:
         position_text = (

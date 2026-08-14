@@ -2,7 +2,7 @@
 
 import tkinter as tk
 
-from .gui import ShipTrajectoryGUI
+from . import gui
 
 
 def main():
@@ -11,7 +11,7 @@ def main():
     """
     root = tk.Tk()
 
-    app = ShipTrajectoryGUI(root)
+    app = gui.ShipTrajectoryGUI(root)
 
     # Set initial window size: width x height.
     root.geometry(f"{app.window_width}x{app.window_height}")

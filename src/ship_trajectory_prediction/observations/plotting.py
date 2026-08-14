@@ -8,15 +8,8 @@ from matplotlib import dates as mdates
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
-from ship_trajectory_prediction.observations.coordinates import (
-    calculate_gps_distances,
-    calculate_signed_curvature_from_gps,
-    calculate_speed_from_gps,
-    gps_to_local_coordinates,
-)
-from ship_trajectory_prediction.observations.window import (
-    KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
-)
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.window as observation_window
 
 # ==================================================
 # Technical plot settings
@@ -159,10 +152,12 @@ def plot_ship_trajectory(
         # All angles must be in radians. The cosine term compensates for the
         # decreasing east-west distance of one longitude degree toward the
         # poles. Positive x points east and positive y points north.
-        plot_data["_plot_x"], plot_data["_plot_y"] = gps_to_local_coordinates(
-            longitude,
-            latitude,
-            unit=coordinate_unit,
+        plot_data["_plot_x"], plot_data["_plot_y"] = (
+            coordinates.gps_to_local_coordinates(
+                longitude,
+                latitude,
+                unit=coordinate_unit,
+            )
         )
         x_label = f"Ostposition x [{coordinate_unit}]"
         y_label = f"Nordposition y [{coordinate_unit}]"
@@ -337,9 +332,13 @@ def plot_ship_speeds(
         recorded_gps_speed = np.asarray(run_data["gps_speed"], dtype=float)
         if speed_unit == "m/s":
             recorded_gps_speed = (
-                recorded_gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+                recorded_gps_speed
+                * observation_window.KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
             )
-        calculated_speed = calculate_speed_from_gps(run_data, unit=speed_unit)
+        calculated_speed = coordinates.calculate_speed_from_gps(
+            run_data,
+            unit=speed_unit,
+        )
         speed_axis.plot(
             run_data["time"],
             recorded_gps_speed,
@@ -442,7 +441,7 @@ def plot_ship_curvature(
     run_groups = _trajectory_groups(data)
     figure, axis = plt.subplots(figsize=plot_style.curvature_figure_size)
     for run_index, (run_id, run_data) in enumerate(run_groups):
-        curvature = calculate_signed_curvature_from_gps(
+        curvature = coordinates.calculate_signed_curvature_from_gps(
             run_data,
             min_displacement_m=min_displacement_m,
             max_time_gap_s=max_time_gap_s,
@@ -567,7 +566,7 @@ def _shade_low_motion_periods(
     include_legend_label,
 ):
     """Shade periods whose GPS displacement is too small for curvature."""
-    segment_length = calculate_gps_distances(
+    segment_length = coordinates.calculate_gps_distances(
         data["gps_longitude"].to_numpy(),
         data["gps_latitude"].to_numpy(),
     )

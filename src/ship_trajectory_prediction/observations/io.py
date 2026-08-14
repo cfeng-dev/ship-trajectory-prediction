@@ -5,9 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ship_trajectory_prediction.observations.window import (
-    KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
-)
+import ship_trajectory_prediction.observations.window as observation_window
 
 DEFAULT_SUMMARY_LABEL_WIDTH = 20
 
@@ -222,7 +220,9 @@ def print_ship_data_summary(
 
     gps_speed = data["gps_speed"]
     if gps_speed_unit == "m/s":
-        gps_speed = gps_speed * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+        gps_speed = (
+            gps_speed * observation_window.KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+        )
 
     print("\nSpeed range:")
     _print_summary_row(

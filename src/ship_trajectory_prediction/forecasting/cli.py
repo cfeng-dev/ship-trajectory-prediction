@@ -4,19 +4,15 @@ import argparse
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ship_trajectory_prediction.forecasting.bayesian_ctrv import ExperimentConfig
-from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
-    DeterministicExperimentConfig,
-)
-from ship_trajectory_prediction.validation.prediction_plotting import (
-    PLOT_COORDINATE_MODES,
-)
+import ship_trajectory_prediction.forecasting.bayesian_ctrv as bayesian_forecasting
+import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
+import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 
 
 def parse_bayesian_ctrv_prediction_arguments(
     *,
     description: str | None,
-    experiment: ExperimentConfig,
+    experiment: bayesian_forecasting.ExperimentConfig,
     vi_config: Mapping[str, Any],
     plot_coordinate_mode: str,
     argv: Sequence[str] | None = None,
@@ -54,7 +50,7 @@ def parse_bayesian_ctrv_prediction_arguments(
     )
     parser.add_argument(
         "--plot-coordinates",
-        metavar="{" + ",".join(PLOT_COORDINATE_MODES) + "}",
+        metavar="{" + ",".join(prediction_plotting.PLOT_COORDINATE_MODES) + "}",
         default=plot_coordinate_mode,
         help=(
             "Display local meters, local kilometers, or GPS coordinates; "
@@ -67,7 +63,7 @@ def parse_bayesian_ctrv_prediction_arguments(
 def parse_deterministic_ctrv_prediction_arguments(
     *,
     description: str | None,
-    experiment: DeterministicExperimentConfig,
+    experiment: deterministic_forecasting.DeterministicExperimentConfig,
     argv: Sequence[str] | None = None,
 ) -> argparse.Namespace:
     """Parse CLI options for one deterministic CTRV prediction."""

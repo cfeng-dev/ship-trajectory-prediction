@@ -8,8 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .coordinates import local_to_gps_coordinates
-from .ctrv import CTRVState, as_ctrv_state, ctrv_step
+from . import coordinates, ctrv
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +40,7 @@ def simulate_synthetic_ctrv_data(
     count: int = 18,
     dt_seconds: float = 5.0,
     time_seconds: Sequence[float] | None = None,
-    initial_state: CTRVState | None = None,
+    initial_state: ctrv.CTRVState | None = None,
     noise: SyntheticCTRVNoise | None = None,
     seed: int = 42,
     run_id: int = 0,
@@ -74,14 +73,14 @@ def simulate_synthetic_ctrv_data(
             )
 
     if initial_state is None:
-        initial_state = CTRVState(
+        initial_state = ctrv.CTRVState(
             x=0.0,
             y=0.0,
             speed=3.0,
             heading=0.35,
             turn_rate=0.012,
         )
-    initial_state = as_ctrv_state(initial_state)
+    initial_state = ctrv.as_ctrv_state(initial_state)
     if noise is None:
         noise = SyntheticCTRVNoise()
     if not isinstance(noise, SyntheticCTRVNoise):
@@ -91,9 +90,9 @@ def simulate_synthetic_ctrv_data(
     truth = [initial_state]
     for index in range(1, count):
         dt = float(times[index] - times[index - 1])
-        deterministic = ctrv_step(truth[-1], dt)
+        deterministic = ctrv.ctrv_step(truth[-1], dt)
         truth.append(
-            CTRVState(
+            ctrv.CTRVState(
                 x=deterministic.x
                 + generator.normal(
                     0,
@@ -149,7 +148,7 @@ def simulate_synthetic_ctrv_data(
     y_observed = y_observed_raw - y_reference
     x_true = x_true_raw - x_reference
     y_true = y_true_raw - y_reference
-    longitude, latitude = local_to_gps_coordinates(
+    longitude, latitude = coordinates.local_to_gps_coordinates(
         x_observed,
         y_observed,
         reference_longitude,

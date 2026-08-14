@@ -6,20 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
-    DeterministicExperimentConfig,
-    build_prediction_table,
-    estimate_ctrv_state,
-)
-from ship_trajectory_prediction.observations import (
-    TrajectoryWindowData,
-    prepare_trajectory_window,
-    read_ship_data,
-)
-from ship_trajectory_prediction.validation.prediction_plotting import (
-    plot_trajectory_paths,
-)
-from ship_trajectory_prediction.validation.reporting import print_prediction_setup
+import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.window as observation_window
+import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
+import ship_trajectory_prediction.validation.reporting as reporting
 
 DETERMINISTIC_PLOT_TITLE = (
     "Deterministisches CTRV-Modell auf Basis von Positionsdaten:\n"
@@ -30,7 +21,7 @@ DETERMINISTIC_PLOT_TITLE = (
 def run_deterministic_ctrv_prediction(
     *,
     data_file,
-    experiment: DeterministicExperimentConfig,
+    experiment: deterministic_forecasting.DeterministicExperimentConfig,
     speed_estimation_points: int,
     heading_estimation_segments: int,
     position_noise_std_m: float,
@@ -38,8 +29,10 @@ def run_deterministic_ctrv_prediction(
     show_plot: bool,
 ) -> pd.DataFrame:
     """Estimate and evaluate one deterministic CTRV prediction."""
-    trajectory_data = read_ship_data(data_file, run_id=experiment.run_id)
-    window = prepare_trajectory_window(
+    trajectory_data = observations_io.read_ship_data(
+        data_file, run_id=experiment.run_id
+    )
+    window = observation_window.prepare_trajectory_window(
         trajectory_data,
         observation_count=experiment.observation_count,
         prediction_count=experiment.prediction_count,
@@ -50,14 +43,17 @@ def run_deterministic_ctrv_prediction(
         additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
-    initial_state = estimate_ctrv_state(
+    initial_state = deterministic_forecasting.estimate_ctrv_state(
         window,
         speed_estimation_points=speed_estimation_points,
         heading_estimation_segments=heading_estimation_segments,
     )
-    prediction_table = build_prediction_table(window, initial_state)
+    prediction_table = deterministic_forecasting.build_prediction_table(
+        window,
+        initial_state,
+    )
 
-    print_prediction_setup(
+    reporting.print_prediction_setup(
         "Deterministic CTRV Trajectory Prediction",
         data_file=data_file,
         run_id=experiment.run_id,
@@ -91,7 +87,7 @@ def run_deterministic_ctrv_prediction(
 
 
 def plot_deterministic_ctrv_prediction(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     prediction_table: pd.DataFrame,
     *,
     additional_position_noise_std_m=0.0,
@@ -112,7 +108,7 @@ def plot_deterministic_ctrv_prediction(
         if additional_position_noise_std_m > 0
         else "Beobachtungen"
     )
-    figure, axis = plot_trajectory_paths(
+    figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
             window.x_meters[observed],
             window.y_meters[observed],
@@ -131,11 +127,11 @@ def plot_deterministic_ctrv_prediction(
 
 
 def _add_position_observation_noise(
-    window: TrajectoryWindowData,
+    window: observation_window.TrajectoryWindowData,
     *,
     additional_noise_std_m: float,
     seed: int,
-) -> TrajectoryWindowData:
+) -> observation_window.TrajectoryWindowData:
     """Return a window with reproducible noise on observed positions only."""
     if (
         isinstance(additional_noise_std_m, bool)

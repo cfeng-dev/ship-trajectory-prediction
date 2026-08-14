@@ -6,12 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .coordinates import local_to_gps_coordinates
-from .core import add_observation_noise
-from .paths import default_simulation_data_directory
+from . import coordinates, core, paths
 
 METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6
-DATA_DIR = default_simulation_data_directory()
+DATA_DIR = paths.default_simulation_data_directory()
 
 
 @dataclass(frozen=True)
@@ -143,7 +141,7 @@ def create_simulation_dataframe(
 
     timestamps = start_timestamp + pd.to_timedelta(elapsed_time, unit="s")
 
-    x_obs, y_obs = add_observation_noise(
+    x_obs, y_obs = core.add_observation_noise(
         x=x_true,
         y=y_true,
         sigma=simulator.sigma,
@@ -154,7 +152,7 @@ def create_simulation_dataframe(
         gps_longitude = np.array([])
         gps_latitude = np.array([])
     else:
-        gps_longitude, gps_latitude = local_to_gps_coordinates(
+        gps_longitude, gps_latitude = coordinates.local_to_gps_coordinates(
             x_obs,
             y_obs,
             reference_longitude=reference_longitude,

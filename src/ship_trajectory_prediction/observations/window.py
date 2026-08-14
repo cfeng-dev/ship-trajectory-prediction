@@ -9,9 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.observations.coordinates import (
-    gps_to_local_coordinates,
-)
+import ship_trajectory_prediction.observations.coordinates as coordinates
 
 # Default unit expected for values in the CSV column ``gps_speed``.
 DEFAULT_GPS_SPEED_UNIT = "km/h"
@@ -130,7 +128,7 @@ def prepare_trajectory_window(
         window_data["gps_latitude"],
         errors="coerce",
     ).to_numpy(dtype=float)
-    x_meters, y_meters = gps_to_local_coordinates(
+    x_meters, y_meters = coordinates.gps_to_local_coordinates(
         longitude,
         latitude,
         unit="m",

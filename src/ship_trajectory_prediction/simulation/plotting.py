@@ -10,10 +10,7 @@ from matplotlib.patches import Polygon
 from matplotlib.path import Path
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 
-from .coordinates import (
-    METERS_PER_KILOMETER,
-    local_to_gps_coordinates,
-)
+from . import coordinates
 
 
 def create_plot_panel(gui, parent):
@@ -351,7 +348,7 @@ def configure_coordinate_display(gui):
     if gui.coordinate_display_mode == "gps":
 
         def format_longitude(x_coordinate, _position):
-            longitude, _ = local_to_gps_coordinates(
+            longitude, _ = coordinates.local_to_gps_coordinates(
                 [x_coordinate],
                 [0.0],
                 reference_longitude=gui.reference_longitude,
@@ -360,7 +357,7 @@ def configure_coordinate_display(gui):
             return f"{longitude[0]:.4f}"
 
         def format_latitude(y_coordinate, _position):
-            _, latitude = local_to_gps_coordinates(
+            _, latitude = coordinates.local_to_gps_coordinates(
                 [0.0],
                 [y_coordinate],
                 reference_longitude=gui.reference_longitude,
@@ -376,7 +373,7 @@ def configure_coordinate_display(gui):
     elif gui.coordinate_display_mode == "km":
 
         def format_kilometers(coordinate_meters, _position):
-            return f"{coordinate_meters / METERS_PER_KILOMETER:g}"
+            return f"{coordinate_meters / coordinates.METERS_PER_KILOMETER:g}"
 
         kilometer_formatter = FuncFormatter(format_kilometers)
         gui.ax.xaxis.set_major_formatter(kilometer_formatter)

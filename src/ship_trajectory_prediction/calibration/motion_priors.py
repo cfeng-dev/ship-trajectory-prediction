@@ -9,13 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
-from ship_trajectory_prediction.observations.coordinates import (
-    gps_to_local_coordinates,
-)
-from ship_trajectory_prediction.observations.window import (
-    KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND,
-)
+import ship_trajectory_prediction.models.deterministic_ctrv as deterministic_model
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.window as observation_window
 
 DEFAULT_MIN_COURSE_DISPLACEMENT_METERS = 1.0
 DEFAULT_MAX_TIME_GAP_SECONDS = 15.0
@@ -236,10 +232,14 @@ def _derive_run_samples(
     time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
     longitude = pd.to_numeric(ordered["gps_longitude"], errors="coerce").to_numpy()
     latitude = pd.to_numeric(ordered["gps_latitude"], errors="coerce").to_numpy()
-    x_meters, y_meters = gps_to_local_coordinates(longitude, latitude, unit="m")
+    x_meters, y_meters = coordinates.gps_to_local_coordinates(
+        longitude,
+        latitude,
+        unit="m",
+    )
     speed_mps = (
         pd.to_numeric(ordered["gps_speed"], errors="coerce").to_numpy(dtype=float)
-        * KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
+        * observation_window.KILOMETERS_PER_HOUR_TO_METERS_PER_SECOND
     )
     finite_speed = speed_mps[np.isfinite(speed_mps) & (speed_mps >= 0)]
 
@@ -326,8 +326,8 @@ def _ctrv_position_innovations(
         heading_at_position = heading[position_index - 1] + turn_rate * (
             time_seconds[position_index] - segment_time[position_index - 1]
         )
-        predicted = ctrv_step(
-            CTRVState(
+        predicted = deterministic_model.ctrv_step(
+            deterministic_model.CTRVState(
                 x=float(x_meters[position_index]),
                 y=float(y_meters[position_index]),
                 speed=float(speed),

@@ -6,12 +6,8 @@ from tkinter import filedialog, messagebox
 
 import numpy as np
 
-from .controls import create_styled_button
-from .io import (
-    DATA_DIR,
-    create_simulation_dataframe,
-    save_trajectory_data,
-)
+from . import controls
+from . import io as simulation_io
 
 
 def _parse_gps_start_position(latitude_text, longitude_text):
@@ -124,13 +120,13 @@ def show_gps_start_position_dialog(gui):
         ):
             dialog.destroy()
 
-    create_styled_button(
+    controls.create_styled_button(
         button_frame,
         text="Apply",
         width=10,
         command=apply_position,
     ).pack(side=tk.LEFT, padx=(0, 8))
-    create_styled_button(
+    controls.create_styled_button(
         button_frame,
         text="Cancel",
         width=10,
@@ -199,10 +195,10 @@ def save_csv(gui):
     # Keep the trajectory unchanged while the file dialog is open.
     gui.pause_simulation()
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    simulation_io.DATA_DIR.mkdir(parents=True, exist_ok=True)
     output_path = filedialog.asksaveasfilename(
         title="Save or append trajectory data",
-        initialdir=DATA_DIR,
+        initialdir=simulation_io.DATA_DIR,
         initialfile=gui.default_csv_filename,
         defaultextension=".csv",
         confirmoverwrite=False,
@@ -215,7 +211,7 @@ def save_csv(gui):
     if not output_path:
         return
 
-    trajectory_df = create_simulation_dataframe(
+    trajectory_df = simulation_io.create_simulation_dataframe(
         simulator=gui.simulator,
         random_seed=42,
         start_time=gui.simulation_start_time,
@@ -244,7 +240,7 @@ def save_csv(gui):
         return
 
     try:
-        save_result = save_trajectory_data(
+        save_result = simulation_io.save_trajectory_data(
             df=trajectory_df.iloc[first_unsaved_sample:],
             filename=output_path,
             existing_run_id=existing_run_id,
