@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
+import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 
 
@@ -26,6 +27,22 @@ class BayesianCTRVEvaluationOptions:
     require_converged: bool
     max_windows: int | None
     plot_each_window: bool
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DeterministicCTRVEvaluationOptions:
+    """Runtime overrides for one deterministic CTRV rolling evaluation."""
+
+    window_mode: str
+    observation_count: int
+    prediction_count: int
+    stride: int | None
+    speed_estimation_points: int
+    heading_estimation_segments: int
+    additional_position_noise_std_m: float
+    position_noise_seed: int
+    max_windows: int | None
+    show_plot: bool
 
 
 def parse_bayesian_ctrv_evaluation_arguments(
@@ -125,4 +142,75 @@ def parse_bayesian_ctrv_evaluation_arguments(
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,
         plot_each_window=arguments.plot_each_window,
+    )
+
+
+def parse_deterministic_ctrv_evaluation_arguments(
+    *,
+    description: str | None,
+    experiment: deterministic_forecasting.DeterministicRollingExperimentConfig,
+    speed_estimation_points: int,
+    heading_estimation_segments: int,
+    max_windows: int | None,
+    show_plot: bool,
+    argv: Sequence[str] | None = None,
+) -> DeterministicCTRVEvaluationOptions:
+    """Parse shared options for one deterministic CTRV rolling evaluation."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--window-mode",
+        choices=("sliding", "expanding"),
+        default=experiment.window_mode,
+    )
+    parser.add_argument(
+        "--observations",
+        type=int,
+        default=experiment.observation_count,
+    )
+    parser.add_argument(
+        "--predictions",
+        type=int,
+        default=experiment.prediction_count,
+    )
+    parser.add_argument("--stride", type=int, default=experiment.stride)
+    parser.add_argument(
+        "--speed-estimation-points",
+        type=int,
+        default=speed_estimation_points,
+    )
+    parser.add_argument(
+        "--heading-estimation-segments",
+        type=int,
+        default=heading_estimation_segments,
+    )
+    parser.add_argument(
+        "--position-noise-std-m",
+        type=float,
+        default=experiment.additional_position_noise_std_m,
+    )
+    parser.add_argument(
+        "--position-noise-seed",
+        type=int,
+        default=experiment.position_noise_seed,
+    )
+    parser.add_argument("--max-windows", type=int, default=max_windows)
+    parser.add_argument(
+        "--no-plot",
+        action="store_false",
+        dest="show_plot",
+        default=show_plot,
+        help="Print metrics without opening the route-wide plot.",
+    )
+    arguments = parser.parse_args(argv)
+    return DeterministicCTRVEvaluationOptions(
+        window_mode=arguments.window_mode,
+        observation_count=arguments.observations,
+        prediction_count=arguments.predictions,
+        stride=arguments.stride,
+        speed_estimation_points=arguments.speed_estimation_points,
+        heading_estimation_segments=arguments.heading_estimation_segments,
+        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_seed=arguments.position_noise_seed,
+        max_windows=arguments.max_windows,
+        show_plot=arguments.show_plot,
     )

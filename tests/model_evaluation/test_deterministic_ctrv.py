@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import experiments.model_evaluation.deterministic_ctrv as experiment
+import ship_trajectory_prediction.validation.deterministic_ctrv_workflow as workflow
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.observations import prepare_trajectory_window
 from ship_trajectory_prediction.simulation.synthetic_ctrv import (
@@ -39,18 +40,25 @@ def _create_route():
 def test_main_evaluates_deterministic_rolling_windows(monkeypatch):
     route = _create_route()
     monkeypatch.setattr(
-        experiment.observations_io,
+        workflow.observations_io,
         "read_ship_data",
         lambda *args, **kwargs: route,
     )
 
     predictions, summary = experiment.main(
-        observation_count=5,
-        prediction_count=2,
-        stride=2,
-        position_noise_std_m=0.0,
-        max_windows=2,
-        show_plot=False,
+        [
+            "--observations",
+            "5",
+            "--predictions",
+            "2",
+            "--stride",
+            "2",
+            "--position-noise-std-m",
+            "0",
+            "--max-windows",
+            "2",
+            "--no-plot",
+        ]
     )
 
     assert summary.window_count == 2
@@ -63,17 +71,17 @@ def test_main_evaluates_deterministic_rolling_windows(monkeypatch):
 
 
 def test_route_noise_is_reproducible_and_can_be_disabled():
-    first = experiment._simulate_route_position_noise(
+    first = workflow._simulate_route_position_noise(
         8,
         standard_deviation_m=2.0,
         seed=2026,
     )
-    second = experiment._simulate_route_position_noise(
+    second = workflow._simulate_route_position_noise(
         8,
         standard_deviation_m=2.0,
         seed=2026,
     )
-    disabled = experiment._simulate_route_position_noise(
+    disabled = workflow._simulate_route_position_noise(
         8,
         standard_deviation_m=0.0,
         seed=2026,
@@ -95,7 +103,7 @@ def test_observation_noise_does_not_modify_held_out_positions():
     noise_x = np.arange(10, dtype=float)
     noise_y = -noise_x
 
-    noisy = experiment._add_observation_noise(
+    noisy = workflow._add_observation_noise(
         window,
         route_start_index=0,
         route_noise_x=noise_x,
@@ -130,7 +138,7 @@ def test_summary_uses_mean_error_at_largest_horizon_as_fde():
         }
     )
 
-    summary = experiment.summarize_deterministic_predictions(predictions)
+    summary = workflow.summarize_deterministic_predictions(predictions)
 
     assert summary.window_count == 2
     assert summary.forecast_count == 4

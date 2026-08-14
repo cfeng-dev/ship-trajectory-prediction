@@ -25,6 +25,19 @@ class DeterministicExperimentConfig:
     position_noise_seed: int
 
 
+@dataclass(frozen=True, slots=True)
+class DeterministicRollingExperimentConfig:
+    """Configuration of one deterministic rolling evaluation."""
+
+    run_id: int
+    window_mode: str
+    observation_count: int
+    prediction_count: int
+    additional_position_noise_std_m: float
+    position_noise_seed: int
+    stride: int | None
+
+
 def estimate_ctrv_state(
     window: observation_window.TrajectoryWindowData,
     *,
