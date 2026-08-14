@@ -16,7 +16,15 @@ from ship_trajectory_prediction.observations import (
     prepare_trajectory_window,
     read_ship_data,
 )
+from ship_trajectory_prediction.validation.prediction_plotting import (
+    plot_trajectory_paths,
+)
 from ship_trajectory_prediction.validation.reporting import print_prediction_setup
+
+DETERMINISTIC_PLOT_TITLE = (
+    "Deterministisches CTRV-Modell auf Basis von Positionsdaten:\n"
+    "Trajektorienvorhersage"
+)
 
 
 def run_deterministic_ctrv_prediction(
@@ -99,48 +107,25 @@ def plot_deterministic_ctrv_prediction(
     predicted_x = np.concatenate(([start_x], prediction_table["x_predicted"]))
     predicted_y = np.concatenate(([start_y], prediction_table["y_predicted"]))
 
-    figure, axis = plt.subplots(figsize=(10, 7))
-    axis.plot(
-        window.x_meters[observed],
-        window.y_meters[observed],
-        color="tab:blue",
-        linewidth=2,
-        label=(
-            "Noisy observations"
-            if additional_position_noise_std_m > 0
-            else "Observed trajectory"
+    observed_label = (
+        "Verrauschte Beobachtungen"
+        if additional_position_noise_std_m > 0
+        else "Beobachtungen"
+    )
+    figure, axis = plot_trajectory_paths(
+        observed_path=(
+            window.x_meters[observed],
+            window.y_meters[observed],
         ),
+        reference_path=(held_out_x, held_out_y),
+        forecast_paths=((predicted_x, predicted_y),),
+        prediction_origins=([start_x], [start_y]),
+        title=DETERMINISTIC_PLOT_TITLE,
+        observed_label=observed_label,
+        reference_label="Referenztrajektorie",
+        forecast_label="Deterministische CTRV-Vorhersage",
+        prediction_origin_label="Prognosebeginn",
     )
-    axis.plot(
-        held_out_x,
-        held_out_y,
-        color="black",
-        linestyle="--",
-        linewidth=2,
-        label="Held-out trajectory",
-    )
-    axis.plot(
-        predicted_x,
-        predicted_y,
-        color="tab:red",
-        marker="o",
-        linewidth=2,
-        label="Deterministic CTRV prediction",
-    )
-    axis.scatter(
-        start_x,
-        start_y,
-        color="tab:blue",
-        zorder=3,
-        label="Prediction start",
-    )
-    axis.set_title("Deterministic CTRV Trajectory Prediction")
-    axis.set_xlabel("x [m]")
-    axis.set_ylabel("y [m]")
-    axis.set_aspect("equal", adjustable="box")
-    axis.grid(alpha=0.3)
-    axis.legend()
-    figure.tight_layout()
     plt.show()
     return figure, axis
 
