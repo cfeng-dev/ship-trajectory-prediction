@@ -14,7 +14,7 @@ def test_main_delegates_visible_hybrid_configuration(monkeypatch):
         return expected_result
 
     monkeypatch.setattr(
-        experiment,
+        experiment.workflow,
         "run_hybrid_bayesian_ctrv_prediction",
         fake_run,
     )
@@ -28,7 +28,7 @@ def test_main_delegates_visible_hybrid_configuration(monkeypatch):
         "priors": experiment.PRIORS,
         "vi_config": experiment.VI_CONFIG,
         "mcmc_config": experiment.MCMC_CONFIG,
-        "fullrank_grad_samples": experiment.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        "fullrank_grad_samples": experiment.config.DEFAULT_FULLRANK_GRAD_SAMPLES,
         "credible_interval": experiment.CREDIBLE_INTERVAL,
         "hybrid_config": experiment.HYBRID_CONFIG,
         "inference_method": experiment.EXPERIMENT.inference_method,
@@ -53,7 +53,7 @@ def test_main_forwards_hybrid_cli_overrides(monkeypatch):
     """The hybrid entry point should forward explicitly selected CLI values."""
     captured = {}
     monkeypatch.setattr(
-        experiment,
+        experiment.workflow,
         "run_hybrid_bayesian_ctrv_prediction",
         lambda **kwargs: captured.update(kwargs),
     )

@@ -26,7 +26,11 @@ def test_main_delegates_visible_experiment_configuration(monkeypatch):
         captured.update(kwargs)
         return expected_result
 
-    monkeypatch.setattr(experiment, "run_deterministic_ctrv_prediction", fake_run)
+    monkeypatch.setattr(
+        experiment.workflow,
+        "run_deterministic_ctrv_prediction",
+        fake_run,
+    )
 
     result = experiment.main([])
 
@@ -46,7 +50,7 @@ def test_main_forwards_cli_overrides(monkeypatch):
     """The entry point should forward explicit deterministic CLI values."""
     captured = {}
     monkeypatch.setattr(
-        experiment,
+        experiment.workflow,
         "run_deterministic_ctrv_prediction",
         lambda **kwargs: captured.update(kwargs),
     )

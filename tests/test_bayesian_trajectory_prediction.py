@@ -13,7 +13,7 @@ def test_main_delegates_visible_experiment_configuration(monkeypatch):
         return expected_result
 
     monkeypatch.setattr(
-        experiment,
+        experiment.workflow,
         "run_fully_bayesian_ctrv_prediction",
         fake_run,
     )
@@ -27,7 +27,7 @@ def test_main_delegates_visible_experiment_configuration(monkeypatch):
         "priors": experiment.PRIORS,
         "vi_config": experiment.VI_CONFIG,
         "mcmc_config": experiment.MCMC_CONFIG,
-        "fullrank_grad_samples": experiment.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        "fullrank_grad_samples": experiment.config.DEFAULT_FULLRANK_GRAD_SAMPLES,
         "credible_interval": experiment.CREDIBLE_INTERVAL,
         "inference_method": experiment.EXPERIMENT.inference_method,
         "vi_algorithm": experiment.VI_CONFIG["algorithm"],
