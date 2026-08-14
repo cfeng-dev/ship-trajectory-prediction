@@ -11,32 +11,20 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
-from ship_trajectory_prediction.models.bayesian_ctrv import (
-    DEFAULT_INITIAL_SPEED_POINT_COUNT,
-    MAX_TURN_RATE_PRIOR_SCALE,
-    MIN_COURSE_DISPLACEMENT_METERS,
-    MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
-    MIN_TURN_RATE_PRIOR_SCALE,
-    ROBUST_MAD_SCALE_FACTOR,
-    TURN_RATE_PRIOR_SCALE_MULTIPLIER,
-    estimate_initial_speed_from_positions,
-)
-from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState, ctrv_step
-from ship_trajectory_prediction.observations import read_ship_data
-from ship_trajectory_prediction.observations.coordinates import (
-    calculate_signed_turn_rate_from_gps,
-    gps_to_local_coordinates,
-)
-from ship_trajectory_prediction.observations.paths import data_path
+import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.deterministic_ctrv as deterministic_model
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.paths as paths
 
-DATA_FILE = data_path(
+DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
 # The stop value is exclusive: this default requests run IDs 0 through 99.
 RUN_ID_RANGE = range(0, 100)
 
-INITIAL_SPEED_POINT_COUNT = DEFAULT_INITIAL_SPEED_POINT_COUNT
+INITIAL_SPEED_POINT_COUNT = bayesian_model.DEFAULT_INITIAL_SPEED_POINT_COUNT
 INITIAL_SPEED_HISTOGRAM_BIN_WIDTH_MPS = 0.1
 MAX_TIME_GAP_SECONDS = 15.0
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
@@ -113,7 +101,7 @@ def main(
 
     # The shared loader validates the repository CSV schema. All non-position
     # columns are discarded before any calibration calculation.
-    loaded_data = read_ship_data(DATA_FILE, run_id=run_ids)
+    loaded_data = observations_io.read_ship_data(DATA_FILE, run_id=run_ids)
     position_data = loaded_data.loc[:, POSITION_COLUMNS].copy()
     result = calibrate_position_only_priors(
         position_data,
@@ -179,9 +167,9 @@ def calibrate_position_only_priors(
             )
             continue
 
-        turn_rate = calculate_signed_turn_rate_from_gps(
+        turn_rate = coordinates.calculate_signed_turn_rate_from_gps(
             ordered,
-            min_displacement_m=MIN_COURSE_DISPLACEMENT_METERS,
+            min_displacement_m=bayesian_model.MIN_COURSE_DISPLACEMENT_METERS,
             max_time_gap_s=MAX_TIME_GAP_SECONDS,
         )
         finite_turn_rate = turn_rate[np.isfinite(turn_rate)]
@@ -334,7 +322,7 @@ def _prepare_run(run_data):
 
     timestamps = pd.DatetimeIndex(prepared["time"])
     time_seconds = (timestamps - timestamps[0]).total_seconds().to_numpy(dtype=float)
-    x_meters, y_meters = gps_to_local_coordinates(
+    x_meters, y_meters = coordinates.gps_to_local_coordinates(
         prepared["gps_longitude"].to_numpy(dtype=float),
         prepared["gps_latitude"].to_numpy(dtype=float),
         unit="m",
@@ -354,7 +342,7 @@ def _estimate_run_initial_speed(time_seconds, x_meters, y_meters):
             "first usable positions contain a time gap of "
             f"{largest_gap:g} s (maximum {MAX_TIME_GAP_SECONDS:g} s)"
         )
-    return estimate_initial_speed_from_positions(
+    return bayesian_model.estimate_initial_speed_from_positions(
         time_seconds,
         x_meters,
         y_meters,
@@ -381,7 +369,7 @@ def _derive_process_innovations(
     valid_segment = (
         valid_time
         & np.isfinite(displacement)
-        & (displacement >= MIN_COURSE_DISPLACEMENT_METERS)
+        & (displacement >= bayesian_model.MIN_COURSE_DISPLACEMENT_METERS)
     )
     segment_speed = np.divide(
         displacement,
@@ -436,8 +424,8 @@ def _derive_process_innovations(
         heading_at_position = segment_heading[index - 1] + reconstructed_turn_rate * (
             time_seconds[index] - segment_time[index - 1]
         )
-        predicted = ctrv_step(
-            CTRVState(
+        predicted = deterministic_model.ctrv_step(
+            deterministic_model.CTRVState(
                 x=x_meters[index],
                 y=y_meters[index],
                 speed=segment_speed[index - 1],
@@ -533,7 +521,7 @@ def _summarize_distribution(values) -> DistributionSummary:
         q25=float(np.quantile(values, 0.25)),
         q75=float(np.quantile(values, 0.75)),
         mad=mad,
-        robust_scale=float(ROBUST_MAD_SCALE_FACTOR * mad),
+        robust_scale=float(bayesian_model.ROBUST_MAD_SCALE_FACTOR * mad),
     )
 
 
@@ -571,7 +559,10 @@ def _plot_initial_speed(
         label="Historische Schätzungen",
     )
     if show_prior_density:
-        prior_scale = max(summary.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
+        prior_scale = max(
+            summary.robust_scale,
+            bayesian_model.MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+        )
         x_max = max(summary.maximum, summary.median + 4 * prior_scale)
         x_values = np.linspace(0, max(x_max, 1e-6), 500)
         axis.plot(
@@ -762,7 +753,7 @@ def _print_detailed_statistics(result):
     turn = result.turn_rate_summary
     speed_prior_scale = max(
         speed.robust_scale,
-        MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+        bayesian_model.MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
     )
     turn_prior_scale = max(turn.robust_scale, np.finfo(float).eps)
 
@@ -814,11 +805,12 @@ def _print_detailed_statistics(result):
     print("\nCurrent model settings for comparison (not empirical results):")
     _print_row(
         "Scale rule",
-        f"{TURN_RATE_PRIOR_SCALE_MULTIPLIER:g} x robust scale",
+        f"{bayesian_model.TURN_RATE_PRIOR_SCALE_MULTIPLIER:g} x robust scale",
     )
     _print_row(
         "Scale clipping",
-        f"{MIN_TURN_RATE_PRIOR_SCALE:.3f} ... {MAX_TURN_RATE_PRIOR_SCALE:.3f} rad/s",
+        f"{bayesian_model.MIN_TURN_RATE_PRIOR_SCALE:.3f} ... "
+        f"{bayesian_model.MAX_TURN_RATE_PRIOR_SCALE:.3f} rad/s",
     )
 
 
@@ -826,10 +818,13 @@ def _print_compact_summary(result):
     """Print the final screenshot-friendly calibration summary."""
     speed = result.initial_speed_summary
     turn = result.turn_rate_summary
-    speed_scale = max(speed.robust_scale, MIN_INITIAL_SPEED_PRIOR_SCALE_MPS)
+    speed_scale = max(
+        speed.robust_scale,
+        bayesian_model.MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+    )
     speed_standard_scale = max(
         speed.standard_deviation,
-        MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
+        bayesian_model.MIN_INITIAL_SPEED_PRIOR_SCALE_MPS,
     )
     turn_scale = max(turn.robust_scale, np.finfo(float).eps)
     turn_standard_scale = max(turn.standard_deviation, np.finfo(float).eps)

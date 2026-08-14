@@ -2,22 +2,12 @@
 
 import numpy as np
 
-from ship_trajectory_prediction.observations.coordinates import (
-    calculate_signed_turn_rate_from_gps,
-)
-from ship_trajectory_prediction.observations.io import (
-    print_ship_data_summary,
-    read_ship_data,
-)
-from ship_trajectory_prediction.observations.paths import data_path
-from ship_trajectory_prediction.observations.plotting import (
-    ShipDataPlotStyle,
-    plot_ship_curvature,
-    plot_ship_speeds,
-    plot_ship_trajectory,
-)
+import ship_trajectory_prediction.observations.coordinates as coordinates
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.paths as paths
+import ship_trajectory_prediction.observations.plotting as plotting
 
-DATA_FILE = data_path(
+DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
@@ -38,7 +28,7 @@ MIN_CURVATURE_DISPLACEMENT_METERS = 2.0
 MAX_CURVATURE_TIME_GAP_SECONDS = 15.0
 
 # Plot appearance
-PLOT_STYLE = ShipDataPlotStyle(
+PLOT_STYLE = plotting.ShipDataPlotStyle(
     trajectory_figure_size=(8, 6),
     speed_figure_size=(10, 6),
     curvature_figure_size=(10, 6),
@@ -65,32 +55,32 @@ PLOT_STYLE = ShipDataPlotStyle(
 
 def main() -> None:
     """Load recorded ship data and create exploratory plots."""
-    ship_data = read_ship_data(
+    ship_data = observations_io.read_ship_data(
         DATA_FILE,
         run_id=RUN_IDS,
         start_time=START_TIME,
         end_time=END_TIME,
     )
 
-    print_ship_data_summary(
+    observations_io.print_ship_data_summary(
         ship_data,
         label_width=SUMMARY_LABEL_WIDTH,
         gps_speed_unit=SPEED_UNIT,
         propulsion_speed_unit=PROPULSION_SPEED_UNIT,
     )
     _print_turn_rate_summary(ship_data)
-    plot_ship_trajectory(
+    plotting.plot_ship_trajectory(
         ship_data,
         coordinate_unit=TRAJECTORY_COORDINATE_UNIT,
         plot_style=PLOT_STYLE,
     )
-    plot_ship_speeds(
+    plotting.plot_ship_speeds(
         ship_data,
         speed_unit=SPEED_UNIT,
         propulsion_speed_unit=PROPULSION_SPEED_UNIT,
         plot_style=PLOT_STYLE,
     )
-    plot_ship_curvature(
+    plotting.plot_ship_curvature(
         ship_data,
         min_displacement_m=MIN_CURVATURE_DISPLACEMENT_METERS,
         max_time_gap_s=MAX_CURVATURE_TIME_GAP_SECONDS,
@@ -112,7 +102,7 @@ def _print_turn_rate_summary(data) -> None:
     for run_data in run_groups:
         ordered_run = run_data.sort_values("time")
         candidate_count += max(len(ordered_run) - 2, 0)
-        turn_rate = calculate_signed_turn_rate_from_gps(
+        turn_rate = coordinates.calculate_signed_turn_rate_from_gps(
             ordered_run,
             min_displacement_m=MIN_CURVATURE_DISPLACEMENT_METERS,
             max_time_gap_s=MAX_CURVATURE_TIME_GAP_SECONDS,

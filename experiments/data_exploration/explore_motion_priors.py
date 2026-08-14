@@ -1,15 +1,10 @@
 """Explore empirical motion distributions for Bayesian CTRV prior design."""
 
-from ship_trajectory_prediction.calibration.motion_priors import (
-    collect_motion_prior_samples,
-    plot_motion_prior_distributions,
-    print_motion_prior_report,
-    suggest_prior_scales,
-)
-from ship_trajectory_prediction.observations import read_ship_data
-from ship_trajectory_prediction.observations.paths import data_path
+import ship_trajectory_prediction.calibration.motion_priors as motion_priors
+import ship_trajectory_prediction.observations.io as observations_io
+import ship_trajectory_prediction.observations.paths as paths
 
-DATA_FILE = data_path(
+DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
@@ -30,21 +25,21 @@ HISTOGRAM_MODE = "density"  # Choose "density" or "frequency".
 
 def main():
     """Load calibration runs, report robust scales, and show prior plots."""
-    data = read_ship_data(DATA_FILE)
-    samples = collect_motion_prior_samples(
+    data = observations_io.read_ship_data(DATA_FILE)
+    samples = motion_priors.collect_motion_prior_samples(
         data,
         run_ids=CALIBRATION_RUN_IDS,
         min_course_displacement_m=MIN_COURSE_DISPLACEMENT_METERS,
         max_time_gap_s=MAX_TIME_GAP_SECONDS,
     )
-    suggestions = suggest_prior_scales(samples)
-    print_motion_prior_report(
+    suggestions = motion_priors.suggest_prior_scales(samples)
+    motion_priors.print_motion_prior_report(
         samples,
         suggestions,
         data_file=DATA_FILE,
         print_per_run_summary=PRINT_PER_RUN_SUMMARY,
     )
-    figures, axes = plot_motion_prior_distributions(
+    figures, axes = motion_priors.plot_motion_prior_distributions(
         samples,
         suggestions,
         central_quantile=PLOT_CENTRAL_QUANTILE,
