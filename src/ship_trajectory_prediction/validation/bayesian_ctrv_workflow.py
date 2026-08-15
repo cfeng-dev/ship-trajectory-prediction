@@ -336,10 +336,7 @@ def _run_bayesian_ctrv_evaluation(
         print(
             f"ADE={evaluation.ade_m:.2f} m, "
             f"FDE={evaluation.fde_m:.2f} m, "
-            f"turn-rate observed/forecast="
-            f"{observed_turn_rate.median_rad_s:+.5f}/"
-            f"{posterior_diagnostics['forecast_origin_turn_rate_rad_s']:+.5f} "
-            f"rad/s, {inference_status}"
+            f"{inference_status}"
         )
         if plot_each_window:
             figure, _ = prediction_plotting.plot_prediction(
@@ -734,23 +731,39 @@ def _print_summary(summary, *, credible_interval):
     print("\n" + "=" * 72)
     print("Complete rolling evaluation")
     print("=" * 72)
-    print(f"Evaluated windows        : {summary.window_count}")
-    print(f"Inference method         : {summary.inference_method.upper()}")
-    print(f"Forecasted positions     : {summary.forecast_count}")
-    print(f"Overall ADE              : {summary.ade_m:.2f} m")
-    print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
-    print(
-        f"Joint 2D {100 * credible_interval:g}% coverage    : "
-        f"{summary.radial_coverage:.1%}"
-    )
-    print(f"Mean equivalent radius  : {summary.mean_prediction_radius_m:.2f} m")
-    print(f"Mean marginal width      : {summary.mean_marginal_interval_width_m:.2f} m")
+    rows = [
+        ("Evaluated windows", str(summary.window_count)),
+        ("Inference method", summary.inference_method.upper()),
+        ("Forecasted positions", str(summary.forecast_count)),
+        ("Overall ADE", f"{summary.ade_m:.2f} m"),
+        ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+        (
+            f"Joint 2D {100 * credible_interval:g}% coverage",
+            f"{summary.radial_coverage:.1%}",
+        ),
+        (
+            "Mean equivalent radius",
+            f"{summary.mean_prediction_radius_m:.2f} m",
+        ),
+        (
+            "Mean marginal width",
+            f"{summary.mean_marginal_interval_width_m:.2f} m",
+        ),
+    ]
     if summary.vi_convergence_rate is not None:
-        print(f"VI convergence rate      : {summary.vi_convergence_rate:.1%}")
+        rows.append(("VI convergence rate", f"{summary.vi_convergence_rate:.1%}"))
     if summary.mcmc_diagnostics_pass_rate is not None:
-        print(f"MCMC diagnostics rate    : {summary.mcmc_diagnostics_pass_rate:.1%}")
+        rows.append(
+            (
+                "MCMC diagnostics rate",
+                f"{summary.mcmc_diagnostics_pass_rate:.1%}",
+            )
+        )
+    label_width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        print(f"{label:<{label_width}} : {value}")
     print("\nPer-horizon evaluation:")
-    print(summary.per_horizon_table.round(3).to_string(index=False))
+    print(rolling_validation.format_per_horizon_table(summary.per_horizon_table))
 
 
 def _print_turn_rate_and_noise_summary(predictions, *, has_latent_turn_rate):

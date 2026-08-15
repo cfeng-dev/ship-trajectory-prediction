@@ -364,9 +364,14 @@ def _print_summary(summary):
     print("\n" + "=" * 72)
     print("Complete deterministic rolling evaluation")
     print("=" * 72)
-    print(f"Evaluated windows        : {summary.window_count}")
-    print(f"Forecasted positions     : {summary.forecast_count}")
-    print(f"Overall ADE              : {summary.ade_m:.2f} m")
-    print(f"Mean maximum-horizon FDE : {summary.fde_m:.2f} m")
+    rows = [
+        ("Evaluated windows", str(summary.window_count)),
+        ("Forecasted positions", str(summary.forecast_count)),
+        ("Overall ADE", f"{summary.ade_m:.2f} m"),
+        ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+    ]
+    label_width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        print(f"{label:<{label_width}} : {value}")
     print("\nPer-horizon evaluation:")
-    print(summary.per_horizon_table.round(3).to_string(index=False))
+    print(rolling_validation.format_per_horizon_table(summary.per_horizon_table))

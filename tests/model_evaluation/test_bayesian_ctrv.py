@@ -1,10 +1,12 @@
 """Tests for the Bayesian CTRV rolling-evaluation experiment."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import experiments.model_evaluation.bayesian_ctrv as experiment
 import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
+import ship_trajectory_prediction.validation.rolling as rolling
 from ship_trajectory_prediction.models.bayesian_ctrv import BayesianCTRVPriors
 from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.observations import prepare_trajectory_window
@@ -57,6 +59,68 @@ def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
     np.testing.assert_array_equal(first_y, second_y)
     assert np.any(first_x != 0.0)
     assert np.any(first_y != 0.0)
+
+
+def test_summary_aligns_all_metric_separators(capsys):
+    """Every aggregate metric should use the same separator column."""
+    per_horizon_table = pd.DataFrame(
+        {
+            "horizon_step": [1],
+            "forecast_count": [114],
+            "mean_horizon_seconds": [10.0],
+            "ade_m": [10.213],
+            "median_error_m": [6.797],
+            "radial_coverage": [0.86],
+            "mean_prediction_radius_m": [18.853],
+            "mean_marginal_interval_width_m": [28.861],
+        }
+    )
+    summary = rolling.RollingPositionSummary(
+        inference_method="vi",
+        window_count=114,
+        forecast_count=341,
+        ade_m=20.61,
+        fde_m=30.20,
+        radial_coverage=0.783,
+        mean_prediction_radius_m=27.36,
+        mean_marginal_interval_width_m=42.36,
+        vi_convergence_rate=0.026,
+        mcmc_diagnostics_pass_rate=None,
+        per_horizon_table=per_horizon_table,
+    )
+
+    workflow._print_summary(summary, credible_interval=0.9)
+
+    metric_lines = [
+        line for line in capsys.readouterr().out.splitlines() if " : " in line
+    ]
+    assert len(metric_lines) == 9
+    assert len({line.index(":") for line in metric_lines}) == 1
+
+
+def test_per_horizon_summary_uses_compact_terminal_columns():
+    """Printed horizon metrics should fit into a narrow terminal."""
+    table = pd.DataFrame(
+        {
+            "horizon_step": [1, 2, 3],
+            "forecast_count": [114, 114, 113],
+            "mean_horizon_seconds": [10.0, 20.0, 30.0],
+            "ade_m": [10.213, 18.980, 29.031],
+            "median_error_m": [6.797, 11.342, 17.732],
+            "radial_coverage": [0.860, 0.798, 0.779],
+            "mean_prediction_radius_m": [18.853, 27.939, 37.367],
+            "mean_marginal_interval_width_m": [28.861, 42.985, 57.911],
+        }
+    )
+
+    output = rolling.format_per_horizon_table(table)
+
+    lines = output.splitlines()
+    assert "horizon_step" not in output
+    assert "Horizon[s]" in lines[0]
+    assert "Coverage" in lines[0]
+    assert "86.0%" in lines[1]
+    assert max(map(len, lines)) <= 80
 
 
 def test_main_calls_fully_bayesian_workflow_without_model_variant(monkeypatch):

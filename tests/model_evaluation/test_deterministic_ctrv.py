@@ -144,3 +144,33 @@ def test_summary_uses_mean_error_at_largest_horizon_as_fde():
     assert summary.forecast_count == 4
     assert summary.ade_m == pytest.approx(4.0)
     assert summary.fde_m == pytest.approx(6.0)
+
+
+def test_summary_uses_aligned_metrics_and_compact_horizon_columns(capsys):
+    """Deterministic reporting should match the compact Bayesian layout."""
+    summary = workflow.DeterministicRollingSummary(
+        window_count=114,
+        forecast_count=341,
+        ade_m=6.07,
+        fde_m=6.31,
+        per_horizon_table=pd.DataFrame(
+            {
+                "horizon_step": [1, 2, 3],
+                "forecast_count": [114, 114, 113],
+                "mean_horizon_seconds": [10.0, 20.0, 30.0],
+                "ade_m": [3.1, 6.2, 8.9],
+                "median_error_m": [2.8, 5.9, 8.4],
+            }
+        ),
+    )
+
+    workflow._print_summary(summary)
+
+    output = capsys.readouterr().out
+    metric_lines = [line for line in output.splitlines() if " : " in line]
+    table_lines = output.partition("Per-horizon evaluation:\n")[2].splitlines()
+    assert len(metric_lines) == 4
+    assert len({line.index(":") for line in metric_lines}) == 1
+    assert "horizon_step" not in output
+    assert "Horizon[s]" in table_lines[0]
+    assert max(map(len, table_lines)) <= 80

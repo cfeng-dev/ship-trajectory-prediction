@@ -37,6 +37,33 @@ class RollingPositionSummary:
     per_horizon_table: pd.DataFrame
 
 
+def format_per_horizon_table(table: pd.DataFrame) -> str:
+    """Return a compact terminal representation of per-horizon metrics."""
+    display_table = table.rename(
+        columns={
+            "horizon_step": "Step",
+            "forecast_count": "Forecasts",
+            "mean_horizon_seconds": "Horizon[s]",
+            "ade_m": "ADE[m]",
+            "median_error_m": "Median[m]",
+            "radial_coverage": "Coverage",
+            "mean_prediction_radius_m": "Radius[m]",
+            "mean_marginal_interval_width_m": "Width[m]",
+        }
+    )
+    return display_table.to_string(
+        index=False,
+        formatters={
+            "Horizon[s]": lambda value: f"{value:.1f}",
+            "ADE[m]": lambda value: f"{value:.3f}",
+            "Median[m]": lambda value: f"{value:.3f}",
+            "Coverage": lambda value: f"{value:.1%}",
+            "Radius[m]": lambda value: f"{value:.3f}",
+            "Width[m]": lambda value: f"{value:.3f}",
+        },
+    )
+
+
 def build_rolling_window_specs(
     row_count: int,
     *,
