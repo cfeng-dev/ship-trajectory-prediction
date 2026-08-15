@@ -633,6 +633,7 @@ def test_fit_uses_stable_default_vi_adaptation_length(monkeypatch):
     fit_bayesian_ctrv_model(create_synthetic_window())
 
     assert fake_model.arguments["adapt_iter"] == DEFAULT_VI_ADAPT_ITER
+    assert fake_model.arguments["grad_samples"] == 2
 
 
 def test_fit_forwards_explicit_mcmc_controls_and_chain_initials(monkeypatch):

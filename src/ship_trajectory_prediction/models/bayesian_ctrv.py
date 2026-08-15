@@ -19,6 +19,7 @@ STAN_FILE = model_paths.stan_path("models/bayesian_ctrv.stan")
 
 SPEED_STATE_INITIAL_LOWER = 0.001
 DEFAULT_INITIAL_SPEED_POINT_COUNT = 5
+DEFAULT_MEANFIELD_GRAD_SAMPLES = 2
 ROBUST_MAD_SCALE_FACTOR = 1.4826
 MIN_INITIAL_SPEED_PRIOR_SCALE_MPS = 0.001
 DEFAULT_VI_ADAPT_ITER = 100
@@ -212,6 +213,36 @@ def build_stan_data(
     if not isinstance(priors, BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance or None.")
 
+    stan_data, position_observations = _build_position_speed_stan_data(
+        window,
+        priors=priors,
+        position_observations=position_observations,
+    )
+    turn_rate_diagnostics = diagnose_observed_turn_rate(
+        window,
+        turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
+        position_observations=position_observations,
+    )
+    stan_data.update(
+        {
+            "turn_rate_initial_prior_mean": priors.turn_rate_initial_prior_mean,
+            "turn_rate_state_prior_scale": (turn_rate_diagnostics.prior_scale_rad_s),
+            "sigma_turn_rate_process_prior_scale": (
+                priors.sigma_turn_rate_process_prior_scale
+            ),
+        }
+    )
+    return stan_data
+
+
+def _build_position_speed_stan_data(
+    window: observation_window.TrajectoryWindowData,
+    *,
+    priors,
+    position_observations: PositionObservations | None,
+) -> tuple[dict[str, Any], PositionObservations]:
+    """Build Stan data shared by Bayesian and hybrid position-speed models."""
+
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
     if window.prediction_count < 1:
@@ -232,37 +263,30 @@ def build_stan_data(
 
     _validate_finite_vector("x_observed", x_observed)
     _validate_finite_vector("y_observed", y_observed)
-    turn_rate_diagnostics = diagnose_observed_turn_rate(
-        window,
-        turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
-        position_observations=position_observations,
-    )
     prior_parameters = {
         "position_initial_prior_scale": priors.position_initial_prior_scale,
         "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
-        "turn_rate_initial_prior_mean": priors.turn_rate_initial_prior_mean,
-        "turn_rate_state_prior_scale": turn_rate_diagnostics.prior_scale_rad_s,
         "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
         "sigma_position_process_prior_scale": (
             priors.sigma_position_process_prior_scale
         ),
         "sigma_speed_process_prior_scale": priors.sigma_speed_process_prior_scale,
-        "sigma_turn_rate_process_prior_scale": (
-            priors.sigma_turn_rate_process_prior_scale
-        ),
     }
-    return {
-        "N_observed": window.observation_count,
-        "time_observed": time_observed,
-        "x_observed": x_observed,
-        "y_observed": y_observed,
-        "N_prediction": window.prediction_count,
-        "time_prediction": time_prediction,
-        "x_initial_prior_mean": float(x_observed[0]),
-        "y_initial_prior_mean": float(y_observed[0]),
-        **prior_parameters,
-    }
+    return (
+        {
+            "N_observed": window.observation_count,
+            "time_observed": time_observed,
+            "x_observed": x_observed,
+            "y_observed": y_observed,
+            "N_prediction": window.prediction_count,
+            "time_prediction": time_prediction,
+            "x_initial_prior_mean": float(x_observed[0]),
+            "y_initial_prior_mean": float(y_observed[0]),
+            **prior_parameters,
+        },
+        position_observations,
+    )
 
 
 def estimate_initial_speed_from_positions(
@@ -411,7 +435,7 @@ def fit_bayesian_ctrv_model(
     inference_method: str = "vi",
     algorithm: str = "meanfield",
     iter: int = 20_000,
-    grad_samples: int = 1,
+    grad_samples: int = DEFAULT_MEANFIELD_GRAD_SAMPLES,
     elbo_samples: int = 100,
     eta: float = 1.0,
     adapt_iter: int = DEFAULT_VI_ADAPT_ITER,
@@ -569,20 +593,23 @@ def summarize_predictions(
     fit: Any,
     window: observation_window.TrajectoryWindowData,
     credible_interval: float = 0.9,
+    *,
+    prediction_variables: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
     """Summarize future latent states and noisy position observations."""
     if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
         raise ValueError("credible_interval must be between 0 and 1.")
 
-    prediction_variables = {
-        "x_state": "x_state_prediction",
-        "y_state": "y_state_prediction",
-        "speed_state": "speed_state_prediction",
-        "heading_state": "heading_state_prediction",
-        "turn_rate_state": "turn_rate_state_prediction",
-        "x_observation": "x_observation_prediction",
-        "y_observation": "y_observation_prediction",
-    }
+    if prediction_variables is None:
+        prediction_variables = {
+            "x_state": "x_state_prediction",
+            "y_state": "y_state_prediction",
+            "speed_state": "speed_state_prediction",
+            "heading_state": "heading_state_prediction",
+            "turn_rate_state": "turn_rate_state_prediction",
+            "x_observation": "x_observation_prediction",
+            "y_observation": "y_observation_prediction",
+        }
     prediction_samples = {
         prefix: _prediction_samples(fit, variable_name, window.prediction_count)
         for prefix, variable_name in prediction_variables.items()
@@ -739,16 +766,10 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         y_observed,
         initial_speed_mps=initial_speed_mps,
     )
-    turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
     state_count = int(stan_data["N_observed"])
-    turn_rate_count = state_count if "heading_final" in stan_data else state_count - 1
 
     x_jitter = min(0.1, 0.02 * stan_data["position_initial_prior_scale"])
     speed_jitter = min(0.02, 0.02 * stan_data["speed_initial_prior_scale"])
-    turn_jitter = min(
-        1e-4,
-        0.02 * stan_data["turn_rate_state_prior_scale"],
-    )
     initial_values = {
         "x_state": x_observed + generator.normal(0, x_jitter, state_count),
         "y_state": y_observed + generator.normal(0, x_jitter, state_count),
@@ -756,8 +777,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             speed_initial + generator.normal(0, speed_jitter, state_count),
             SPEED_STATE_INITIAL_LOWER,
         ),
-        "turn_rate_state": turn_rate_center
-        + generator.normal(0, turn_jitter, turn_rate_count),
         "sigma_position_gps": max(
             1e-3,
             0.5 * stan_data["sigma_position_gps_prior_scale"],
@@ -770,11 +789,24 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             1e-4,
             0.5 * stan_data["sigma_speed_process_prior_scale"],
         ),
-        "sigma_turn_rate_process": max(
+    }
+    if "turn_rate_state_prior_scale" in stan_data:
+        turn_rate_count = state_count - 1
+        turn_rate_center = float(stan_data["turn_rate_initial_prior_mean"])
+        turn_jitter = min(
+            1e-4,
+            0.02 * stan_data["turn_rate_state_prior_scale"],
+        )
+        initial_values["turn_rate_state"] = turn_rate_center + generator.normal(
+            0,
+            turn_jitter,
+            turn_rate_count,
+        )
+    if "sigma_turn_rate_process_prior_scale" in stan_data:
+        initial_values["sigma_turn_rate_process"] = max(
             1e-5,
             0.5 * stan_data["sigma_turn_rate_process_prior_scale"],
-        ),
-    }
+        )
     if "heading_final" not in stan_data:
         final_course = float(
             np.arctan2(

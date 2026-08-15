@@ -13,8 +13,8 @@ from ship_trajectory_prediction.models.deterministic_ctrv import CTRVState
 from ship_trajectory_prediction.models.hybrid_bayesian_ctrv import (
     FINAL_MOTION_HISTORY_SECONDS,
     STAN_FILE,
-    BayesianCTRVPriors,
     HybridBayesianCTRVConfig,
+    HybridBayesianCTRVPriors,
     build_stan_data,
     estimate_final_motion_from_positions,
     fit_hybrid_bayesian_ctrv_model,
@@ -69,14 +69,29 @@ def test_hybrid_data_contains_deterministic_terminal_motion():
     assert stan_data["turn_rate_final"] == pytest.approx(0.012, abs=1e-3)
 
 
-def test_hybrid_prior_center_remains_observation_derived():
-    """The hybrid should preserve its current-window empirical center."""
+def test_hybrid_stan_data_omits_latent_turn_rate_priors():
+    """Hybrid data should contain no priors for a latent turn-rate path."""
     stan_data = build_stan_data(
         create_synthetic_window(turn_rate=-0.012),
-        priors=BayesianCTRVPriors(turn_rate_initial_prior_mean=0.5),
+        priors=HybridBayesianCTRVPriors(),
     )
 
-    assert stan_data["turn_rate_initial_prior_mean"] == pytest.approx(-0.012)
+    assert "turn_rate_initial_prior_mean" not in stan_data
+    assert "turn_rate_state_prior_scale" not in stan_data
+    assert "sigma_turn_rate_process_prior_scale" not in stan_data
+
+
+def test_hybrid_initial_values_omit_latent_turn_rate_parameters():
+    """Hybrid inference should initialize only parameters present in its model."""
+    stan_data = build_stan_data(create_synthetic_window())
+
+    initial_values = model_module.bayesian_model._default_initial_values(
+        stan_data,
+        seed=15,
+    )
+
+    assert "turn_rate_state" not in initial_values
+    assert "sigma_turn_rate_process" not in initial_values
 
 
 def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
@@ -205,8 +220,8 @@ def test_final_motion_falls_back_to_two_point_heading():
     assert turn_rate == 0.0
 
 
-def test_hybrid_stan_model_keeps_terminal_motion_fixed():
-    """The hybrid forecast should not sample heading or future turn rate."""
+def test_hybrid_stan_model_uses_only_deterministic_turn_rate():
+    """The hybrid should use fixed turn rate in its history and forecast."""
     source = STAN_FILE.read_text(encoding="utf-8")
     data_block = re.search(r"data\s*\{(.*?)\n\}", source, flags=re.DOTALL).group(1)
     parameter_block = re.search(
@@ -217,8 +232,15 @@ def test_hybrid_stan_model_keeps_terminal_motion_fixed():
 
     assert "real heading_final" in data_block
     assert "real turn_rate_final" in data_block
+    assert "turn_rate_state_prior_scale" not in data_block
+    assert "sigma_turn_rate_process_prior_scale" not in data_block
     assert "heading_final" not in parameter_block
     assert "turn_rate_final" not in parameter_block
+    assert "turn_rate_state" not in parameter_block
+    assert "sigma_turn_rate_process" not in parameter_block
+    assert "turn_rate_state" not in source
+    assert "heading_state[n + 1] - turn_rate_final * dt" in source
+    assert "turn_rate_state ~ normal" not in source
     assert "real turn_rate_forecast_origin = turn_rate_final" in source
     assert "real turn_rate_previous = turn_rate_forecast_origin" in source
     assert "real turn_rate_current = turn_rate_previous" in source
@@ -241,7 +263,7 @@ def test_small_hybrid_vi_fit_is_executable():
     )
 
     assert posterior_variable_samples(fit, "x_state").shape == (100, 7)
-    assert posterior_variable_samples(fit, "turn_rate_state_prediction").shape == (
+    assert posterior_variable_samples(fit, "turn_rate_prediction").shape == (
         100,
         3,
     )

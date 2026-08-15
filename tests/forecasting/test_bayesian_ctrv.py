@@ -5,7 +5,10 @@ from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     create_default_mcmc_config,
     create_default_vi_config,
 )
-from ship_trajectory_prediction.models.bayesian_ctrv import DEFAULT_VI_ADAPT_ITER
+from ship_trajectory_prediction.models.bayesian_ctrv import (
+    DEFAULT_MEANFIELD_GRAD_SAMPLES,
+    DEFAULT_VI_ADAPT_ITER,
+)
 
 
 def test_default_vi_config_returns_independent_complete_options():
@@ -16,7 +19,7 @@ def test_default_vi_config_returns_independent_complete_options():
     assert first == {
         "algorithm": "meanfield",
         "iter": 20_000,
-        "grad_samples": 1,
+        "grad_samples": DEFAULT_MEANFIELD_GRAD_SAMPLES,
         "elbo_samples": 100,
         "eta": 1.0,
         "adapt_iter": DEFAULT_VI_ADAPT_ITER,
@@ -27,6 +30,7 @@ def test_default_vi_config_returns_independent_complete_options():
     }
     assert first is not second
     assert DEFAULT_FULLRANK_GRAD_SAMPLES == 10
+    assert DEFAULT_MEANFIELD_GRAD_SAMPLES == 2
 
 
 def test_default_mcmc_config_returns_independent_complete_options():

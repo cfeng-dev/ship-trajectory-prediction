@@ -1,7 +1,6 @@
 """Evaluate hybrid Bayesian CTRV forecasts across rolling windows."""
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
-import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.paths as paths
 import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
@@ -22,17 +21,14 @@ EXPERIMENT = config.RollingExperimentConfig(
     inference_method="vi",  # Fast "vi" or reference "mcmc".
     inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
 )
-PRIORS = bayesian_model.BayesianCTRVPriors(
+PRIORS = hybrid_model.HybridBayesianCTRVPriors(
     position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
     # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
-    turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
-    turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
-    sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
 )
 HYBRID_CONFIG = hybrid_model.HybridBayesianCTRVConfig(
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.
@@ -55,6 +51,7 @@ def main(argv=None):
         vi_config=VI_CONFIG,
         max_windows=MAX_WINDOWS,
         plot_each_window=PLOT_EACH_WINDOW,
+        include_turn_rate_prior=False,
         argv=argv,
     )
     return workflow.run_hybrid_bayesian_ctrv_evaluation(

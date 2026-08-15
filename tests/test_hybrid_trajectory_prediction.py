@@ -45,6 +45,12 @@ def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     """Editing hybrid settings should not mutate the Bayesian experiment."""
     assert experiment.EXPERIMENT is not bayesian_experiment.EXPERIMENT
     assert experiment.PRIORS is not bayesian_experiment.PRIORS
+    assert isinstance(
+        experiment.PRIORS,
+        experiment.hybrid_model.HybridBayesianCTRVPriors,
+    )
+    assert not hasattr(experiment.PRIORS, "turn_rate_state_prior_scale")
+    assert not hasattr(experiment.PRIORS, "sigma_turn_rate_process_prior_scale")
     assert experiment.VI_CONFIG is not bayesian_experiment.VI_CONFIG
     assert experiment.MCMC_CONFIG is not bayesian_experiment.MCMC_CONFIG
 

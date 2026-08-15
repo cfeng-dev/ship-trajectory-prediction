@@ -8,6 +8,7 @@ from typing import Any
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
 import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -49,10 +50,11 @@ def parse_bayesian_ctrv_evaluation_arguments(
     *,
     description: str | None,
     experiment: forecasting.RollingExperimentConfig,
-    priors: bayesian_model.BayesianCTRVPriors,
+    priors: (bayesian_model.BayesianCTRVPriors | hybrid_model.HybridBayesianCTRVPriors),
     vi_config: Mapping[str, Any],
     max_windows: int | None,
     plot_each_window: bool,
+    include_turn_rate_prior: bool = True,
     argv: Sequence[str] | None = None,
 ) -> BayesianCTRVEvaluationOptions:
     """Parse shared options for one Bayesian CTRV rolling evaluation."""
@@ -90,12 +92,15 @@ def parse_bayesian_ctrv_evaluation_arguments(
         choices=("meanfield", "fullrank"),
         default=vi_config["algorithm"],
     )
-    parser.add_argument(
-        "--turn-rate-prior-scale",
-        type=float,
-        default=priors.turn_rate_state_prior_scale,
-        help="Optional fixed state-prior scale; defaults to observed-history MAD.",
-    )
+    if include_turn_rate_prior:
+        parser.add_argument(
+            "--turn-rate-prior-scale",
+            type=float,
+            default=priors.turn_rate_state_prior_scale,
+            help=(
+                "Optional fixed state-prior scale; defaults to observed-history MAD."
+            ),
+        )
     parser.add_argument("--seed", type=int, default=experiment.inference_seed)
     parser.add_argument(
         "--position-noise-std-m",
@@ -135,7 +140,9 @@ def parse_bayesian_ctrv_evaluation_arguments(
         stride=arguments.stride,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
-        turn_rate_state_prior_scale=arguments.turn_rate_prior_scale,
+        turn_rate_state_prior_scale=(
+            arguments.turn_rate_prior_scale if include_turn_rate_prior else None
+        ),
         inference_seed=arguments.seed,
         additional_position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,

@@ -1,5 +1,8 @@
 """Tests for the hybrid Bayesian CTRV rolling entry point."""
 
+import numpy as np
+import pytest
+
 import experiments.model_evaluation.bayesian_ctrv as bayesian_experiment
 import experiments.model_evaluation.hybrid_bayesian_ctrv as experiment
 
@@ -29,20 +32,50 @@ def test_main_calls_hybrid_workflow_without_model_variant(monkeypatch):
     assert captured["experiment"] is not experiment.EXPERIMENT
     assert captured["experiment"] == experiment.EXPERIMENT
     assert captured["priors"] is not experiment.PRIORS
-    assert captured["priors"].turn_rate_state_prior_scale == (
-        experiment.PRIORS.turn_rate_state_prior_scale
+    assert isinstance(
+        captured["priors"],
+        experiment.hybrid_model.HybridBayesianCTRVPriors,
     )
+    assert not hasattr(captured["priors"], "turn_rate_state_prior_scale")
     assert captured["vi_config"] is experiment.VI_CONFIG
     assert captured["mcmc_config"] is experiment.MCMC_CONFIG
     assert captured["experiment"].inference_method == (
         experiment.EXPERIMENT.inference_method
     )
     assert captured["vi_algorithm"] == experiment.VI_CONFIG["algorithm"]
+    assert captured["noise_parameter_names"] == (
+        experiment.hybrid_model.NOISE_PARAMETER_NAMES
+    )
+    assert captured["has_latent_turn_rate"] is False
 
 
 def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     """Editing rolling hybrid settings should not mutate Bayesian defaults."""
     assert experiment.EXPERIMENT is not bayesian_experiment.EXPERIMENT
     assert experiment.PRIORS is not bayesian_experiment.PRIORS
+    assert not hasattr(experiment.PRIORS, "sigma_turn_rate_process_prior_scale")
     assert experiment.VI_CONFIG is not bayesian_experiment.VI_CONFIG
     assert experiment.MCMC_CONFIG is not bayesian_experiment.MCMC_CONFIG
+
+
+def test_hybrid_cli_has_no_latent_turn_rate_prior_option():
+    """The hybrid CLI should not expose a prior for a removed latent state."""
+    with pytest.raises(SystemExit):
+        experiment.main(["--turn-rate-prior-scale", "0.002"])
+
+
+def test_hybrid_vi_guard_checks_only_existing_noise_parameters():
+    """Rolling hybrid validation should not request turn-rate process draws."""
+
+    class FakeFit:
+        def stan_variable(self, name, mean=False):
+            del mean
+            return np.array([getattr(experiment.PRIORS, f"{name}_prior_scale")])
+
+    reason = experiment.workflow._vi_numerical_instability_reason(
+        FakeFit(),
+        experiment.PRIORS,
+        noise_parameter_names=experiment.hybrid_model.NOISE_PARAMETER_NAMES,
+    )
+
+    assert reason is None

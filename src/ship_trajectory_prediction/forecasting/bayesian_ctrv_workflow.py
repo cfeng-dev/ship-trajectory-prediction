@@ -60,7 +60,7 @@ def run_hybrid_bayesian_ctrv_prediction(
     *,
     data_file,
     experiment: forecasting.ExperimentConfig,
-    priors: bayesian_model.BayesianCTRVPriors,
+    priors: hybrid_model.HybridBayesianCTRVPriors,
     hybrid_config: hybrid_model.HybridBayesianCTRVConfig,
     vi_config: Mapping[str, Any],
     mcmc_config: Mapping[str, Any],
@@ -100,6 +100,8 @@ def run_hybrid_bayesian_ctrv_prediction(
             hybrid_config=hybrid_config,
         ),
         terminal_motion_history_seconds=(hybrid_config.final_motion_history_seconds),
+        noise_parameter_names=hybrid_model.NOISE_PARAMETER_NAMES,
+        has_latent_turn_rate=False,
     )
 
 
@@ -123,6 +125,8 @@ def _run_bayesian_ctrv_prediction(
     stan_data_builder,
     fit_model,
     terminal_motion_history_seconds=None,
+    noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
+    has_latent_turn_rate=True,
 ):
     """Run the shared single-window fitting and evaluation workflow."""
     inference_method, inference_config = (
@@ -236,13 +240,12 @@ def _run_bayesian_ctrv_prediction(
     print(
         reporting.posterior_parameter_summary(
             fit,
-            bayesian_model.NOISE_PARAMETER_NAMES,
+            noise_parameter_names,
         )
     )
 
     speed_state = reporting.posterior_variable_samples(fit, "speed_state")
     heading_state = reporting.posterior_variable_samples(fit, "heading_state")
-    turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
     print("\nPosterior state medians:")
     print(
         "Speed [m/s]       : "
@@ -254,11 +257,15 @@ def _run_bayesian_ctrv_prediction(
         f"{np.median(heading_state[:, 0]):.4f} -> "
         f"{np.median(heading_state[:, -1]):.4f}"
     )
-    print(
-        "Turn rate [rad/s] : "
-        f"{np.median(turn_rate_state[:, 0]):.5f} -> "
-        f"{np.median(turn_rate_state[:, -1]):.5f}"
-    )
+    if has_latent_turn_rate:
+        turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
+        print(
+            "Turn rate [rad/s] : "
+            f"{np.median(turn_rate_state[:, 0]):.5f} -> "
+            f"{np.median(turn_rate_state[:, -1]):.5f}"
+        )
+    else:
+        print(f"Turn rate [rad/s] : fixed at {stan_data['turn_rate_final']:.5f}")
     print(
         "GPS speed was not used for fitting; it is retained only as an "
         "external post-fit plausibility reference."

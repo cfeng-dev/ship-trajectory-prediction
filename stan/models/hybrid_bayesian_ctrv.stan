@@ -62,15 +62,10 @@ data {
 	real heading_final;   // Endpoint heading [rad]
 	real turn_rate_final; // Local turn rate [rad/s]
 
-	// Turn-rate prior hyperparameters [rad/s]
-	real turn_rate_initial_prior_mean;
-	real<lower=0> turn_rate_state_prior_scale;
-
   // Prior scales for observation and process noise
   real<lower=0> sigma_position_gps_prior_scale;         // Observation-noise prior scale [m]
   real<lower=0> sigma_position_process_prior_scale;     // Position-process prior scale [m/sqrt(s)]
   real<lower=0> sigma_speed_process_prior_scale;        // Speed-process prior scale [(m/s)/sqrt(s)]
-  real<lower=0> sigma_turn_rate_process_prior_scale;    // Turn-rate-process prior scale [(rad/s)/sqrt(s)]
 }
 
 
@@ -105,9 +100,8 @@ parameters {
   vector[N_observed] x_state;  // Latent true x-position [m]
   vector[N_observed] y_state;  // Latent true y-position [m]
 
-  // Latent kinematic states
+  // Latent speed state
   vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
-  vector[N_observed] turn_rate_state;       // Latent turn rate [rad/s]
 
   // Unknown observation-noise parameter
   real<lower=1e-6> sigma_position_gps;  // SD between observed and latent positions [m]
@@ -115,7 +109,6 @@ parameters {
   // Unknown process-noise parameters describing deviations from ideal CTRV dynamics
   real<lower=1e-6> sigma_position_process;  // Position-process diffusion scale [m/sqrt(s)]
   real<lower=1e-6> sigma_speed_process;     // Speed-process diffusion scale [(m/s)/sqrt(s)]
-  real<lower=1e-6> sigma_turn_rate_process; // Turn-rate-process diffusion scale [(rad/s)/sqrt(s)]
 }
 
 
@@ -126,12 +119,12 @@ transformed parameters {
 
   heading_state[N_observed] = heading_final;
 
-  // Reconstruct earlier headings by integrating the latent turn rate backward.
+  // Reconstruct earlier headings from the fixed terminal turn rate.
   for (reverse_index in 1:(N_observed - 1)) {
     int n = N_observed - reverse_index;
     real dt = time_observed[n + 1] - time_observed[n];
 
-    heading_state[n] = heading_state[n + 1] - turn_rate_state[n] * dt;
+    heading_state[n] = heading_state[n + 1] - turn_rate_final * dt;
   }
 }
 
@@ -158,21 +151,7 @@ model {
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
   // ------------------------------------------------------------------
-  // 2. PRIOR REGULARIZATION OF THE LATENT TURN-RATE TRAJECTORY
-  // ------------------------------------------------------------------
-
-  /*
-   * Marginal prior for the latent turn-rate path:
-   *
-   *   p(turn_rate_1, ..., turn_rate_N)
-   *
-   * Regularizes all turn-rate states around the specified prior mean.
-   */
-  turn_rate_state ~ normal(turn_rate_initial_prior_mean, turn_rate_state_prior_scale);
-
-
-  // ------------------------------------------------------------------
-  // 3. PRIORS FOR OBSERVATION- AND PROCESS-NOISE PARAMETERS
+  // 2. PRIORS FOR OBSERVATION- AND PROCESS-NOISE PARAMETERS
   // ------------------------------------------------------------------
 
   /*
@@ -183,11 +162,10 @@ model {
   sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
-  sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
 
 
   // ------------------------------------------------------------------
-  // 4. STOCHASTIC STATE-TRANSITION MODEL / PROCESS MODEL
+  // 3. STOCHASTIC STATE-TRANSITION MODEL / PROCESS MODEL
   // ------------------------------------------------------------------
 
   /*
@@ -207,7 +185,7 @@ model {
         y_state[n - 1],
         speed_state[n - 1],
         heading_state[n - 1],
-        turn_rate_state[n - 1]);
+        turn_rate_final);
 
     // Position transition with diffusion-scaled process noise.
     x_state[n] ~ normal(position[1], sigma_position_process * sqrt(dt));
@@ -216,13 +194,11 @@ model {
     // Gaussian random walk for latent speed.
     speed_state[n] ~ normal(speed_state[n - 1], sigma_speed_process * sqrt(dt));
 
-    // Gaussian random walk for latent turn rate.
-    turn_rate_state[n] ~ normal(turn_rate_state[n - 1], sigma_turn_rate_process * sqrt(dt));
   }
 
 
   // ------------------------------------------------------------------
-  // 5. LIKELIHOOD / POSITION-OBSERVATION MODEL
+  // 4. LIKELIHOOD / POSITION-OBSERVATION MODEL
   // ------------------------------------------------------------------
 
   /*
@@ -250,7 +226,7 @@ generated quantities {
   vector[N_prediction] y_state_prediction;
   vector[N_prediction] speed_state_prediction;
   vector[N_prediction] heading_state_prediction;
-  vector[N_prediction] turn_rate_state_prediction;
+  vector[N_prediction] turn_rate_prediction;
 
   // Posterior predictive observations (including observation noise)
   vector[N_prediction] x_observation_prediction;
@@ -263,7 +239,7 @@ generated quantities {
   real x_previous = x_state[N_observed];
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
-  real heading_previous = heading_state[N_observed];
+  real heading_previous = heading_final;
   real turn_rate_forecast_origin = turn_rate_final;
   real turn_rate_previous = turn_rate_forecast_origin;
   real time_previous = time_observed[N_observed];
@@ -314,7 +290,7 @@ generated quantities {
     y_state_prediction[n] = y_current;
     speed_state_prediction[n] = speed_current;
     heading_state_prediction[n] = heading_current;
-    turn_rate_state_prediction[n] = turn_rate_current;
+    turn_rate_prediction[n] = turn_rate_current;
 
     // Generate posterior predictive position observations
     x_observation_prediction[n] = normal_rng(x_current, sigma_position_gps);

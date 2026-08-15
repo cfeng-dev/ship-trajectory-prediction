@@ -18,12 +18,13 @@ STAN_FILE = paths.stan_path("models/hybrid_bayesian_ctrv.stan")
 
 # Preserve the model's established convenience exports.
 DEFAULT_VI_ADAPT_ITER = bayesian_model.DEFAULT_VI_ADAPT_ITER
-NOISE_PARAMETER_NAMES = bayesian_model.NOISE_PARAMETER_NAMES
-BayesianCTRVPriors = bayesian_model.BayesianCTRVPriors
+NOISE_PARAMETER_NAMES = (
+    "sigma_position_gps",
+    "sigma_position_process",
+    "sigma_speed_process",
+)
 HistoricalInitialSpeedPrior = bayesian_model.HistoricalInitialSpeedPrior
 PositionObservations = bayesian_model.PositionObservations
-TurnRateDiagnostics = bayesian_model.TurnRateDiagnostics
-diagnose_observed_turn_rate = bayesian_model.diagnose_observed_turn_rate
 estimate_initial_speed_from_positions = (
     bayesian_model.estimate_initial_speed_from_positions
 )
@@ -32,12 +33,41 @@ estimate_initial_speed_prior_from_windows = (
 )
 normalize_inference_method = bayesian_model.normalize_inference_method
 simulate_position_observations = bayesian_model.simulate_position_observations
-summarize_predictions = bayesian_model.summarize_predictions
 variational_converged = bayesian_model.variational_converged
 
 # Terminal-motion settings for the deterministic part of the hybrid model.
 FINAL_MOTION_HISTORY_SECONDS = 60
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class HybridBayesianCTRVPriors:
+    """Priors for latent position, speed, and noise in the hybrid model."""
+
+    position_initial_prior_scale: float = 5.0
+    speed_initial_prior_mean: float = 0.0
+    speed_initial_prior_scale: float = 0.75
+    sigma_position_gps_prior_scale: float = 5.0
+    sigma_position_process_prior_scale: float = 0.5
+    sigma_speed_process_prior_scale: float = 0.05
+
+    def __post_init__(self) -> None:
+        """Normalize and validate every hybrid prior value."""
+        speed_mean = bayesian_model._validate_non_negative_finite(
+            "speed_initial_prior_mean",
+            self.speed_initial_prior_mean,
+        )
+        object.__setattr__(self, "speed_initial_prior_mean", speed_mean)
+        for name in (
+            "position_initial_prior_scale",
+            "speed_initial_prior_scale",
+            "sigma_position_gps_prior_scale",
+            "sigma_position_process_prior_scale",
+            "sigma_speed_process_prior_scale",
+        ):
+            value = getattr(self, name)
+            bayesian_model._validate_positive_finite(name, value)
+            object.__setattr__(self, name, float(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,28 +94,20 @@ DEFAULT_HYBRID_CONFIG = HybridBayesianCTRVConfig()
 def build_stan_data(
     window: observation_window.TrajectoryWindowData,
     *,
-    priors: BayesianCTRVPriors | None = None,
+    priors: HybridBayesianCTRVPriors | None = None,
     position_observations: PositionObservations | None = None,
     hybrid_config: HybridBayesianCTRVConfig = DEFAULT_HYBRID_CONFIG,
 ) -> dict[str, Any]:
     """Build hybrid data with deterministic terminal heading and turn rate."""
-    stan_data = bayesian_model.build_stan_data(
+    if priors is None:
+        priors = HybridBayesianCTRVPriors()
+    if not isinstance(priors, HybridBayesianCTRVPriors):
+        raise TypeError("priors must be a HybridBayesianCTRVPriors instance or None.")
+    stan_data, observations = bayesian_model._build_position_speed_stan_data(
         window,
         priors=priors,
         position_observations=position_observations,
     )
-    observations = bayesian_model._resolve_position_observations(
-        window,
-        position_observations,
-    )
-    turn_rate_diagnostics = bayesian_model.diagnose_observed_turn_rate(
-        window,
-        turn_rate_state_prior_scale=(
-            None if priors is None else priors.turn_rate_state_prior_scale
-        ),
-        position_observations=position_observations,
-    )
-    stan_data["turn_rate_initial_prior_mean"] = turn_rate_diagnostics.median_rad_s
     try:
         heading_final, turn_rate_final = estimate_final_motion_from_positions(
             observations.time_seconds,
@@ -96,7 +118,6 @@ def build_stan_data(
     except ValueError:
         heading_final = 0.0
         turn_rate_final = 0.0
-        stan_data["turn_rate_initial_prior_mean"] = 0.0
     stan_data["heading_final"] = heading_final
     stan_data["turn_rate_final"] = turn_rate_final
     return stan_data
@@ -167,6 +188,28 @@ def estimate_final_motion_from_positions(
     return heading_final, turn_rate_final
 
 
+def summarize_predictions(
+    fit: Any,
+    window: observation_window.TrajectoryWindowData,
+    credible_interval: float = 0.9,
+):
+    """Summarize hybrid predictions with deterministic turn-rate output."""
+    return bayesian_model.summarize_predictions(
+        fit,
+        window,
+        credible_interval,
+        prediction_variables={
+            "x_state": "x_state_prediction",
+            "y_state": "y_state_prediction",
+            "speed_state": "speed_state_prediction",
+            "heading_state": "heading_state_prediction",
+            "turn_rate": "turn_rate_prediction",
+            "x_observation": "x_observation_prediction",
+            "y_observation": "y_observation_prediction",
+        },
+    )
+
+
 def compile_hybrid_bayesian_ctrv_model(
     stan_file: str | Path = STAN_FILE,
 ) -> CmdStanModel:
@@ -200,17 +243,15 @@ __all__ = [
     "DEFAULT_VI_ADAPT_ITER",
     "DEFAULT_HYBRID_CONFIG",
     "FINAL_MOTION_HISTORY_SECONDS",
+    "HybridBayesianCTRVPriors",
     "MIN_FINAL_MOTION_SPEED_MPS",
     "NOISE_PARAMETER_NAMES",
     "STAN_FILE",
-    "BayesianCTRVPriors",
     "HistoricalInitialSpeedPrior",
     "HybridBayesianCTRVConfig",
     "PositionObservations",
-    "TurnRateDiagnostics",
     "build_stan_data",
     "compile_hybrid_bayesian_ctrv_model",
-    "diagnose_observed_turn_rate",
     "estimate_final_motion_from_positions",
     "estimate_initial_speed_from_positions",
     "estimate_initial_speed_prior_from_windows",

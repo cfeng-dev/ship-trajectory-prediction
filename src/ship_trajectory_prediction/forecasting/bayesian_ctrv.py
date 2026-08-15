@@ -43,7 +43,7 @@ def create_default_vi_config() -> dict[str, Any]:
     return {
         "algorithm": "meanfield",
         "iter": 20_000,
-        "grad_samples": 1,
+        "grad_samples": bayesian_model.DEFAULT_MEANFIELD_GRAD_SAMPLES,
         "elbo_samples": 100,
         "eta": 1.0,
         "adapt_iter": bayesian_model.DEFAULT_VI_ADAPT_ITER,
