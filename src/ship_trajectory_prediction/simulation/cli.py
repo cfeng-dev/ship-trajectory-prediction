@@ -1,7 +1,5 @@
 """Start the interactive 2D ship trajectory simulation GUI."""
 
-import tkinter as tk
-
 from . import gui
 
 
@@ -9,6 +7,8 @@ def main():
     """
     Start the interactive ship trajectory GUI.
     """
+    import tkinter as tk
+
     root = tk.Tk()
 
     app = gui.ShipTrajectoryGUI(root)

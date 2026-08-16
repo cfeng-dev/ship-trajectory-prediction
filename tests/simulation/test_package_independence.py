@@ -38,6 +38,8 @@ def test_copied_simulation_package_can_generate_trajectory(tmp_path):
     )
     smoke_test = "\n".join(
         [
+            "import sys",
+            "sys.modules['tkinter'] = None",
             "from simulation.cli import main",
             "from simulation.paths import default_simulation_data_directory",
             "from simulation.synthetic_ctrv import simulate_synthetic_ctrv_data",
