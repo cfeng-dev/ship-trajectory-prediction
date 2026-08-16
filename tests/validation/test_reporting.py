@@ -3,9 +3,13 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from ship_trajectory_prediction.validation.reporting import (
+    format_aligned_rows,
+    format_evaluation_report,
+    format_prediction_table,
     posterior_parameter_summary,
     posterior_variable_samples,
     print_prediction_setup,
@@ -36,7 +40,7 @@ def test_print_prediction_setup_reports_and_aligns_all_rows(capsys):
     lines = capsys.readouterr().out.splitlines()
     value_lines = lines[3:]
 
-    assert lines[:3] == ["=" * 60, title, "=" * 60]
+    assert lines[:3] == ["=" * 72, title, "=" * 72]
     assert "Data file" in value_lines[0]
     assert "trajectory.csv" in value_lines[0]
     assert "Observed positions" in value_lines[2]
@@ -44,6 +48,51 @@ def test_print_prediction_setup_reports_and_aligns_all_rows(capsys):
     assert "Speed prior median" in value_lines[-1]
     assert "12.50 m/s" in value_lines[-1]
     assert len({line.index(":") for line in value_lines}) == 1
+
+
+def test_compact_prediction_table_and_evaluation_report_fit_terminal():
+    """Single-window prediction reports should use the rolling-style layout."""
+    table = format_prediction_table(
+        pd.DataFrame(
+            {
+                "horizon_seconds": [10.0],
+                "x_actual": [12.3456],
+                "y_actual": [-3.4567],
+                "x_predicted": [11.9876],
+                "y_predicted": [-2.9876],
+                "position_error_m": [0.5901],
+            }
+        ),
+        columns=[
+            "horizon_seconds",
+            "x_actual",
+            "y_actual",
+            "x_predicted",
+            "y_predicted",
+            "position_error_m",
+        ],
+    )
+    report = format_evaluation_report(
+        [("ADE", "0.59 m"), ("Computation time", "0.004 s")],
+        table,
+    )
+
+    lines = report.splitlines()
+    metric_lines = [line for line in lines if " : " in line]
+    assert lines[:3] == [
+        "=" * 72,
+        "Complete prediction evaluation",
+        "=" * 72,
+    ]
+    assert "Horizon[s]" in report
+    assert "x_actual" not in report
+    assert len({line.index(":") for line in metric_lines}) == 1
+    assert max(map(len, lines)) <= 80
+
+
+def test_format_aligned_rows_accepts_no_rows():
+    """An optional empty diagnostic section should format cleanly."""
+    assert format_aligned_rows([]) == ""
 
 
 def test_print_prediction_setup_expands_separator_for_long_title(capsys):
@@ -106,8 +155,12 @@ COMPLETED.
     assert history["iteration"].tolist() == [100, 200]
     assert history["elbo"].tolist() == [-20.0, -10.0]
     output = capsys.readouterr().out
-    assert "Final iteration   : 200" in output
-    assert "Final ELBO        : -10.000" in output
+    diagnostic_lines = [line for line in output.splitlines() if " : " in line]
+    assert "Final iteration" in output
+    assert "200" in output
+    assert "Final ELBO" in output
+    assert "-10.000" in output
+    assert len({line.index(":") for line in diagnostic_lines}) == 1
 
 
 class FakeVariationalFit:

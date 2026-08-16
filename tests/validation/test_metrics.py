@@ -152,7 +152,10 @@ def test_format_and_print_position_evaluation(capsys):
     assert "ADE" in report
     assert "FDE" in report
     assert "Joint 2D 90% coverage" in report
-    assert "Per-horizon accuracy" in report
+    assert "Complete prediction evaluation" in report
+    assert "Per-horizon evaluation" in report
+    assert "Horizon[s]" in report
+    assert "horizon_seconds" not in report
     assert report in captured
 
 
@@ -161,9 +164,22 @@ def test_format_position_evaluation_aligns_metric_separators():
     evaluation = evaluate_position_predictions(create_valid_fit(), FakeWindow())
 
     report = format_position_evaluation(evaluation)
-    metric_lines = report.splitlines()[1:6]
+    metric_lines = [line for line in report.splitlines() if " : " in line]
 
     assert len({line.index(":") for line in metric_lines}) == 1
+
+
+def test_format_position_evaluation_includes_computation_time():
+    """Single-window runtime should appear inside the aligned metric summary."""
+    evaluation = evaluate_position_predictions(create_valid_fit(), FakeWindow())
+
+    report = format_position_evaluation(
+        evaluation,
+        computation_time_seconds=1.2345,
+    )
+
+    assert "Computation time" in report
+    assert "1.234 s" in report
 
 
 def test_format_position_evaluation_rejects_invalid_input():

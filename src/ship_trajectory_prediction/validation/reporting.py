@@ -5,7 +5,75 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-MIN_SEPARATOR_WIDTH = 60
+MIN_SEPARATOR_WIDTH = 72
+
+PREDICTION_COLUMN_LABELS = {
+    "horizon_seconds": "Horizon[s]",
+    "x_actual": "Actual x[m]",
+    "y_actual": "Actual y[m]",
+    "x_predicted": "Pred. x[m]",
+    "y_predicted": "Pred. y[m]",
+    "x_median": "Median x[m]",
+    "y_median": "Median y[m]",
+    "position_error_m": "Error[m]",
+    "prediction_radius_m": "Radius[m]",
+    "radial_covered": "Covered",
+}
+
+
+def format_aligned_rows(rows) -> str:
+    """Format label-value pairs with one shared separator column."""
+    rows = list(rows)
+    if not rows:
+        return ""
+    label_width = max(len(label) for label, _ in rows)
+    return "\n".join(f"{label:<{label_width}} : {value}" for label, value in rows)
+
+
+def format_prediction_table(table: pd.DataFrame, *, columns) -> str:
+    """Format selected prediction columns with compact terminal labels."""
+    columns = list(columns)
+    missing_columns = [column for column in columns if column not in table]
+    if missing_columns:
+        raise ValueError(f"Missing prediction table columns: {missing_columns}")
+
+    display_table = table.loc[:, columns].rename(columns=PREDICTION_COLUMN_LABELS)
+    if "Covered" in display_table:
+        display_table["Covered"] = display_table["Covered"].map(
+            {True: "yes", False: "no"}
+        )
+    numeric_formatters = {
+        "Horizon[s]": lambda value: f"{value:.1f}",
+        "Actual x[m]": lambda value: f"{value:.3f}",
+        "Actual y[m]": lambda value: f"{value:.3f}",
+        "Pred. x[m]": lambda value: f"{value:.3f}",
+        "Pred. y[m]": lambda value: f"{value:.3f}",
+        "Median x[m]": lambda value: f"{value:.3f}",
+        "Median y[m]": lambda value: f"{value:.3f}",
+        "Error[m]": lambda value: f"{value:.3f}",
+        "Radius[m]": lambda value: f"{value:.3f}",
+    }
+    formatters = {
+        column: formatter
+        for column, formatter in numeric_formatters.items()
+        if column in display_table
+    }
+    return display_table.to_string(index=False, formatters=formatters)
+
+
+def format_evaluation_report(metric_rows, prediction_table: str) -> str:
+    """Format one single-window evaluation like the rolling summary."""
+    separator = "=" * MIN_SEPARATOR_WIDTH
+    return "\n".join(
+        [
+            separator,
+            "Complete prediction evaluation",
+            separator,
+            format_aligned_rows(metric_rows),
+            "\nPer-horizon evaluation:",
+            prediction_table,
+        ]
+    )
 
 
 def posterior_variable_samples(fit, variable_name):
@@ -23,7 +91,7 @@ def posterior_variable_samples(fit, variable_name):
 def posterior_parameter_summary(fit, variable_names, credible_interval=0.9):
     """Summarize selected parameters while retaining MCMC diagnostics."""
     variable_names = list(variable_names)
-    if hasattr(fit, "summary"):
+    if callable(getattr(type(fit), "summary", None)):
         return fit.summary().loc[variable_names]
 
     if not 0 < credible_interval < 1:
@@ -96,16 +164,24 @@ def variational_elbo_history(fit):
     return pd.DataFrame(rows)
 
 
-def print_variational_diagnostics(fit):
+def print_variational_diagnostics(fit, *, converged=None):
     """Print a concise ELBO convergence report for a variational fit."""
     history = variational_elbo_history(fit)
     final = history.iloc[-1]
-    print("\nVariational convergence:")
-    print(f"ELBO evaluations : {len(history)}")
-    print(f"Final iteration   : {int(final['iteration'])}")
-    print(f"Final ELBO        : {final['elbo']:.3f}")
-    print(f"Mean relative delta: {final['delta_elbo_mean']:.6g}")
-    print(f"Median relative delta: {final['delta_elbo_median']:.6g}")
+    rows = []
+    if converged is not None:
+        rows.append(("VI converged", converged))
+    rows.extend(
+        [
+            ("ELBO evaluations", len(history)),
+            ("Final iteration", int(final["iteration"])),
+            ("Final ELBO", f"{final['elbo']:.3f}"),
+            ("Mean relative delta", f"{final['delta_elbo_mean']:.6g}"),
+            ("Median relative delta", f"{final['delta_elbo_median']:.6g}"),
+        ]
+    )
+    print("\nVariational diagnostics:")
+    print(format_aligned_rows(rows))
 
 
 def print_prediction_setup(
@@ -125,10 +201,8 @@ def print_prediction_setup(
         *extra_rows,
     ]
     separator = "=" * max(MIN_SEPARATOR_WIDTH, len(title))
-    label_width = max(len(label) for label, _ in rows)
 
     print(separator)
     print(title)
     print(separator)
-    for label, value in rows:
-        print(f"{label:<{label_width}}: {value}")
+    print(format_aligned_rows(rows))

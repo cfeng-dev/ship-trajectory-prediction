@@ -1,6 +1,7 @@
 """Rolling evaluation workflow for deterministic CTRV forecasts."""
 
 import dataclasses
+import time
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,9 @@ class DeterministicRollingSummary:
     forecast_count: int
     ade_m: float
     fde_m: float
+    mean_window_runtime_seconds: float
+    median_window_runtime_seconds: float
+    total_computation_time_seconds: float
     per_horizon_table: pd.DataFrame
 
 
@@ -124,6 +128,7 @@ def _run_deterministic_ctrv_evaluation(
             route_noise_x=route_noise_x,
             route_noise_y=route_noise_y,
         )
+        runtime_started = time.perf_counter()
         initial_state = forecasting.estimate_ctrv_state(
             estimation_window,
             speed_estimation_points=speed_estimation_points,
@@ -145,11 +150,14 @@ def _run_deterministic_ctrv_evaluation(
             position_noise_std_m=position_noise_std_m,
             position_noise_seed=position_noise_seed,
         )
+        window_runtime_seconds = time.perf_counter() - runtime_started
+        table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
         print(
             f"Window {number}/{len(windows)}: "
             f"ADE={table['position_error_m'].mean():.2f} m, "
             f"FDE={table['position_error_m'].iloc[-1]:.2f} m, "
+            f"runtime={window_runtime_seconds:.3f} s, "
             f"heading={initial_state.heading:+.4f} rad, "
             f"turn rate={initial_state.turn_rate:+.5f} rad/s"
         )
@@ -178,6 +186,7 @@ def summarize_deterministic_predictions(predictions):
         "horizon_step",
         "horizon_seconds",
         "position_error_m",
+        "window_runtime_seconds",
     }
     missing = sorted(required_columns.difference(predictions.columns))
     if missing:
@@ -202,11 +211,15 @@ def summarize_deterministic_predictions(predictions):
         )
         .reset_index(drop=True)
     )
+    runtime_summary = rolling_validation.summarize_window_runtimes(predictions)
     return DeterministicRollingSummary(
         window_count=int(predictions["window_index"].nunique()),
         forecast_count=len(predictions),
         ade_m=float(np.mean(error)),
         fde_m=float(per_horizon.iloc[-1]["ade_m"]),
+        mean_window_runtime_seconds=runtime_summary.mean_seconds,
+        median_window_runtime_seconds=runtime_summary.median_seconds,
+        total_computation_time_seconds=runtime_summary.total_seconds,
         per_horizon_table=per_horizon,
     )
 
@@ -369,6 +382,20 @@ def _print_summary(summary):
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+        (
+            "Mean window runtime",
+            f"{summary.mean_window_runtime_seconds:.3f} s",
+        ),
+        (
+            "Median window runtime",
+            f"{summary.median_window_runtime_seconds:.3f} s",
+        ),
+        (
+            "Total computation time",
+            rolling_validation.format_computation_time(
+                summary.total_computation_time_seconds
+            ),
+        ),
     ]
     label_width = max(len(label) for label, _ in rows)
     for label, value in rows:

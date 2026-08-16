@@ -1,8 +1,8 @@
 """Single-window Bayesian CTRV prediction workflow."""
 
+import time
 from collections.abc import Mapping
 from functools import partial
-from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -212,7 +212,7 @@ def _run_bayesian_ctrv_prediction(
         run_id=experiment.run_id,
     )
 
-    fit_started = perf_counter()
+    computation_started = time.perf_counter()
     fit = fit_model(
         window,
         priors=priors,
@@ -221,12 +221,19 @@ def _run_bayesian_ctrv_prediction(
         seed=seed,
         **inference_config,
     )
-    fit_and_forecast_runtime_seconds = perf_counter() - fit_started
-    print(f"\nModel fit and forecast runtime: {fit_and_forecast_runtime_seconds:.2f} s")
+    evaluation = metrics.evaluate_position_predictions(
+        fit,
+        window,
+        credible_interval=credible_interval,
+        position_variable_names=(
+            "x_state_prediction",
+            "y_state_prediction",
+        ),
+    )
+    computation_time_seconds = time.perf_counter() - computation_started
     if inference_method == "vi":
         converged = bayesian_model.variational_converged(fit)
-        reporting.print_variational_diagnostics(fit)
-        print(f"CmdStan convergence criterion met: {converged}")
+        reporting.print_variational_diagnostics(fit, converged=converged)
         if not converged:
             print(
                 "WARNING: Treat this posterior and its plot as preliminary; "
@@ -246,41 +253,42 @@ def _run_bayesian_ctrv_prediction(
 
     speed_state = reporting.posterior_variable_samples(fit, "speed_state")
     heading_state = reporting.posterior_variable_samples(fit, "heading_state")
-    print("\nPosterior state medians:")
-    print(
-        "Speed [m/s]       : "
-        f"{np.median(speed_state[:, 0]):.3f} -> "
-        f"{np.median(speed_state[:, -1]):.3f}"
-    )
-    print(
-        "Heading [rad]     : "
-        f"{np.median(heading_state[:, 0]):.4f} -> "
-        f"{np.median(heading_state[:, -1]):.4f}"
-    )
+    state_rows = [
+        (
+            "Speed [m/s]",
+            f"{np.median(speed_state[:, 0]):.3f} -> "
+            f"{np.median(speed_state[:, -1]):.3f}",
+        ),
+        (
+            "Heading [rad]",
+            f"{np.median(heading_state[:, 0]):.4f} -> "
+            f"{np.median(heading_state[:, -1]):.4f}",
+        ),
+    ]
     if has_latent_turn_rate:
         turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
-        print(
-            "Turn rate [rad/s] : "
-            f"{np.median(turn_rate_state[:, 0]):.5f} -> "
-            f"{np.median(turn_rate_state[:, -1]):.5f}"
+        state_rows.append(
+            (
+                "Turn rate [rad/s]",
+                f"{np.median(turn_rate_state[:, 0]):.5f} -> "
+                f"{np.median(turn_rate_state[:, -1]):.5f}",
+            )
         )
     else:
-        print(f"Turn rate [rad/s] : fixed at {stan_data['turn_rate_final']:.5f}")
+        state_rows.append(
+            ("Turn rate [rad/s]", f"fixed at {stan_data['turn_rate_final']:.5f}")
+        )
+    print("\nPosterior state medians:")
+    print(reporting.format_aligned_rows(state_rows))
     print(
         "GPS speed was not used for fitting; it is retained only as an "
         "external post-fit plausibility reference."
     )
 
-    evaluation = metrics.evaluate_position_predictions(
-        fit,
-        window,
-        credible_interval=credible_interval,
-        position_variable_names=(
-            "x_state_prediction",
-            "y_state_prediction",
-        ),
+    metrics.print_position_evaluation(
+        evaluation,
+        computation_time_seconds=computation_time_seconds,
     )
-    metrics.print_position_evaluation(evaluation)
     observed_trajectory_label = (
         "Verrauschte Beobachtungen"
         if position_observations.additional_noise_std_m > 0

@@ -1,6 +1,7 @@
 """Shared rolling evaluation workflows for Bayesian CTRV models."""
 
 import dataclasses
+import time
 from functools import partial
 
 import matplotlib.pyplot as plt
@@ -273,6 +274,7 @@ def _run_bayesian_ctrv_evaluation(
             ),
             position_observations=position_observations,
         )
+        runtime_started = time.perf_counter()
         fit, window_seed = _fit_rolling_window(
             window,
             priors=priors,
@@ -321,7 +323,6 @@ def _run_bayesian_ctrv_evaluation(
             position_noise_seed=position_noise_seed,
             model_name=model_name,
         )
-        prediction_tables.append(table)
         posterior_plot_groups.append(
             _build_rolling_posterior_plot_data(
                 fit,
@@ -333,9 +334,13 @@ def _run_bayesian_ctrv_evaluation(
                 latitude=latitude,
             )
         )
+        window_runtime_seconds = time.perf_counter() - runtime_started
+        table["window_runtime_seconds"] = window_runtime_seconds
+        prediction_tables.append(table)
         print(
             f"ADE={evaluation.ade_m:.2f} m, "
             f"FDE={evaluation.fde_m:.2f} m, "
+            f"runtime={window_runtime_seconds:.3f} s, "
             f"{inference_status}"
         )
         if plot_each_window:
@@ -564,19 +569,38 @@ def _fit_rolling_window(
     fit_model=None,
     noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
 ):
-    """Fit one window and retry only numerically exploded VI approximations."""
+    """Fit one window and retry recoverable numerical VI failures."""
     if fit_model is None:
         fit_model = bayesian_model.fit_bayesian_ctrv_model
     seed = initial_seed
     for attempt in range(VI_NUMERICAL_STABILITY_RETRIES + 1):
-        fit = fit_model(
-            window,
-            priors=priors,
-            position_observations=position_observations,
-            inference_method=inference_method,
-            seed=seed,
-            **inference_config,
-        )
+        try:
+            fit = fit_model(
+                window,
+                priors=priors,
+                position_observations=position_observations,
+                inference_method=inference_method,
+                seed=seed,
+                **inference_config,
+            )
+        except RuntimeError as error:
+            if inference_method != "vi" or not _is_retryable_vi_runtime_error(error):
+                raise
+            if attempt == VI_NUMERICAL_STABILITY_RETRIES:
+                raise RuntimeError(
+                    "VI failed during CmdStan execution after "
+                    f"{VI_NUMERICAL_STABILITY_RETRIES + 1} attempts; "
+                    f"last seed={seed}: {error}"
+                ) from error
+
+            next_seed = seed + 1
+            reason = str(error).splitlines()[0]
+            print(
+                "WARNING: CmdStan VI fit failed "
+                f"(seed={seed}: {reason}); retrying with seed={next_seed}."
+            )
+            seed = next_seed
+            continue
         if inference_method != "vi":
             return fit, seed
 
@@ -601,6 +625,19 @@ def _fit_rolling_window(
         seed = next_seed
 
     raise AssertionError("Unreachable VI retry state.")
+
+
+def _is_retryable_vi_runtime_error(error):
+    """Return whether CmdStan reported a stochastic VI execution failure."""
+    message = str(error)
+    return any(
+        marker in message
+        for marker in (
+            "Error during variational inference",
+            "Variational algorithm gradient calculation failed",
+            "All proposed step-sizes failed",
+        )
+    )
 
 
 def _vi_numerical_instability_reason(
@@ -737,6 +774,20 @@ def _print_summary(summary, *, credible_interval):
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+        (
+            "Mean window runtime",
+            f"{summary.mean_window_runtime_seconds:.3f} s",
+        ),
+        (
+            "Median window runtime",
+            f"{summary.median_window_runtime_seconds:.3f} s",
+        ),
+        (
+            "Total computation time",
+            rolling_validation.format_computation_time(
+                summary.total_computation_time_seconds
+            ),
+        ),
         (
             f"Joint 2D {100 * credible_interval:g}% coverage",
             f"{summary.radial_coverage:.1%}",

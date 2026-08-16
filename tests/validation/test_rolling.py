@@ -93,6 +93,7 @@ def test_summarize_rolling_predictions_aggregates_windows_and_horizons():
             "inference_method": ["vi", "vi", "vi"],
             "converged": [True, True, False],
             "mcmc_diagnostics_ok": [None, None, None],
+            "window_runtime_seconds": [1.5, 1.5, 2.5],
         }
     )
 
@@ -106,6 +107,9 @@ def test_summarize_rolling_predictions_aggregates_windows_and_horizons():
     assert summary.radial_coverage == pytest.approx(2 / 3)
     assert summary.mean_prediction_radius_m == pytest.approx(3.0)
     assert summary.mean_marginal_interval_width_m == pytest.approx(5.0)
+    assert summary.mean_window_runtime_seconds == pytest.approx(2.0)
+    assert summary.median_window_runtime_seconds == pytest.approx(2.0)
+    assert summary.total_computation_time_seconds == pytest.approx(4.0)
     assert summary.vi_convergence_rate == pytest.approx(0.5)
     assert summary.mcmc_diagnostics_pass_rate is None
     assert summary.per_horizon_table["forecast_count"].tolist() == [2, 1]
@@ -126,6 +130,7 @@ def test_summarize_rolling_predictions_reports_mcmc_diagnostics_separately():
             "inference_method": ["mcmc", "mcmc"],
             "converged": [None, None],
             "mcmc_diagnostics_ok": [True, False],
+            "window_runtime_seconds": [8.0, 12.0],
         }
     )
 
@@ -153,7 +158,30 @@ def test_summarize_rolling_predictions_rejects_missing_or_empty_data():
             "inference_method",
             "converged",
             "mcmc_diagnostics_ok",
+            "window_runtime_seconds",
         ]
     )
     with pytest.raises(ValueError, match="at least one forecast"):
         summarize_rolling_predictions(empty)
+
+
+def test_summarize_rolling_predictions_rejects_inconsistent_window_runtimes():
+    """One rolling window must not contain multiple computation times."""
+    predictions = pd.DataFrame(
+        {
+            "window_index": [0, 0],
+            "horizon_step": [1, 2],
+            "horizon_seconds": [10.0, 20.0],
+            "position_error_m": [1.0, 2.0],
+            "prediction_radius_m": [2.0, 3.0],
+            "radial_covered": [True, True],
+            "mean_marginal_interval_width_m": [4.0, 5.0],
+            "inference_method": ["vi", "vi"],
+            "converged": [True, True],
+            "mcmc_diagnostics_ok": [None, None],
+            "window_runtime_seconds": [1.0, 2.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="constant within each rolling window"):
+        summarize_rolling_predictions(predictions)

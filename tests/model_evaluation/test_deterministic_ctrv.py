@@ -66,6 +66,7 @@ def test_main_evaluates_deterministic_rolling_windows(monkeypatch):
     assert predictions["model_variant"].unique().tolist() == ["deterministic"]
     assert predictions["window_index"].tolist() == [0, 0, 1, 1]
     assert predictions["horizon_step"].tolist() == [1, 2, 1, 2]
+    assert (predictions["window_runtime_seconds"] >= 0).all()
     assert summary.ade_m < 0.1
     assert summary.fde_m < 0.1
 
@@ -135,6 +136,7 @@ def test_summary_uses_mean_error_at_largest_horizon_as_fde():
             "horizon_step": [1, 2, 1, 2],
             "horizon_seconds": [5.0, 10.0, 5.0, 10.0],
             "position_error_m": [1.0, 4.0, 3.0, 8.0],
+            "window_runtime_seconds": [0.01, 0.01, 0.03, 0.03],
         }
     )
 
@@ -144,6 +146,9 @@ def test_summary_uses_mean_error_at_largest_horizon_as_fde():
     assert summary.forecast_count == 4
     assert summary.ade_m == pytest.approx(4.0)
     assert summary.fde_m == pytest.approx(6.0)
+    assert summary.mean_window_runtime_seconds == pytest.approx(0.02)
+    assert summary.median_window_runtime_seconds == pytest.approx(0.02)
+    assert summary.total_computation_time_seconds == pytest.approx(0.04)
 
 
 def test_summary_uses_aligned_metrics_and_compact_horizon_columns(capsys):
@@ -153,6 +158,9 @@ def test_summary_uses_aligned_metrics_and_compact_horizon_columns(capsys):
         forecast_count=341,
         ade_m=6.07,
         fde_m=6.31,
+        mean_window_runtime_seconds=0.004,
+        median_window_runtime_seconds=0.003,
+        total_computation_time_seconds=0.456,
         per_horizon_table=pd.DataFrame(
             {
                 "horizon_step": [1, 2, 3],
@@ -169,8 +177,10 @@ def test_summary_uses_aligned_metrics_and_compact_horizon_columns(capsys):
     output = capsys.readouterr().out
     metric_lines = [line for line in output.splitlines() if " : " in line]
     table_lines = output.partition("Per-horizon evaluation:\n")[2].splitlines()
-    assert len(metric_lines) == 4
+    assert len(metric_lines) == 7
     assert len({line.index(":") for line in metric_lines}) == 1
+    assert "Mean window runtime" in output
+    assert "Total computation time" in output
     assert "horizon_step" not in output
     assert "Horizon[s]" in table_lines[0]
     assert max(map(len, table_lines)) <= 80

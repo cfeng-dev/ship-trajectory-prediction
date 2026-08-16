@@ -81,6 +81,9 @@ def test_summary_aligns_all_metric_separators(capsys):
         forecast_count=341,
         ade_m=20.61,
         fde_m=30.20,
+        mean_window_runtime_seconds=6.12,
+        median_window_runtime_seconds=5.87,
+        total_computation_time_seconds=697.8,
         radial_coverage=0.783,
         mean_prediction_radius_m=27.36,
         mean_marginal_interval_width_m=42.36,
@@ -91,11 +94,13 @@ def test_summary_aligns_all_metric_separators(capsys):
 
     workflow._print_summary(summary, credible_interval=0.9)
 
-    metric_lines = [
-        line for line in capsys.readouterr().out.splitlines() if " : " in line
-    ]
-    assert len(metric_lines) == 9
+    output = capsys.readouterr().out
+    metric_lines = [line for line in output.splitlines() if " : " in line]
+    assert len(metric_lines) == 12
     assert len({line.index(":") for line in metric_lines}) == 1
+    assert "Mean window runtime" in output
+    assert "Total computation time" in output
+    assert "11.63 min" in output
 
 
 def test_per_horizon_summary_uses_compact_terminal_columns():
@@ -372,6 +377,82 @@ def test_numerically_exploded_vi_fit_is_retried_with_next_seed(
     assert seed == 63
     assert used_seeds == [62, 63]
     assert "retrying with seed=63" in capsys.readouterr().out
+
+
+def test_cmdstan_vi_execution_failure_is_retried_with_next_seed(capsys):
+    """A seed-specific CmdStan VI failure should not abort rolling evaluation."""
+    stable = FakeFit(sigma_speed_process=[0.04, 0.06])
+    used_seeds = []
+
+    def fake_fit(*args, seed, **kwargs):
+        del args, kwargs
+        used_seeds.append(seed)
+        if seed == 62:
+            raise RuntimeError("Error during variational inference:")
+        return stable
+
+    fit, seed = workflow._fit_rolling_window(
+        object(),
+        priors=BayesianCTRVPriors(),
+        position_observations=object(),
+        inference_method="vi",
+        inference_config={},
+        initial_seed=62,
+        fit_model=fake_fit,
+    )
+
+    assert fit is stable
+    assert seed == 63
+    assert used_seeds == [62, 63]
+    output = capsys.readouterr().out
+    assert "CmdStan VI fit failed" in output
+    assert "retrying with seed=63" in output
+
+
+def test_repeated_cmdstan_vi_execution_failure_fails_clearly():
+    """Repeated CmdStan failures should retain a bounded retry policy."""
+    used_seeds = []
+
+    def fake_fit(*args, seed, **kwargs):
+        del args, kwargs
+        used_seeds.append(seed)
+        raise RuntimeError("Error during variational inference:")
+
+    with pytest.raises(RuntimeError, match="after 3 attempts; last seed=64"):
+        workflow._fit_rolling_window(
+            object(),
+            priors=BayesianCTRVPriors(),
+            position_observations=object(),
+            inference_method="vi",
+            inference_config={},
+            initial_seed=62,
+            fit_model=fake_fit,
+        )
+
+    assert used_seeds == [62, 63, 64]
+
+
+def test_unrelated_vi_runtime_error_is_not_retried():
+    """Programming and configuration errors must remain immediately visible."""
+    used_seeds = []
+
+    def fake_fit(*args, seed, **kwargs):
+        del args, kwargs
+        used_seeds.append(seed)
+        raise RuntimeError("Unexpected configuration error")
+
+    with pytest.raises(RuntimeError, match="Unexpected configuration error"):
+        workflow._fit_rolling_window(
+            object(),
+            priors=BayesianCTRVPriors(),
+            position_observations=object(),
+            inference_method="vi",
+            inference_config={},
+            initial_seed=62,
+            fit_model=fake_fit,
+        )
+
+    assert used_seeds == [62]
 
 
 def test_repeated_numerical_vi_instability_fails_clearly(monkeypatch):

@@ -4,6 +4,7 @@ from ship_trajectory_prediction.forecasting.bayesian_ctrv import (
     DEFAULT_FULLRANK_GRAD_SAMPLES,
     create_default_mcmc_config,
     create_default_vi_config,
+    select_bayesian_ctrv_inference_config,
 )
 from ship_trajectory_prediction.models.bayesian_ctrv import (
     DEFAULT_MEANFIELD_GRAD_SAMPLES,
@@ -31,6 +32,24 @@ def test_default_vi_config_returns_independent_complete_options():
     assert first is not second
     assert DEFAULT_FULLRANK_GRAD_SAMPLES == 10
     assert DEFAULT_MEANFIELD_GRAD_SAMPLES == 2
+
+
+def test_explicit_fullrank_selection_uses_fullrank_gradient_budget():
+    """An explicit fullrank selection should raise its gradient sample count."""
+    vi_config = create_default_vi_config()
+
+    inference_method, selected_config = select_bayesian_ctrv_inference_config(
+        "vi",
+        vi_algorithm="fullrank",
+        require_converged=vi_config["require_converged"],
+        vi_config=vi_config,
+        mcmc_config=create_default_mcmc_config(),
+        fullrank_grad_samples=DEFAULT_FULLRANK_GRAD_SAMPLES,
+    )
+
+    assert inference_method == "vi"
+    assert selected_config["algorithm"] == "fullrank"
+    assert selected_config["grad_samples"] == 10
 
 
 def test_default_mcmc_config_returns_independent_complete_options():

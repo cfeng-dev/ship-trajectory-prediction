@@ -1,5 +1,6 @@
 """Single-window deterministic CTRV prediction workflow."""
 
+import time
 from dataclasses import replace
 
 import matplotlib.pyplot as plt
@@ -43,6 +44,7 @@ def run_deterministic_ctrv_prediction(
         additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
+    computation_started = time.perf_counter()
     initial_state = deterministic_forecasting.estimate_ctrv_state(
         window,
         speed_estimation_points=speed_estimation_points,
@@ -52,6 +54,7 @@ def run_deterministic_ctrv_prediction(
         window,
         initial_state,
     )
+    computation_time_seconds = time.perf_counter() - computation_started
 
     reporting.print_prediction_setup(
         "Deterministic CTRV Trajectory Prediction",
@@ -72,10 +75,28 @@ def run_deterministic_ctrv_prediction(
             ("Estimated turn rate", f"{initial_state.turn_rate:.6f} rad/s"),
         ],
     )
-    print("\nHeld-out prediction:")
-    print(prediction_table.round(3).to_string(index=False))
-    print(f"\nADE: {prediction_table['position_error_m'].mean():.2f} m")
-    print(f"FDE: {prediction_table['position_error_m'].iloc[-1]:.2f} m")
+    evaluation_table = reporting.format_prediction_table(
+        prediction_table,
+        columns=[
+            "horizon_seconds",
+            "x_actual",
+            "y_actual",
+            "x_predicted",
+            "y_predicted",
+            "position_error_m",
+        ],
+    )
+    print()
+    print(
+        reporting.format_evaluation_report(
+            [
+                ("ADE", f"{prediction_table['position_error_m'].mean():.2f} m"),
+                ("FDE", f"{prediction_table['position_error_m'].iloc[-1]:.2f} m"),
+                ("Computation time", f"{computation_time_seconds:.3f} s"),
+            ],
+            evaluation_table,
+        )
+    )
 
     if show_plot:
         plot_deterministic_ctrv_prediction(

@@ -253,14 +253,21 @@ def evaluate_position_predictions(
     )
 
 
-def format_position_evaluation(evaluation):
+def format_position_evaluation(evaluation, *, computation_time_seconds=None):
     """Format one position evaluation as a concise console report."""
     if not isinstance(evaluation, PositionEvaluation):
         raise TypeError("evaluation must be a PositionEvaluation instance.")
+    if computation_time_seconds is not None and (
+        isinstance(computation_time_seconds, bool)
+        or not np.isfinite(computation_time_seconds)
+        or computation_time_seconds < 0
+    ):
+        raise ValueError("computation_time_seconds must be finite and non-negative.")
 
     interval_percent = 100 * evaluation.credible_interval
-    table = evaluation.prediction_table[
-        [
+    table = reporting.format_prediction_table(
+        evaluation.prediction_table,
+        columns=[
             "horizon_seconds",
             "x_actual",
             "y_actual",
@@ -269,10 +276,8 @@ def format_position_evaluation(evaluation):
             "position_error_m",
             "prediction_radius_m",
             "radial_covered",
-        ]
-    ].copy()
-    numeric_columns = table.select_dtypes(include=[np.number]).columns
-    table[numeric_columns] = table[numeric_columns].round(2)
+        ],
+    )
 
     metric_rows = [
         ("ADE", f"{evaluation.ade_m:.2f} m"),
@@ -290,23 +295,23 @@ def format_position_evaluation(evaluation):
             f"{evaluation.mean_marginal_interval_width_m:.2f} m",
         ),
     ]
-    label_width = max(len(label) for label, _ in metric_rows)
-    metric_lines = [f"{label:<{label_width}} : {value}" for label, value in metric_rows]
-
-    return "\n".join(
-        [
-            "Held-out position accuracy:",
-            *metric_lines,
-            "\nPer-horizon accuracy:",
-            table.to_string(index=False),
-        ]
-    )
+    if computation_time_seconds is not None:
+        metric_rows.insert(
+            2,
+            ("Computation time", f"{computation_time_seconds:.3f} s"),
+        )
+    return reporting.format_evaluation_report(metric_rows, table)
 
 
-def print_position_evaluation(evaluation):
+def print_position_evaluation(evaluation, *, computation_time_seconds=None):
     """Print one shared position-accuracy report."""
     print()
-    print(format_position_evaluation(evaluation))
+    print(
+        format_position_evaluation(
+            evaluation,
+            computation_time_seconds=computation_time_seconds,
+        )
+    )
 
 
 def _prediction_samples(fit, variable_name, prediction_count):
