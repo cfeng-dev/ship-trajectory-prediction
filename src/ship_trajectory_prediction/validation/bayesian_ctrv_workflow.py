@@ -221,7 +221,13 @@ def _run_bayesian_ctrv_evaluation(
         if position_noise_std_m > 0
         else "disabled"
     )
+    observation_noise_std_m = (
+        position_noise_std_m
+        if position_noise_std_m > 0
+        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+    )
     print(f"Additional pos. noise : {noise_description}")
+    print(f"Fixed observation SD  : {observation_noise_std_m:g} m")
     if inference_method == "vi":
         print(f"VI algorithm          : {vi_algorithm}")
         print(f"VI adaptation steps   : {inference_config['adapt_iter']}")
@@ -504,6 +510,11 @@ def _build_route_prediction_table(
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["additional_position_noise_std_m"] = additional_position_noise_std_m
+    table["position_observation_noise_std_m"] = (
+        additional_position_noise_std_m
+        if additional_position_noise_std_m > 0
+        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+    )
     table["position_noise_seed"] = position_noise_seed
     table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
     table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
@@ -754,6 +765,11 @@ def _build_window_position_observations(
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
         additional_noise_std_m=additional_noise_std_m,
         noise_seed=noise_seed,
+        observation_noise_std_m=(
+            additional_noise_std_m
+            if additional_noise_std_m > 0
+            else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+        ),
     )
 
 

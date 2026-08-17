@@ -277,6 +277,10 @@ def _print_ctrv_setup(
             *inference_rows,
             ("Inference seed", inference_seed),
             ("Additional position noise", noise_description),
+            (
+                "Fixed observation noise",
+                f"{position_observations.observation_noise_std_m:g} m",
+            ),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             ("Plot coordinates", plot_coordinate_mode),
         ],

@@ -67,6 +67,7 @@ def test_default_process_prior_scales_match_empirical_calibration():
 
     assert priors.sigma_position_process_prior_scale == pytest.approx(0.534)
     assert priors.sigma_speed_process_prior_scale == pytest.approx(0.0438)
+    assert not hasattr(priors, "sigma_position_gps_prior_scale")
 
 
 def test_hybrid_data_contains_deterministic_terminal_motion():
@@ -75,6 +76,7 @@ def test_hybrid_data_contains_deterministic_terminal_motion():
 
     assert stan_data["heading"] == pytest.approx(0.552, abs=1e-3)
     assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-3)
+    assert stan_data["sigma_position_observation"] == pytest.approx(2.0)
 
 
 def test_hybrid_stan_data_omits_latent_turn_rate_priors():
@@ -100,6 +102,7 @@ def test_hybrid_initial_values_omit_latent_turn_rate_parameters():
 
     assert "turn_rate_state" not in initial_values
     assert "sigma_turn_rate_process" not in initial_values
+    assert "sigma_position_gps" not in initial_values
     assert "heading_final" not in initial_values
 
 
@@ -241,12 +244,15 @@ def test_hybrid_stan_model_uses_only_deterministic_turn_rate():
 
     assert "real heading;" in data_block
     assert "real turn_rate;" in data_block
+    assert "real<lower=1e-6> sigma_position_observation;" in data_block
+    assert "sigma_position_gps_prior_scale" not in data_block
     assert "turn_rate_state_prior_scale" not in data_block
     assert "sigma_turn_rate_process_prior_scale" not in data_block
     assert "real heading;" not in parameter_block
     assert "real turn_rate;" not in parameter_block
     assert "turn_rate_state" not in parameter_block
     assert "sigma_turn_rate_process" not in parameter_block
+    assert "sigma_position_gps" not in parameter_block
     assert "turn_rate_state" not in source
     assert "heading_final" not in source
     assert "turn_rate_final" not in source

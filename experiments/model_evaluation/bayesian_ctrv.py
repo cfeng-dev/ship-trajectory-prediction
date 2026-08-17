@@ -29,7 +29,6 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
     turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
     turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
-    sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
     sigma_position_process_prior_scale=0.534,  # Position drift [m/sqrt(s)].
     sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
     sigma_turn_rate_process_prior_scale=0.001007,  # Turn drift [(rad/s)/sqrt(s)].

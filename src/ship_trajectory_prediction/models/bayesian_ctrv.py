@@ -28,9 +28,9 @@ MIN_TURN_RATE_PRIOR_SCALE = 0.002
 MAX_TURN_RATE_PRIOR_SCALE = 0.01
 TURN_RATE_PRIOR_SCALE_MULTIPLIER = 2.0
 MIN_COURSE_DISPLACEMENT_METERS = 1.0
+DEFAULT_POSITION_OBSERVATION_NOISE_STD_M = 2.0
 
 NOISE_PARAMETER_NAMES = (
-    "sigma_position_gps",
     "sigma_position_process",
     "sigma_speed_process",
     "sigma_turn_rate_process",
@@ -51,7 +51,6 @@ class BayesianCTRVPriors:
     speed_initial_prior_scale: float = 0.75
     turn_rate_initial_prior_mean: float = 0.0
     turn_rate_state_prior_scale: float | None = None
-    sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.534
     sigma_speed_process_prior_scale: float = 0.0438
     sigma_turn_rate_process_prior_scale: float = 0.001007
@@ -101,7 +100,8 @@ class PositionObservations:
 
     The arrays contain only the observed part of one trajectory window. The
     additional noise metadata records the experimental perturbation applied in
-    memory; it is not another parameter of the Stan observation model.
+    memory. ``observation_noise_std_m`` is the known standard deviation used
+    by the Stan observation model.
     """
 
     time_seconds: np.ndarray
@@ -109,6 +109,7 @@ class PositionObservations:
     y_meters: np.ndarray
     additional_noise_std_m: float
     noise_seed: int
+    observation_noise_std_m: float = DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
 
     def __post_init__(self) -> None:
         """Copy, validate, and make all observation arrays read-only."""
@@ -127,6 +128,11 @@ class PositionObservations:
             self.additional_noise_std_m,
         )
         noise_seed = _validate_non_negative_integer("noise_seed", self.noise_seed)
+        _validate_positive_finite(
+            "observation_noise_std_m",
+            self.observation_noise_std_m,
+        )
+        observation_noise_std_m = float(self.observation_noise_std_m)
         for values in (time_seconds, x_meters, y_meters):
             values.setflags(write=False)
         object.__setattr__(self, "time_seconds", time_seconds)
@@ -138,6 +144,11 @@ class PositionObservations:
             additional_noise_std_m,
         )
         object.__setattr__(self, "noise_seed", noise_seed)
+        object.__setattr__(
+            self,
+            "observation_noise_std_m",
+            float(observation_noise_std_m),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +198,11 @@ def simulate_position_observations(
         y_meters=y_meters,
         additional_noise_std_m=additional_noise_std_m,
         noise_seed=seed,
+        observation_noise_std_m=(
+            additional_noise_std_m
+            if additional_noise_std_m > 0
+            else DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+        ),
     )
 
 
@@ -203,10 +219,11 @@ def build_stan_data(
     diagnostics use only ``position_observations``; terminal heading and turn
     rate remain latent parameters of the Stan model.
     If observations are omitted, the observed portion of ``window`` is copied
-    without adding noise. Position is measured in meters, latent speed in
-    meters per second, heading in radians, turn rate in radians per second, and
-    time in seconds. Process-noise standard deviations are multiplied by
-    ``sqrt(dt)`` in Stan.
+    without adding noise and the default known observation-noise standard
+    deviation is used. Position is measured in meters, latent speed in meters
+    per second, heading in radians, turn rate in radians per second, and time
+    in seconds. Process-noise standard deviations are multiplied by ``sqrt(dt)``
+    in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
@@ -267,7 +284,6 @@ def _build_position_speed_stan_data(
         "position_initial_prior_scale": priors.position_initial_prior_scale,
         "speed_initial_prior_mean": priors.speed_initial_prior_mean,
         "speed_initial_prior_scale": priors.speed_initial_prior_scale,
-        "sigma_position_gps_prior_scale": priors.sigma_position_gps_prior_scale,
         "sigma_position_process_prior_scale": (
             priors.sigma_position_process_prior_scale
         ),
@@ -279,6 +295,9 @@ def _build_position_speed_stan_data(
             "time_observed": time_observed,
             "x_observed": x_observed,
             "y_observed": y_observed,
+            "sigma_position_observation": (
+                position_observations.observation_noise_std_m
+            ),
             "N_prediction": window.prediction_count,
             "time_prediction": time_prediction,
             "x_initial_prior_mean": float(x_observed[0]),
@@ -776,10 +795,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "speed_state": np.maximum(
             speed_initial + generator.normal(0, speed_jitter, state_count),
             SPEED_STATE_INITIAL_LOWER,
-        ),
-        "sigma_position_gps": max(
-            1e-3,
-            0.5 * stan_data["sigma_position_gps_prior_scale"],
         ),
         "sigma_position_process": max(
             1e-3,

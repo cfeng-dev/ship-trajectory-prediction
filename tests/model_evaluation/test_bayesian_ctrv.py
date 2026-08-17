@@ -269,6 +269,7 @@ def test_overlapping_windows_reuse_the_same_route_position_noise():
     np.testing.assert_allclose(first_x_noise, route_noise_x[:5])
     np.testing.assert_allclose(second_y_noise, route_noise_y[2:7])
     assert first_observations.additional_noise_std_m == 2.0
+    assert first_observations.observation_noise_std_m == 2.0
     assert first_observations.noise_seed == 2026
 
 
@@ -302,6 +303,7 @@ def test_zero_position_noise_keeps_the_recorded_route_unchanged():
         observations.y_meters,
         window.y_meters[window.observed_slice],
     )
+    assert observations.observation_noise_std_m == 2.0
 
 
 class FakeFit:
@@ -311,7 +313,6 @@ class FakeFit:
 
     def __init__(self, *, sigma_speed_process):
         self.variables = {
-            "sigma_position_gps": np.array([5.0]),
             "sigma_position_process": np.array([0.5]),
             "sigma_speed_process": np.asarray(sigma_speed_process, dtype=float),
             "sigma_turn_rate_process": np.array([0.001]),

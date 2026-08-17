@@ -892,7 +892,7 @@ def _print_compact_summary(result):
     print("\nDiagnostics use reconstructed kinematics and mix process mismatch with")
     print("GPS measurement error; they are empirical candidates, not ground truth.")
     print("Heading residuals pool overlapping, correlated windows within each run.")
-    print("sigma_position_gps is intentionally not calibrated from these trajectories.")
+    print("The fixed observation-noise SD comes from the controlled perturbation.")
     print("Keep calibration runs disjoint from later evaluation runs.")
     print("=" * 72)
 

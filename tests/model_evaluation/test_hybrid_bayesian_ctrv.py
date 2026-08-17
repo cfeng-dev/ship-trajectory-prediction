@@ -93,7 +93,6 @@ def test_hybrid_diagnostics_use_the_fixed_prediction_turn_rate():
             "heading_state_prediction": np.array(
                 [[0.28, 0.16], [0.28, 0.16]],
             ),
-            "sigma_position_gps": np.array([5.0, 5.0]),
             "sigma_position_process": np.array([0.5, 0.5]),
             "sigma_speed_process": np.array([0.05, 0.05]),
         }

@@ -98,6 +98,8 @@ def test_build_stan_data_contains_only_position_history_and_future_times():
 
     assert stan_data["N_observed"] == 7
     assert stan_data["N_prediction"] == 3
+    assert stan_data["sigma_position_observation"] == pytest.approx(2.0)
+    assert "sigma_position_gps_prior_scale" not in stan_data
     assert stan_data["time_observed"] == pytest.approx(
         [0.0, 2.0, 5.0, 9.0, 12.0, 17.0, 21.0]
     )
@@ -151,6 +153,7 @@ def test_simulate_position_observations_is_reproducible_and_keeps_window_clean()
     assert window.y_meters == pytest.approx(clean_y)
     assert not first.x_meters.flags.writeable
     assert not first.y_meters.flags.writeable
+    assert first.observation_noise_std_m == pytest.approx(2.0)
 
 
 def test_zero_additional_noise_preserves_observed_positions():
@@ -169,6 +172,15 @@ def test_zero_additional_noise_preserves_observed_positions():
     assert observations.y_meters == pytest.approx(
         window.y_meters[window.observed_slice]
     )
+    assert observations.observation_noise_std_m == pytest.approx(2.0)
+
+
+def test_position_observations_require_positive_fixed_observation_noise():
+    """The fixed Stan likelihood standard deviation must remain positive."""
+    observations = simulate_position_observations(create_synthetic_window())
+
+    with pytest.raises(ValueError, match="observation_noise_std_m"):
+        replace(observations, observation_noise_std_m=0.0)
 
 
 @pytest.mark.parametrize(
@@ -270,7 +282,6 @@ def test_build_stan_data_does_not_use_held_out_measurements():
         "position_initial_prior_scale",
         "speed_initial_prior_scale",
         "turn_rate_state_prior_scale",
-        "sigma_position_gps_prior_scale",
         "sigma_position_process_prior_scale",
         "sigma_speed_process_prior_scale",
         "sigma_turn_rate_process_prior_scale",
@@ -296,7 +307,6 @@ def test_build_stan_data_uses_typed_prior_configuration():
         speed_initial_prior_scale=0.6,
         turn_rate_initial_prior_mean=-0.003,
         turn_rate_state_prior_scale=0.004,
-        sigma_position_gps_prior_scale=3.0,
         sigma_position_process_prior_scale=0.3,
         sigma_speed_process_prior_scale=0.04,
         sigma_turn_rate_process_prior_scale=0.0008,
@@ -1044,8 +1054,9 @@ def test_stan_ctrv_calls_never_use_observed_positions_as_transition_inputs():
     assert len(calls) == 2
     assert all("x_observed" not in call for call in calls)
     assert all("y_observed" not in call for call in calls)
-    assert "x_observed ~ normal(x_state, sigma_position_gps)" in source
-    assert "y_observed ~ normal(y_state, sigma_position_gps)" in source
+    assert "x_observed ~ normal(x_state, sigma_position_observation)" in source
+    assert "y_observed ~ normal(y_state, sigma_position_observation)" in source
+    assert "sigma_position_gps" not in source
 
 
 def test_stan_model_has_position_only_likelihood_and_named_predictions():
@@ -1093,7 +1104,6 @@ def test_small_synthetic_vi_fit_is_executable(algorithm, seed, grad_samples):
     assert posterior_samples(fit, "speed_state_prediction").shape == (100, 3)
     assert posterior_samples(fit, "x_observation_prediction").shape == (100, 3)
     assert posterior_samples(fit, "log_likelihood").shape == (100, 14)
-    assert np.all(np.isfinite(posterior_samples(fit, "sigma_position_gps")))
 
 
 @pytest.mark.integration
@@ -1117,7 +1127,6 @@ def test_small_synthetic_mcmc_fit_is_executable():
     assert posterior_samples(fit, "x_state").shape == (200, 7)
     assert posterior_samples(fit, "speed_state_prediction").shape == (200, 3)
     assert posterior_samples(fit, "log_likelihood").shape == (200, 14)
-    assert np.all(np.isfinite(posterior_samples(fit, "sigma_position_gps")))
 
 
 def posterior_samples(fit, name):

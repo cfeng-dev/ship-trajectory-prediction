@@ -19,7 +19,6 @@ STAN_FILE = paths.stan_path("models/hybrid_bayesian_ctrv.stan")
 # Preserve the model's established convenience exports.
 DEFAULT_VI_ADAPT_ITER = bayesian_model.DEFAULT_VI_ADAPT_ITER
 NOISE_PARAMETER_NAMES = (
-    "sigma_position_gps",
     "sigma_position_process",
     "sigma_speed_process",
 )
@@ -47,7 +46,6 @@ class HybridBayesianCTRVPriors:
     position_initial_prior_scale: float = 5.0
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
-    sigma_position_gps_prior_scale: float = 5.0
     sigma_position_process_prior_scale: float = 0.534
     sigma_speed_process_prior_scale: float = 0.0438
 
@@ -61,7 +59,6 @@ class HybridBayesianCTRVPriors:
         for name in (
             "position_initial_prior_scale",
             "speed_initial_prior_scale",
-            "sigma_position_gps_prior_scale",
             "sigma_position_process_prior_scale",
             "sigma_speed_process_prior_scale",
         ):

@@ -44,6 +44,7 @@ data {
   vector[N_observed] time_observed;     // Observation times [s]
   vector[N_observed] x_observed;        // Observed x-position [m]
   vector[N_observed] y_observed;        // Observed y-position [m]
+  real<lower=1e-6> sigma_position_observation; // Known synthetic observation-noise SD [m]
 
   // Future time points for posterior predictive forecasting
   int<lower=1> N_prediction;            // Number of prediction steps (must be >= 1)
@@ -62,8 +63,7 @@ data {
 	real heading;   // Heading at the last observed time [rad]
 	real turn_rate; // Turn rate at the last observed time [rad/s]
 
-  // Prior scales for observation and process noise
-  real<lower=0> sigma_position_gps_prior_scale;         // Observation-noise prior scale [m]
+  // Prior scales for process noise
   real<lower=0> sigma_position_process_prior_scale;     // Position-process prior scale [m/sqrt(s)]
   real<lower=0> sigma_speed_process_prior_scale;        // Speed-process prior scale [(m/s)/sqrt(s)]
 }
@@ -102,9 +102,6 @@ parameters {
 
   // Latent speed state
   vector<lower=0>[N_observed] speed_state;  // Latent non-negative speed [m/s]
-
-  // Unknown observation-noise parameter
-  real<lower=1e-6> sigma_position_gps;  // SD between observed and latent positions [m]
 
   // Unknown process-noise parameters describing deviations from ideal CTRV dynamics
   real<lower=1e-6> sigma_position_process;  // Position-process diffusion scale [m/sqrt(s)]
@@ -152,7 +149,7 @@ model {
   speed_state[1] ~ normal(speed_initial_prior_mean, speed_initial_prior_scale);
 
   // ------------------------------------------------------------------
-  // 2. PRIORS FOR OBSERVATION- AND PROCESS-NOISE PARAMETERS
+  // 2. PRIORS FOR PROCESS-NOISE PARAMETERS
   // ------------------------------------------------------------------
 
   /*
@@ -160,7 +157,6 @@ model {
    *
    *   sigma ~ HalfNormal(prior_scale)
    */
-  sigma_position_gps ~ normal(0, sigma_position_gps_prior_scale);
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
 
@@ -205,12 +201,12 @@ model {
   /*
    * Position-only likelihood:
    *
-   *   p(x_observed, y_observed | x_state, y_state, sigma_position_gps)
+   *   p(x_observed, y_observed | x_state, y_state, sigma_position_observation)
    *
    * Observed positions are noisy measurements of the latent positions.
    */
-  x_observed ~ normal(x_state, sigma_position_gps);
-  y_observed ~ normal(y_state, sigma_position_gps);
+  x_observed ~ normal(x_state, sigma_position_observation);
+  y_observed ~ normal(y_state, sigma_position_observation);
 }
 
 
@@ -250,8 +246,8 @@ generated quantities {
   // ------------------------------------------------------------------
 
   for (n in 1:N_observed) {
-    log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_gps);
-    log_likelihood[N_observed + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_gps);
+    log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_observation);
+    log_likelihood[N_observed + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_observation);
   }
 
 
@@ -293,8 +289,8 @@ generated quantities {
     turn_rate_prediction[n] = turn_rate_current;
 
     // Generate posterior predictive position observations
-    x_observation_prediction[n] = normal_rng(x_current, sigma_position_gps);
-    y_observation_prediction[n] = normal_rng(y_current, sigma_position_gps);
+    x_observation_prediction[n] = normal_rng(x_current, sigma_position_observation);
+    y_observation_prediction[n] = normal_rng(y_current, sigma_position_observation);
 
     // Continue forecasting from the current predictive state
     x_previous = x_current;
