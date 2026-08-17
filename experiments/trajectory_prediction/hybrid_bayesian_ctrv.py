@@ -31,6 +31,7 @@ PRIORS = hybrid_model.HybridBayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
 )
 HYBRID_CONFIG = hybrid_model.HybridBayesianCTRVConfig(
+    motion_estimator="polynomial",  # "polynomial" baseline or direct "ctrv_fit".
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.
     min_final_motion_speed_mps=1.0,  # Below this, use neutral turn rate [m/s].
 )

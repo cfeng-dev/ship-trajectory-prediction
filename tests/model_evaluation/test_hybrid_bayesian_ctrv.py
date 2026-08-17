@@ -51,6 +51,7 @@ def test_main_calls_hybrid_workflow_without_model_variant(monkeypatch):
 
 def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     """Editing rolling hybrid settings should not mutate Bayesian defaults."""
+    assert experiment.HYBRID_CONFIG.motion_estimator == "polynomial"
     assert experiment.EXPERIMENT is not bayesian_experiment.EXPERIMENT
     assert experiment.PRIORS is not bayesian_experiment.PRIORS
     assert not hasattr(experiment.PRIORS, "sigma_turn_rate_process_prior_scale")

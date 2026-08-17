@@ -70,6 +70,25 @@ def test_default_process_prior_scales_match_empirical_calibration():
     assert not hasattr(priors, "sigma_position_gps_prior_scale")
 
 
+def test_default_motion_estimator_preserves_polynomial_baseline():
+    """The established polynomial endpoint estimator should remain the default."""
+    assert HybridBayesianCTRVConfig().motion_estimator == "polynomial"
+
+
+def test_motion_estimator_name_is_normalized():
+    """Configuration should normalize a supported estimator name."""
+    config = HybridBayesianCTRVConfig(motion_estimator=" CTRV_FIT ")
+
+    assert config.motion_estimator == "ctrv_fit"
+
+
+@pytest.mark.parametrize("motion_estimator", ["spline", "", 1, None])
+def test_hybrid_configuration_rejects_unknown_motion_estimator(motion_estimator):
+    """Only the implemented endpoint estimators should be selectable."""
+    with pytest.raises(ValueError, match="motion_estimator"):
+        HybridBayesianCTRVConfig(motion_estimator=motion_estimator)
+
+
 def test_hybrid_data_contains_deterministic_terminal_motion():
     """Hybrid Stan data should include the smoothed endpoint motion."""
     stan_data = build_stan_data(create_synthetic_window(variable_dt=True))
@@ -77,6 +96,30 @@ def test_hybrid_data_contains_deterministic_terminal_motion():
     assert stan_data["heading"] == pytest.approx(0.552, abs=1e-3)
     assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-3)
     assert stan_data["sigma_position_observation"] == pytest.approx(2.0)
+
+
+def test_direct_ctrv_fit_recovers_constant_turn_motion():
+    """The direct fit should recover a noise-free constant-turn trajectory."""
+    stan_data = build_stan_data(
+        create_synthetic_window(variable_dt=True),
+        hybrid_config=HybridBayesianCTRVConfig(motion_estimator="ctrv_fit"),
+    )
+
+    assert stan_data["heading"] == pytest.approx(0.552, abs=1e-4)
+    assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-4)
+
+
+def test_direct_ctrv_fit_recovers_straight_motion():
+    """The direct fit should retain the zero-turn CTRV limit."""
+    heading, turn_rate = estimate_final_motion_from_positions(
+        np.arange(6.0),
+        3.0 * np.arange(6.0),
+        np.zeros(6),
+        hybrid_config=HybridBayesianCTRVConfig(motion_estimator="ctrv_fit"),
+    )
+
+    assert heading == pytest.approx(0.0, abs=1e-8)
+    assert turn_rate == pytest.approx(0.0, abs=1e-8)
 
 
 def test_hybrid_stan_data_omits_latent_turn_rate_priors():

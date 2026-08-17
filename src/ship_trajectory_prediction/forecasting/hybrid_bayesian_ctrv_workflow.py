@@ -56,6 +56,7 @@ def run_hybrid_bayesian_ctrv_prediction(
         ),
         build_motion_setup_rows=partial(
             _hybrid_motion_setup_rows,
+            motion_estimator=hybrid_config.motion_estimator,
             history_seconds=hybrid_config.final_motion_history_seconds,
         ),
         build_motion_state_rows=_hybrid_motion_state_rows,
@@ -63,9 +64,10 @@ def run_hybrid_bayesian_ctrv_prediction(
     )
 
 
-def _hybrid_motion_setup_rows(stan_data, *, history_seconds):
+def _hybrid_motion_setup_rows(stan_data, *, motion_estimator, history_seconds):
     """Describe the deterministic motion inputs of the hybrid model."""
     return [
+        ("Motion estimator", motion_estimator),
         (
             "Deterministic heading",
             f"{stan_data['heading']:.4f} rad "

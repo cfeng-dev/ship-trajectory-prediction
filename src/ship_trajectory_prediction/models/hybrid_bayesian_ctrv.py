@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
@@ -37,6 +37,12 @@ variational_converged = bayesian_model.variational_converged
 # Terminal-motion settings for the deterministic part of the hybrid model.
 FINAL_MOTION_HISTORY_SECONDS = 60
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
+MOTION_ESTIMATORS = ("polynomial", "ctrv_fit")
+MotionEstimator = Literal["polynomial", "ctrv_fit"]
+
+_CTRV_FIT_INITIAL_GRID_SIZE = 257
+_CTRV_FIT_REFINEMENT_GRID_SIZE = 65
+_CTRV_FIT_REFINEMENT_STEPS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,11 +77,18 @@ class HybridBayesianCTRVPriors:
 class HybridBayesianCTRVConfig:
     """Settings for deterministic terminal-motion estimation."""
 
+    motion_estimator: MotionEstimator = "polynomial"
     final_motion_history_seconds: float = FINAL_MOTION_HISTORY_SECONDS
     min_final_motion_speed_mps: float = MIN_FINAL_MOTION_SPEED_MPS
 
     def __post_init__(self) -> None:
         """Validate and normalize the hybrid-specific settings."""
+        if not isinstance(self.motion_estimator, str):
+            raise ValueError("motion_estimator must be 'polynomial' or 'ctrv_fit'.")
+        motion_estimator = self.motion_estimator.strip().lower()
+        if motion_estimator not in MOTION_ESTIMATORS:
+            raise ValueError("motion_estimator must be 'polynomial' or 'ctrv_fit'.")
+        object.__setattr__(self, "motion_estimator", motion_estimator)
         for name in (
             "final_motion_history_seconds",
             "min_final_motion_speed_mps",
@@ -156,7 +169,34 @@ def estimate_final_motion_from_positions(
     if point_count < 3:
         return final_course, 0.0
 
-    centered_time = history_time - time_seconds[-1]
+    if hybrid_config.motion_estimator == "ctrv_fit":
+        return _estimate_final_motion_with_ctrv_fit(
+            history_time,
+            history_x,
+            history_y,
+            final_course=final_course,
+            minimum_speed_mps=hybrid_config.min_final_motion_speed_mps,
+        )
+    return _estimate_final_motion_with_polynomial(
+        history_time,
+        history_x,
+        history_y,
+        final_course=final_course,
+        minimum_speed_mps=hybrid_config.min_final_motion_speed_mps,
+    )
+
+
+def _estimate_final_motion_with_polynomial(
+    history_time,
+    history_x,
+    history_y,
+    *,
+    final_course,
+    minimum_speed_mps,
+):
+    """Estimate endpoint motion from separate quadratic position fits."""
+    centered_time = history_time - history_time[-1]
+    point_count = history_time.size
     design_matrix = np.column_stack(
         (np.ones(point_count), centered_time, np.square(centered_time))
     )
@@ -175,7 +215,7 @@ def estimate_final_motion_from_positions(
     acceleration_x = float(2.0 * x_coefficients[2])
     acceleration_y = float(2.0 * y_coefficients[2])
     speed_squared = velocity_x**2 + velocity_y**2
-    if speed_squared < hybrid_config.min_final_motion_speed_mps**2:
+    if speed_squared < minimum_speed_mps**2:
         return final_course, 0.0
 
     heading = float(np.arctan2(velocity_y, velocity_x))
@@ -183,6 +223,106 @@ def estimate_final_motion_from_positions(
         (velocity_x * acceleration_y - velocity_y * acceleration_x) / speed_squared
     )
     return heading, turn_rate
+
+
+def _estimate_final_motion_with_ctrv_fit(
+    history_time,
+    history_x,
+    history_y,
+    *,
+    final_course,
+    minimum_speed_mps,
+):
+    """Estimate endpoint motion by fitting one constant-speed CTRV path."""
+    centered_time = history_time - history_time[-1]
+    centered_x = history_x - history_x[-1]
+    centered_y = history_y - history_y[-1]
+    turn_rate, coefficients = _fit_constant_turn_motion(
+        centered_time,
+        centered_x,
+        centered_y,
+    )
+    velocity_x = float(coefficients[2])
+    velocity_y = float(coefficients[3])
+    speed = float(np.hypot(velocity_x, velocity_y))
+    if speed < minimum_speed_mps:
+        return final_course, 0.0
+    heading = float(np.arctan2(velocity_y, velocity_x))
+    return heading, float(turn_rate)
+
+
+def _fit_constant_turn_motion(centered_time, centered_x, centered_y):
+    """Return the least-squares terminal motion of one direct CTRV fit."""
+    maximum_time_step = float(np.max(np.diff(centered_time)))
+    # Avoid turn-rate aliases exceeding half a revolution between observations.
+    turn_rate_limit = np.pi / maximum_time_step
+    lower_bound = -turn_rate_limit
+    upper_bound = turn_rate_limit
+    best_turn_rate = 0.0
+    best_coefficients = None
+
+    grid_sizes = (_CTRV_FIT_INITIAL_GRID_SIZE,) + (
+        (_CTRV_FIT_REFINEMENT_GRID_SIZE,) * _CTRV_FIT_REFINEMENT_STEPS
+    )
+    for grid_size in grid_sizes:
+        candidates = np.linspace(lower_bound, upper_bound, grid_size)
+        scores = np.empty(grid_size)
+        coefficients_by_candidate = []
+        for index, candidate in enumerate(candidates):
+            score, coefficients = _solve_ctrv_at_turn_rate(
+                centered_time,
+                centered_x,
+                centered_y,
+                float(candidate),
+            )
+            scores[index] = score
+            coefficients_by_candidate.append(coefficients)
+
+        best_index = int(np.argmin(scores))
+        best_turn_rate = float(candidates[best_index])
+        best_coefficients = coefficients_by_candidate[best_index]
+        lower_index = max(0, best_index - 1)
+        upper_index = min(grid_size - 1, best_index + 1)
+        lower_bound = float(candidates[lower_index])
+        upper_bound = float(candidates[upper_index])
+
+    return best_turn_rate, best_coefficients
+
+
+def _solve_ctrv_at_turn_rate(
+    centered_time,
+    centered_x,
+    centered_y,
+    turn_rate,
+):
+    """Solve terminal position and velocity for one fixed turn rate."""
+    if abs(turn_rate) <= 1e-12:
+        along_heading = centered_time
+        across_heading = np.zeros_like(centered_time)
+    else:
+        turn_angle = turn_rate * centered_time
+        along_heading = centered_time * np.sinc(turn_angle / np.pi)
+        across_heading = -2.0 * np.square(np.sin(0.5 * turn_angle)) / turn_rate
+
+    point_count = centered_time.size
+    design_matrix = np.zeros((2 * point_count, 4))
+    design_matrix[0::2, 0] = 1.0
+    design_matrix[1::2, 1] = 1.0
+    design_matrix[0::2, 2] = along_heading
+    design_matrix[0::2, 3] = across_heading
+    design_matrix[1::2, 2] = -across_heading
+    design_matrix[1::2, 3] = along_heading
+
+    observed_positions = np.empty(2 * point_count)
+    observed_positions[0::2] = centered_x
+    observed_positions[1::2] = centered_y
+    coefficients = np.linalg.lstsq(
+        design_matrix,
+        observed_positions,
+        rcond=None,
+    )[0]
+    residuals = observed_positions - design_matrix @ coefficients
+    return float(residuals @ residuals), coefficients
 
 
 def summarize_predictions(
@@ -242,6 +382,8 @@ __all__ = [
     "FINAL_MOTION_HISTORY_SECONDS",
     "HybridBayesianCTRVPriors",
     "MIN_FINAL_MOTION_SPEED_MPS",
+    "MOTION_ESTIMATORS",
+    "MotionEstimator",
     "NOISE_PARAMETER_NAMES",
     "STAN_FILE",
     "HistoricalInitialSpeedPrior",
