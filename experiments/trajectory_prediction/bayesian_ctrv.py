@@ -3,6 +3,7 @@
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
 import ship_trajectory_prediction.forecasting.bayesian_ctrv_workflow as workflow
 import ship_trajectory_prediction.forecasting.cli as cli
+import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.observations.paths as paths
 
@@ -33,8 +34,8 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
     sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
 )
-VI_CONFIG = config.create_default_vi_config()
-MCMC_CONFIG = config.create_default_mcmc_config()
+VI_CONFIG = inference.create_default_vi_config()
+MCMC_CONFIG = inference.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior interval.
 PLOT_COORDINATE_MODE = "m"  # Display as local "m", "km", or absolute "gps".
 
@@ -54,7 +55,7 @@ def main(argv=None):
         priors=PRIORS,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=config.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,

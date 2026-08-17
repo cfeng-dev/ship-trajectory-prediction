@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
+import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.observations.io as observations_io
 import ship_trajectory_prediction.observations.window as observation_window
@@ -80,15 +81,13 @@ def run_bayesian_ctrv_prediction(
     noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
 ):
     """Run the shared single-window fitting and evaluation workflow."""
-    inference_method, inference_config = (
-        forecasting.select_bayesian_ctrv_inference_config(
-            inference_method,
-            vi_algorithm=vi_algorithm,
-            require_converged=require_converged,
-            vi_config=vi_config,
-            mcmc_config=mcmc_config,
-            fullrank_grad_samples=fullrank_grad_samples,
-        )
+    inference_method, inference_config = inference.select_inference_config(
+        inference_method,
+        vi_algorithm=vi_algorithm,
+        require_converged=require_converged,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
     )
     plot_coordinate_mode = prediction_plotting.normalize_plot_coordinate_mode(
         plot_coordinate_mode

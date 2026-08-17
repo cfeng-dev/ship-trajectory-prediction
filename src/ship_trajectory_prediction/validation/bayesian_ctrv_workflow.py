@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
+import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.coordinates as coordinates
@@ -167,15 +168,13 @@ def _run_bayesian_ctrv_evaluation(
     seed = experiment.inference_seed
     position_noise_std_m = experiment.additional_position_noise_std_m
     position_noise_seed = experiment.position_noise_seed
-    inference_method, inference_config = (
-        forecasting.select_bayesian_ctrv_inference_config(
-            inference_method,
-            vi_algorithm=vi_algorithm,
-            require_converged=require_converged,
-            vi_config=vi_config,
-            mcmc_config=mcmc_config,
-            fullrank_grad_samples=fullrank_grad_samples,
-        )
+    inference_method, inference_config = inference.select_inference_config(
+        inference_method,
+        vi_algorithm=vi_algorithm,
+        require_converged=require_converged,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        fullrank_grad_samples=fullrank_grad_samples,
     )
 
     trajectory_data = observations_io.read_ship_data(

@@ -1,6 +1,7 @@
 """Evaluate fully Bayesian CTRV forecasts across rolling windows."""
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
+import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
 import ship_trajectory_prediction.observations.paths as paths
 import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
@@ -33,8 +34,8 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
     sigma_turn_rate_process_prior_scale=0.001,  # Turn drift [(rad/s)/sqrt(s)].
 )
-VI_CONFIG = config.create_default_vi_config()
-MCMC_CONFIG = config.create_default_mcmc_config()
+VI_CONFIG = inference.create_default_vi_config()
+MCMC_CONFIG = inference.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
@@ -58,7 +59,7 @@ def main(argv=None):
         priors=PRIORS,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
-        fullrank_grad_samples=config.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
         options=options,
