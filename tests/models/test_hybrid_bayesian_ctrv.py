@@ -61,6 +61,14 @@ def create_synthetic_window(*, turn_rate=0.012, variable_dt=False):
     )
 
 
+def test_default_process_prior_scales_match_empirical_calibration():
+    """Hybrid defaults should retain the calibrated process diffusion scales."""
+    priors = HybridBayesianCTRVPriors()
+
+    assert priors.sigma_position_process_prior_scale == pytest.approx(0.534)
+    assert priors.sigma_speed_process_prior_scale == pytest.approx(0.0438)
+
+
 def test_hybrid_data_contains_deterministic_terminal_motion():
     """Hybrid Stan data should include the smoothed endpoint motion."""
     stan_data = build_stan_data(create_synthetic_window(variable_dt=True))

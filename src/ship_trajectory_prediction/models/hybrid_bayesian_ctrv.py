@@ -48,8 +48,8 @@ class HybridBayesianCTRVPriors:
     speed_initial_prior_mean: float = 0.0
     speed_initial_prior_scale: float = 0.75
     sigma_position_gps_prior_scale: float = 5.0
-    sigma_position_process_prior_scale: float = 0.5
-    sigma_speed_process_prior_scale: float = 0.05
+    sigma_position_process_prior_scale: float = 0.534
+    sigma_speed_process_prior_scale: float = 0.0438
 
     def __post_init__(self) -> None:
         """Normalize and validate every hybrid prior value."""

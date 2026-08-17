@@ -27,8 +27,8 @@ PRIORS = hybrid_model.HybridBayesianCTRVPriors(
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
     sigma_position_gps_prior_scale=5.0,  # Measurement-noise scale [m].
-    sigma_position_process_prior_scale=0.5,  # Position drift [m/sqrt(s)].
-    sigma_speed_process_prior_scale=0.05,  # Speed drift [(m/s)/sqrt(s)].
+    sigma_position_process_prior_scale=0.534,  # Position drift [m/sqrt(s)].
+    sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
 )
 HYBRID_CONFIG = hybrid_model.HybridBayesianCTRVConfig(
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.

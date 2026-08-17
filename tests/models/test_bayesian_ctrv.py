@@ -81,6 +81,15 @@ def create_linear_window(*, speed=3.0):
     )
 
 
+def test_default_process_prior_scales_match_empirical_calibration():
+    """Default process priors should retain the calibrated diffusion scales."""
+    priors = BayesianCTRVPriors()
+
+    assert priors.sigma_position_process_prior_scale == pytest.approx(0.534)
+    assert priors.sigma_speed_process_prior_scale == pytest.approx(0.0438)
+    assert priors.sigma_turn_rate_process_prior_scale == pytest.approx(0.001007)
+
+
 def test_build_stan_data_contains_only_position_history_and_future_times():
     """Stan data should expose position history but no GPS-speed input."""
     window = create_synthetic_window(variable_dt=True)

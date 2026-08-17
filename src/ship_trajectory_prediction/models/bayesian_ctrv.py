@@ -52,9 +52,9 @@ class BayesianCTRVPriors:
     turn_rate_initial_prior_mean: float = 0.0
     turn_rate_state_prior_scale: float | None = None
     sigma_position_gps_prior_scale: float = 5.0
-    sigma_position_process_prior_scale: float = 0.5
-    sigma_speed_process_prior_scale: float = 0.05
-    sigma_turn_rate_process_prior_scale: float = 0.001
+    sigma_position_process_prior_scale: float = 0.534
+    sigma_speed_process_prior_scale: float = 0.0438
+    sigma_turn_rate_process_prior_scale: float = 0.001007
 
     def __post_init__(self) -> None:
         """Normalize and validate every explicitly configured prior value."""
