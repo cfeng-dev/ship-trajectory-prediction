@@ -79,3 +79,34 @@ def test_hybrid_vi_guard_checks_only_existing_noise_parameters():
     )
 
     assert reason is None
+
+
+def test_hybrid_diagnostics_use_the_fixed_prediction_turn_rate():
+    """Hybrid diagnostics should not require a latent forecast-origin output."""
+
+    class FakeFit:
+        variables = {
+            "turn_rate_prediction": np.array(
+                [[-0.012, -0.012], [-0.012, -0.012]],
+            ),
+            "heading_state": np.array([[0.3, 0.4], [0.3, 0.4]]),
+            "heading_state_prediction": np.array(
+                [[0.28, 0.16], [0.28, 0.16]],
+            ),
+            "sigma_position_gps": np.array([5.0, 5.0]),
+            "sigma_position_process": np.array([0.5, 0.5]),
+            "sigma_speed_process": np.array([0.05, 0.05]),
+        }
+
+        def stan_variable(self, name, mean=False):
+            del mean
+            return self.variables[name]
+
+    diagnostics = experiment.workflow._posterior_window_diagnostics(
+        FakeFit(),
+        noise_parameter_names=experiment.hybrid_model.NOISE_PARAMETER_NAMES,
+        has_latent_turn_rate=False,
+    )
+
+    assert diagnostics["forecast_origin_turn_rate_rad_s"] == pytest.approx(-0.012)
+    assert diagnostics["forecast_heading_change_rad"] == pytest.approx(-0.24)

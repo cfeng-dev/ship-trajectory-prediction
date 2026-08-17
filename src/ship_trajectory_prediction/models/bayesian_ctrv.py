@@ -807,7 +807,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             1e-5,
             0.5 * stan_data["sigma_turn_rate_process_prior_scale"],
         )
-    if "heading_final" not in stan_data:
+    if "heading" not in stan_data:
         final_course = float(
             np.arctan2(
                 y_observed[-1] - y_observed[-2],

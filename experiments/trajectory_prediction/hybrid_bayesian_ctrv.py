@@ -1,8 +1,8 @@
 """Run one hybrid Bayesian CTRV trajectory prediction."""
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
-import ship_trajectory_prediction.forecasting.bayesian_ctrv_workflow as workflow
 import ship_trajectory_prediction.forecasting.cli as cli
+import ship_trajectory_prediction.forecasting.hybrid_bayesian_ctrv_workflow as workflow
 import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.paths as paths
 

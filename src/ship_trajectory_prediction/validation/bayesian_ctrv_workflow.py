@@ -296,6 +296,7 @@ def _run_bayesian_ctrv_evaluation(
         posterior_diagnostics = _posterior_window_diagnostics(
             fit,
             noise_parameter_names=noise_parameter_names,
+            has_latent_turn_rate=has_latent_turn_rate,
         )
         evaluation = metrics.evaluate_position_predictions(
             fit,
@@ -534,12 +535,24 @@ def _posterior_window_diagnostics(
     fit,
     *,
     noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
+    has_latent_turn_rate=True,
 ):
     """Return forecast-motion values and posterior noise medians for one window."""
-    turn_rate_forecast_origin = reporting.posterior_variable_samples(
-        fit,
-        "turn_rate_forecast_origin",
-    )
+    if has_latent_turn_rate:
+        turn_rate_forecast_origin = reporting.posterior_variable_samples(
+            fit,
+            "turn_rate_forecast_origin",
+        )
+    else:
+        turn_rate_prediction = reporting.posterior_variable_samples(
+            fit,
+            "turn_rate_prediction",
+        )
+        if turn_rate_prediction.ndim != 2 or turn_rate_prediction.shape[1] == 0:
+            raise ValueError(
+                "Hybrid turn_rate_prediction must contain at least one forecast step."
+            )
+        turn_rate_forecast_origin = turn_rate_prediction[:, 0]
     heading_state = reporting.posterior_variable_samples(fit, "heading_state")
     heading_state_prediction = reporting.posterior_variable_samples(
         fit,

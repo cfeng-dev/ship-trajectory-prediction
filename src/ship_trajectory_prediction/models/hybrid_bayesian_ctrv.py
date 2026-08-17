@@ -109,17 +109,17 @@ def build_stan_data(
         position_observations=position_observations,
     )
     try:
-        heading_final, turn_rate_final = estimate_final_motion_from_positions(
+        heading, turn_rate = estimate_final_motion_from_positions(
             observations.time_seconds,
             observations.x_meters,
             observations.y_meters,
             hybrid_config=hybrid_config,
         )
     except ValueError:
-        heading_final = 0.0
-        turn_rate_final = 0.0
-    stan_data["heading_final"] = heading_final
-    stan_data["turn_rate_final"] = turn_rate_final
+        heading = 0.0
+        turn_rate = 0.0
+    stan_data["heading"] = heading
+    stan_data["turn_rate"] = turn_rate
     return stan_data
 
 
@@ -181,11 +181,11 @@ def estimate_final_motion_from_positions(
     if speed_squared < hybrid_config.min_final_motion_speed_mps**2:
         return final_course, 0.0
 
-    heading_final = float(np.arctan2(velocity_y, velocity_x))
-    turn_rate_final = float(
+    heading = float(np.arctan2(velocity_y, velocity_x))
+    turn_rate = float(
         (velocity_x * acceleration_y - velocity_y * acceleration_x) / speed_squared
     )
-    return heading_final, turn_rate_final
+    return heading, turn_rate
 
 
 def summarize_predictions(

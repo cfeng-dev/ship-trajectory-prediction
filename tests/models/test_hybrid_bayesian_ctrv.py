@@ -65,8 +65,8 @@ def test_hybrid_data_contains_deterministic_terminal_motion():
     """Hybrid Stan data should include the smoothed endpoint motion."""
     stan_data = build_stan_data(create_synthetic_window(variable_dt=True))
 
-    assert stan_data["heading_final"] == pytest.approx(0.552, abs=1e-3)
-    assert stan_data["turn_rate_final"] == pytest.approx(0.012, abs=1e-3)
+    assert stan_data["heading"] == pytest.approx(0.552, abs=1e-3)
+    assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-3)
 
 
 def test_hybrid_stan_data_omits_latent_turn_rate_priors():
@@ -92,6 +92,7 @@ def test_hybrid_initial_values_omit_latent_turn_rate_parameters():
 
     assert "turn_rate_state" not in initial_values
     assert "sigma_turn_rate_process" not in initial_values
+    assert "heading_final" not in initial_values
 
 
 def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
@@ -205,7 +206,7 @@ def test_fit_forwards_hybrid_configuration_to_stan_data(monkeypatch):
 
     assert fit is expected_fit
     assert captured["window"] is window
-    assert stan_data["turn_rate_final"] == pytest.approx(0.0)
+    assert stan_data["turn_rate"] == pytest.approx(0.0)
 
 
 def test_final_motion_falls_back_to_two_point_heading():
@@ -230,19 +231,21 @@ def test_hybrid_stan_model_uses_only_deterministic_turn_rate():
         flags=re.DOTALL,
     ).group(1)
 
-    assert "real heading_final" in data_block
-    assert "real turn_rate_final" in data_block
+    assert "real heading;" in data_block
+    assert "real turn_rate;" in data_block
     assert "turn_rate_state_prior_scale" not in data_block
     assert "sigma_turn_rate_process_prior_scale" not in data_block
-    assert "heading_final" not in parameter_block
-    assert "turn_rate_final" not in parameter_block
+    assert "real heading;" not in parameter_block
+    assert "real turn_rate;" not in parameter_block
     assert "turn_rate_state" not in parameter_block
     assert "sigma_turn_rate_process" not in parameter_block
     assert "turn_rate_state" not in source
-    assert "heading_state[n + 1] - turn_rate_final * dt" in source
+    assert "heading_final" not in source
+    assert "turn_rate_final" not in source
+    assert "heading_state[n + 1] - turn_rate * dt" in source
     assert "turn_rate_state ~ normal" not in source
-    assert "real turn_rate_forecast_origin = turn_rate_final" in source
-    assert "real turn_rate_previous = turn_rate_forecast_origin" in source
+    assert "turn_rate_forecast_origin" not in source
+    assert "real turn_rate_previous = turn_rate;" in source
     assert "real turn_rate_current = turn_rate_previous" in source
     assert "normal_rng(turn_rate_previous" not in source
 

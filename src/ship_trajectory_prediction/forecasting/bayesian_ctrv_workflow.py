@@ -2,14 +2,12 @@
 
 import time
 from collections.abc import Mapping
-from functools import partial
 from typing import Any
 
 import numpy as np
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
-import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.io as observations_io
 import ship_trajectory_prediction.observations.window as observation_window
 import ship_trajectory_prediction.validation.metrics as metrics
@@ -35,7 +33,7 @@ def run_fully_bayesian_ctrv_prediction(
     plot_coordinate_mode: str,
 ) -> None:
     """Fit and evaluate one fully Bayesian CTRV prediction."""
-    return _run_bayesian_ctrv_prediction(
+    return run_bayesian_ctrv_prediction(
         data_file=data_file,
         experiment=experiment,
         priors=priors,
@@ -53,59 +51,12 @@ def run_fully_bayesian_ctrv_prediction(
         model_label="Fully Bayesian CTRV",
         stan_data_builder=bayesian_model.build_stan_data,
         fit_model=bayesian_model.fit_bayesian_ctrv_model,
+        build_motion_setup_rows=_fully_bayesian_motion_setup_rows,
+        build_motion_state_rows=_fully_bayesian_motion_state_rows,
     )
 
 
-def run_hybrid_bayesian_ctrv_prediction(
-    *,
-    data_file,
-    experiment: forecasting.ExperimentConfig,
-    priors: hybrid_model.HybridBayesianCTRVPriors,
-    hybrid_config: hybrid_model.HybridBayesianCTRVConfig,
-    vi_config: Mapping[str, Any],
-    mcmc_config: Mapping[str, Any],
-    fullrank_grad_samples: int,
-    credible_interval: float,
-    inference_method: str,
-    vi_algorithm: str,
-    seed: int,
-    position_noise_std_m: float,
-    position_noise_seed: int,
-    require_converged: bool,
-    plot_coordinate_mode: str,
-) -> None:
-    """Fit and evaluate one hybrid Bayesian CTRV prediction."""
-    return _run_bayesian_ctrv_prediction(
-        data_file=data_file,
-        experiment=experiment,
-        priors=priors,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-        credible_interval=credible_interval,
-        inference_method=inference_method,
-        vi_algorithm=vi_algorithm,
-        seed=seed,
-        position_noise_std_m=position_noise_std_m,
-        position_noise_seed=position_noise_seed,
-        require_converged=require_converged,
-        plot_coordinate_mode=plot_coordinate_mode,
-        model_label="Hybrid Bayesian CTRV",
-        stan_data_builder=partial(
-            hybrid_model.build_stan_data,
-            hybrid_config=hybrid_config,
-        ),
-        fit_model=partial(
-            hybrid_model.fit_hybrid_bayesian_ctrv_model,
-            hybrid_config=hybrid_config,
-        ),
-        terminal_motion_history_seconds=(hybrid_config.final_motion_history_seconds),
-        noise_parameter_names=hybrid_model.NOISE_PARAMETER_NAMES,
-        has_latent_turn_rate=False,
-    )
-
-
-def _run_bayesian_ctrv_prediction(
+def run_bayesian_ctrv_prediction(
     *,
     data_file,
     experiment,
@@ -124,9 +75,9 @@ def _run_bayesian_ctrv_prediction(
     model_label,
     stan_data_builder,
     fit_model,
-    terminal_motion_history_seconds=None,
+    build_motion_setup_rows,
+    build_motion_state_rows,
     noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-    has_latent_turn_rate=True,
 ):
     """Run the shared single-window fitting and evaluation workflow."""
     inference_method, inference_config = (
@@ -169,26 +120,7 @@ def _run_bayesian_ctrv_prediction(
         ("Model", model_label),
         ("Inference method", inference_method.upper()),
     ]
-    if terminal_motion_history_seconds is not None:
-        inference_rows.extend(
-            [
-                (
-                    "Deterministic terminal heading",
-                    f"{stan_data['heading_final']:.4f} rad "
-                    f"({np.degrees(stan_data['heading_final']):.1f} deg)",
-                ),
-                (
-                    "Deterministic terminal turn rate",
-                    f"{stan_data['turn_rate_final']:.5f} rad/s",
-                ),
-                (
-                    "Terminal-motion history",
-                    f"{terminal_motion_history_seconds:g} s",
-                ),
-            ]
-        )
-    else:
-        inference_rows.append(("Terminal heading and turn rate", "latent posterior"))
+    inference_rows.extend(build_motion_setup_rows(stan_data))
     if inference_method == "vi":
         inference_rows.append(("VI algorithm", inference_config["algorithm"]))
     else:
@@ -265,19 +197,7 @@ def _run_bayesian_ctrv_prediction(
             f"{np.median(heading_state[:, -1]):.4f}",
         ),
     ]
-    if has_latent_turn_rate:
-        turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
-        state_rows.append(
-            (
-                "Turn rate [rad/s]",
-                f"{np.median(turn_rate_state[:, 0]):.5f} -> "
-                f"{np.median(turn_rate_state[:, -1]):.5f}",
-            )
-        )
-    else:
-        state_rows.append(
-            ("Turn rate [rad/s]", f"fixed at {stan_data['turn_rate_final']:.5f}")
-        )
+    state_rows.extend(build_motion_state_rows(fit, stan_data))
     print("\nPosterior state medians:")
     print(reporting.format_aligned_rows(state_rows))
     print(
@@ -309,6 +229,25 @@ def _run_bayesian_ctrv_prediction(
         additional_position_noise_std_m=(position_observations.additional_noise_std_m),
         coordinate_mode=plot_coordinate_mode,
     )
+
+
+def _fully_bayesian_motion_setup_rows(stan_data):
+    """Describe the inferred motion quantities of the fully Bayesian model."""
+    del stan_data
+    return [("Heading and turn rate", "latent posterior")]
+
+
+def _fully_bayesian_motion_state_rows(fit, stan_data):
+    """Return posterior turn-rate rows for the fully Bayesian model."""
+    del stan_data
+    turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
+    return [
+        (
+            "Turn rate [rad/s]",
+            f"{np.median(turn_rate_state[:, 0]):.5f} -> "
+            f"{np.median(turn_rate_state[:, -1]):.5f}",
+        )
+    ]
 
 
 def _print_ctrv_setup(

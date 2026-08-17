@@ -43,6 +43,7 @@ def test_main_delegates_visible_hybrid_configuration(monkeypatch):
 
 def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     """Editing hybrid settings should not mutate the Bayesian experiment."""
+    assert experiment.workflow is not bayesian_experiment.workflow
     assert experiment.EXPERIMENT is not bayesian_experiment.EXPERIMENT
     assert experiment.PRIORS is not bayesian_experiment.PRIORS
     assert isinstance(

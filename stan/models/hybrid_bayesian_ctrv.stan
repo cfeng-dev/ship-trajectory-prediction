@@ -58,9 +58,9 @@ data {
 	real<lower=0> speed_initial_prior_mean;
 	real<lower=0> speed_initial_prior_scale;
 
-	// Fixed terminal motion derived from recent observed positions
-	real heading_final;   // Endpoint heading [rad]
-	real turn_rate_final; // Local turn rate [rad/s]
+	// Deterministic motion parameters estimated from recent observed positions
+	real heading;   // Heading at the last observed time [rad]
+	real turn_rate; // Turn rate at the last observed time [rad/s]
 
   // Prior scales for observation and process noise
   real<lower=0> sigma_position_gps_prior_scale;         // Observation-noise prior scale [m]
@@ -117,14 +117,14 @@ transformed parameters {
 
   vector[N_observed] heading_state;  // Derived heading at each observation time [rad]
 
-  heading_state[N_observed] = heading_final;
+  heading_state[N_observed] = heading;
 
   // Reconstruct earlier headings from the fixed terminal turn rate.
   for (reverse_index in 1:(N_observed - 1)) {
     int n = N_observed - reverse_index;
     real dt = time_observed[n + 1] - time_observed[n];
 
-    heading_state[n] = heading_state[n + 1] - turn_rate_final * dt;
+    heading_state[n] = heading_state[n + 1] - turn_rate * dt;
   }
 }
 
@@ -185,7 +185,7 @@ model {
         y_state[n - 1],
         speed_state[n - 1],
         heading_state[n - 1],
-        turn_rate_final);
+        turn_rate);
 
     // Position transition with diffusion-scaled process noise.
     x_state[n] ~ normal(position[1], sigma_position_process * sqrt(dt));
@@ -235,13 +235,12 @@ generated quantities {
   // Pointwise observation log likelihood for model comparison
   vector[2 * N_observed] log_likelihood;
 
-  // Initialize forecasting from the final inferred latent state
+  // Initialize forecasting at the final observed time.
   real x_previous = x_state[N_observed];
   real y_previous = y_state[N_observed];
   real speed_previous = speed_state[N_observed];
-  real heading_previous = heading_final;
-  real turn_rate_forecast_origin = turn_rate_final;
-  real turn_rate_previous = turn_rate_forecast_origin;
+  real heading_previous = heading;
+  real turn_rate_previous = turn_rate;
   real time_previous = time_observed[N_observed];
 
 
