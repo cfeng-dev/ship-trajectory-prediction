@@ -13,8 +13,8 @@ functions {
    * @param  x         Current latent x-position [m]
    * @param  y         Current latent y-position [m]
    * @param  speed     Current latent speed [m/s]
-   * @param  heading   Current latent heading [rad]
-   * @param  turn_rate Current latent turn rate [rad/s]
+   * @param  heading   Current deterministic heading [rad]
+   * @param  turn_rate Current deterministic turn rate [rad/s]
    *
    * @return Length-2 vector with the conditional mean of next latent position:
    *         position[1] = next latent x-position mean [m],
@@ -113,13 +113,14 @@ parameters {
 
 
 transformed parameters {
-  // Deterministically derive the heading trajectory from inferred parameters.
+  // Deterministically reconstruct the observed heading trajectory.
 
-  vector[N_observed] heading_state;  // Derived heading at each observation time [rad]
+  vector[N_observed] heading_state;  // Heading at each observation time [rad]
 
+  // Anchor the trajectory at the last observed time.
   heading_state[N_observed] = heading;
 
-  // Reconstruct earlier headings from the fixed terminal turn rate.
+  // Reconstruct earlier headings backward using the fixed turn rate.
   for (reverse_index in 1:(N_observed - 1)) {
     int n = N_observed - reverse_index;
     real dt = time_observed[n + 1] - time_observed[n];
