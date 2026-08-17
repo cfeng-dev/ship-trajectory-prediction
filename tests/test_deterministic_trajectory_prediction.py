@@ -13,7 +13,7 @@ def test_experiment_groups_window_and_position_noise_configuration():
     assert experiment.EXPERIMENT.start_index == 0
     assert experiment.EXPERIMENT.observation_count == 20
     assert experiment.EXPERIMENT.prediction_count == 5
-    assert experiment.EXPERIMENT.additional_position_noise_std_m == 2.0
+    assert experiment.EXPERIMENT.additional_position_noise_std_m == 5.0
     assert experiment.EXPERIMENT.position_noise_seed == 2026
 
 

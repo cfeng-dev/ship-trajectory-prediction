@@ -39,9 +39,9 @@ def _create_route():
     )
 
 
-def test_rolling_experiment_adds_reproducible_two_meter_position_noise():
-    """The rolling default should match the single-fit 2 m noise scenario."""
-    assert experiment.EXPERIMENT.additional_position_noise_std_m == 2.0
+def test_rolling_experiment_adds_reproducible_five_meter_position_noise():
+    """The rolling default should match the single-fit 5 m noise scenario."""
+    assert experiment.EXPERIMENT.additional_position_noise_std_m == 5.0
     assert experiment.EXPERIMENT.position_noise_seed == 2026
 
     first_x, first_y = workflow._simulate_route_position_noise(
