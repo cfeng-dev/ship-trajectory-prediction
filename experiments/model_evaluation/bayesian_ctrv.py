@@ -23,8 +23,9 @@ EXPERIMENT = config.RollingExperimentConfig(
     inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
-    position_initial_prior_scale=5.0,  # Initial x/y uncertainty [m].
-    # Historical calibration from Run IDs 0-99; keep evaluation runs disjoint.
+    # Match initial x/y uncertainty to the artificial noise scale [m].
+    position_initial_prior_scale=EXPERIMENT.additional_position_noise_std_m,
+    # Empirically informed priors calibrated on disjoint historical trajectories.
     speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
     speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
     turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
