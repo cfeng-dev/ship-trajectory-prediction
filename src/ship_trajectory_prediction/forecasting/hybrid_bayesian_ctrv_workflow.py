@@ -74,7 +74,7 @@ def _hybrid_motion_setup_rows(
 ):
     """Describe the deterministic motion inputs of the hybrid model."""
     rows = [("Motion estimator", motion_estimator)]
-    if motion_estimator == "weighted_ctrv_fit":
+    if motion_estimator in ("weighted_polynomial", "weighted_ctrv_fit"):
         rows.append(("Motion weight decay", f"{weight_decay_seconds:g} s"))
     rows.extend(
         [

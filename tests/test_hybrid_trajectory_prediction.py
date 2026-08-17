@@ -1,5 +1,7 @@
 """Tests for the hybrid Bayesian CTRV single-window entry point."""
 
+import pytest
+
 import experiments.trajectory_prediction.bayesian_ctrv as bayesian_experiment
 import experiments.trajectory_prediction.hybrid_bayesian_ctrv as experiment
 
@@ -57,16 +59,20 @@ def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     assert experiment.MCMC_CONFIG is not bayesian_experiment.MCMC_CONFIG
 
 
-def test_weighted_motion_setup_reports_decay_time():
+@pytest.mark.parametrize(
+    "motion_estimator",
+    ["weighted_polynomial", "weighted_ctrv_fit"],
+)
+def test_weighted_motion_setup_reports_decay_time(motion_estimator):
     """The single-window report should expose weighted-fit configuration."""
     rows = experiment.workflow._hybrid_motion_setup_rows(
         {"heading": 0.2, "turn_rate": 0.01},
-        motion_estimator="weighted_ctrv_fit",
+        motion_estimator=motion_estimator,
         history_seconds=60.0,
         weight_decay_seconds=30.0,
     )
 
-    assert ("Motion estimator", "weighted_ctrv_fit") in rows
+    assert ("Motion estimator", motion_estimator) in rows
     assert ("Motion weight decay", "30 s") in rows
 
 

@@ -79,6 +79,7 @@ def test_default_motion_estimator_preserves_polynomial_baseline():
     ("configured_name", "expected_name"),
     [
         (" CTRV_FIT ", "ctrv_fit"),
+        (" WEIGHTED_POLYNOMIAL ", "weighted_polynomial"),
         (" WEIGHTED_CTRV_FIT ", "weighted_ctrv_fit"),
     ],
 )
@@ -140,7 +141,17 @@ def test_weighted_ctrv_fit_uses_exponential_recency_weights():
     np.testing.assert_allclose(weights, np.exp([-2.0, -1.0, 0.0]))
 
 
-def test_weighted_ctrv_fit_reduces_influence_of_old_position_error():
+@pytest.mark.parametrize(
+    ("unweighted_estimator", "weighted_estimator"),
+    [
+        ("polynomial", "weighted_polynomial"),
+        ("ctrv_fit", "weighted_ctrv_fit"),
+    ],
+)
+def test_weighted_estimator_reduces_influence_of_old_position_error(
+    unweighted_estimator,
+    weighted_estimator,
+):
     """Recency weights should favor the recent straight-motion evidence."""
     time_seconds = np.arange(0.0, 70.0, 10.0)
     x_meters = 4.0 * time_seconds
@@ -151,14 +162,14 @@ def test_weighted_ctrv_fit_reduces_influence_of_old_position_error():
         time_seconds,
         x_meters,
         y_meters,
-        hybrid_config=HybridBayesianCTRVConfig(motion_estimator="ctrv_fit"),
+        hybrid_config=HybridBayesianCTRVConfig(motion_estimator=unweighted_estimator),
     )
     weighted_heading, weighted_turn_rate = estimate_final_motion_from_positions(
         time_seconds,
         x_meters,
         y_meters,
         hybrid_config=HybridBayesianCTRVConfig(
-            motion_estimator="weighted_ctrv_fit",
+            motion_estimator=weighted_estimator,
             motion_weight_decay_seconds=15.0,
         ),
     )
@@ -214,6 +225,23 @@ def test_final_motion_recovers_quadratic_endpoint_velocity_and_turn_rate():
         time_seconds,
         2.0 * time_seconds,
         0.5 * np.square(time_seconds),
+    )
+
+    assert heading == pytest.approx(np.arctan2(4.0, 2.0))
+    assert turn_rate == pytest.approx(0.1)
+
+
+def test_weighted_polynomial_recovers_quadratic_endpoint_motion():
+    """Time weights should preserve an exact quadratic position trajectory."""
+    time_seconds = np.arange(5.0)
+    heading, turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        2.0 * time_seconds,
+        0.5 * np.square(time_seconds),
+        hybrid_config=HybridBayesianCTRVConfig(
+            motion_estimator="weighted_polynomial",
+            motion_weight_decay_seconds=2.0,
+        ),
     )
 
     assert heading == pytest.approx(np.arctan2(4.0, 2.0))

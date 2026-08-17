@@ -38,8 +38,18 @@ variational_converged = bayesian_model.variational_converged
 FINAL_MOTION_HISTORY_SECONDS = 60
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
 MOTION_WEIGHT_DECAY_SECONDS = 30.0
-MOTION_ESTIMATORS = ("polynomial", "ctrv_fit", "weighted_ctrv_fit")
-MotionEstimator = Literal["polynomial", "ctrv_fit", "weighted_ctrv_fit"]
+MOTION_ESTIMATORS = (
+    "polynomial",
+    "weighted_polynomial",
+    "ctrv_fit",
+    "weighted_ctrv_fit",
+)
+MotionEstimator = Literal[
+    "polynomial",
+    "weighted_polynomial",
+    "ctrv_fit",
+    "weighted_ctrv_fit",
+]
 
 _CTRV_FIT_INITIAL_GRID_SIZE = 257
 _CTRV_FIT_REFINEMENT_GRID_SIZE = 65
@@ -87,14 +97,14 @@ class HybridBayesianCTRVConfig:
         """Validate and normalize the hybrid-specific settings."""
         if not isinstance(self.motion_estimator, str):
             raise ValueError(
-                "motion_estimator must be 'polynomial', 'ctrv_fit', or "
-                "'weighted_ctrv_fit'."
+                "motion_estimator must be one of: polynomial, "
+                "weighted_polynomial, ctrv_fit, weighted_ctrv_fit."
             )
         motion_estimator = self.motion_estimator.strip().lower()
         if motion_estimator not in MOTION_ESTIMATORS:
             raise ValueError(
-                "motion_estimator must be 'polynomial', 'ctrv_fit', or "
-                "'weighted_ctrv_fit'."
+                "motion_estimator must be one of: polynomial, "
+                "weighted_polynomial, ctrv_fit, weighted_ctrv_fit."
             )
         object.__setattr__(self, "motion_estimator", motion_estimator)
         for name in (
@@ -192,12 +202,18 @@ def estimate_final_motion_from_positions(
             minimum_speed_mps=hybrid_config.min_final_motion_speed_mps,
             weight_decay_seconds=weight_decay_seconds,
         )
+    weight_decay_seconds = (
+        hybrid_config.motion_weight_decay_seconds
+        if hybrid_config.motion_estimator == "weighted_polynomial"
+        else None
+    )
     return _estimate_final_motion_with_polynomial(
         history_time,
         history_x,
         history_y,
         final_course=final_course,
         minimum_speed_mps=hybrid_config.min_final_motion_speed_mps,
+        weight_decay_seconds=weight_decay_seconds,
     )
 
 
@@ -208,6 +224,7 @@ def _estimate_final_motion_with_polynomial(
     *,
     final_course,
     minimum_speed_mps,
+    weight_decay_seconds,
 ):
     """Estimate endpoint motion from separate quadratic position fits."""
     centered_time = history_time - history_time[-1]
@@ -215,14 +232,20 @@ def _estimate_final_motion_with_polynomial(
     design_matrix = np.column_stack(
         (np.ones(point_count), centered_time, np.square(centered_time))
     )
+    point_weights = _motion_fit_weights(
+        centered_time,
+        decay_seconds=weight_decay_seconds,
+    )
+    square_root_weights = np.sqrt(point_weights)
+    weighted_design_matrix = design_matrix * square_root_weights[:, np.newaxis]
     x_coefficients = np.linalg.lstsq(
-        design_matrix,
-        history_x,
+        weighted_design_matrix,
+        history_x * square_root_weights,
         rcond=None,
     )[0]
     y_coefficients = np.linalg.lstsq(
-        design_matrix,
-        history_y,
+        weighted_design_matrix,
+        history_y * square_root_weights,
         rcond=None,
     )[0]
     velocity_x = float(x_coefficients[1])
