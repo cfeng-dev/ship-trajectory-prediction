@@ -57,6 +57,19 @@ def test_hybrid_configuration_does_not_alias_bayesian_defaults():
     assert experiment.MCMC_CONFIG is not bayesian_experiment.MCMC_CONFIG
 
 
+def test_weighted_motion_setup_reports_decay_time():
+    """The single-window report should expose weighted-fit configuration."""
+    rows = experiment.workflow._hybrid_motion_setup_rows(
+        {"heading": 0.2, "turn_rate": 0.01},
+        motion_estimator="weighted_ctrv_fit",
+        history_seconds=60.0,
+        weight_decay_seconds=30.0,
+    )
+
+    assert ("Motion estimator", "weighted_ctrv_fit") in rows
+    assert ("Motion weight decay", "30 s") in rows
+
+
 def test_main_forwards_hybrid_cli_overrides(monkeypatch):
     """The hybrid entry point should forward explicitly selected CLI values."""
     captured = {}

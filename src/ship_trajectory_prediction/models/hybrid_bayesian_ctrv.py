@@ -37,8 +37,9 @@ variational_converged = bayesian_model.variational_converged
 # Terminal-motion settings for the deterministic part of the hybrid model.
 FINAL_MOTION_HISTORY_SECONDS = 60
 MIN_FINAL_MOTION_SPEED_MPS = 1.0
-MOTION_ESTIMATORS = ("polynomial", "ctrv_fit")
-MotionEstimator = Literal["polynomial", "ctrv_fit"]
+MOTION_WEIGHT_DECAY_SECONDS = 30.0
+MOTION_ESTIMATORS = ("polynomial", "ctrv_fit", "weighted_ctrv_fit")
+MotionEstimator = Literal["polynomial", "ctrv_fit", "weighted_ctrv_fit"]
 
 _CTRV_FIT_INITIAL_GRID_SIZE = 257
 _CTRV_FIT_REFINEMENT_GRID_SIZE = 65
@@ -80,18 +81,26 @@ class HybridBayesianCTRVConfig:
     motion_estimator: MotionEstimator = "polynomial"
     final_motion_history_seconds: float = FINAL_MOTION_HISTORY_SECONDS
     min_final_motion_speed_mps: float = MIN_FINAL_MOTION_SPEED_MPS
+    motion_weight_decay_seconds: float = MOTION_WEIGHT_DECAY_SECONDS
 
     def __post_init__(self) -> None:
         """Validate and normalize the hybrid-specific settings."""
         if not isinstance(self.motion_estimator, str):
-            raise ValueError("motion_estimator must be 'polynomial' or 'ctrv_fit'.")
+            raise ValueError(
+                "motion_estimator must be 'polynomial', 'ctrv_fit', or "
+                "'weighted_ctrv_fit'."
+            )
         motion_estimator = self.motion_estimator.strip().lower()
         if motion_estimator not in MOTION_ESTIMATORS:
-            raise ValueError("motion_estimator must be 'polynomial' or 'ctrv_fit'.")
+            raise ValueError(
+                "motion_estimator must be 'polynomial', 'ctrv_fit', or "
+                "'weighted_ctrv_fit'."
+            )
         object.__setattr__(self, "motion_estimator", motion_estimator)
         for name in (
             "final_motion_history_seconds",
             "min_final_motion_speed_mps",
+            "motion_weight_decay_seconds",
         ):
             value = getattr(self, name)
             bayesian_model._validate_positive_finite(name, value)
@@ -169,13 +178,19 @@ def estimate_final_motion_from_positions(
     if point_count < 3:
         return final_course, 0.0
 
-    if hybrid_config.motion_estimator == "ctrv_fit":
+    if hybrid_config.motion_estimator in ("ctrv_fit", "weighted_ctrv_fit"):
+        weight_decay_seconds = (
+            hybrid_config.motion_weight_decay_seconds
+            if hybrid_config.motion_estimator == "weighted_ctrv_fit"
+            else None
+        )
         return _estimate_final_motion_with_ctrv_fit(
             history_time,
             history_x,
             history_y,
             final_course=final_course,
             minimum_speed_mps=hybrid_config.min_final_motion_speed_mps,
+            weight_decay_seconds=weight_decay_seconds,
         )
     return _estimate_final_motion_with_polynomial(
         history_time,
@@ -232,15 +247,21 @@ def _estimate_final_motion_with_ctrv_fit(
     *,
     final_course,
     minimum_speed_mps,
+    weight_decay_seconds,
 ):
     """Estimate endpoint motion by fitting one constant-speed CTRV path."""
     centered_time = history_time - history_time[-1]
     centered_x = history_x - history_x[-1]
     centered_y = history_y - history_y[-1]
+    point_weights = _motion_fit_weights(
+        centered_time,
+        decay_seconds=weight_decay_seconds,
+    )
     turn_rate, coefficients = _fit_constant_turn_motion(
         centered_time,
         centered_x,
         centered_y,
+        point_weights,
     )
     velocity_x = float(coefficients[2])
     velocity_y = float(coefficients[3])
@@ -251,7 +272,20 @@ def _estimate_final_motion_with_ctrv_fit(
     return heading, float(turn_rate)
 
 
-def _fit_constant_turn_motion(centered_time, centered_x, centered_y):
+def _motion_fit_weights(centered_time, *, decay_seconds):
+    """Return uniform or exponentially increasing endpoint-fit weights."""
+    if decay_seconds is None:
+        return np.ones_like(centered_time)
+    weights = np.exp(centered_time / decay_seconds)
+    return np.maximum(weights, np.finfo(float).eps)
+
+
+def _fit_constant_turn_motion(
+    centered_time,
+    centered_x,
+    centered_y,
+    point_weights,
+):
     """Return the least-squares terminal motion of one direct CTRV fit."""
     maximum_time_step = float(np.max(np.diff(centered_time)))
     # Avoid turn-rate aliases exceeding half a revolution between observations.
@@ -274,6 +308,7 @@ def _fit_constant_turn_motion(centered_time, centered_x, centered_y):
                 centered_x,
                 centered_y,
                 float(candidate),
+                point_weights,
             )
             scores[index] = score
             coefficients_by_candidate.append(coefficients)
@@ -294,6 +329,7 @@ def _solve_ctrv_at_turn_rate(
     centered_x,
     centered_y,
     turn_rate,
+    point_weights,
 ):
     """Solve terminal position and velocity for one fixed turn rate."""
     if abs(turn_rate) <= 1e-12:
@@ -316,13 +352,18 @@ def _solve_ctrv_at_turn_rate(
     observed_positions = np.empty(2 * point_count)
     observed_positions[0::2] = centered_x
     observed_positions[1::2] = centered_y
+    coordinate_weights = np.repeat(point_weights, 2)
+    square_root_weights = np.sqrt(coordinate_weights)
+    weighted_design_matrix = design_matrix * square_root_weights[:, np.newaxis]
+    weighted_positions = observed_positions * square_root_weights
     coefficients = np.linalg.lstsq(
-        design_matrix,
-        observed_positions,
+        weighted_design_matrix,
+        weighted_positions,
         rcond=None,
     )[0]
     residuals = observed_positions - design_matrix @ coefficients
-    return float(residuals @ residuals), coefficients
+    weighted_squared_error = coordinate_weights @ np.square(residuals)
+    return float(weighted_squared_error), coefficients
 
 
 def summarize_predictions(
@@ -383,6 +424,7 @@ __all__ = [
     "HybridBayesianCTRVPriors",
     "MIN_FINAL_MOTION_SPEED_MPS",
     "MOTION_ESTIMATORS",
+    "MOTION_WEIGHT_DECAY_SECONDS",
     "MotionEstimator",
     "NOISE_PARAMETER_NAMES",
     "STAN_FILE",

@@ -32,9 +32,11 @@ PRIORS = hybrid_model.HybridBayesianCTRVPriors(
     sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
 )
 HYBRID_CONFIG = hybrid_model.HybridBayesianCTRVConfig(
-    motion_estimator="ctrv_fit",  # "polynomial" baseline or direct "ctrv_fit".
+    # "polynomial", "ctrv_fit", or time-weighted "weighted_ctrv_fit".
+    motion_estimator="weighted_ctrv_fit",
     final_motion_history_seconds=60.0,  # Recent positions used for endpoint motion.
     min_final_motion_speed_mps=1.0,  # Below this, use neutral turn rate [m/s].
+    motion_weight_decay_seconds=30.0,  # Used by weighted CTRV fit [s].
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()

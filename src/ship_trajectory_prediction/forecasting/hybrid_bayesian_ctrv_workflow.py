@@ -58,27 +58,39 @@ def run_hybrid_bayesian_ctrv_prediction(
             _hybrid_motion_setup_rows,
             motion_estimator=hybrid_config.motion_estimator,
             history_seconds=hybrid_config.final_motion_history_seconds,
+            weight_decay_seconds=hybrid_config.motion_weight_decay_seconds,
         ),
         build_motion_state_rows=_hybrid_motion_state_rows,
         noise_parameter_names=hybrid_model.NOISE_PARAMETER_NAMES,
     )
 
 
-def _hybrid_motion_setup_rows(stan_data, *, motion_estimator, history_seconds):
+def _hybrid_motion_setup_rows(
+    stan_data,
+    *,
+    motion_estimator,
+    history_seconds,
+    weight_decay_seconds,
+):
     """Describe the deterministic motion inputs of the hybrid model."""
-    return [
-        ("Motion estimator", motion_estimator),
-        (
-            "Deterministic heading",
-            f"{stan_data['heading']:.4f} rad "
-            f"({np.degrees(stan_data['heading']):.1f} deg)",
-        ),
-        (
-            "Deterministic turn rate",
-            f"{stan_data['turn_rate']:.5f} rad/s",
-        ),
-        ("Motion history", f"{history_seconds:g} s"),
-    ]
+    rows = [("Motion estimator", motion_estimator)]
+    if motion_estimator == "weighted_ctrv_fit":
+        rows.append(("Motion weight decay", f"{weight_decay_seconds:g} s"))
+    rows.extend(
+        [
+            (
+                "Deterministic heading",
+                f"{stan_data['heading']:.4f} rad "
+                f"({np.degrees(stan_data['heading']):.1f} deg)",
+            ),
+            (
+                "Deterministic turn rate",
+                f"{stan_data['turn_rate']:.5f} rad/s",
+            ),
+            ("Motion history", f"{history_seconds:g} s"),
+        ]
+    )
+    return rows
 
 
 def _hybrid_motion_state_rows(fit, stan_data):

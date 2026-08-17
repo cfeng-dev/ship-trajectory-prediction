@@ -75,11 +75,18 @@ def test_default_motion_estimator_preserves_polynomial_baseline():
     assert HybridBayesianCTRVConfig().motion_estimator == "polynomial"
 
 
-def test_motion_estimator_name_is_normalized():
+@pytest.mark.parametrize(
+    ("configured_name", "expected_name"),
+    [
+        (" CTRV_FIT ", "ctrv_fit"),
+        (" WEIGHTED_CTRV_FIT ", "weighted_ctrv_fit"),
+    ],
+)
+def test_motion_estimator_name_is_normalized(configured_name, expected_name):
     """Configuration should normalize a supported estimator name."""
-    config = HybridBayesianCTRVConfig(motion_estimator=" CTRV_FIT ")
+    config = HybridBayesianCTRVConfig(motion_estimator=configured_name)
 
-    assert config.motion_estimator == "ctrv_fit"
+    assert config.motion_estimator == expected_name
 
 
 @pytest.mark.parametrize("motion_estimator", ["spline", "", 1, None])
@@ -107,6 +114,57 @@ def test_direct_ctrv_fit_recovers_constant_turn_motion():
 
     assert stan_data["heading"] == pytest.approx(0.552, abs=1e-4)
     assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-4)
+
+
+def test_weighted_ctrv_fit_recovers_constant_turn_motion():
+    """Time weights should preserve an exact constant-turn trajectory."""
+    stan_data = build_stan_data(
+        create_synthetic_window(variable_dt=True),
+        hybrid_config=HybridBayesianCTRVConfig(
+            motion_estimator="weighted_ctrv_fit",
+            motion_weight_decay_seconds=10.0,
+        ),
+    )
+
+    assert stan_data["heading"] == pytest.approx(0.552, abs=1e-4)
+    assert stan_data["turn_rate"] == pytest.approx(0.012, abs=1e-4)
+
+
+def test_weighted_ctrv_fit_uses_exponential_recency_weights():
+    """The configured decay should give the final point unit weight."""
+    weights = model_module._motion_fit_weights(
+        np.array([-60.0, -30.0, 0.0]),
+        decay_seconds=30.0,
+    )
+
+    np.testing.assert_allclose(weights, np.exp([-2.0, -1.0, 0.0]))
+
+
+def test_weighted_ctrv_fit_reduces_influence_of_old_position_error():
+    """Recency weights should favor the recent straight-motion evidence."""
+    time_seconds = np.arange(0.0, 70.0, 10.0)
+    x_meters = 4.0 * time_seconds
+    y_meters = np.zeros_like(time_seconds)
+    y_meters[0] = 50.0
+
+    unweighted_heading, unweighted_turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        x_meters,
+        y_meters,
+        hybrid_config=HybridBayesianCTRVConfig(motion_estimator="ctrv_fit"),
+    )
+    weighted_heading, weighted_turn_rate = estimate_final_motion_from_positions(
+        time_seconds,
+        x_meters,
+        y_meters,
+        hybrid_config=HybridBayesianCTRVConfig(
+            motion_estimator="weighted_ctrv_fit",
+            motion_weight_decay_seconds=15.0,
+        ),
+    )
+
+    assert abs(weighted_heading) < abs(unweighted_heading)
+    assert abs(weighted_turn_rate) < abs(unweighted_turn_rate)
 
 
 def test_direct_ctrv_fit_recovers_straight_motion():
@@ -226,6 +284,7 @@ def test_final_motion_uses_configured_minimum_speed():
     [
         {"final_motion_history_seconds": 0.0},
         {"min_final_motion_speed_mps": 0.0},
+        {"motion_weight_decay_seconds": 0.0},
     ],
 )
 def test_hybrid_configuration_requires_positive_values(settings):
