@@ -9,7 +9,7 @@ from ship_trajectory_prediction.forecasting.deterministic_ctrv import (
 def test_experiment_groups_window_and_position_noise_configuration():
     """The deterministic entry point should expose one visible experiment."""
     assert isinstance(experiment.EXPERIMENT, DeterministicExperimentConfig)
-    assert experiment.EXPERIMENT.run_id == 1
+    assert experiment.EXPERIMENT.run_id == 102
     assert experiment.EXPERIMENT.start_index == 0
     assert experiment.EXPERIMENT.observation_count == 20
     assert experiment.EXPERIMENT.prediction_count == 5

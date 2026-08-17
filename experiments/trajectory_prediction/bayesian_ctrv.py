@@ -13,7 +13,7 @@ DATA_FILE = paths.data_path(
 
 
 EXPERIMENT = config.ExperimentConfig(
-    run_id=1,  # Trajectory run to fit.
+    run_id=102,  # Trajectory run to fit.
     start_index=0,  # First point of the selected window.
     observation_count=20,  # Position points used for fitting.
     prediction_count=3,  # Held-out future position points.

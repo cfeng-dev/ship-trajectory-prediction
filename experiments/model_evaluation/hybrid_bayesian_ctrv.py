@@ -12,7 +12,7 @@ DATA_FILE = paths.data_path(
 )
 
 EXPERIMENT = config.RollingExperimentConfig(
-    run_id=1,  # Trajectory run to evaluate.
+    run_id=102,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=20,  # Position points used by the first fit.
     prediction_count=3,  # Held-out future points per rolling forecast.

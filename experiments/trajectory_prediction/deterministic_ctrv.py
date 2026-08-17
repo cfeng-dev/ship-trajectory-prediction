@@ -10,7 +10,7 @@ DATA_FILE = paths.data_path(
 )
 
 EXPERIMENT = config.DeterministicExperimentConfig(
-    run_id=1,  # Trajectory run to predict.
+    run_id=102,  # Trajectory run to predict.
     start_index=0,  # First point of the selected window.
     observation_count=20,  # Position points used for state estimation.
     prediction_count=5,  # Held-out future position points.
