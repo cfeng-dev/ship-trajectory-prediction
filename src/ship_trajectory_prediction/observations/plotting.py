@@ -46,6 +46,7 @@ class ShipDataPlotStyle:
     time_tick_format: str = "%H:%M"
     time_range_format: str = "%d.%m.%Y %H:%M:%S %Z"
     time_label_line_spacing: float = 2.4
+    show_legend: bool = True
     legend_location: str = "upper right"
     recorded_data_color: str = "#4C78A8"
     derived_data_color: str = "#F58518"
@@ -280,11 +281,12 @@ def plot_ship_trajectory(
 
     ax.ticklabel_format(useOffset=False, style="plain")
 
-    plt.legend(
-        handles=legend_handles,
-        handler_map=legend_handler_map,
-        loc=plot_style.legend_location,
-    )
+    if plot_style.show_legend:
+        plt.legend(
+            handles=legend_handles,
+            handler_map=legend_handler_map,
+            loc=plot_style.legend_location,
+        )
 
     plt.tight_layout()
     plt.show()
@@ -377,7 +379,8 @@ def plot_ship_speeds(
         mdates.DateFormatter(plot_style.time_tick_format)
     )
     speed_axis.grid(True)
-    speed_axis.legend(loc=plot_style.legend_location)
+    if plot_style.show_legend:
+        speed_axis.legend(loc=plot_style.legend_location)
     speed_figure.tight_layout()
     plt.show()
 
@@ -420,7 +423,8 @@ def plot_ship_speeds(
         mdates.DateFormatter(plot_style.time_tick_format)
     )
     propulsion_axis.grid(True)
-    propulsion_axis.legend(loc=plot_style.legend_location)
+    if plot_style.show_legend:
+        propulsion_axis.legend(loc=plot_style.legend_location)
     propulsion_figure.tight_layout()
     plt.show()
 
@@ -508,11 +512,12 @@ def plot_ship_curvature(
         for index, label in enumerate(legend_labels)
         if label == "Stillstand / zu geringe Bewegung"
     )
-    axis.legend(
-        [legend_handles[index] for index in legend_order],
-        [legend_labels[index] for index in legend_order],
-        loc=plot_style.legend_location,
-    )
+    if plot_style.show_legend:
+        axis.legend(
+            [legend_handles[index] for index in legend_order],
+            [legend_labels[index] for index in legend_order],
+            loc=plot_style.legend_location,
+        )
     figure.tight_layout()
     plt.show()
     return figure, axis

@@ -21,9 +21,11 @@ SUMMARY_LABEL_WIDTH = 20
 TURN_RATE_CENTRAL_RANGE = 0.90
 
 # Plot data settings
-TRAJECTORY_COORDINATE_UNIT = "km"  # "m", "km", or "gps"
-SPEED_UNIT = "km/h"  # "m/s" or "km/h"
+TRAJECTORY_COORDINATE_UNIT = "m"  # "m", "km", or "gps"
+SPEED_UNIT = "m/s"  # "m/s" or "km/h"
 PROPULSION_SPEED_UNIT = "rpm"
+ADDITIONAL_POSITION_NOISE_STD_M = 5.0  # Per x/y axis [m]; 0 disables.
+POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 MIN_CURVATURE_DISPLACEMENT_METERS = 2.0
 MAX_CURVATURE_TIME_GAP_SECONDS = 15.0
 
@@ -40,6 +42,7 @@ PLOT_STYLE = plotting.ShipDataPlotStyle(
     time_tick_format="%H:%M",
     time_range_format="%d.%m.%Y %H:%M:%S %Z",
     time_label_line_spacing=2.4,
+    show_legend=True,
     legend_location="upper right",
     recorded_data_color="#4C78A8",
     derived_data_color="#F58518",
@@ -61,6 +64,11 @@ def main() -> None:
         start_time=START_TIME,
         end_time=END_TIME,
     )
+    ship_data = _add_position_noise(
+        ship_data,
+        additional_noise_std_m=ADDITIONAL_POSITION_NOISE_STD_M,
+        seed=POSITION_NOISE_SEED,
+    )
 
     observations_io.print_ship_data_summary(
         ship_data,
@@ -68,6 +76,7 @@ def main() -> None:
         gps_speed_unit=SPEED_UNIT,
         propulsion_speed_unit=PROPULSION_SPEED_UNIT,
     )
+    _print_position_noise_setting()
     _print_turn_rate_summary(ship_data)
     plotting.plot_ship_trajectory(
         ship_data,
@@ -86,6 +95,80 @@ def main() -> None:
         max_time_gap_s=MAX_CURVATURE_TIME_GAP_SECONDS,
         plot_style=PLOT_STYLE,
     )
+
+
+def _add_position_noise(data, *, additional_noise_std_m, seed):
+    """Return a copy with reproducible Gaussian noise on GPS positions."""
+    if isinstance(additional_noise_std_m, bool):
+        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+    try:
+        additional_noise_std_m = float(additional_noise_std_m)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "additional_noise_std_m must be finite and non-negative."
+        ) from error
+    if not np.isfinite(additional_noise_std_m) or additional_noise_std_m < 0:
+        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
+        raise ValueError("seed must be a non-negative integer.")
+
+    noisy_data = data.copy()
+    if noisy_data.empty or additional_noise_std_m == 0:
+        return noisy_data
+
+    generator = np.random.default_rng(seed)
+    if "run_id" in noisy_data.columns:
+        run_groups = (
+            run_data
+            for _, run_data in noisy_data.groupby(
+                "run_id",
+                sort=False,
+                dropna=False,
+            )
+        )
+    else:
+        run_groups = (noisy_data,)
+
+    for run_data in run_groups:
+        longitude = run_data["gps_longitude"].to_numpy(dtype=float)
+        latitude = run_data["gps_latitude"].to_numpy(dtype=float)
+        x_meters, y_meters = coordinates.gps_to_local_coordinates(
+            longitude,
+            latitude,
+            unit="m",
+        )
+        x_meters += generator.normal(
+            0.0,
+            additional_noise_std_m,
+            len(run_data),
+        )
+        y_meters += generator.normal(
+            0.0,
+            additional_noise_std_m,
+            len(run_data),
+        )
+        noisy_longitude, noisy_latitude = coordinates.local_to_gps_coordinates(
+            x_meters,
+            y_meters,
+            reference_longitude=longitude[0],
+            reference_latitude=latitude[0],
+            unit="m",
+        )
+        noisy_data.loc[run_data.index, "gps_longitude"] = noisy_longitude
+        noisy_data.loc[run_data.index, "gps_latitude"] = noisy_latitude
+
+    return noisy_data
+
+
+def _print_position_noise_setting() -> None:
+    """Print the configured artificial position-noise scenario."""
+    description = (
+        f"{ADDITIONAL_POSITION_NOISE_STD_M:g} m per x/y axis "
+        f"(seed={POSITION_NOISE_SEED})"
+        if ADDITIONAL_POSITION_NOISE_STD_M > 0
+        else "disabled"
+    )
+    print(f"\n{'Added position noise':<{SUMMARY_LABEL_WIDTH}}: {description}")
 
 
 def _print_turn_rate_summary(data) -> None:
