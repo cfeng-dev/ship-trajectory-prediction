@@ -136,3 +136,40 @@ def test_ship_data_plots_can_hide_all_legends():
 def test_ship_data_plot_style_shows_legends_by_default():
     """Existing callers should retain legends unless they disable them."""
     assert plotting.ShipDataPlotStyle().show_legend is True
+
+
+def test_ship_trajectory_accepts_a_noise_specific_legend_label():
+    """The exploration script should be able to identify a noisy trajectory."""
+    plotting.plot_ship_trajectory(
+        _create_ship_data(),
+        coordinate_unit="m",
+        trajectory_label="Verrauschte Schiffstrajektorie",
+    )
+    axis = plt.gca()
+
+    assert axis.get_legend().get_texts()[0].get_text() == (
+        "Verrauschte Schiffstrajektorie"
+    )
+    plt.close(axis.figure)
+
+
+@pytest.mark.parametrize(
+    ("noise_std_m", "expected_label"),
+    [
+        (5.0, "Verrauschte Schiffstrajektorie"),
+        (0.0, "Schiffstrajektorie"),
+    ],
+)
+def test_exploration_trajectory_label_reflects_added_noise(
+    monkeypatch,
+    noise_std_m,
+    expected_label,
+):
+    """The configured legend label should identify only noisy trajectories."""
+    monkeypatch.setattr(
+        experiment,
+        "ADDITIONAL_POSITION_NOISE_STD_M",
+        noise_std_m,
+    )
+
+    assert experiment._trajectory_label() == expected_label

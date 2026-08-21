@@ -103,6 +103,7 @@ def plot_ship_trajectory(
     data,
     arrow_step=DEFAULT_ARROW_STEP,
     coordinate_unit="gps",
+    trajectory_label="Schiffstrajektorie",
     plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
 ):
     """
@@ -125,6 +126,8 @@ def plot_ship_trajectory(
         Coordinate representation. ``"gps"`` plots longitude and latitude in
         degrees. ``"km"`` and ``"m"`` plot local east and north distances
         from the first trajectory point.
+    trajectory_label : str, optional
+        Legend label for the displayed trajectory.
     plot_style : ShipDataPlotStyle, optional
         Appearance settings shared with the ship-speed plots.
     """
@@ -190,7 +193,7 @@ def plot_ship_trajectory(
                 marker="o",
                 markersize=TRAJECTORY_MARKER_SIZE,
                 linewidth=TRAJECTORY_LINE_WIDTH,
-                label=_run_label("Schiffstrajektorie", run_id, len(run_groups)),
+                label=_run_label(trajectory_label, run_id, len(run_groups)),
             )[0]
         )
 

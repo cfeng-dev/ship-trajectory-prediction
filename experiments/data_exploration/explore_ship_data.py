@@ -13,7 +13,7 @@ DATA_FILE = paths.data_path(
 
 # Data selection
 RUN_IDS = (1,)  # One: (1,); selected: (1, 3); range 1-3: range(1, 4); all: None
-START_TIME = None
+START_TIME = None  # Example: "2026-01-10 08:20:00+00:00"
 END_TIME = None
 
 # Terminal report
@@ -81,6 +81,7 @@ def main() -> None:
     plotting.plot_ship_trajectory(
         ship_data,
         coordinate_unit=TRAJECTORY_COORDINATE_UNIT,
+        trajectory_label=_trajectory_label(),
         plot_style=PLOT_STYLE,
     )
     plotting.plot_ship_speeds(
@@ -95,6 +96,13 @@ def main() -> None:
         max_time_gap_s=MAX_CURVATURE_TIME_GAP_SECONDS,
         plot_style=PLOT_STYLE,
     )
+
+
+def _trajectory_label() -> str:
+    """Describe whether the plotted trajectory contains added position noise."""
+    if ADDITIONAL_POSITION_NOISE_STD_M > 0:
+        return "Verrauschte Schiffstrajektorie"
+    return "Schiffstrajektorie"
 
 
 def _add_position_noise(data, *, additional_noise_std_m, seed):
