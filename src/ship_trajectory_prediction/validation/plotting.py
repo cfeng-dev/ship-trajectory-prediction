@@ -33,7 +33,11 @@ def plot_bayesian_rolling_predictions(
     sample_seed=42,
     observed_route_x=None,
     observed_route_y=None,
+    history_position_count=None,
     observed_trajectory_label="Anfängliche Beobachtungen",
+    title_prefix="Rollierende bayessche CTRV-Prognose",
+    forecast_label="Rollierende Posterior-Mediane",
+    sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
 ):
     """Plot rolling Bayesian paths and posterior-predictive uncertainty."""
     window_mode_label = _window_mode_label(window_mode)
@@ -64,6 +68,11 @@ def plot_bayesian_rolling_predictions(
         sample_seed=sample_seed,
     )
 
+    history_suffix = (
+        f", K={int(history_position_count)}"
+        if history_position_count is not None
+        else ""
+    )
     figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
             observed_route_x[:initial_observation_count],
@@ -80,11 +89,11 @@ def plot_bayesian_rolling_predictions(
             group.forecast_time_seconds for group in posterior_plot_groups
         ),
         annotate_prediction_regions=False,
-        title=f"Rollierende bayessche CTRV-Prognose ({window_mode_label})",
+        title=f"{title_prefix} ({window_mode_label}{history_suffix})",
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
-        forecast_label="Rollierende Posterior-Mediane",
-        sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
+        forecast_label=forecast_label,
+        sample_label=sample_label,
         prediction_origin_label="Startpunkte der Prognosen",
         figsize=ROLLING_FIGURE_SIZE,
         forecast_alpha=0.35,

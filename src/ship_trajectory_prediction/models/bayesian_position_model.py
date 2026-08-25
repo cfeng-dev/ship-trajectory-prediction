@@ -10,19 +10,20 @@ from typing import Any
 import numpy as np
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.bayesian_inference as inference_support
+import ship_trajectory_prediction.models.bayesian_observations as observation_support
 import ship_trajectory_prediction.models.paths as model_paths
 import ship_trajectory_prediction.observations.window as observation_window
 
 STAN_FILE = model_paths.stan_path("models/bayesian_position_model.stan")
 MIN_HISTORY_POSITION_COUNT = 3
 REGULAR_TIME_STEP_ATOL_SECONDS = 1e-9
-DEFAULT_MEANFIELD_GRAD_SAMPLES = bayesian_model.DEFAULT_MEANFIELD_GRAD_SAMPLES
-DEFAULT_VI_ADAPT_ITER = bayesian_model.DEFAULT_VI_ADAPT_ITER
+DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
+DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 
-PositionObservations = bayesian_model.PositionObservations
-simulate_position_observations = bayesian_model.simulate_position_observations
-variational_converged = bayesian_model.variational_converged
+PositionObservations = observation_support.PositionObservations
+simulate_position_observations = observation_support.simulate_position_observations
+variational_converged = inference_support.variational_converged
 
 NOISE_PARAMETER_NAMES = ("sigma_displacement_residual",)
 PARAMETER_NAMES = (
@@ -44,7 +45,7 @@ class BayesianPositionModelPriors:
         """Validate every configured prior scale."""
         for prior_field in fields(self):
             value = getattr(self, prior_field.name)
-            bayesian_model._validate_positive_finite(prior_field.name, value)
+            observation_support.validate_positive_finite(prior_field.name, value)
             object.__setattr__(self, prior_field.name, float(value))
 
 
@@ -58,14 +59,14 @@ def build_stan_data(
     """Build Stan data from the last regular, observed position history."""
     if not isinstance(priors, BayesianPositionModelPriors):
         raise TypeError("priors must be a BayesianPositionModelPriors instance.")
-    history_position_count = _validate_history_position_count(
+    history_position_count = observation_support.validate_history_position_count(
         history_position_count,
         observation_count=window.observation_count,
     )
     if window.prediction_count < 1:
         raise ValueError("window must contain at least one prediction position.")
 
-    position_observations = bayesian_model._resolve_position_observations(
+    position_observations = observation_support.resolve_position_observations(
         window,
         position_observations,
     )
@@ -83,8 +84,8 @@ def build_stan_data(
         position_observations.y_meters[history_slice],
         dtype=float,
     )
-    bayesian_model._validate_finite_vector("x_observed", x_history)
-    bayesian_model._validate_finite_vector("y_observed", y_history)
+    observation_support.validate_finite_vector("x_observed", x_history)
+    observation_support.validate_finite_vector("y_observed", y_history)
 
     return {
         "N_history": history_position_count,
@@ -141,7 +142,7 @@ def fit_bayesian_position_model(
     mcmc_options: Mapping[str, Any] | None = None,
 ) -> CmdStanVB | CmdStanMCMC:
     """Fit the local displacement model with mean-field/full-rank VI or MCMC."""
-    inference_method = bayesian_model.normalize_inference_method(inference_method)
+    inference_method = inference_support.normalize_inference_method(inference_method)
     stan_data = build_stan_data(
         window,
         priors=priors,
@@ -153,7 +154,7 @@ def fit_bayesian_position_model(
     if inference_method == "vi":
         if mcmc_options:
             raise ValueError("mcmc_options can only be used with MCMC inference.")
-        bayesian_model._validate_variational_arguments(
+        inference_support.validate_variational_arguments(
             algorithm=algorithm,
             iter=iter,
             grad_samples=grad_samples,
@@ -168,7 +169,7 @@ def fit_bayesian_position_model(
             show_console=show_console,
         )
         options = dict(variational_options or {})
-        bayesian_model._reject_conflicting_options(
+        inference_support.reject_conflicting_options(
             "variational_options",
             options,
             {
@@ -212,7 +213,7 @@ def fit_bayesian_position_model(
         raise ValueError("variational_options can only be used with VI inference.")
     if parallel_chains is None:
         parallel_chains = chains
-    bayesian_model._validate_mcmc_arguments(
+    inference_support.validate_mcmc_arguments(
         chains=chains,
         parallel_chains=parallel_chains,
         iter_warmup=iter_warmup,
@@ -223,7 +224,7 @@ def fit_bayesian_position_model(
         show_console=show_console,
     )
     options = dict(mcmc_options or {})
-    bayesian_model._reject_conflicting_options(
+    inference_support.reject_conflicting_options(
         "mcmc_options",
         options,
         {
@@ -301,22 +302,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             max(residual_scale * np.exp(generator.normal(0.0, 1e-3)), 1e-6)
         ),
     }
-
-
-def _validate_history_position_count(value: int, *, observation_count: int) -> int:
-    """Return a valid number of trailing positions used by the VAR likelihood."""
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError("history_position_count must be an integer.")
-    value = int(value)
-    if value < MIN_HISTORY_POSITION_COUNT:
-        raise ValueError(
-            f"history_position_count must be at least {MIN_HISTORY_POSITION_COUNT}."
-        )
-    if value > observation_count:
-        raise ValueError(
-            "history_position_count must not exceed the observation count."
-        )
-    return value
 
 
 def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None:

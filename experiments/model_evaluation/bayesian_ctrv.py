@@ -1,4 +1,4 @@
-"""Evaluate fully Bayesian CTRV forecasts across rolling windows."""
+"""Evaluate parametric Bayesian CTRV forecasts across rolling windows."""
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
 import ship_trajectory_prediction.forecasting.inference as inference
@@ -12,38 +12,34 @@ DATA_FILE = paths.data_path(
 )
 
 EXPERIMENT = config.RollingExperimentConfig(
-    run_id=102,  # Trajectory run to evaluate.
-    window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
-    observation_count=20,  # Position points used by the first fit.
-    prediction_count=3,  # Held-out future points per rolling forecast.
-    additional_position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
-    position_noise_seed=2026,  # Reproduces route-wide added position noise.
-    stride=None,  # Forecast-origin step; None uses prediction_count.
-    inference_method="vi",  # Fast "vi" or reference "mcmc".
-    inference_seed=42,  # Reproduces every rolling VI or MCMC fit.
+    run_id=102,
+    window_mode="sliding",
+    observation_count=20,
+    prediction_count=3,
+    history_position_count=5,  # Compare with K=10 through --history-positions.
+    additional_position_noise_std_m=5.0,
+    position_noise_seed=2026,
+    stride=None,
+    inference_method="vi",
+    inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
-    # Match initial x/y uncertainty to the artificial noise scale [m].
-    position_initial_prior_scale=EXPERIMENT.additional_position_noise_std_m,
-    # Empirically informed priors calibrated on disjoint historical trajectories.
-    speed_initial_prior_mean=3.524,  # Robust initial speed center [m/s].
-    speed_initial_prior_scale=0.365,  # Robust initial speed scale [m/s].
-    turn_rate_initial_prior_mean=0.0,  # Neutral independent center [rad/s].
-    turn_rate_state_prior_scale=0.001698,  # Robust turn-rate scale [rad/s].
-    sigma_position_process_prior_scale=0.534,  # Position drift [m/sqrt(s)].
-    sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
-    sigma_turn_rate_process_prior_scale=0.001007,  # Turn drift [(rad/s)/sqrt(s)].
+    # Provisional transfer; validate specifically for the parametric CTRV model.
+    speed_prior_mean=3.524,
+    speed_prior_scale=0.365,
+    turn_rate_prior_mean=0.0,
+    turn_rate_prior_scale=0.001698,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
-CREDIBLE_INTERVAL = 0.9  # Central 90% posterior-predictive region.
-MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
-PLOT_EACH_WINDOW = False  # Show the individual fit of every rolling window.
-SAMPLE_TRAJECTORIES_PER_FORECAST = 15  # Posterior paths shown per forecast.
+CREDIBLE_INTERVAL = 0.9
+MAX_WINDOWS = None
+PLOT_EACH_WINDOW = False
+SAMPLE_TRAJECTORIES_PER_FORECAST = 15
 
 
 def main(argv=None):
-    """Run the configured fully Bayesian CTRV rolling evaluation."""
+    """Run the configured parametric Bayesian CTRV rolling evaluation."""
     options = cli.parse_bayesian_ctrv_evaluation_arguments(
         description=__doc__,
         experiment=EXPERIMENT,
@@ -53,7 +49,7 @@ def main(argv=None):
         plot_each_window=PLOT_EACH_WINDOW,
         argv=argv,
     )
-    return workflow.run_fully_bayesian_ctrv_evaluation(
+    return workflow.run_bayesian_ctrv_evaluation(
         data_file=DATA_FILE,
         experiment=EXPERIMENT,
         priors=PRIORS,

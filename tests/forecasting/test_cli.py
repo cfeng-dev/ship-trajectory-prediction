@@ -12,6 +12,7 @@ def _experiment():
         start_index=0,
         observation_count=20,
         prediction_count=3,
+        history_position_count=20,
         additional_position_noise_std_m=2.0,
         position_noise_seed=2026,
         inference_method="vi",
@@ -33,6 +34,7 @@ def test_parse_bayesian_ctrv_prediction_arguments_uses_configured_defaults():
     )
 
     assert vars(arguments) == {
+        "history_positions": 20,
         "inference": "vi",
         "vi_algorithm": "meanfield",
         "seed": 42,
@@ -54,6 +56,8 @@ def test_parse_bayesian_ctrv_prediction_arguments_reads_cli_overrides():
         vi_config=vi_config,
         plot_coordinate_mode="m",
         argv=[
+            "--history-positions",
+            "10",
             "--inference",
             "mcmc",
             "--vi-algorithm",
@@ -71,6 +75,7 @@ def test_parse_bayesian_ctrv_prediction_arguments_reads_cli_overrides():
     )
 
     assert vars(arguments) == {
+        "history_positions": 10,
         "inference": "mcmc",
         "vi_algorithm": "fullrank",
         "seed": 17,

@@ -1,4 +1,4 @@
-"""Rolling evaluation workflow for the fully Bayesian CTRV model."""
+"""Rolling evaluation workflow for the parametric Bayesian CTRV model."""
 
 import dataclasses
 import time
@@ -10,6 +10,7 @@ import pandas as pd
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
 import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.bayesian_observations as observation_support
 import ship_trajectory_prediction.observations.coordinates as coordinates
 import ship_trajectory_prediction.observations.io as observations_io
 import ship_trajectory_prediction.observations.window as observation_window
@@ -20,32 +21,10 @@ import ship_trajectory_prediction.validation.prediction_plotting as prediction_p
 import ship_trajectory_prediction.validation.reporting as reporting
 import ship_trajectory_prediction.validation.rolling as rolling_validation
 
-VI_NUMERICAL_STABILITY_RETRIES = 2
-# Numerical guard only: this does not constrain or trim valid posterior draws.
-VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
+VI_EXECUTION_RETRIES = 2
 
 
-def _apply_evaluation_options(experiment, priors, options):
-    """Return independent experiment and prior configs with CLI overrides."""
-    configured_experiment = dataclasses.replace(
-        experiment,
-        window_mode=options.window_mode,
-        observation_count=options.observation_count,
-        prediction_count=options.prediction_count,
-        stride=options.stride,
-        inference_method=options.inference_method,
-        inference_seed=options.inference_seed,
-        additional_position_noise_std_m=options.additional_position_noise_std_m,
-        position_noise_seed=options.position_noise_seed,
-    )
-    configured_priors = dataclasses.replace(
-        priors,
-        turn_rate_state_prior_scale=options.turn_rate_state_prior_scale,
-    )
-    return configured_experiment, configured_priors
-
-
-def run_fully_bayesian_ctrv_evaluation(
+def run_bayesian_ctrv_evaluation(
     *,
     data_file,
     experiment: forecasting.RollingExperimentConfig,
@@ -57,19 +36,27 @@ def run_fully_bayesian_ctrv_evaluation(
     sample_trajectories_per_forecast,
     options: validation_cli.BayesianCTRVEvaluationOptions,
 ):
-    """Evaluate fully Bayesian CTRV forecasts across one complete run."""
-    experiment, priors = _apply_evaluation_options(
+    """Evaluate constant-parameter Bayesian CTRV forecasts across one run."""
+    configured_experiment = dataclasses.replace(
         experiment,
-        priors,
-        options,
+        window_mode=options.window_mode,
+        observation_count=options.observation_count,
+        prediction_count=options.prediction_count,
+        history_position_count=options.history_position_count,
+        stride=options.stride,
+        inference_method=options.inference_method,
+        inference_seed=options.inference_seed,
+        additional_position_noise_std_m=options.additional_position_noise_std_m,
+        position_noise_seed=options.position_noise_seed,
     )
-    return _run_bayesian_ctrv_evaluation(
-        model_name="bayesian",
-        model_label="Fully Bayesian CTRV",
-        fit_model=bayesian_model.fit_bayesian_ctrv_model,
+    configured_priors = dataclasses.replace(
+        priors,
+        turn_rate_prior_scale=options.turn_rate_prior_scale,
+    )
+    return _run_evaluation(
         data_file=data_file,
-        experiment=experiment,
-        priors=priors,
+        experiment=configured_experiment,
+        priors=configured_priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         fullrank_grad_samples=fullrank_grad_samples,
@@ -79,15 +66,11 @@ def run_fully_bayesian_ctrv_evaluation(
         require_converged=options.require_converged,
         max_windows=options.max_windows,
         plot_each_window=options.plot_each_window,
-        noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
     )
 
 
-def _run_bayesian_ctrv_evaluation(
+def _run_evaluation(
     *,
-    model_name,
-    model_label,
-    fit_model,
     data_file,
     experiment,
     priors,
@@ -100,40 +83,37 @@ def _run_bayesian_ctrv_evaluation(
     require_converged,
     max_windows,
     plot_each_window,
-    noise_parameter_names,
 ):
-    """Fit and evaluate one configured Bayesian CTRV model."""
-    window_mode = experiment.window_mode
-    observation_count = experiment.observation_count
-    prediction_count = experiment.prediction_count
-    stride = experiment.stride
-    inference_method = experiment.inference_method
-    seed = experiment.inference_seed
-    position_noise_std_m = experiment.additional_position_noise_std_m
-    position_noise_seed = experiment.position_noise_seed
+    """Run one configured rolling evaluation."""
+    history_position_count = observation_support.validate_history_position_count(
+        experiment.history_position_count,
+        observation_count=experiment.observation_count,
+    )
     inference_method, inference_config = inference.select_inference_config(
-        inference_method,
+        experiment.inference_method,
         vi_algorithm=vi_algorithm,
         require_converged=require_converged,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         fullrank_grad_samples=fullrank_grad_samples,
     )
-
-    trajectory_data = observations_io.read_ship_data(
-        data_file,
-        run_id=experiment.run_id,
+    trajectory_data = (
+        observations_io.read_ship_data(
+            data_file,
+            run_id=experiment.run_id,
+        )
+        .sort_values("time")
+        .reset_index(drop=True)
     )
-    trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
     windows = rolling_validation.build_rolling_window_specs(
         len(trajectory_data),
-        initial_observation_count=observation_count,
-        prediction_count=prediction_count,
-        stride=stride,
-        window_mode=window_mode,
+        initial_observation_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+        window_mode=experiment.window_mode,
     )
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
@@ -143,63 +123,31 @@ def _run_bayesian_ctrv_evaluation(
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
-        additional_noise_std_m=position_noise_std_m,
-        seed=position_noise_seed,
+        additional_noise_std_m=experiment.additional_position_noise_std_m,
+        seed=experiment.position_noise_seed,
     )
-    effective_stride = prediction_count if stride is None else stride
+    effective_stride = (
+        experiment.prediction_count if experiment.stride is None else experiment.stride
+    )
     print("=" * 72)
-    print("Bayesian CTRV Rolling-Window Evaluation")
+    print("Parametric Bayesian CTRV Rolling-Window Evaluation")
     print("=" * 72)
     print(f"Data file             : {data_file}")
     print(f"Run ID                : {experiment.run_id}")
-    print(f"Window mode           : {window_mode}")
-    print(f"Initial observations  : {observation_count}")
-    print(f"Prediction horizon    : {prediction_count}")
+    print(f"Window mode           : {experiment.window_mode}")
+    print(f"Initial observations  : {experiment.observation_count}")
+    print(f"History positions K   : {history_position_count}")
+    print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
-    print(f"Model                 : {model_label}")
     print(f"Inference method      : {inference_method.upper()}")
-    noise_description = (
-        f"{position_noise_std_m:g} m (seed={position_noise_seed})"
-        if position_noise_std_m > 0
-        else "disabled"
-    )
-    observation_noise_std_m = (
-        position_noise_std_m
-        if position_noise_std_m > 0
-        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-    )
-    print(f"Additional pos. noise : {noise_description}")
-    print(f"Fixed observation SD  : {observation_noise_std_m:g} m")
-    if inference_method == "vi":
-        print(f"VI algorithm          : {vi_algorithm}")
-        print(f"VI adaptation steps   : {inference_config['adapt_iter']}")
-    else:
-        print(
-            "Note: MCMC refits every rolling window and can take much longer than VI."
-        )
-        print(f"MCMC chains           : {inference_config['chains']}")
-        print(f"MCMC warmup/chain     : {inference_config['iter_warmup']}")
-        print(f"MCMC samples/chain    : {inference_config['iter_sampling']}")
-    print(
-        "Turn-rate prior scale : "
-        + (
-            "data-derived"
-            if priors.turn_rate_state_prior_scale is None
-            else f"{priors.turn_rate_state_prior_scale:.5f} rad/s"
-        )
-    )
+    print("Prior status          : provisional; model-specific validation pending")
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
     posterior_plot_groups = []
     for number, specification in enumerate(windows, start=1):
-        window_seed = seed + specification.window_index
-        print(
-            f"\nWindow {number}/{len(windows)}: "
-            f"observations={specification.observation_count}, "
-            f"predictions={specification.prediction_count}, seed={window_seed}"
-        )
+        window_seed = experiment.inference_seed + specification.window_index
         window = observation_window.prepare_trajectory_window(
             trajectory_data,
             observation_count=specification.observation_count,
@@ -211,24 +159,24 @@ def _run_bayesian_ctrv_evaluation(
             route_start_index=specification.start_index,
             route_noise_x=route_noise_x,
             route_noise_y=route_noise_y,
-            additional_noise_std_m=position_noise_std_m,
-            noise_seed=position_noise_seed,
+            additional_noise_std_m=experiment.additional_position_noise_std_m,
+            noise_seed=experiment.position_noise_seed,
         )
-        observed_turn_rate = bayesian_model.diagnose_observed_turn_rate(
-            window,
-            turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
-            position_observations=position_observations,
+        print(
+            f"\nWindow {number}/{len(windows)}: "
+            f"observations={specification.observation_count}, "
+            f"history={history_position_count}, "
+            f"predictions={specification.prediction_count}, seed={window_seed}"
         )
         runtime_started = time.perf_counter()
-        fit, window_seed = _fit_rolling_window(
+        fit, window_seed = _fit_window(
             window,
             priors=priors,
+            history_position_count=history_position_count,
             position_observations=position_observations,
             inference_method=inference_method,
             inference_config=inference_config,
             initial_seed=window_seed,
-            fit_model=fit_model,
-            noise_parameter_names=noise_parameter_names,
         )
         if inference_method == "vi":
             converged = bayesian_model.variational_converged(fit)
@@ -238,19 +186,14 @@ def _run_bayesian_ctrv_evaluation(
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
-        posterior_diagnostics = _posterior_window_diagnostics(
-            fit,
-            noise_parameter_names=noise_parameter_names,
-        )
+
         evaluation = metrics.evaluate_position_predictions(
             fit,
             window,
             credible_interval=credible_interval,
-            position_variable_names=(
-                "x_observation_prediction",
-                "y_observation_prediction",
-            ),
+            position_variable_names=("x_prediction", "y_prediction"),
         )
+        diagnostics = _posterior_diagnostics(fit, window)
         table = _build_route_prediction_table(
             evaluation.prediction_table,
             specification=specification,
@@ -262,14 +205,15 @@ def _run_bayesian_ctrv_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
-            observed_turn_rate=observed_turn_rate,
-            posterior_diagnostics=posterior_diagnostics,
-            additional_position_noise_std_m=position_noise_std_m,
-            position_noise_seed=position_noise_seed,
-            model_name=model_name,
+            diagnostics=diagnostics,
+            history_position_count=history_position_count,
+            additional_position_noise_std_m=(
+                experiment.additional_position_noise_std_m
+            ),
+            position_noise_seed=experiment.position_noise_seed,
         )
         posterior_plot_groups.append(
-            _build_rolling_posterior_plot_data(
+            _build_rolling_plot_data(
                 fit,
                 specification=specification,
                 window=window,
@@ -283,56 +227,117 @@ def _run_bayesian_ctrv_evaluation(
         table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
         print(
-            f"ADE={evaluation.ade_m:.2f} m, "
-            f"FDE={evaluation.fde_m:.2f} m, "
-            f"runtime={window_runtime_seconds:.3f} s, "
-            f"{inference_status}"
+            f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
+            f"runtime={window_runtime_seconds:.3f} s, {inference_status}"
         )
         if plot_each_window:
             figure, _ = prediction_plotting.plot_prediction(
                 window,
                 fit,
-                state_prediction_variable_names=(
-                    "x_state_prediction",
-                    "y_state_prediction",
-                ),
+                state_prediction_variable_names=("x_prediction", "y_prediction"),
                 observed_position_values=(
                     position_observations.x_meters,
                     position_observations.y_meters,
                 ),
                 observed_trajectory_label=(
-                    "Verrauschte Beobachtungen"
-                    if position_noise_std_m > 0
-                    else "Beobachtungen"
+                    "Für Fit verwendete verrauschte Beobachtungen"
+                    if experiment.additional_position_noise_std_m > 0
+                    else "Für Fit verwendete Beobachtungen"
                 ),
-                additional_position_noise_std_m=position_noise_std_m,
+                fit_history_position_count=history_position_count,
+                additional_position_noise_std_m=(
+                    experiment.additional_position_noise_std_m
+                ),
+                title=(
+                    "Parametrisches bayessches CTRV-Modell auf Basis von "
+                    "Positionsdaten:\nTrajektorie aus Posterior-Parameterunsicherheit"
+                ),
+                forecast_label="Median der parametrischen CTRV-Trajektorie",
+                sample_label="Trajektorien aus Posterior-Parameterziehungen",
             )
             plt.close(figure)
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = rolling_validation.summarize_rolling_predictions(predictions)
     _print_summary(summary, credible_interval=credible_interval)
-    _print_turn_rate_and_noise_summary(predictions)
+    _print_parameter_summary(predictions)
     plotting.plot_bayesian_rolling_predictions(
         route_x,
         route_y,
         posterior_plot_groups,
-        initial_observation_count=observation_count,
-        window_mode=window_mode,
+        initial_observation_count=experiment.observation_count,
+        window_mode=experiment.window_mode,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
-        sample_seed=seed,
+        sample_seed=experiment.inference_seed,
         observed_route_x=route_x + route_noise_x,
         observed_route_y=route_y + route_noise_y,
         observed_trajectory_label=(
             "Verrauschte Anfangsbeobachtungen"
-            if position_noise_std_m > 0
+            if experiment.additional_position_noise_std_m > 0
             else "Anfängliche Beobachtungen"
         ),
+        history_position_count=history_position_count,
+        title_prefix=(
+            "Rollierende parametrische CTRV-Prognose aus "
+            "Posterior-Parameterunsicherheit"
+        ),
+        forecast_label="Rollierende parametrische Posterior-Mediane",
+        sample_label="Trajektorien aus Posterior-Parameterziehungen",
     )
     return predictions, summary
 
 
-def _build_rolling_posterior_plot_data(
+def _fit_window(
+    window,
+    *,
+    priors,
+    history_position_count,
+    position_observations,
+    inference_method,
+    inference_config,
+    initial_seed,
+):
+    """Fit one window and retry recoverable VI execution failures."""
+    seed = initial_seed
+    for attempt in range(VI_EXECUTION_RETRIES + 1):
+        try:
+            fit = bayesian_model.fit_bayesian_ctrv_model(
+                window,
+                priors=priors,
+                history_position_count=history_position_count,
+                position_observations=position_observations,
+                inference_method=inference_method,
+                seed=seed,
+                **inference_config,
+            )
+            return fit, seed
+        except RuntimeError:
+            if inference_method != "vi" or attempt == VI_EXECUTION_RETRIES:
+                raise
+            seed += 1
+            print(f"Retrying VI with seed={seed} after CmdStan execution failure.")
+    raise RuntimeError("Unreachable VI retry state.")
+
+
+def _posterior_diagnostics(fit, window):
+    """Return scalar parameter medians and forecast heading change."""
+    medians = {
+        name: float(np.median(reporting.posterior_variable_samples(fit, name)))
+        for name in bayesian_model.PARAMETER_NAMES
+    }
+    forecast_duration = float(
+        window.time_seconds[window.prediction_slice][-1]
+        - window.time_seconds[window.observation_count - 1]
+    )
+    return {
+        "posterior_speed_median_mps": medians["speed"],
+        "posterior_heading_initial_median_rad": medians["heading_initial"],
+        "posterior_turn_rate_median_rad_s": medians["turn_rate"],
+        "forecast_heading_change_median_rad": medians["turn_rate"] * forecast_duration,
+    }
+
+
+def _build_rolling_plot_data(
     fit,
     *,
     specification,
@@ -342,25 +347,19 @@ def _build_rolling_posterior_plot_data(
     longitude,
     latitude,
 ):
-    """Transform one window's posterior paths into the common route frame."""
-    x_samples = reporting.posterior_variable_samples(fit, "x_state_prediction")
-    y_samples = reporting.posterior_variable_samples(fit, "y_state_prediction")
-    if x_samples.ndim != 2:
-        raise ValueError(
-            "Rolling posterior position draws must be finite aligned matrices."
-        )
+    """Transform one forecast's model-position draws to the route frame."""
+    x_samples = reporting.posterior_variable_samples(fit, "x_prediction")
+    y_samples = reporting.posterior_variable_samples(fit, "y_prediction")
     expected_shape = (x_samples.shape[0], specification.prediction_count)
     if (
-        x_samples.shape[0] == 0
+        x_samples.ndim != 2
+        or x_samples.shape[0] == 0
         or x_samples.shape != expected_shape
         or y_samples.shape != expected_shape
         or not np.all(np.isfinite(x_samples))
         or not np.all(np.isfinite(y_samples))
     ):
-        raise ValueError(
-            "Rolling posterior position draws must be finite aligned matrices."
-        )
-
+        raise ValueError("Rolling posterior position draws must be aligned matrices.")
     sample_shape = x_samples.shape
     predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
         x_samples.ravel(),
@@ -406,24 +405,22 @@ def _build_route_prediction_table(
     inference_method,
     converged,
     mcmc_diagnostics_ok,
-    observed_turn_rate,
-    posterior_diagnostics,
+    diagnostics,
+    history_position_count,
     additional_position_noise_std_m,
     position_noise_seed,
-    model_name,
 ):
-    """Add rolling metadata and one route-wide coordinate frame."""
+    """Add rolling metadata and route-wide coordinates."""
     table = prediction_table.copy()
     target_indices = np.arange(
         specification.forecast_start_index,
         specification.forecast_start_index + specification.prediction_count,
     )
-    reference_index = specification.start_index
     predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
         table["x_median"],
         table["y_median"],
-        reference_longitude=longitude[reference_index],
-        reference_latitude=latitude[reference_index],
+        reference_longitude=longitude[specification.start_index],
+        reference_latitude=latitude[specification.start_index],
         unit="m",
     )
     x_median_route, y_median_route = _gps_to_route_coordinates(
@@ -433,16 +430,19 @@ def _build_route_prediction_table(
         reference_latitude=latitude[0],
     )
     forecast_origin_index = specification.forecast_start_index - 1
-
     table.insert(0, "window_index", specification.window_index)
     table.insert(1, "window_start_index", specification.start_index)
     table.insert(2, "forecast_start_index", specification.forecast_start_index)
     table.insert(3, "target_index", target_indices)
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
+    table["history_position_count"] = history_position_count
+    table["history_start_index"] = (
+        specification.forecast_start_index - history_position_count
+    )
     table["prediction_count"] = specification.prediction_count
     table["inference_method"] = inference_method
-    table["model_variant"] = model_name
+    table["model_variant"] = "bayesian"
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["additional_position_noise_std_m"] = additional_position_noise_std_m
@@ -452,16 +452,7 @@ def _build_route_prediction_table(
         else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
     )
     table["position_noise_seed"] = position_noise_seed
-    table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
-    table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
-    table["observed_turn_rate_robust_scale_rad_s"] = (
-        observed_turn_rate.robust_scale_rad_s
-    )
-    table["observed_turn_rate_q90_absolute_rad_s"] = (
-        observed_turn_rate.q90_absolute_rad_s
-    )
-    table["turn_rate_prior_scale_rad_s"] = observed_turn_rate.prior_scale_rad_s
-    for name, value in posterior_diagnostics.items():
+    for name, value in diagnostics.items():
         table[name] = value
     table["forecast_origin_time"] = window.timestamps[
         specification.observation_count - 1
@@ -475,139 +466,8 @@ def _build_route_prediction_table(
     return table
 
 
-def _posterior_window_diagnostics(
-    fit,
-    *,
-    noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-):
-    """Return forecast-motion values and posterior noise medians for one window."""
-    turn_rate_forecast_origin = reporting.posterior_variable_samples(
-        fit,
-        "turn_rate_forecast_origin",
-    )
-    heading_state = reporting.posterior_variable_samples(fit, "heading_state")
-    heading_state_prediction = reporting.posterior_variable_samples(
-        fit,
-        "heading_state_prediction",
-    )
-    diagnostics = {
-        "forecast_origin_turn_rate_rad_s": float(np.median(turn_rate_forecast_origin)),
-        "forecast_heading_change_rad": float(
-            np.median(heading_state_prediction[:, -1] - heading_state[:, -1])
-        ),
-    }
-    for name in noise_parameter_names:
-        diagnostics[f"posterior_{name}_median"] = float(
-            np.median(reporting.posterior_variable_samples(fit, name))
-        )
-    return diagnostics
-
-
-def _fit_rolling_window(
-    window,
-    *,
-    priors,
-    position_observations,
-    inference_method,
-    inference_config,
-    initial_seed,
-    fit_model=None,
-    noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-):
-    """Fit one window and retry recoverable numerical VI failures."""
-    if fit_model is None:
-        fit_model = bayesian_model.fit_bayesian_ctrv_model
-    seed = initial_seed
-    for attempt in range(VI_NUMERICAL_STABILITY_RETRIES + 1):
-        try:
-            fit = fit_model(
-                window,
-                priors=priors,
-                position_observations=position_observations,
-                inference_method=inference_method,
-                seed=seed,
-                **inference_config,
-            )
-        except RuntimeError as error:
-            if inference_method != "vi" or not _is_retryable_vi_runtime_error(error):
-                raise
-            if attempt == VI_NUMERICAL_STABILITY_RETRIES:
-                raise RuntimeError(
-                    "VI failed during CmdStan execution after "
-                    f"{VI_NUMERICAL_STABILITY_RETRIES + 1} attempts; "
-                    f"last seed={seed}: {error}"
-                ) from error
-
-            next_seed = seed + 1
-            reason = str(error).splitlines()[0]
-            print(
-                "WARNING: CmdStan VI fit failed "
-                f"(seed={seed}: {reason}); retrying with seed={next_seed}."
-            )
-            seed = next_seed
-            continue
-        if inference_method != "vi":
-            return fit, seed
-
-        instability = _vi_numerical_instability_reason(
-            fit,
-            priors,
-            noise_parameter_names=noise_parameter_names,
-        )
-        if instability is None:
-            return fit, seed
-        if attempt == VI_NUMERICAL_STABILITY_RETRIES:
-            raise RuntimeError(
-                "VI remained numerically unstable after "
-                f"{VI_NUMERICAL_STABILITY_RETRIES + 1} attempts: {instability}"
-            )
-
-        next_seed = seed + 1
-        print(
-            "WARNING: Discarding numerically unstable VI fit "
-            f"(seed={seed}: {instability}); retrying with seed={next_seed}."
-        )
-        seed = next_seed
-
-    raise AssertionError("Unreachable VI retry state.")
-
-
-def _is_retryable_vi_runtime_error(error):
-    """Return whether CmdStan reported a stochastic VI execution failure."""
-    message = str(error)
-    return any(
-        marker in message
-        for marker in (
-            "Error during variational inference",
-            "Variational algorithm gradient calculation failed",
-            "All proposed step-sizes failed",
-        )
-    )
-
-
-def _vi_numerical_instability_reason(
-    fit,
-    priors,
-    *,
-    noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-):
-    """Describe posterior noise draws that indicate a failed VI approximation."""
-    for name in noise_parameter_names:
-        prior_scale = getattr(priors, f"{name}_prior_scale")
-        samples = reporting.posterior_variable_samples(fit, name)
-        if samples.size == 0 or not np.all(np.isfinite(samples)):
-            return f"{name} contains empty or non-finite posterior draws"
-        maximum_ratio = float(np.max(samples) / prior_scale)
-        if maximum_ratio > VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO:
-            return (
-                f"{name} maximum/prior-scale ratio={maximum_ratio:.3e} "
-                f"> {VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO:.3e}"
-            )
-    return None
-
-
 def _prepare_route_coordinates(trajectory_data):
-    """Return the complete run in one common local east/north frame."""
+    """Return the complete run in one local east/north frame."""
     longitude = pd.to_numeric(
         trajectory_data["gps_longitude"], errors="coerce"
     ).to_numpy(dtype=float)
@@ -622,38 +482,29 @@ def _prepare_route_coordinates(trajectory_data):
     return route_x, route_y, longitude, latitude
 
 
-def _simulate_route_position_noise(
-    position_count,
-    *,
-    additional_noise_std_m,
-    seed,
-):
-    """Generate one reproducible x/y perturbation for every route position."""
+def _simulate_route_position_noise(position_count, *, additional_noise_std_m, seed):
+    """Generate one reproducible perturbation for every route position."""
+    additional_noise_std_m = observation_support.validate_non_negative_finite(
+        "additional_position_noise_std_m",
+        additional_noise_std_m,
+    )
+    seed = observation_support.validate_non_negative_integer(
+        "position_noise_seed",
+        seed,
+    )
     if (
-        isinstance(additional_noise_std_m, bool)
-        or not np.isfinite(additional_noise_std_m)
-        or additional_noise_std_m < 0
-    ):
-        raise ValueError(
-            "additional_position_noise_std_m must be finite and non-negative."
-        )
-    if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
-        raise ValueError("position_noise_seed must be a non-negative integer.")
-    if isinstance(position_count, bool) or not isinstance(
-        position_count,
-        (int, np.integer),
+        isinstance(position_count, bool)
+        or not isinstance(position_count, (int, np.integer))
+        or position_count < 1
     ):
         raise ValueError("position_count must be a positive integer.")
-    if position_count < 1:
-        raise ValueError("position_count must be a positive integer.")
-
     if additional_noise_std_m == 0:
         zeros = np.zeros(int(position_count), dtype=float)
         return zeros, zeros.copy()
-    generator = np.random.default_rng(int(seed))
+    generator = np.random.default_rng(seed)
     noise = generator.normal(
         0.0,
-        float(additional_noise_std_m),
+        additional_noise_std_m,
         size=(int(position_count), 2),
     )
     return noise[:, 0], noise[:, 1]
@@ -668,17 +519,8 @@ def _build_window_position_observations(
     additional_noise_std_m,
     noise_seed,
 ):
-    """Apply the fixed route perturbation to one rolling observed window."""
-    route_noise_x = np.asarray(route_noise_x, dtype=float)
-    route_noise_y = np.asarray(route_noise_y, dtype=float)
+    """Apply the fixed route perturbation to one complete observed window."""
     route_stop_index = route_start_index + window.observation_count
-    if (
-        route_start_index < 0
-        or route_noise_x.ndim != 1
-        or route_noise_y.shape != route_noise_x.shape
-        or route_stop_index > route_noise_x.size
-    ):
-        raise ValueError("Route position noise does not cover the rolling window.")
     route_slice = slice(route_start_index, route_stop_index)
     observed = window.observed_slice
     return bayesian_model.PositionObservations(
@@ -702,7 +544,7 @@ def _gps_to_route_coordinates(
     reference_longitude,
     reference_latitude,
 ):
-    """Convert GPS points to the local coordinate frame of the complete run."""
+    """Convert GPS points to the local frame of the complete run."""
     longitude_with_reference = np.concatenate(([reference_longitude], longitude))
     latitude_with_reference = np.concatenate(([reference_latitude], latitude))
     x_route, y_route = coordinates.gps_to_local_coordinates(
@@ -724,14 +566,8 @@ def _print_summary(summary, *, credible_interval):
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
-        (
-            "Mean window runtime",
-            f"{summary.mean_window_runtime_seconds:.3f} s",
-        ),
-        (
-            "Median window runtime",
-            f"{summary.median_window_runtime_seconds:.3f} s",
-        ),
+        ("Mean window runtime", f"{summary.mean_window_runtime_seconds:.3f} s"),
+        ("Median window runtime", f"{summary.median_window_runtime_seconds:.3f} s"),
         (
             "Total computation time",
             rolling_validation.format_computation_time(
@@ -741,14 +577,6 @@ def _print_summary(summary, *, credible_interval):
         (
             f"Joint 2D {100 * credible_interval:g}% coverage",
             f"{summary.radial_coverage:.1%}",
-        ),
-        (
-            "Mean equivalent radius",
-            f"{summary.mean_prediction_radius_m:.2f} m",
-        ),
-        (
-            "Mean marginal width",
-            f"{summary.mean_marginal_interval_width_m:.2f} m",
         ),
     ]
     if summary.vi_convergence_rate is not None:
@@ -760,34 +588,26 @@ def _print_summary(summary, *, credible_interval):
                 f"{summary.mcmc_diagnostics_pass_rate:.1%}",
             )
         )
-    label_width = max(len(label) for label, _ in rows)
-    for label, value in rows:
-        print(f"{label:<{label_width}} : {value}")
+    print(reporting.format_aligned_rows(rows))
     print("\nPer-horizon evaluation:")
     print(rolling_validation.format_per_horizon_table(summary.per_horizon_table))
 
 
-def _print_turn_rate_and_noise_summary(predictions):
-    """Print one-row-per-window diagnostics for model identifiability."""
+def _print_parameter_summary(predictions):
+    """Print one-row-per-window posterior parameter diagnostics."""
     windows = predictions.groupby("window_index", sort=True).first()
-    print("\nTurn-rate and process-noise diagnostics:")
-    print(
-        "Median absolute observed turn rate : "
-        f"{windows['observed_turn_rate_median_rad_s'].abs().median():.5f} rad/s"
-    )
-    print(
-        "Maximum forecast-origin turn rate  : "
-        f"{windows['forecast_origin_turn_rate_rad_s'].abs().max():.5f} rad/s"
-    )
-    print(
-        "Median position process sigma      : "
-        f"{windows['posterior_sigma_position_process_median'].median():.3f} m/sqrt(s)"
-    )
-    print(
-        "Median turn-rate process sigma     : "
-        f"{windows['posterior_sigma_turn_rate_process_median'].median():.6f} "
-        "rad/s/sqrt(s)"
-    )
+    rows = [
+        (
+            "Median fitted speed",
+            f"{windows['posterior_speed_median_mps'].median():.3f} m/s",
+        ),
+        (
+            "Median absolute turn rate",
+            f"{windows['posterior_turn_rate_median_rad_s'].abs().median():.6f} rad/s",
+        ),
+    ]
+    print("\nParametric CTRV diagnostics:")
+    print(reporting.format_aligned_rows(rows))
 
 
 def _mcmc_diagnostics_ok(fit):

@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
+import ship_trajectory_prediction.models.bayesian_inference as inference_support
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 
@@ -13,10 +13,10 @@ def create_default_vi_config() -> dict[str, Any]:
     return {
         "algorithm": "meanfield",
         "iter": 20_000,
-        "grad_samples": bayesian_model.DEFAULT_MEANFIELD_GRAD_SAMPLES,
+        "grad_samples": inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES,
         "elbo_samples": 100,
         "eta": 1.0,
-        "adapt_iter": bayesian_model.DEFAULT_VI_ADAPT_ITER,
+        "adapt_iter": inference_support.DEFAULT_VI_ADAPT_ITER,
         "tol_rel_obj": 0.01,
         "eval_elbo": 100,
         "draws": 1_000,
@@ -46,7 +46,7 @@ def select_inference_config(
     fullrank_grad_samples: int,
 ) -> tuple[str, dict[str, Any]]:
     """Return the normalized method and its independent CmdStan options."""
-    normalized_method = bayesian_model.normalize_inference_method(inference_method)
+    normalized_method = inference_support.normalize_inference_method(inference_method)
     if normalized_method == "mcmc":
         return normalized_method, dict(mcmc_config)
 

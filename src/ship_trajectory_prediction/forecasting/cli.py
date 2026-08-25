@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as bayesian_forecasting
+import ship_trajectory_prediction.forecasting.bayesian_ctrv_state_space as state_space_forecasting
 import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
 import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 
@@ -17,8 +18,54 @@ def parse_bayesian_ctrv_prediction_arguments(
     plot_coordinate_mode: str,
     argv: Sequence[str] | None = None,
 ) -> argparse.Namespace:
-    """Parse the shared CLI options for one Bayesian CTRV prediction."""
+    """Parse CLI options for one parametric Bayesian CTRV prediction."""
+    return _parse_bayesian_prediction_arguments(
+        description=description,
+        experiment=experiment,
+        vi_config=vi_config,
+        plot_coordinate_mode=plot_coordinate_mode,
+        history_position_count=experiment.history_position_count,
+        argv=argv,
+    )
+
+
+def parse_bayesian_ctrv_state_space_prediction_arguments(
+    *,
+    description: str | None,
+    experiment: state_space_forecasting.ExperimentConfig,
+    vi_config: Mapping[str, Any],
+    plot_coordinate_mode: str,
+    argv: Sequence[str] | None = None,
+) -> argparse.Namespace:
+    """Parse CLI options for one Bayesian CTRV state-space prediction."""
+    return _parse_bayesian_prediction_arguments(
+        description=description,
+        experiment=experiment,
+        vi_config=vi_config,
+        plot_coordinate_mode=plot_coordinate_mode,
+        history_position_count=None,
+        argv=argv,
+    )
+
+
+def _parse_bayesian_prediction_arguments(
+    *,
+    description,
+    experiment,
+    vi_config,
+    plot_coordinate_mode,
+    history_position_count,
+    argv,
+):
+    """Parse common Bayesian single-window options."""
     parser = argparse.ArgumentParser(description=description)
+    if history_position_count is not None:
+        parser.add_argument(
+            "--history-positions",
+            type=int,
+            default=history_position_count,
+            help="Use the last K observed positions; requires 3 <= K <= observations.",
+        )
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),

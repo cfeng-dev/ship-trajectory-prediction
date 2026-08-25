@@ -1,4 +1,4 @@
-"""Single-window Bayesian CTRV prediction workflow."""
+"""Single-window workflow for the parametric Bayesian CTRV model."""
 
 import time
 from collections.abc import Mapping
@@ -16,7 +16,7 @@ import ship_trajectory_prediction.validation.prediction_plotting as prediction_p
 import ship_trajectory_prediction.validation.reporting as reporting
 
 
-def run_fully_bayesian_ctrv_prediction(
+def run_bayesian_ctrv_prediction(
     *,
     data_file,
     experiment: forecasting.ExperimentConfig,
@@ -25,6 +25,7 @@ def run_fully_bayesian_ctrv_prediction(
     mcmc_config: Mapping[str, Any],
     fullrank_grad_samples: int,
     credible_interval: float,
+    history_position_count: int,
     inference_method: str,
     vi_algorithm: str,
     seed: int,
@@ -32,55 +33,8 @@ def run_fully_bayesian_ctrv_prediction(
     position_noise_seed: int,
     require_converged: bool,
     plot_coordinate_mode: str,
-) -> None:
-    """Fit and evaluate one fully Bayesian CTRV prediction."""
-    return run_bayesian_ctrv_prediction(
-        data_file=data_file,
-        experiment=experiment,
-        priors=priors,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-        credible_interval=credible_interval,
-        inference_method=inference_method,
-        vi_algorithm=vi_algorithm,
-        seed=seed,
-        position_noise_std_m=position_noise_std_m,
-        position_noise_seed=position_noise_seed,
-        require_converged=require_converged,
-        plot_coordinate_mode=plot_coordinate_mode,
-        model_label="Fully Bayesian CTRV",
-        stan_data_builder=bayesian_model.build_stan_data,
-        fit_model=bayesian_model.fit_bayesian_ctrv_model,
-        build_motion_setup_rows=_fully_bayesian_motion_setup_rows,
-        build_motion_state_rows=_fully_bayesian_motion_state_rows,
-    )
-
-
-def run_bayesian_ctrv_prediction(
-    *,
-    data_file,
-    experiment,
-    priors,
-    vi_config,
-    mcmc_config,
-    fullrank_grad_samples,
-    credible_interval,
-    inference_method,
-    vi_algorithm,
-    seed,
-    position_noise_std_m,
-    position_noise_seed,
-    require_converged,
-    plot_coordinate_mode,
-    model_label,
-    stan_data_builder,
-    fit_model,
-    build_motion_setup_rows,
-    build_motion_state_rows,
-    noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
 ):
-    """Run the shared single-window fitting and evaluation workflow."""
+    """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
     inference_method, inference_config = inference.select_inference_config(
         inference_method,
         vi_algorithm=vi_algorithm,
@@ -107,46 +61,52 @@ def run_bayesian_ctrv_prediction(
         additional_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
-    stan_data = stan_data_builder(
+    stan_data = bayesian_model.build_stan_data(
         window,
         priors=priors,
+        history_position_count=history_position_count,
         position_observations=position_observations,
     )
     forecast_horizon_seconds = float(
         stan_data["time_prediction"][-1] - stan_data["time_observed"][-1]
     )
-    inference_rows = [
-        ("Model", model_label),
-        ("Inference method", inference_method.upper()),
-    ]
-    inference_rows.extend(build_motion_setup_rows(stan_data))
-    if inference_method == "vi":
-        inference_rows.append(("VI algorithm", inference_config["algorithm"]))
-    else:
-        inference_rows.extend(
-            [
-                ("MCMC chains", inference_config["chains"]),
-                ("MCMC parallel chains", inference_config["parallel_chains"]),
-                ("MCMC warmup per chain", inference_config["iter_warmup"]),
-                ("MCMC samples per chain", inference_config["iter_sampling"]),
-            ]
-        )
-    _print_ctrv_setup(
-        model_label=model_label,
-        window=window,
-        inference_rows=inference_rows,
-        inference_seed=seed,
-        position_observations=position_observations,
-        forecast_horizon_seconds=forecast_horizon_seconds,
-        plot_coordinate_mode=plot_coordinate_mode,
+    reporting.print_prediction_setup(
+        "Parametric Bayesian CTRV Prediction",
         data_file=data_file,
         run_id=experiment.run_id,
+        window=window,
+        extra_rows=[
+            ("Model parameters", "speed, heading_initial, turn_rate"),
+            ("Inference method", inference_method.upper()),
+            ("History positions used", history_position_count),
+            (
+                "History start index",
+                window.observation_count - history_position_count,
+            ),
+            ("Inference seed", seed),
+            (
+                "Position noise",
+                (
+                    f"{position_noise_std_m:g} m (seed={position_noise_seed})"
+                    if position_noise_std_m > 0
+                    else "disabled"
+                ),
+            ),
+            (
+                "Fixed observation noise",
+                f"{position_observations.observation_noise_std_m:g} m",
+            ),
+            ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
+            ("Plot coordinates", plot_coordinate_mode),
+            ("Prior status", "provisional transfer; model-specific validation pending"),
+        ],
     )
 
     computation_started = time.perf_counter()
-    fit = fit_model(
+    fit = bayesian_model.fit_bayesian_ctrv_model(
         window,
         priors=priors,
+        history_position_count=history_position_count,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,
@@ -156,132 +116,70 @@ def run_bayesian_ctrv_prediction(
         fit,
         window,
         credible_interval=credible_interval,
-        position_variable_names=(
-            "x_state_prediction",
-            "y_state_prediction",
-        ),
+        position_variable_names=("x_prediction", "y_prediction"),
     )
     computation_time_seconds = time.perf_counter() - computation_started
+
     if inference_method == "vi":
         converged = bayesian_model.variational_converged(fit)
         reporting.print_variational_diagnostics(fit, converged=converged)
-        if not converged:
-            print(
-                "WARNING: Treat this posterior and its plot as preliminary; "
-                "the VI convergence criterion was not met."
-            )
     else:
+        converged = None
         print("\nMCMC diagnostics:")
         print(fit.diagnose())
 
     print("\nPosterior parameter summary:")
-    print(
-        reporting.posterior_parameter_summary(
-            fit,
-            noise_parameter_names,
-        )
-    )
-
-    speed_state = reporting.posterior_variable_samples(fit, "speed_state")
-    heading_state = reporting.posterior_variable_samples(fit, "heading_state")
-    state_rows = [
+    print(reporting.posterior_parameter_summary(fit, bayesian_model.PARAMETER_NAMES))
+    parameter_rows = [
         (
             "Speed [m/s]",
-            f"{np.median(speed_state[:, 0]):.3f} -> "
-            f"{np.median(speed_state[:, -1]):.3f}",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'speed')):.3f}",
         ),
         (
-            "Heading [rad]",
-            f"{np.median(heading_state[:, 0]):.4f} -> "
-            f"{np.median(heading_state[:, -1]):.4f}",
+            "Initial heading [rad]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'heading_initial')):.4f}",
+        ),
+        (
+            "Turn rate [rad/s]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate')):.6f}",
         ),
     ]
-    state_rows.extend(build_motion_state_rows(fit, stan_data))
-    print("\nPosterior state medians:")
-    print(reporting.format_aligned_rows(state_rows))
-    print(
-        "GPS speed was not used for fitting; it is retained only as an "
-        "external post-fit plausibility reference."
-    )
-
+    print("\nPosterior motion medians:")
+    print(reporting.format_aligned_rows(parameter_rows))
+    print("Only position observations were used for fitting.")
     metrics.print_position_evaluation(
         evaluation,
         computation_time_seconds=computation_time_seconds,
     )
-    observed_trajectory_label = (
-        "Verrauschte Beobachtungen"
-        if position_observations.additional_noise_std_m > 0
-        else "Beobachtungen"
-    )
+
     prediction_plotting.plot_prediction(
         window,
         fit,
-        state_prediction_variable_names=(
-            "x_state_prediction",
-            "y_state_prediction",
-        ),
+        state_prediction_variable_names=("x_prediction", "y_prediction"),
         observed_position_values=(
             position_observations.x_meters,
             position_observations.y_meters,
         ),
-        observed_trajectory_label=observed_trajectory_label,
+        observed_trajectory_label=(
+            "Für Fit verwendete verrauschte Beobachtungen"
+            if position_observations.additional_noise_std_m > 0
+            else "Für Fit verwendete Beobachtungen"
+        ),
+        fit_history_position_count=history_position_count,
         additional_position_noise_std_m=(position_observations.additional_noise_std_m),
         coordinate_mode=plot_coordinate_mode,
+        title=(
+            "Parametrisches bayessches CTRV-Modell auf Basis von Positionsdaten:\n"
+            "Trajektorie aus Posterior-Parameterunsicherheit"
+        ),
+        forecast_label="Median der parametrischen CTRV-Trajektorie",
+        sample_label="Trajektorien aus Posterior-Parameterziehungen",
     )
-
-
-def _fully_bayesian_motion_setup_rows(stan_data):
-    """Describe the inferred motion quantities of the fully Bayesian model."""
-    del stan_data
-    return [("Heading and turn rate", "latent posterior")]
-
-
-def _fully_bayesian_motion_state_rows(fit, stan_data):
-    """Return posterior turn-rate rows for the fully Bayesian model."""
-    del stan_data
-    turn_rate_state = reporting.posterior_variable_samples(fit, "turn_rate_state")
-    return [
-        (
-            "Turn rate [rad/s]",
-            f"{np.median(turn_rate_state[:, 0]):.5f} -> "
-            f"{np.median(turn_rate_state[:, -1]):.5f}",
-        )
-    ]
-
-
-def _print_ctrv_setup(
-    *,
-    model_label,
-    window,
-    inference_rows,
-    inference_seed,
-    position_observations,
-    forecast_horizon_seconds,
-    plot_coordinate_mode,
-    data_file,
-    run_id,
-):
-    """Print the concise, reproducible setup for one Bayesian CTRV run."""
-    noise_std_m = position_observations.additional_noise_std_m
-    noise_description = (
-        f"{noise_std_m:g} m (seed={position_observations.noise_seed})"
-        if noise_std_m > 0
-        else "disabled"
-    )
-    reporting.print_prediction_setup(
-        f"{model_label} State-Space Prediction",
-        data_file=data_file,
-        run_id=run_id,
-        window=window,
-        extra_rows=[
-            *inference_rows,
-            ("Inference seed", inference_seed),
-            ("Additional position noise", noise_description),
-            (
-                "Fixed observation noise",
-                f"{position_observations.observation_noise_std_m:g} m",
-            ),
-            ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
-            ("Plot coordinates", plot_coordinate_mode),
-        ],
-    )
+    return {
+        "fit": fit,
+        "window": window,
+        "position_observations": position_observations,
+        "stan_data": stan_data,
+        "evaluation": evaluation,
+        "converged": converged,
+    }
