@@ -1,7 +1,5 @@
 # Ship Trajectory Prediction
 
-[![Tests](https://github.com/cfeng-dev/ship-trajectory-prediction/actions/workflows/tests.yml/badge.svg)](https://github.com/cfeng-dev/ship-trajectory-prediction/actions/workflows/tests.yml)
-
 ## Overview
 
 This repository contains the source code, Bayesian models, and accompanying documentation for my Master's thesis.

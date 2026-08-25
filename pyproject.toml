@@ -14,7 +14,6 @@ dependencies = [
     "matplotlib>=3.10,<3.11",
     "numpy>=2.2,<3",
     "pandas>=2.3,<3",
-    "pytest>=8.4,<9",
     "ruff>=0.15,<0.16",
 ]
 
@@ -24,14 +23,6 @@ ship-simulator = "ship_trajectory_prediction.simulation.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["ship_trajectory_prediction*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
-addopts = "--strict-config --strict-markers --import-mode=importlib"
-markers = [
-    "integration: slow tests requiring a working local CmdStan toolchain",
-]
 
 [tool.ruff]
 line-length = 88
