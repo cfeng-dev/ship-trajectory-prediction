@@ -5,7 +5,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as bayesian_forecasting
-import ship_trajectory_prediction.forecasting.bayesian_ctrv_state_space as state_space_forecasting
 import ship_trajectory_prediction.forecasting.deterministic_ctrv as deterministic_forecasting
 import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 
@@ -25,25 +24,6 @@ def parse_bayesian_ctrv_prediction_arguments(
         vi_config=vi_config,
         plot_coordinate_mode=plot_coordinate_mode,
         history_position_count=experiment.history_position_count,
-        argv=argv,
-    )
-
-
-def parse_bayesian_ctrv_state_space_prediction_arguments(
-    *,
-    description: str | None,
-    experiment: state_space_forecasting.ExperimentConfig,
-    vi_config: Mapping[str, Any],
-    plot_coordinate_mode: str,
-    argv: Sequence[str] | None = None,
-) -> argparse.Namespace:
-    """Parse CLI options for one Bayesian CTRV state-space prediction."""
-    return _parse_bayesian_prediction_arguments(
-        description=description,
-        experiment=experiment,
-        vi_config=vi_config,
-        plot_coordinate_mode=plot_coordinate_mode,
-        history_position_count=None,
         argv=argv,
     )
 
