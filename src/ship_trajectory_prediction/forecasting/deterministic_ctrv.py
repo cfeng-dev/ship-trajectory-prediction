@@ -44,13 +44,13 @@ def estimate_ctrv_state(
     speed_estimation_points=DEFAULT_SPEED_ESTIMATION_POINTS,
     heading_estimation_segments=DEFAULT_HEADING_ESTIMATION_SEGMENTS,
 ) -> deterministic_model.CTRVState:
-    """Estimate the final CTRV state from observed trajectory values only."""
+    """Estimate the final CTRV state from observed positions and times only."""
     if (
         isinstance(speed_estimation_points, bool)
         or not isinstance(speed_estimation_points, int)
-        or speed_estimation_points < 1
+        or speed_estimation_points < 2
     ):
-        raise ValueError("speed_estimation_points must be a positive integer.")
+        raise ValueError("speed_estimation_points must be an integer of at least 2.")
     if (
         isinstance(heading_estimation_segments, bool)
         or not isinstance(heading_estimation_segments, int)
@@ -64,12 +64,12 @@ def estimate_ctrv_state(
     time_observed = window.time_seconds[observed]
     x_observed = window.x_meters[observed]
     y_observed = window.y_meters[observed]
-    speed_observed = window.gps_speed_mps[observed]
-
-    valid_speeds = speed_observed[np.isfinite(speed_observed) & (speed_observed >= 0)]
-    if len(valid_speeds) == 0:
-        raise ValueError("Observed gps_speed must contain a finite non-negative value.")
-    speed = float(np.median(valid_speeds[-speed_estimation_points:]))
+    speed = estimate_speed_from_positions(
+        time_observed,
+        x_observed,
+        y_observed,
+        point_count=speed_estimation_points,
+    )
 
     delta_x = np.diff(x_observed)
     delta_y = np.diff(y_observed)
@@ -96,6 +96,55 @@ def estimate_ctrv_state(
         heading=float(heading),
         turn_rate=float(turn_rate),
     )
+
+
+def estimate_speed_from_positions(
+    time_seconds,
+    x_meters,
+    y_meters,
+    *,
+    point_count=DEFAULT_SPEED_ESTIMATION_POINTS,
+) -> float:
+    """Estimate speed from a local linear fit to recent position measurements."""
+    time_seconds = np.asarray(time_seconds, dtype=float)
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    if (
+        time_seconds.ndim != 1
+        or x_meters.shape != time_seconds.shape
+        or y_meters.shape != time_seconds.shape
+        or time_seconds.size < 2
+        or not np.all(np.isfinite(time_seconds))
+        or not np.all(np.isfinite(x_meters))
+        or not np.all(np.isfinite(y_meters))
+    ):
+        raise ValueError(
+            "time_seconds, x_meters, and y_meters must be matching finite "
+            "vectors with at least two values."
+        )
+    if isinstance(point_count, bool) or not isinstance(point_count, int):
+        raise ValueError("point_count must be an integer of at least 2.")
+    if point_count < 2:
+        raise ValueError("point_count must be an integer of at least 2.")
+
+    fit_count = min(point_count, time_seconds.size)
+    selected_time = time_seconds[-fit_count:]
+    selected_x = x_meters[-fit_count:]
+    selected_y = y_meters[-fit_count:]
+    if np.any(np.diff(selected_time) <= 0):
+        raise ValueError("Selected position timestamps must be strictly increasing.")
+
+    centered_time = selected_time - np.mean(selected_time)
+    denominator = float(np.dot(centered_time, centered_time))
+    if denominator <= 0:
+        raise ValueError("Selected position timestamps must span positive time.")
+    velocity_x = float(
+        np.dot(centered_time, selected_x - np.mean(selected_x)) / denominator
+    )
+    velocity_y = float(
+        np.dot(centered_time, selected_y - np.mean(selected_y)) / denominator
+    )
+    return float(np.hypot(velocity_x, velocity_y))
 
 
 def build_prediction_table(

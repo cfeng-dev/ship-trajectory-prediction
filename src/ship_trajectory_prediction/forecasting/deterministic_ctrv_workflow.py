@@ -70,6 +70,10 @@ def run_deterministic_ctrv_prediction(
                     else "disabled"
                 ),
             ),
+            (
+                "Speed estimator",
+                f"linear fit over {speed_estimation_points} noisy positions",
+            ),
             ("Estimated speed", f"{initial_state.speed:.3f} m/s"),
             ("Estimated heading", f"{initial_state.heading:.5f} rad"),
             ("Estimated turn rate", f"{initial_state.turn_rate:.6f} rad/s"),

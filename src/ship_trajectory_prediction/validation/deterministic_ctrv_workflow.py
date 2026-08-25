@@ -362,7 +362,7 @@ def _print_setup(**values):
     print(f"Prediction horizon    : {values['prediction_count']}")
     print(f"Stride                : {values['stride']}")
     print(f"Rolling windows       : {values['window_count']}")
-    print(f"Speed history points  : {values['speed_estimation_points']}")
+    print(f"Speed fit positions   : {values['speed_estimation_points']}")
     print(f"Heading segments      : {values['heading_estimation_segments']}")
     noise = (
         f"{values['position_noise_std_m']:g} m (seed={values['position_noise_seed']})"

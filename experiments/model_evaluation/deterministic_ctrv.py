@@ -19,7 +19,7 @@ EXPERIMENT = config.DeterministicRollingExperimentConfig(
     stride=None,  # Forecast-origin step; None uses prediction_count.
 )
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
-SPEED_ESTIMATION_POINTS = 5  # Recent GPS speeds used for the initial state.
+SPEED_ESTIMATION_POINTS = 5  # Recent noisy positions used for the speed fit.
 HEADING_ESTIMATION_SEGMENTS = 5  # Recent movements used for heading/turn rate.
 SHOW_PLOT = True  # Show the route-wide rolling-evaluation plot.
 
