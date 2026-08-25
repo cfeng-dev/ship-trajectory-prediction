@@ -504,10 +504,7 @@ def _plot_rolling_predictions(
             group.forecast_time_seconds for group in posterior_groups
         ),
         annotate_prediction_regions=False,
-        title=(
-            "Rollierende Bayesian-Position-Model-Prognose "
-            f"({window_mode}, K={history_position_count})"
-        ),
+        title=None,
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
         forecast_label="Rollierende Posterior-Mediane",

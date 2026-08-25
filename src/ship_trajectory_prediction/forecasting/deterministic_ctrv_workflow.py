@@ -13,11 +13,6 @@ import ship_trajectory_prediction.observations.window as observation_window
 import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 import ship_trajectory_prediction.validation.reporting as reporting
 
-DETERMINISTIC_PLOT_TITLE = (
-    "Deterministisches CTRV-Modell auf Basis von Positionsdaten:\n"
-    "Trajektorienvorhersage"
-)
-
 
 def run_deterministic_ctrv_prediction(
     *,
@@ -141,7 +136,7 @@ def plot_deterministic_ctrv_prediction(
         reference_path=(held_out_x, held_out_y),
         forecast_paths=((predicted_x, predicted_y),),
         prediction_origins=([start_x], [start_y]),
-        title=DETERMINISTIC_PLOT_TITLE,
+        title=None,
         observed_label=observed_label,
         reference_label="Referenztrajektorie",
         forecast_label="Deterministische CTRV-Vorhersage",

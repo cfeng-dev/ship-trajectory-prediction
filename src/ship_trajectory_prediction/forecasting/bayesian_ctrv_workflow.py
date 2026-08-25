@@ -168,10 +168,6 @@ def run_bayesian_ctrv_prediction(
         fit_history_position_count=history_position_count,
         additional_position_noise_std_m=(position_observations.additional_noise_std_m),
         coordinate_mode=plot_coordinate_mode,
-        title=(
-            "Parametrisches bayessches CTRV-Modell auf Basis von Positionsdaten:\n"
-            "Trajektorie aus Posterior-Parameterunsicherheit"
-        ),
         forecast_label="Median der parametrischen CTRV-Trajektorie",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",
     )

@@ -226,10 +226,6 @@ def plot_scenario_comparison(results):
                 label="Posterior-Median",
             )
             _draw_prediction_regions(axis, x_samples, y_samples)
-            axis.set_title(
-                f"{scenario_name}\nK={history_position_count}, "
-                f"ADE={result.evaluation.ade_m:.2f} m"
-            )
             axis.set_xlabel("Ostposition x [m]")
             axis.set_ylabel("Nordposition y [m]")
             axis.grid(True, alpha=0.25)
@@ -244,11 +240,6 @@ def plot_scenario_comparison(results):
     )
     labels.extend(("50-%-Bereich", "90-%-Bereich"))
     figure.legend(handles, labels, loc="outside lower center", ncol=4)
-    figure.suptitle(
-        "Bayesian Position Model: vollständige gegen lokale Bewegungshistorie",
-        fontsize=14,
-        fontweight="bold",
-    )
     plt.show()
     return figure, axes
 

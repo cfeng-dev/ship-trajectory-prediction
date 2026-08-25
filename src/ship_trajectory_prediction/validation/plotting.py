@@ -35,7 +35,7 @@ def plot_bayesian_rolling_predictions(
     observed_route_y=None,
     history_position_count=None,
     observed_trajectory_label="Anfängliche Beobachtungen",
-    title_prefix="Rollierende bayessche CTRV-Prognose",
+    title_prefix=None,
     forecast_label="Rollierende Posterior-Mediane",
     sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
 ):
@@ -73,6 +73,11 @@ def plot_bayesian_rolling_predictions(
         if history_position_count is not None
         else ""
     )
+    title = (
+        f"{title_prefix} ({window_mode_label}{history_suffix})"
+        if title_prefix is not None
+        else None
+    )
     figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
             observed_route_x[:initial_observation_count],
@@ -89,7 +94,7 @@ def plot_bayesian_rolling_predictions(
             group.forecast_time_seconds for group in posterior_plot_groups
         ),
         annotate_prediction_regions=False,
-        title=f"{title_prefix} ({window_mode_label}{history_suffix})",
+        title=title,
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
         forecast_label=forecast_label,
@@ -115,7 +120,7 @@ def plot_deterministic_rolling_predictions(
     position_noise_std_m,
 ):
     """Plot deterministic rolling forecasts with shared scientific styling."""
-    window_mode_label = _window_mode_label(window_mode)
+    _window_mode_label(window_mode)
     forecast_paths = []
     forecast_origin_x = []
     forecast_origin_y = []
@@ -147,7 +152,7 @@ def plot_deterministic_rolling_predictions(
         reference_path=(route_x, route_y),
         forecast_paths=forecast_paths,
         prediction_origins=(forecast_origin_x, forecast_origin_y),
-        title=(f"Rollierende deterministische CTRV-Prognose ({window_mode_label})"),
+        title=None,
         observed_label=(
             "Verrauschte Anfangsbeobachtungen"
             if position_noise_std_m > 0

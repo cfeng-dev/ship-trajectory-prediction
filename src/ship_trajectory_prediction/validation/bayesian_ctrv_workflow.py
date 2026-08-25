@@ -248,10 +248,6 @@ def _run_evaluation(
                 additional_position_noise_std_m=(
                     experiment.additional_position_noise_std_m
                 ),
-                title=(
-                    "Parametrisches bayessches CTRV-Modell auf Basis von "
-                    "Positionsdaten:\nTrajektorie aus Posterior-Parameterunsicherheit"
-                ),
                 forecast_label="Median der parametrischen CTRV-Trajektorie",
                 sample_label="Trajektorien aus Posterior-Parameterziehungen",
             )
@@ -277,10 +273,6 @@ def _run_evaluation(
             else "Anfängliche Beobachtungen"
         ),
         history_position_count=history_position_count,
-        title_prefix=(
-            "Rollierende parametrische CTRV-Prognose aus "
-            "Posterior-Parameterunsicherheit"
-        ),
         forecast_label="Rollierende parametrische Posterior-Mediane",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",
     )

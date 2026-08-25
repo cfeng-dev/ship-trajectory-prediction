@@ -14,11 +14,6 @@ import ship_trajectory_prediction.validation.reporting as reporting
 MAX_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
 PLOT_COORDINATE_MODES = ("m", "km", "gps")
-PREDICTION_PLOT_TITLE = (
-    "Bayessches CTRV-Modell auf Basis von Positionsdaten:\n"
-    "Posterior-prädiktive Trajektorie"
-)
-
 # Plot typography
 PLOT_TITLE_PAD = 16
 PLOT_TITLE_FONT_SIZE = 13
@@ -92,7 +87,8 @@ def plot_trajectory_paths(
     spatial_aspect=1.0,
 ):
     """Draw observed, reference, sampled, and central forecast paths."""
-    title = _non_empty_text("title", title)
+    if title is not None:
+        title = _non_empty_text("title", title)
     observed_label = _non_empty_text("observed_label", observed_label)
     forecast_label = _non_empty_text("forecast_label", forecast_label)
     x_axis_label = _non_empty_text("x_axis_label", x_axis_label)
@@ -228,12 +224,13 @@ def plot_trajectory_paths(
     if origin_artist is not None:
         legend_handles.append(origin_artist)
 
-    axis.set_title(
-        title,
-        pad=PLOT_TITLE_PAD,
-        fontsize=PLOT_TITLE_FONT_SIZE,
-        fontweight=PLOT_TITLE_FONT_WEIGHT,
-    )
+    if title is not None:
+        axis.set_title(
+            title,
+            pad=PLOT_TITLE_PAD,
+            fontsize=PLOT_TITLE_FONT_SIZE,
+            fontweight=PLOT_TITLE_FONT_WEIGHT,
+        )
     axis.set_xlabel(x_axis_label, fontsize=AXIS_LABEL_FONT_SIZE)
     axis.set_ylabel(y_axis_label, fontsize=AXIS_LABEL_FONT_SIZE)
     axis.tick_params(axis="both", labelsize=AXIS_TICK_FONT_SIZE)
@@ -298,7 +295,7 @@ def plot_prediction(
     fit_history_position_count=None,
     additional_position_noise_std_m=None,
     coordinate_mode="m",
-    title=PREDICTION_PLOT_TITLE,
+    title=None,
     forecast_label="Posterior-prädiktiver Median",
     sample_label="Posterior-prädiktive Trajektorien",
 ):
@@ -392,7 +389,7 @@ def plot_operational_prediction(
     observed_trajectory_label="Beobachtungen",
     additional_position_noise_std_m=None,
     coordinate_mode="m",
-    title=PREDICTION_PLOT_TITLE,
+    title=None,
     forecast_label="Posterior-prädiktiver Median",
     sample_label="Posterior-prädiktive Trajektorien",
 ):
