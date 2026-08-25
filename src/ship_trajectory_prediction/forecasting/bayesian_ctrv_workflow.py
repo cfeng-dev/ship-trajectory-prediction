@@ -76,7 +76,10 @@ def run_bayesian_ctrv_prediction(
         run_id=experiment.run_id,
         window=window,
         extra_rows=[
-            ("Model parameters", "speed, heading_initial, turn_rate"),
+            (
+                "Model parameters",
+                "speed, heading_initial, turn_rate, sigma_position_observation",
+            ),
             ("Inference method", inference_method.upper()),
             ("History positions used", history_position_count),
             (
@@ -85,7 +88,7 @@ def run_bayesian_ctrv_prediction(
             ),
             ("Inference seed", seed),
             (
-                "Position noise",
+                "Hidden synthetic noise",
                 (
                     f"{position_noise_std_m:g} m (seed={position_noise_seed})"
                     if position_noise_std_m > 0
@@ -93,8 +96,12 @@ def run_bayesian_ctrv_prediction(
                 ),
             ),
             (
-                "Fixed observation noise",
-                f"{position_observations.observation_noise_std_m:g} m",
+                "Observation-noise prior",
+                "Exponential("
+                f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
+                "P(sigma > "
+                f"{priors.sigma_position_observation_prior_upper_m:g} m)="
+                f"{priors.sigma_position_observation_prior_tail_probability:g})",
             ),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             ("Plot coordinates", plot_coordinate_mode),
@@ -143,8 +150,12 @@ def run_bayesian_ctrv_prediction(
             "Turn rate [rad/s]",
             f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate')):.6f}",
         ),
+        (
+            "Observation noise [m]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_position_observation')):.3f}",
+        ),
     ]
-    print("\nPosterior motion medians:")
+    print("\nPosterior parameter medians:")
     print(reporting.format_aligned_rows(parameter_rows))
     print("Only position observations were used for fitting.")
     metrics.print_position_evaluation(

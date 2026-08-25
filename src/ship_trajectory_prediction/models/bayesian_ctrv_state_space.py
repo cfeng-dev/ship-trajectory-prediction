@@ -31,6 +31,7 @@ MIN_COURSE_DISPLACEMENT_METERS = 1.0
 DEFAULT_POSITION_OBSERVATION_NOISE_STD_M = 2.0
 
 NOISE_PARAMETER_NAMES = (
+    "sigma_position_observation",
     "sigma_position_process",
     "sigma_speed_process",
     "sigma_turn_rate_process",
@@ -43,7 +44,8 @@ class BayesianCTRVPriors:
 
     Fixed prior parameters should be calibrated from independent historical
     windows. Forecast-origin heading and turn rate remain latent in the fully
-    Bayesian model.
+    Bayesian model. The observation-noise prior is a separately configurable
+    scenario assumption.
     """
 
     position_initial_prior_scale: float = 5.0
@@ -54,6 +56,8 @@ class BayesianCTRVPriors:
     sigma_position_process_prior_scale: float = 0.534
     sigma_speed_process_prior_scale: float = 0.0438
     sigma_turn_rate_process_prior_scale: float = 0.001007
+    sigma_position_observation_prior_upper_m: float = 20.0
+    sigma_position_observation_prior_tail_probability: float = 0.05
 
     def __post_init__(self) -> None:
         """Normalize and validate every explicitly configured prior value."""
@@ -66,9 +70,23 @@ class BayesianCTRVPriors:
                 value = _validate_non_negative_finite(field_name, value)
             elif field_name == "turn_rate_initial_prior_mean":
                 value = _validate_finite_scalar(field_name, value)
+            elif field_name == "sigma_position_observation_prior_tail_probability":
+                value = _validate_finite_scalar(field_name, value)
+                if not 0.0 < value < 1.0:
+                    raise ValueError(
+                        f"{field_name} must be strictly between zero and one."
+                    )
             else:
                 _validate_positive_finite(field_name, value)
             object.__setattr__(self, field_name, float(value))
+
+    @property
+    def sigma_position_observation_prior_rate(self) -> float:
+        """Return the exponential rate implied by one prior tail statement."""
+        return float(
+            -np.log(self.sigma_position_observation_prior_tail_probability)
+            / self.sigma_position_observation_prior_upper_m
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,8 +118,8 @@ class PositionObservations:
 
     The arrays contain only the observed part of one trajectory window. The
     additional noise metadata records the experimental perturbation applied in
-    memory. ``observation_noise_std_m`` is the known standard deviation used
-    by the Stan observation model.
+    memory. ``observation_noise_std_m`` records the hidden synthetic reference
+    value for evaluation only; it is not passed to the Stan model.
     """
 
     time_seconds: np.ndarray
@@ -219,11 +237,10 @@ def build_stan_data(
     diagnostics use only ``position_observations``; terminal heading and turn
     rate remain latent parameters of the Stan model.
     If observations are omitted, the observed portion of ``window`` is copied
-    without adding noise and the default known observation-noise standard
-    deviation is used. Position is measured in meters, latent speed in meters
-    per second, heading in radians, turn rate in radians per second, and time
-    in seconds. Process-noise standard deviations are multiplied by ``sqrt(dt)``
-    in Stan.
+    without adding noise. Position is measured in meters, latent speed in
+    meters per second, heading in radians, turn rate in radians per second, and
+    time in seconds. Process-noise standard deviations are multiplied by
+    ``sqrt(dt)`` in Stan. The observation-noise scale is inferred in Stan.
     """
     if priors is None:
         priors = BayesianCTRVPriors()
@@ -288,6 +305,9 @@ def _build_position_speed_stan_data(
             priors.sigma_position_process_prior_scale
         ),
         "sigma_speed_process_prior_scale": priors.sigma_speed_process_prior_scale,
+        "sigma_position_observation_prior_rate": (
+            priors.sigma_position_observation_prior_rate
+        ),
     }
     return (
         {
@@ -295,9 +315,6 @@ def _build_position_speed_stan_data(
             "time_observed": time_observed,
             "x_observed": x_observed,
             "y_observed": y_observed,
-            "sigma_position_observation": (
-                position_observations.observation_noise_std_m
-            ),
             "N_prediction": window.prediction_count,
             "time_prediction": time_prediction,
             "x_initial_prior_mean": float(x_observed[0]),
@@ -803,6 +820,9 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "sigma_speed_process": max(
             1e-4,
             0.5 * stan_data["sigma_speed_process_prior_scale"],
+        ),
+        "sigma_position_observation": float(
+            1.0 / stan_data["sigma_position_observation_prior_rate"]
         ),
     }
     if "turn_rate_state_prior_scale" in stan_data:

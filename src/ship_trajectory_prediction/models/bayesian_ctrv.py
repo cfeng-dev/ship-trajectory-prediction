@@ -31,21 +31,29 @@ PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
 variational_converged = inference_support.variational_converged
 
-PARAMETER_NAMES = ("speed", "heading_initial", "turn_rate")
+PARAMETER_NAMES = (
+    "speed",
+    "heading_initial",
+    "turn_rate",
+    "sigma_position_observation",
+)
 
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
     """Provisional priors transferred from the earlier CTRV experiments.
 
-    These values are useful initial candidates but are not claimed to be final
-    calibration results for this constant-parameter CTRV model.
+    The kinematic values are useful initial candidates but are not claimed to
+    be final calibration results for this constant-parameter CTRV model. The
+    observation-noise prior is a separately configurable scenario assumption.
     """
 
     speed_prior_mean: float = 3.524
     speed_prior_scale: float = 0.365
     turn_rate_prior_mean: float = 0.0
     turn_rate_prior_scale: float = 0.001698
+    sigma_position_observation_prior_upper_m: float = 20.0
+    sigma_position_observation_prior_tail_probability: float = 0.05
 
     def __post_init__(self) -> None:
         """Validate and normalize all configured prior values."""
@@ -56,9 +64,21 @@ class BayesianCTRVPriors:
                 value = observation_support.validate_non_negative_finite(name, value)
             elif name == "turn_rate_prior_mean":
                 value = observation_support.validate_finite_scalar(name, value)
+            elif name == "sigma_position_observation_prior_tail_probability":
+                value = observation_support.validate_finite_scalar(name, value)
+                if not 0.0 < value < 1.0:
+                    raise ValueError(f"{name} must be strictly between zero and one.")
             else:
                 value = observation_support.validate_positive_finite(name, value)
             object.__setattr__(self, name, value)
+
+    @property
+    def sigma_position_observation_prior_rate(self) -> float:
+        """Return the exponential rate implied by one prior tail statement."""
+        return float(
+            -np.log(self.sigma_position_observation_prior_tail_probability)
+            / self.sigma_position_observation_prior_upper_m
+        )
 
 
 def build_stan_data(
@@ -110,7 +130,9 @@ def build_stan_data(
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
-        "sigma_position_observation": (position_observations.observation_noise_std_m),
+        "sigma_position_observation_prior_rate": (
+            priors.sigma_position_observation_prior_rate
+        ),
         "N_prediction": window.prediction_count,
         "time_prediction": time_prediction,
         "speed_prior_mean": priors.speed_prior_mean,
@@ -390,6 +412,9 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             )
         ),
         "turn_rate": float(turn_rate + generator.normal(0.0, turn_jitter)),
+        "sigma_position_observation": float(
+            1.0 / stan_data["sigma_position_observation_prior_rate"]
+        ),
     }
 
 

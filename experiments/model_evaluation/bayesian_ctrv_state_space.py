@@ -33,6 +33,9 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     sigma_position_process_prior_scale=0.534,  # Position drift [m/sqrt(s)].
     sigma_speed_process_prior_scale=0.0438,  # Speed drift [(m/s)/sqrt(s)].
     sigma_turn_rate_process_prior_scale=0.001007,  # Turn drift [(rad/s)/sqrt(s)].
+    # Scenario assumption, not derived from run IDs: P(sigma_obs > 20 m) = 5%.
+    sigma_position_observation_prior_upper_m=20.0,
+    sigma_position_observation_prior_tail_probability=0.05,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()

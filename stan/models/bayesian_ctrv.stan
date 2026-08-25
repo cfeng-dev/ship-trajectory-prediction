@@ -26,7 +26,7 @@ data {
   vector[N_history] time_observed;
   vector[N_history] x_observed;
   vector[N_history] y_observed;
-  real<lower=1e-6> sigma_position_observation;
+  real<lower=1e-6> sigma_position_observation_prior_rate;
 
   int<lower=1> N_prediction;
   vector[N_prediction] time_prediction;
@@ -57,6 +57,7 @@ parameters {
   real<lower=0> speed;
   real<lower=-pi(), upper=pi()> heading_initial;
   real<offset=turn_rate_prior_mean, multiplier=turn_rate_prior_scale> turn_rate;
+  real<lower=1e-6> sigma_position_observation;
 }
 
 transformed parameters {
@@ -88,6 +89,8 @@ model {
   speed ~ normal(speed_prior_mean, speed_prior_scale);
   heading_initial ~ uniform(-pi(), pi());
   turn_rate ~ normal(turn_rate_prior_mean, turn_rate_prior_scale);
+  sigma_position_observation ~ exponential(
+      sigma_position_observation_prior_rate);
 
   // The fixed anchor is excluded; inference starts at history position two.
   for (n in 2:N_history) {
@@ -126,11 +129,11 @@ generated quantities {
         heading_previous,
         turn_rate);
 
-    // Model positions vary only through posterior draws of the three parameters.
+    // Model positions vary only through posterior draws of three kinematic parameters.
     x_prediction[n] = position[1];
     y_prediction[n] = position[2];
 
-    // Future sensor observations additionally include known measurement noise.
+    // Future sensor observations additionally include inferred measurement noise.
     x_observation_prediction[n] = normal_rng(
         x_prediction[n], sigma_position_observation);
     y_observation_prediction[n] = normal_rng(

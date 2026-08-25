@@ -45,7 +45,7 @@ data {
   vector[N_observed] time_observed;     // Observation times [s]
   vector[N_observed] x_observed;        // Observed x-position [m]
   vector[N_observed] y_observed;        // Observed y-position [m]
-  real<lower=1e-6> sigma_position_observation; // Known synthetic observation-noise SD [m]
+  real<lower=1e-6> sigma_position_observation_prior_rate; // Exponential rate [1/m]
 
   // Future time points for posterior predictive forecasting
   int<lower=1> N_prediction;            // Number of prediction steps (must be >= 1)
@@ -111,6 +111,9 @@ parameters {
   real<lower=1e-6> sigma_position_process;  // Position-process diffusion scale [m/sqrt(s)]
   real<lower=1e-6> sigma_speed_process;     // Speed-process diffusion scale [(m/s)/sqrt(s)]
   real<lower=1e-6> sigma_turn_rate_process; // Turn-rate-process diffusion scale [(rad/s)/sqrt(s)]
+
+  // Unknown position-observation noise
+  real<lower=1e-6> sigma_position_observation; // Observation-noise SD [m]
 }
 
 
@@ -181,6 +184,10 @@ model {
   sigma_position_process ~ normal(0, sigma_position_process_prior_scale);
   sigma_speed_process ~ normal(0, sigma_speed_process_prior_scale);
   sigma_turn_rate_process ~ normal(0, sigma_turn_rate_process_prior_scale);
+
+  // Positive observation-noise scale inferred from the position data.
+  sigma_position_observation ~ exponential(
+      sigma_position_observation_prior_rate);
 
 
   // ------------------------------------------------------------------

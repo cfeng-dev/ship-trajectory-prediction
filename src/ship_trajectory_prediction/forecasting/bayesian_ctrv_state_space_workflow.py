@@ -136,6 +136,7 @@ def run_bayesian_ctrv_prediction(
         window=window,
         inference_rows=inference_rows,
         inference_seed=seed,
+        priors=priors,
         position_observations=position_observations,
         forecast_horizon_seconds=forecast_horizon_seconds,
         plot_coordinate_mode=plot_coordinate_mode,
@@ -255,6 +256,7 @@ def _print_ctrv_setup(
     window,
     inference_rows,
     inference_seed,
+    priors,
     position_observations,
     forecast_horizon_seconds,
     plot_coordinate_mode,
@@ -276,10 +278,14 @@ def _print_ctrv_setup(
         extra_rows=[
             *inference_rows,
             ("Inference seed", inference_seed),
-            ("Additional position noise", noise_description),
+            ("Hidden synthetic noise", noise_description),
             (
-                "Fixed observation noise",
-                f"{position_observations.observation_noise_std_m:g} m",
+                "Observation-noise prior",
+                "Exponential("
+                f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
+                "P(sigma > "
+                f"{priors.sigma_position_observation_prior_upper_m:g} m)="
+                f"{priors.sigma_position_observation_prior_tail_probability:g})",
             ),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             ("Plot coordinates", plot_coordinate_mode),

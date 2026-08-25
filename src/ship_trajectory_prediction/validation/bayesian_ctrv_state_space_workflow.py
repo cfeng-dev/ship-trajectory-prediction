@@ -164,13 +164,14 @@ def _run_bayesian_ctrv_evaluation(
         if position_noise_std_m > 0
         else "disabled"
     )
-    observation_noise_std_m = (
-        position_noise_std_m
-        if position_noise_std_m > 0
-        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+    print(f"Hidden synthetic noise: {noise_description}")
+    print(
+        "Observation-noise prior: Exponential("
+        f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
+        "P(sigma > "
+        f"{priors.sigma_position_observation_prior_upper_m:g} m)="
+        f"{priors.sigma_position_observation_prior_tail_probability:g})"
     )
-    print(f"Additional pos. noise : {noise_description}")
-    print(f"Fixed observation SD  : {observation_noise_std_m:g} m")
     if inference_method == "vi":
         print(f"VI algorithm          : {vi_algorithm}")
         print(f"VI adaptation steps   : {inference_config['adapt_iter']}")
@@ -446,11 +447,9 @@ def _build_route_prediction_table(
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["additional_position_noise_std_m"] = additional_position_noise_std_m
-    table["position_observation_noise_std_m"] = (
-        additional_position_noise_std_m
-        if additional_position_noise_std_m > 0
-        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-    )
+    table["position_observation_noise_std_m"] = posterior_diagnostics[
+        "posterior_sigma_position_observation_median"
+    ]
     table["position_noise_seed"] = position_noise_seed
     table["observed_turn_rate_sample_count"] = observed_turn_rate.sample_count
     table["observed_turn_rate_median_rad_s"] = observed_turn_rate.median_rad_s
@@ -593,7 +592,11 @@ def _vi_numerical_instability_reason(
 ):
     """Describe posterior noise draws that indicate a failed VI approximation."""
     for name in noise_parameter_names:
-        prior_scale = getattr(priors, f"{name}_prior_scale")
+        prior_scale = (
+            1.0 / priors.sigma_position_observation_prior_rate
+            if name == "sigma_position_observation"
+            else getattr(priors, f"{name}_prior_scale")
+        )
         samples = reporting.posterior_variable_samples(fit, name)
         if samples.size == 0 or not np.all(np.isfinite(samples)):
             return f"{name} contains empty or non-finite posterior draws"
@@ -770,7 +773,7 @@ def _print_summary(summary, *, credible_interval):
 def _print_turn_rate_and_noise_summary(predictions):
     """Print one-row-per-window diagnostics for model identifiability."""
     windows = predictions.groupby("window_index", sort=True).first()
-    print("\nTurn-rate and process-noise diagnostics:")
+    print("\nTurn-rate and noise diagnostics:")
     print(
         "Median absolute observed turn rate : "
         f"{windows['observed_turn_rate_median_rad_s'].abs().median():.5f} rad/s"
@@ -778,6 +781,10 @@ def _print_turn_rate_and_noise_summary(predictions):
     print(
         "Maximum forecast-origin turn rate  : "
         f"{windows['forecast_origin_turn_rate_rad_s'].abs().max():.5f} rad/s"
+    )
+    print(
+        "Median observation sigma           : "
+        f"{windows['posterior_sigma_position_observation_median'].median():.3f} m"
     )
     print(
         "Median position process sigma      : "

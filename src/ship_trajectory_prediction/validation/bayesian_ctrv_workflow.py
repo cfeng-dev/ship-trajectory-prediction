@@ -141,6 +141,20 @@ def _run_evaluation(
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
     print(f"Inference method      : {inference_method.upper()}")
+    noise_description = (
+        f"{experiment.additional_position_noise_std_m:g} m "
+        f"(seed={experiment.position_noise_seed})"
+        if experiment.additional_position_noise_std_m > 0
+        else "disabled"
+    )
+    print(f"Hidden synthetic noise: {noise_description}")
+    print(
+        "Observation-noise prior: Exponential("
+        f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
+        "P(sigma > "
+        f"{priors.sigma_position_observation_prior_upper_m:g} m)="
+        f"{priors.sigma_position_observation_prior_tail_probability:g})"
+    )
     print("Prior status          : provisional; model-specific validation pending")
     print(f"Plot each window      : {plot_each_window}")
 
@@ -325,6 +339,9 @@ def _posterior_diagnostics(fit, window):
         "posterior_speed_median_mps": medians["speed"],
         "posterior_heading_initial_median_rad": medians["heading_initial"],
         "posterior_turn_rate_median_rad_s": medians["turn_rate"],
+        "posterior_sigma_position_observation_median_m": medians[
+            "sigma_position_observation"
+        ],
         "forecast_heading_change_median_rad": medians["turn_rate"] * forecast_duration,
     }
 
@@ -438,11 +455,9 @@ def _build_route_prediction_table(
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["additional_position_noise_std_m"] = additional_position_noise_std_m
-    table["position_observation_noise_std_m"] = (
-        additional_position_noise_std_m
-        if additional_position_noise_std_m > 0
-        else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-    )
+    table["position_observation_noise_std_m"] = diagnostics[
+        "posterior_sigma_position_observation_median_m"
+    ]
     table["position_noise_seed"] = position_noise_seed
     for name, value in diagnostics.items():
         table[name] = value
