@@ -1,8 +1,7 @@
-"""Shared rolling evaluation workflows for Bayesian CTRV models."""
+"""Rolling evaluation workflow for the fully Bayesian CTRV model."""
 
 import dataclasses
 import time
-from functools import partial
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +10,6 @@ import pandas as pd
 import ship_trajectory_prediction.forecasting.bayesian_ctrv as forecasting
 import ship_trajectory_prediction.forecasting.inference as inference
 import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
-import ship_trajectory_prediction.models.hybrid_bayesian_ctrv as hybrid_model
 import ship_trajectory_prediction.observations.coordinates as coordinates
 import ship_trajectory_prediction.observations.io as observations_io
 import ship_trajectory_prediction.observations.window as observation_window
@@ -27,13 +25,7 @@ VI_NUMERICAL_STABILITY_RETRIES = 2
 VI_MAX_NOISE_TO_PRIOR_SCALE_RATIO = 1_000_000.0
 
 
-def _apply_evaluation_options(
-    experiment,
-    priors,
-    options,
-    *,
-    configure_turn_rate_prior,
-):
+def _apply_evaluation_options(experiment, priors, options):
     """Return independent experiment and prior configs with CLI overrides."""
     configured_experiment = dataclasses.replace(
         experiment,
@@ -46,12 +38,10 @@ def _apply_evaluation_options(
         additional_position_noise_std_m=options.additional_position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
-    prior_changes = {}
-    if configure_turn_rate_prior:
-        prior_changes["turn_rate_state_prior_scale"] = (
-            options.turn_rate_state_prior_scale
-        )
-    configured_priors = dataclasses.replace(priors, **prior_changes)
+    configured_priors = dataclasses.replace(
+        priors,
+        turn_rate_state_prior_scale=options.turn_rate_state_prior_scale,
+    )
     return configured_experiment, configured_priors
 
 
@@ -72,7 +62,6 @@ def run_fully_bayesian_ctrv_evaluation(
         experiment,
         priors,
         options,
-        configure_turn_rate_prior=True,
     )
     return _run_bayesian_ctrv_evaluation(
         model_name="bayesian",
@@ -91,51 +80,6 @@ def run_fully_bayesian_ctrv_evaluation(
         max_windows=options.max_windows,
         plot_each_window=options.plot_each_window,
         noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-        has_latent_turn_rate=True,
-    )
-
-
-def run_hybrid_bayesian_ctrv_evaluation(
-    *,
-    data_file,
-    experiment: forecasting.RollingExperimentConfig,
-    priors: hybrid_model.HybridBayesianCTRVPriors,
-    hybrid_config: hybrid_model.HybridBayesianCTRVConfig,
-    vi_config,
-    mcmc_config,
-    fullrank_grad_samples,
-    credible_interval,
-    sample_trajectories_per_forecast,
-    options: validation_cli.BayesianCTRVEvaluationOptions,
-):
-    """Evaluate hybrid Bayesian CTRV forecasts across one complete run."""
-    experiment, priors = _apply_evaluation_options(
-        experiment,
-        priors,
-        options,
-        configure_turn_rate_prior=False,
-    )
-    return _run_bayesian_ctrv_evaluation(
-        model_name="hybrid",
-        model_label="Hybrid Bayesian CTRV",
-        fit_model=partial(
-            hybrid_model.fit_hybrid_bayesian_ctrv_model,
-            hybrid_config=hybrid_config,
-        ),
-        data_file=data_file,
-        experiment=experiment,
-        priors=priors,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-        credible_interval=credible_interval,
-        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
-        vi_algorithm=options.vi_algorithm,
-        require_converged=options.require_converged,
-        max_windows=options.max_windows,
-        plot_each_window=options.plot_each_window,
-        noise_parameter_names=hybrid_model.NOISE_PARAMETER_NAMES,
-        has_latent_turn_rate=False,
     )
 
 
@@ -157,7 +101,6 @@ def _run_bayesian_ctrv_evaluation(
     max_windows,
     plot_each_window,
     noise_parameter_names,
-    has_latent_turn_rate,
 ):
     """Fit and evaluate one configured Bayesian CTRV model."""
     window_mode = experiment.window_mode
@@ -238,15 +181,14 @@ def _run_bayesian_ctrv_evaluation(
         print(f"MCMC chains           : {inference_config['chains']}")
         print(f"MCMC warmup/chain     : {inference_config['iter_warmup']}")
         print(f"MCMC samples/chain    : {inference_config['iter_sampling']}")
-    if has_latent_turn_rate:
-        print(
-            "Turn-rate prior scale : "
-            + (
-                "data-derived"
-                if priors.turn_rate_state_prior_scale is None
-                else f"{priors.turn_rate_state_prior_scale:.5f} rad/s"
-            )
+    print(
+        "Turn-rate prior scale : "
+        + (
+            "data-derived"
+            if priors.turn_rate_state_prior_scale is None
+            else f"{priors.turn_rate_state_prior_scale:.5f} rad/s"
         )
+    )
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
@@ -274,9 +216,7 @@ def _run_bayesian_ctrv_evaluation(
         )
         observed_turn_rate = bayesian_model.diagnose_observed_turn_rate(
             window,
-            turn_rate_state_prior_scale=(
-                priors.turn_rate_state_prior_scale if has_latent_turn_rate else None
-            ),
+            turn_rate_state_prior_scale=priors.turn_rate_state_prior_scale,
             position_observations=position_observations,
         )
         runtime_started = time.perf_counter()
@@ -301,7 +241,6 @@ def _run_bayesian_ctrv_evaluation(
         posterior_diagnostics = _posterior_window_diagnostics(
             fit,
             noise_parameter_names=noise_parameter_names,
-            has_latent_turn_rate=has_latent_turn_rate,
         )
         evaluation = metrics.evaluate_position_predictions(
             fit,
@@ -373,10 +312,7 @@ def _run_bayesian_ctrv_evaluation(
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = rolling_validation.summarize_rolling_predictions(predictions)
     _print_summary(summary, credible_interval=credible_interval)
-    _print_turn_rate_and_noise_summary(
-        predictions,
-        has_latent_turn_rate=has_latent_turn_rate,
-    )
+    _print_turn_rate_and_noise_summary(predictions)
     plotting.plot_bayesian_rolling_predictions(
         route_x,
         route_y,
@@ -524,9 +460,7 @@ def _build_route_prediction_table(
     table["observed_turn_rate_q90_absolute_rad_s"] = (
         observed_turn_rate.q90_absolute_rad_s
     )
-    table["turn_rate_prior_scale_rad_s"] = (
-        observed_turn_rate.prior_scale_rad_s if model_name == "bayesian" else np.nan
-    )
+    table["turn_rate_prior_scale_rad_s"] = observed_turn_rate.prior_scale_rad_s
     for name, value in posterior_diagnostics.items():
         table[name] = value
     table["forecast_origin_time"] = window.timestamps[
@@ -545,24 +479,12 @@ def _posterior_window_diagnostics(
     fit,
     *,
     noise_parameter_names=bayesian_model.NOISE_PARAMETER_NAMES,
-    has_latent_turn_rate=True,
 ):
     """Return forecast-motion values and posterior noise medians for one window."""
-    if has_latent_turn_rate:
-        turn_rate_forecast_origin = reporting.posterior_variable_samples(
-            fit,
-            "turn_rate_forecast_origin",
-        )
-    else:
-        turn_rate_prediction = reporting.posterior_variable_samples(
-            fit,
-            "turn_rate_prediction",
-        )
-        if turn_rate_prediction.ndim != 2 or turn_rate_prediction.shape[1] == 0:
-            raise ValueError(
-                "Hybrid turn_rate_prediction must contain at least one forecast step."
-            )
-        turn_rate_forecast_origin = turn_rate_prediction[:, 0]
+    turn_rate_forecast_origin = reporting.posterior_variable_samples(
+        fit,
+        "turn_rate_forecast_origin",
+    )
     heading_state = reporting.posterior_variable_samples(fit, "heading_state")
     heading_state_prediction = reporting.posterior_variable_samples(
         fit,
@@ -845,7 +767,7 @@ def _print_summary(summary, *, credible_interval):
     print(rolling_validation.format_per_horizon_table(summary.per_horizon_table))
 
 
-def _print_turn_rate_and_noise_summary(predictions, *, has_latent_turn_rate):
+def _print_turn_rate_and_noise_summary(predictions):
     """Print one-row-per-window diagnostics for model identifiability."""
     windows = predictions.groupby("window_index", sort=True).first()
     print("\nTurn-rate and process-noise diagnostics:")
@@ -861,12 +783,11 @@ def _print_turn_rate_and_noise_summary(predictions, *, has_latent_turn_rate):
         "Median position process sigma      : "
         f"{windows['posterior_sigma_position_process_median'].median():.3f} m/sqrt(s)"
     )
-    if has_latent_turn_rate:
-        print(
-            "Median turn-rate process sigma     : "
-            f"{windows['posterior_sigma_turn_rate_process_median'].median():.6f} "
-            "rad/s/sqrt(s)"
-        )
+    print(
+        "Median turn-rate process sigma     : "
+        f"{windows['posterior_sigma_turn_rate_process_median'].median():.6f} "
+        "rad/s/sqrt(s)"
+    )
 
 
 def _mcmc_diagnostics_ok(fit):

@@ -258,7 +258,7 @@ def _build_position_speed_stan_data(
     priors,
     position_observations: PositionObservations | None,
 ) -> tuple[dict[str, Any], PositionObservations]:
-    """Build Stan data shared by Bayesian and hybrid position-speed models."""
+    """Build position-speed Stan data for the Bayesian CTRV model."""
 
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
@@ -679,8 +679,8 @@ def diagnose_observed_turn_rate(
 ) -> TurnRateDiagnostics:
     """Summarize course-derived turn rates from observed positions only.
 
-    The median reports a signed empirical center that the hybrid model may use.
-    A MAD-based robust scale provides a configurable diagnostic candidate.
+    The median reports a signed empirical center. A MAD-based robust scale
+    provides a configurable diagnostic candidate.
     Supplied position observations override the clean observed coordinates;
     the held-out part of ``window`` is never inspected.
     """
