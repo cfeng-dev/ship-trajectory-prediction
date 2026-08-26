@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
+from statistics import NormalDist
 from typing import Any
 
 import numpy as np
@@ -41,8 +42,10 @@ PARAMETER_NAMES = (
 class BayesianPositionModelPriors:
     """Ship-independent priors for local latent displacement dynamics."""
 
-    log_displacement_scale_prior_scale: float
-    rotation_angle_prior_scale: float
+    displacement_scale_prior_factor: float = 2.0
+    displacement_scale_prior_tail_probability: float = 0.05
+    rotation_angle_prior_abs_upper_deg: float = 45.0
+    rotation_angle_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
     sigma_motion_residual_prior_upper_m: float = 20.0
@@ -57,9 +60,33 @@ class BayesianPositionModelPriors:
                 value = observation_support.validate_finite_scalar(name, value)
                 if not 0.0 < value < 1.0:
                     raise ValueError(f"{name} must be strictly between zero and one.")
+            elif name == "displacement_scale_prior_factor":
+                value = observation_support.validate_positive_finite(name, value)
+                if value <= 1.0:
+                    raise ValueError(f"{name} must be greater than one.")
+            elif name == "rotation_angle_prior_abs_upper_deg":
+                value = observation_support.validate_positive_finite(name, value)
+                if value > 180.0:
+                    raise ValueError(f"{name} must not exceed 180 degrees.")
             else:
                 value = observation_support.validate_positive_finite(name, value)
             object.__setattr__(self, name, float(value))
+
+    @property
+    def log_displacement_scale_prior_scale(self) -> float:
+        """Return the normal scale implied by the symmetric factor statement."""
+        return _two_sided_normal_scale(
+            np.log(self.displacement_scale_prior_factor),
+            self.displacement_scale_prior_tail_probability,
+        )
+
+    @property
+    def rotation_angle_prior_scale(self) -> float:
+        """Return the normal scale implied by the angular tail statement."""
+        return _two_sided_normal_scale(
+            np.deg2rad(self.rotation_angle_prior_abs_upper_deg),
+            self.rotation_angle_prior_tail_probability,
+        )
 
     @property
     def sigma_position_observation_prior_rate(self) -> float:
@@ -374,3 +401,9 @@ def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None
 def _exponential_rate_from_tail(upper: float, tail_probability: float) -> float:
     """Return the exponential rate with the configured probability above upper."""
     return float(-np.log(tail_probability) / upper)
+
+
+def _two_sided_normal_scale(absolute_upper: float, tail_probability: float) -> float:
+    """Return a zero-centered normal scale from a two-sided tail statement."""
+    quantile = NormalDist().inv_cdf(1.0 - tail_probability / 2.0)
+    return float(absolute_upper / quantile)

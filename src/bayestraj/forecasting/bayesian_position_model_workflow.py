@@ -75,6 +75,14 @@ def run_bayesian_position_prediction(
                 ("Inference method", inference_method.upper()),
                 ("Position-only input", "yes"),
                 (
+                    "Displacement-scale prior",
+                    _displacement_scale_prior_description(priors),
+                ),
+                (
+                    "Rotation-angle prior",
+                    _rotation_angle_prior_description(priors),
+                ),
+                (
                     "Injected position noise",
                     f"{position_observations.position_noise_std_m:g} m per axis",
                 ),
@@ -173,3 +181,17 @@ def _sampling_interval(window) -> float:
 def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
     """Describe one ship-independent exponential noise prior."""
     return f"Exponential; P(sigma > {upper_m:g} m)={tail_probability:g}"
+
+
+def _displacement_scale_prior_description(priors) -> str:
+    """Describe the ship-independent displacement-scale prior."""
+    central_probability = 1.0 - priors.displacement_scale_prior_tail_probability
+    factor = priors.displacement_scale_prior_factor
+    return f"{central_probability:.0%} between {1.0 / factor:g}x and {factor:g}x"
+
+
+def _rotation_angle_prior_description(priors) -> str:
+    """Describe the ship-independent rotation-angle prior."""
+    central_probability = 1.0 - priors.rotation_angle_prior_tail_probability
+    upper_deg = priors.rotation_angle_prior_abs_upper_deg
+    return f"{central_probability:.0%} within +/-{upper_deg:g} deg per step"

@@ -1,4 +1,4 @@
-"""Diagnose provisional priors for the latent Bayesian position model."""
+"""Diagnose observed motion changes without calibrating model priors."""
 
 from __future__ import annotations
 
@@ -21,19 +21,19 @@ ROBUST_MAD_SCALE_FACTOR = 1.4826
 
 
 @dataclass(frozen=True, slots=True)
-class PositionModelPriorCalibration:
-    """Robust prior candidates from measurement-contaminated displacements."""
+class PositionModelMotionDiagnostics:
+    """Robust diagnostics from measurement-contaminated displacements."""
 
     sample_count: int
-    log_displacement_scale_prior_scale: float
-    rotation_angle_prior_scale: float
+    log_displacement_change_empirical_scale: float
+    rotation_change_empirical_scale_rad: float
     observed_displacement_residual_empirical_scale_m: float
 
 
-def calibrate_position_model_priors(
+def analyze_position_model_motion(
     data: pd.DataFrame,
-) -> PositionModelPriorCalibration:
-    """Return provisional scales from consecutive observed position changes."""
+) -> PositionModelMotionDiagnostics:
+    """Return diagnostics from consecutive observed position changes."""
     log_scale_changes = []
     rotation_changes = []
     displacement_residual_components = []
@@ -76,36 +76,37 @@ def calibrate_position_model_priors(
     log_scale = _robust_scale(log_scale_changes)
     rotation_scale = _robust_scale(rotation_changes)
     residual_empirical_scale = _robust_scale(displacement_residual_components)
-    return PositionModelPriorCalibration(
+    return PositionModelMotionDiagnostics(
         sample_count=len(log_scale_changes),
-        log_displacement_scale_prior_scale=log_scale,
-        rotation_angle_prior_scale=rotation_scale,
+        log_displacement_change_empirical_scale=log_scale,
+        rotation_change_empirical_scale_rad=rotation_scale,
         observed_displacement_residual_empirical_scale_m=residual_empirical_scale,
     )
 
 
-def main() -> PositionModelPriorCalibration:
-    """Print reproducible candidates without claiming motion-noise calibration."""
+def main() -> PositionModelMotionDiagnostics:
+    """Print diagnostics that are not used to configure model priors."""
     data = observations_io.read_ship_data(DATA_FILE, run_id=RUN_ID_RANGE)
     data = data.loc[:, ["time", "run_id", "gps_latitude", "gps_longitude"]].copy()
-    calibration = calibrate_position_model_priors(data)
-    print("Bayesian latent-position model prior diagnostics")
+    diagnostics = analyze_position_model_motion(data)
+    print("Bayesian latent-position model motion diagnostics")
     print("=" * 48)
-    print(f"Transition samples              : {calibration.sample_count}")
+    print(f"Transition samples              : {diagnostics.sample_count}")
     print(
-        "Log displacement scale prior  : "
-        f"{calibration.log_displacement_scale_prior_scale:.6f}"
+        "Log displacement empirical SD : "
+        f"{diagnostics.log_displacement_change_empirical_scale:.6f}"
     )
     print(
-        f"Rotation-angle prior [rad]    : {calibration.rotation_angle_prior_scale:.6f}"
+        "Rotation empirical SD [rad]   : "
+        f"{diagnostics.rotation_change_empirical_scale_rad:.6f}"
     )
     print(
         "Residual empirical scale [m] : "
-        f"{calibration.observed_displacement_residual_empirical_scale_m:.6f}"
+        f"{diagnostics.observed_displacement_residual_empirical_scale_m:.6f}"
     )
     print("The observed residual combines measurement noise and motion mismatch.")
-    print("It is diagnostic only and is not used as a noise prior by the model.")
-    return calibration
+    print("These diagnostics are not used as priors by the model.")
+    return diagnostics
 
 
 def _robust_scale(values) -> float:

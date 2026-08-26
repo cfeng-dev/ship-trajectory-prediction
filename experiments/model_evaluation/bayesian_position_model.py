@@ -22,8 +22,10 @@ EXPERIMENT = config.RollingExperimentConfig(
     inference_seed=42,
 )
 PRIORS = position_model.BayesianPositionModelPriors(
-    log_displacement_scale_prior_scale=0.016354,
-    rotation_angle_prior_scale=0.016980,
+    displacement_scale_prior_factor=2.0,
+    displacement_scale_prior_tail_probability=0.05,
+    rotation_angle_prior_abs_upper_deg=45.0,
+    rotation_angle_prior_tail_probability=0.05,
     sigma_position_observation_prior_upper_m=20.0,
     sigma_position_observation_prior_tail_probability=0.05,
     sigma_motion_residual_prior_upper_m=20.0,
