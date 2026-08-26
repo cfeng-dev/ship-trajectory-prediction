@@ -292,7 +292,6 @@ def plot_prediction(
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
     observed_trajectory_label="Beobachtungen",
-    fit_history_position_count=None,
     additional_position_noise_std_m=None,
     coordinate_mode="m",
     title=None,
@@ -314,7 +313,6 @@ def plot_prediction(
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
-        fit_history_position_count=fit_history_position_count,
         coordinate_mode=coordinate_mode,
     )
     reference_path = None
@@ -422,7 +420,6 @@ def _prepare_prediction_plot_data(
     state_prediction_variable_names,
     observed_position_values,
     observed_trajectory_label,
-    fit_history_position_count,
     coordinate_mode,
 ):
     """Build plot-ready paths from existing posterior draws."""
@@ -455,20 +452,6 @@ def _prepare_prediction_plot_data(
         observed_y,
         coordinate_mode=coordinate_mode,
     )
-    fit_history_position_count = _validate_fit_history_position_count(
-        fit_history_position_count,
-        observation_count=window.observation_count,
-    )
-    context_path = None
-    if fit_history_position_count is not None:
-        history_start = window.observation_count - fit_history_position_count
-        if history_start > 0:
-            context_path = (
-                observed_x[: history_start + 1],
-                observed_y[: history_start + 1],
-            )
-            observed_x = observed_x[history_start:]
-            observed_y = observed_y[history_start:]
     connected_x_samples, connected_y_samples = _convert_plot_coordinates(
         window,
         connected_x_samples,
@@ -504,7 +487,7 @@ def _prepare_prediction_plot_data(
         "variable_names": variable_names,
         "observed_label": observed_label,
         "observed_path": (observed_x, observed_y),
-        "context_path": context_path,
+        "context_path": None,
         "prediction_start_meters": (prediction_start_x, prediction_start_y),
         "prediction_origin": (
             np.asarray([connected_x_samples[0, 0]]),
@@ -523,20 +506,6 @@ def _prepare_prediction_plot_data(
         "y_axis_label": y_axis_label,
         "spatial_aspect": spatial_aspect,
     }
-
-
-def _validate_fit_history_position_count(value, *, observation_count):
-    """Validate an optional trailing fit-history count used only for styling."""
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError("fit_history_position_count must be an integer or None.")
-    value = int(value)
-    if value < 3 or value > observation_count:
-        raise ValueError(
-            "fit_history_position_count must be between 3 and observation_count."
-        )
-    return value
 
 
 def _prediction_region_inputs(

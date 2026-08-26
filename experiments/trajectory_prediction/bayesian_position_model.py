@@ -1,4 +1,4 @@
-"""Run one local Bayesian Position Model trajectory prediction."""
+"""Run one Bayesian latent-position measurement-error prediction."""
 
 import bayestraj.forecasting.bayesian_position_model as config
 import bayestraj.forecasting.bayesian_position_model_workflow as workflow
@@ -21,10 +21,11 @@ EXPERIMENT = config.ExperimentConfig(
     inference_seed=42,
 )
 PRIORS = position_model.BayesianPositionModelPriors(
-    # Provisional position-only priors; validate for the 10-position window.
+    # The motion-residual value is provisional: its calibration used noisy
+    # observed displacements rather than latent motion-only residuals.
     log_displacement_scale_prior_scale=0.016354,
     rotation_angle_prior_scale=0.016980,
-    sigma_displacement_residual_prior_scale=1.989083,
+    sigma_motion_residual_prior_scale=1.989083,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
@@ -33,7 +34,7 @@ PLOT_COORDINATE_MODE = "m"
 
 
 def main(argv=None):
-    """Run the configured local Bayesian Position Model experiment."""
+    """Run the configured latent-position measurement-error experiment."""
     arguments = config.parse_prediction_arguments(
         description=__doc__,
         experiment=EXPERIMENT,

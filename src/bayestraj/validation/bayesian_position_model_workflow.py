@@ -1,4 +1,4 @@
-"""Rolling evaluation workflow for the Bayesian Position Model."""
+"""Rolling evaluation for the latent Bayesian position model."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.inference as inference
-import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
@@ -43,7 +43,7 @@ def run_bayesian_position_evaluation(
     sample_trajectories_per_forecast,
     options,
 ):
-    """Evaluate the local position model over leakage-free rolling windows."""
+    """Evaluate the latent-position model over leakage-free rolling windows."""
     configured_experiment = dataclasses.replace(
         experiment,
         window_mode=options.window_mode,
@@ -96,13 +96,28 @@ def run_bayesian_position_evaluation(
     print(
         reporting.format_aligned_rows(
             [
-                ("Model", "Bayesian Position Model"),
+                (
+                    "Model",
+                    "Bayesian latent-position autoregressive measurement-error model",
+                ),
                 ("Run ID", configured_experiment.run_id),
                 ("Window mode", configured_experiment.window_mode),
                 ("Initial observations", configured_experiment.observation_count),
                 ("Prediction positions", configured_experiment.prediction_count),
                 ("Rolling windows", len(windows)),
                 ("Inference method", inference_method.upper()),
+                (
+                    "Fixed observation noise",
+                    (
+                        f"{configured_experiment.additional_position_noise_std_m:g} "
+                        "m per axis"
+                        if configured_experiment.additional_position_noise_std_m > 0
+                        else (
+                            f"{observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M:g} "
+                            "m per axis"
+                        )
+                    ),
+                ),
             ]
         )
     )
@@ -152,8 +167,8 @@ def run_bayesian_position_evaluation(
             window,
             credible_interval=credible_interval,
             position_variable_names=(
-                "x_observation_prediction",
-                "y_observation_prediction",
+                "x_model_prediction",
+                "y_model_prediction",
             ),
         )
         window_runtime_seconds = time.perf_counter() - runtime_started
@@ -168,6 +183,13 @@ def run_bayesian_position_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
+            position_observation_noise_std_m=(
+                position_observations.observation_noise_std_m
+            ),
+            additional_position_noise_std_m=(
+                configured_experiment.additional_position_noise_std_m
+            ),
+            position_noise_seed=configured_experiment.position_noise_seed,
         )
         table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
@@ -191,8 +213,8 @@ def run_bayesian_position_evaluation(
                 window,
                 fit,
                 state_prediction_variable_names=(
-                    "x_observation_prediction",
-                    "y_observation_prediction",
+                    "x_model_prediction",
+                    "y_model_prediction",
                 ),
                 observed_position_values=(
                     position_observations.x_meters,
@@ -206,6 +228,8 @@ def run_bayesian_position_evaluation(
                 additional_position_noise_std_m=(
                     configured_experiment.additional_position_noise_std_m
                 ),
+                forecast_label="Median der latenten Trajektorienprognose",
+                sample_label="Latente Trajektorienprognosen",
             )
             plt.close(figure)
 
@@ -292,7 +316,7 @@ def _build_window_position_observations(
         observation_noise_std_m=(
             additional_noise_std_m
             if additional_noise_std_m > 0
-            else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
+            else observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
         ),
     )
 
@@ -309,6 +333,9 @@ def _build_route_prediction_table(
     inference_method,
     converged,
     mcmc_diagnostics_ok,
+    position_observation_noise_std_m,
+    additional_position_noise_std_m,
+    position_noise_seed,
 ):
     """Add rolling and common-route metadata to one prediction table."""
     table = prediction_table.copy()
@@ -341,6 +368,9 @@ def _build_route_prediction_table(
     table["model_variant"] = "bayesian_position_model"
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
+    table["position_observation_noise_std_m"] = position_observation_noise_std_m
+    table["additional_position_noise_std_m"] = additional_position_noise_std_m
+    table["position_noise_seed"] = position_noise_seed
     table["forecast_origin_x_route"] = route_x[forecast_origin_index]
     table["forecast_origin_y_route"] = route_y[forecast_origin_index]
     table["x_actual_route"] = route_x[target_indices]
@@ -361,8 +391,8 @@ def _build_rolling_posterior_group(
     latitude,
 ):
     """Transform posterior predictive positions into the common route frame."""
-    x_samples = reporting.posterior_variable_samples(fit, "x_observation_prediction")
-    y_samples = reporting.posterior_variable_samples(fit, "y_observation_prediction")
+    x_samples = reporting.posterior_variable_samples(fit, "x_model_prediction")
+    y_samples = reporting.posterior_variable_samples(fit, "y_model_prediction")
     expected_shape = (x_samples.shape[0], specification.prediction_count)
     if (
         x_samples.ndim != 2
@@ -495,8 +525,8 @@ def _plot_rolling_predictions(
         title=None,
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
-        forecast_label="Rollierende Posterior-Mediane",
-        sample_label="Posterior-prädiktive Trajektorien",
+        forecast_label="Rollierende Mediane der latenten Prognosen",
+        sample_label="Latente Trajektorienprognosen",
         prediction_origin_label="Startpunkte der Prognosen",
         figsize=(11, 8),
         forecast_alpha=0.35,
@@ -525,7 +555,7 @@ def _print_summary(summary, *, credible_interval):
         rows.append(
             ("MCMC diagnostics pass rate", f"{summary.mcmc_diagnostics_pass_rate:.1%}")
         )
-    print("\nRolling Bayesian Position Model summary")
+    print("\nRolling Bayesian latent-position model summary")
     print(reporting.format_aligned_rows(rows))
     print("\nPer-horizon evaluation:")
     print(rolling.format_per_horizon_table(summary.per_horizon_table))

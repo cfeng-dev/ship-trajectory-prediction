@@ -125,20 +125,6 @@ def resolve_position_observations(
     return position_observations
 
 
-def validate_history_position_count(value: int, *, observation_count: int) -> int:
-    """Return a valid trailing-history position count."""
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError("history_position_count must be an integer.")
-    value = int(value)
-    if value < 3:
-        raise ValueError("history_position_count must be at least 3.")
-    if value > observation_count:
-        raise ValueError(
-            "history_position_count must not exceed the observation count."
-        )
-    return value
-
-
 def validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) -> None:
     """Validate matching finite position and time vectors with two points."""
     for name, values in (

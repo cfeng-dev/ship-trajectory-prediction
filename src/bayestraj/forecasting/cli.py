@@ -23,7 +23,6 @@ def parse_bayesian_ctrv_prediction_arguments(
         experiment=experiment,
         vi_config=vi_config,
         plot_coordinate_mode=plot_coordinate_mode,
-        history_position_count=experiment.history_position_count,
         argv=argv,
     )
 
@@ -34,18 +33,10 @@ def _parse_bayesian_prediction_arguments(
     experiment,
     vi_config,
     plot_coordinate_mode,
-    history_position_count,
     argv,
 ):
     """Parse common Bayesian single-window options."""
     parser = argparse.ArgumentParser(description=description)
-    if history_position_count is not None:
-        parser.add_argument(
-            "--history-positions",
-            type=int,
-            default=history_position_count,
-            help="Use the last K observed positions; requires 3 <= K <= observations.",
-        )
     parser.add_argument(
         "--inference",
         choices=("vi", "mcmc"),

@@ -14,9 +14,8 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=102,
     window_mode="sliding",
-    observation_count=20,
+    observation_count=5,
     prediction_count=3,
-    history_position_count=5,  # Compare with K=10 through --history-positions.
     additional_position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=None,

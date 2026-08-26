@@ -33,7 +33,6 @@ def plot_bayesian_rolling_predictions(
     sample_seed=42,
     observed_route_x=None,
     observed_route_y=None,
-    history_position_count=None,
     observed_trajectory_label="Anfängliche Beobachtungen",
     title_prefix=None,
     forecast_label="Rollierende Posterior-Mediane",
@@ -68,15 +67,8 @@ def plot_bayesian_rolling_predictions(
         sample_seed=sample_seed,
     )
 
-    history_suffix = (
-        f", K={int(history_position_count)}"
-        if history_position_count is not None
-        else ""
-    )
     title = (
-        f"{title_prefix} ({window_mode_label}{history_suffix})"
-        if title_prefix is not None
-        else None
+        f"{title_prefix} ({window_mode_label})" if title_prefix is not None else None
     )
     figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(

@@ -17,7 +17,7 @@ DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 RUN_ID_RANGE = range(0, 100)
-HISTORY_POSITION_COUNT = 20
+OBSERVATION_COUNT = 20
 MAX_TIME_GAP_SECONDS = 15.0
 POSITION_COLUMNS = ("time", "run_id", "gps_latitude", "gps_longitude")
 ROBUST_NORMAL_SCALE = 1.4826
@@ -38,11 +38,11 @@ class DistributionSummary:
 
 @dataclass(frozen=True, slots=True)
 class CalibrationResult:
-    """Position-only constant-motion estimates for disjoint history windows."""
+    """Position-only constant-motion estimates for disjoint observation windows."""
 
     run_start: int
     run_stop: int
-    history_position_count: int
+    observation_count: int
     estimates: pd.DataFrame
     skipped_runs: tuple[tuple[int, str], ...]
     speed_summary: DistributionSummary
@@ -55,10 +55,10 @@ def main(argv=None) -> CalibrationResult:
     parser.add_argument("--run-start", type=int, default=RUN_ID_RANGE.start)
     parser.add_argument("--run-stop", type=int, default=RUN_ID_RANGE.stop)
     parser.add_argument(
-        "--history-positions",
+        "--observations",
         type=int,
-        default=HISTORY_POSITION_COUNT,
-        help="Estimate constant motion from disjoint windows of K positions.",
+        default=OBSERVATION_COUNT,
+        help="Estimate constant motion from disjoint observation windows.",
     )
     arguments = parser.parse_args(argv)
     run_ids = _validate_run_range(arguments.run_start, arguments.run_stop)
@@ -67,7 +67,7 @@ def main(argv=None) -> CalibrationResult:
         data.loc[:, POSITION_COLUMNS],
         run_start=arguments.run_start,
         run_stop=arguments.run_stop,
-        history_position_count=arguments.history_positions,
+        observation_count=arguments.observations,
     )
     _print_report(result)
     return result
@@ -78,18 +78,18 @@ def calibrate_parametric_ctrv_priors(
     *,
     run_start: int,
     run_stop: int,
-    history_position_count: int,
+    observation_count: int,
 ) -> CalibrationResult:
     """Estimate one speed and turn rate per disjoint position-only window."""
     run_ids = _validate_run_range(run_start, run_stop)
-    if isinstance(history_position_count, bool) or not isinstance(
-        history_position_count,
+    if isinstance(observation_count, bool) or not isinstance(
+        observation_count,
         (int, np.integer),
     ):
-        raise ValueError("history_position_count must be an integer.")
-    history_position_count = int(history_position_count)
-    if history_position_count < 3:
-        raise ValueError("history_position_count must be at least 3.")
+        raise ValueError("observation_count must be an integer.")
+    observation_count = int(observation_count)
+    if observation_count < 3:
+        raise ValueError("observation_count must be at least 3.")
     _validate_position_data(data)
 
     grouped = {int(run_id): group for run_id, group in data.groupby("run_id")}
@@ -105,10 +105,10 @@ def calibrate_parametric_ctrv_priors(
             window_count = 0
             for start in range(
                 0,
-                len(time_seconds) - history_position_count + 1,
-                history_position_count,
+                len(time_seconds) - observation_count + 1,
+                observation_count,
             ):
-                stop = start + history_position_count
+                stop = start + observation_count
                 selected_time = time_seconds[start:stop]
                 if np.max(np.diff(selected_time)) > MAX_TIME_GAP_SECONDS:
                     continue
@@ -133,7 +133,7 @@ def calibrate_parametric_ctrv_priors(
                 skipped_runs.append(
                     (
                         run_id,
-                        "no complete history window with acceptable time gaps",
+                        "no complete observation window with acceptable time gaps",
                     )
                 )
         except (TypeError, ValueError, OverflowError) as error:
@@ -141,11 +141,11 @@ def calibrate_parametric_ctrv_priors(
 
     estimates = pd.DataFrame(rows)
     if estimates.empty:
-        raise ValueError("No valid constant-motion history windows were found.")
+        raise ValueError("No valid constant-motion observation windows were found.")
     return CalibrationResult(
         run_start=run_start,
         run_stop=run_stop,
-        history_position_count=history_position_count,
+        observation_count=observation_count,
         estimates=estimates,
         skipped_runs=tuple(skipped_runs),
         speed_summary=_summarize(
@@ -220,7 +220,7 @@ def _print_report(result: CalibrationResult) -> None:
     print("Parametric Bayesian CTRV prior candidates")
     print("=" * 72)
     print(f"Run IDs               : {result.run_start}-{result.run_stop - 1}")
-    print(f"History positions K   : {result.history_position_count}")
+    print(f"Observations per fit  : {result.observation_count}")
     print(f"Valid windows         : {len(result.estimates)}")
     print(f"Skipped runs          : {len(result.skipped_runs)}")
     print(

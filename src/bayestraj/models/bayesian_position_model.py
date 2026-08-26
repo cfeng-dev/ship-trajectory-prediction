@@ -1,4 +1,4 @@
-"""Bayesian local position-displacement model fitted with VI or MCMC."""
+"""Bayesian latent-position autoregressive measurement-error model."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import bayestraj.models.paths as model_paths
 import bayestraj.observations.window as observation_window
 
 STAN_FILE = model_paths.stan_path("models/bayesian_position_model.stan")
-MIN_OBSERVATION_COUNT = 3
+MIN_OBSERVATION_COUNT = 5
 REGULAR_TIME_STEP_ATOL_SECONDS = 1e-9
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
@@ -25,21 +25,21 @@ PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
 variational_converged = inference_support.variational_converged
 
-NOISE_PARAMETER_NAMES = ("sigma_displacement_residual",)
+NOISE_PARAMETER_NAMES = ("sigma_motion_residual",)
 PARAMETER_NAMES = (
     "displacement_scale",
     "rotation_angle",
-    "sigma_displacement_residual",
+    "sigma_motion_residual",
 )
 
 
 @dataclass(frozen=True, slots=True)
 class BayesianPositionModelPriors:
-    """Calibrated position-only prior scales for local displacement dynamics."""
+    """Position-only prior scales for local latent displacement dynamics."""
 
     log_displacement_scale_prior_scale: float
     rotation_angle_prior_scale: float
-    sigma_displacement_residual_prior_scale: float
+    sigma_motion_residual_prior_scale: float
 
     def __post_init__(self) -> None:
         """Validate every configured prior scale."""
@@ -55,7 +55,7 @@ def build_stan_data(
     priors: BayesianPositionModelPriors,
     position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
-    """Build Stan data from the complete regular observation window."""
+    """Build Stan data from every position in one complete observed window."""
     if not isinstance(priors, BayesianPositionModelPriors):
         raise TypeError("priors must be a BayesianPositionModelPriors instance.")
     if window.observation_count < MIN_OBSERVATION_COUNT:
@@ -86,24 +86,23 @@ def build_stan_data(
     observation_support.validate_finite_vector("y_observed", y_history)
 
     return {
-        "N_observed": window.observation_count,
+        "N_history": window.observation_count,
         "x_observed": x_history,
         "y_observed": y_history,
+        "sigma_position_observation": (position_observations.observation_noise_std_m),
         "N_prediction": window.prediction_count,
         "log_displacement_scale_prior_scale": (
             priors.log_displacement_scale_prior_scale
         ),
         "rotation_angle_prior_scale": priors.rotation_angle_prior_scale,
-        "sigma_displacement_residual_prior_scale": (
-            priors.sigma_displacement_residual_prior_scale
-        ),
+        "sigma_motion_residual_prior_scale": (priors.sigma_motion_residual_prior_scale),
     }
 
 
 def compile_bayesian_position_model(
     stan_file: str | Path = STAN_FILE,
 ) -> CmdStanModel:
-    """Compile and return the Bayesian position CmdStan model."""
+    """Compile and return the latent Bayesian position CmdStan model."""
     stan_path = Path(stan_file)
     if not stan_path.is_file():
         raise FileNotFoundError(f"Stan model not found: {stan_path}")
@@ -138,7 +137,7 @@ def fit_bayesian_position_model(
     variational_options: Mapping[str, Any] | None = None,
     mcmc_options: Mapping[str, Any] | None = None,
 ) -> CmdStanVB | CmdStanMCMC:
-    """Fit the local displacement model with mean-field/full-rank VI or MCMC."""
+    """Fit the latent-position model with mean-field/full-rank VI or MCMC."""
     inference_method = inference_support.normalize_inference_method(inference_method)
     stan_data = build_stan_data(
         window,
@@ -257,11 +256,16 @@ def fit_bayesian_position_model(
 
 
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
-    """Initialize rotation-scaling parameters from the local displacement pairs."""
+    """Initialize latent positions and motion parameters near a smooth history."""
     generator = np.random.default_rng(seed)
     x_observed = np.asarray(stan_data["x_observed"], dtype=float)
     y_observed = np.asarray(stan_data["y_observed"], dtype=float)
-    displacement = np.column_stack((np.diff(x_observed), np.diff(y_observed)))
+    x_true = _smooth_position_initials(x_observed)
+    y_true = _smooth_position_initials(y_observed)
+    latent_jitter_scale = 0.02 * float(stan_data["sigma_position_observation"])
+    x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
+    y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
+    displacement = np.column_stack((np.diff(x_true), np.diff(y_true)))
     previous = displacement[:-1]
     current = displacement[1:]
     denominator = float(np.sum(previous * previous))
@@ -286,18 +290,27 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     residual = current - previous @ autoregressive_matrix.T
     residual_scale = max(
         float(np.sqrt(np.mean(residual**2))),
-        0.5 * float(stan_data["sigma_displacement_residual_prior_scale"]),
+        0.5 * float(stan_data["sigma_motion_residual_prior_scale"]),
     )
     angle_limit = np.pi - 1e-6
     return {
+        "x_true": x_true,
+        "y_true": y_true,
         "log_displacement_scale": float(np.log(scale) + generator.normal(0.0, 1e-3)),
         "rotation_angle": float(
             np.clip(angle + generator.normal(0.0, 1e-3), -angle_limit, angle_limit)
         ),
-        "sigma_displacement_residual": float(
+        "sigma_motion_residual": float(
             max(residual_scale * np.exp(generator.normal(0.0, 1e-3)), 1e-6)
         ),
     }
+
+
+def _smooth_position_initials(observed: np.ndarray) -> np.ndarray:
+    """Return a lightly smoothed copy for latent-position initialization."""
+    initial = np.asarray(observed, dtype=float).copy()
+    initial[1:-1] = 0.25 * observed[:-2] + 0.5 * observed[1:-1] + 0.25 * observed[2:]
+    return initial
 
 
 def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None:
@@ -317,5 +330,5 @@ def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None
         atol=REGULAR_TIME_STEP_ATOL_SECONDS,
     ):
         raise ValueError(
-            "Bayesian Position Model requires one regular sampling interval."
+            "Bayesian latent-position model requires one regular sampling interval."
         )

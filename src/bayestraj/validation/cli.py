@@ -17,7 +17,6 @@ class BayesianCTRVEvaluationOptions:
     window_mode: str
     observation_count: int
     prediction_count: int
-    history_position_count: int
     stride: int | None
     inference_method: str
     vi_algorithm: str
@@ -73,12 +72,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
         "--predictions",
         type=int,
         default=experiment.prediction_count,
-    )
-    parser.add_argument(
-        "--history-positions",
-        type=int,
-        default=experiment.history_position_count,
-        help="Use the last K observed positions; requires 3 <= K <= observations.",
     )
     parser.add_argument(
         "--stride",
@@ -139,7 +132,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
-        history_position_count=arguments.history_positions,
         stride=arguments.stride,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,

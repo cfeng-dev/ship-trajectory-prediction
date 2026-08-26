@@ -1,4 +1,4 @@
-"""Configuration and CLI options for the Bayesian Position Model."""
+"""Configuration and CLI options for the latent Bayesian position model."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import bayestraj.validation.prediction_plotting as prediction_plotting
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfig:
-    """Configuration of one Bayesian Position Model prediction."""
+    """Configuration of one latent Bayesian position-model prediction."""
 
     run_id: int
     start_index: int
@@ -24,7 +24,7 @@ class ExperimentConfig:
 
 @dataclass(frozen=True, slots=True)
 class RollingExperimentConfig:
-    """Configuration of one rolling Bayesian Position Model evaluation."""
+    """Configuration of one rolling latent-position model evaluation."""
 
     run_id: int
     window_mode: str
@@ -69,7 +69,7 @@ def parse_prediction_arguments(
         "--observations",
         type=int,
         default=experiment.observation_count,
-        help="Use this many observed positions; at least 3 are required.",
+        help="Use this many observed positions; at least 5 are required.",
     )
     parser.add_argument(
         "--inference",

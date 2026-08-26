@@ -24,7 +24,7 @@ DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 DEFAULT_POSITION_OBSERVATION_NOISE_STD_M = (
     observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
 )
-MIN_HISTORY_POSITION_COUNT = 3
+MIN_OBSERVATION_COUNT = 3
 SPEED_INITIAL_LOWER_MPS = 0.001
 
 PositionObservations = observation_support.PositionObservations
@@ -85,18 +85,17 @@ def build_stan_data(
     window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    history_position_count: int,
     position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
-    """Build position-only Stan data from the last K observed positions."""
+    """Build position-only Stan data from the complete observed window."""
     if priors is None:
         priors = BayesianCTRVPriors()
     if not isinstance(priors, BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance or None.")
-    history_position_count = observation_support.validate_history_position_count(
-        history_position_count,
-        observation_count=window.observation_count,
-    )
+    if window.observation_count < MIN_OBSERVATION_COUNT:
+        raise ValueError(
+            f"window must contain at least {MIN_OBSERVATION_COUNT} observed positions."
+        )
     if window.prediction_count < 1:
         raise ValueError("window must contain at least one prediction position.")
 
@@ -104,17 +103,16 @@ def build_stan_data(
         window,
         position_observations,
     )
-    history_slice = slice(-history_position_count, None)
     time_observed = np.asarray(
-        position_observations.time_seconds[history_slice],
+        position_observations.time_seconds,
         dtype=float,
     )
     x_observed = np.asarray(
-        position_observations.x_meters[history_slice],
+        position_observations.x_meters,
         dtype=float,
     )
     y_observed = np.asarray(
-        position_observations.y_meters[history_slice],
+        position_observations.y_meters,
         dtype=float,
     )
     time_prediction = np.asarray(
@@ -126,7 +124,7 @@ def build_stan_data(
     observation_support.validate_finite_vector("y_observed", y_observed)
 
     return {
-        "N_history": history_position_count,
+        "N_history": window.observation_count,
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
@@ -156,7 +154,6 @@ def fit_bayesian_ctrv_model(
     window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianCTRVPriors | None = None,
-    history_position_count: int,
     position_observations: PositionObservations | None = None,
     inference_method: str = "vi",
     algorithm: str = "meanfield",
@@ -186,7 +183,6 @@ def fit_bayesian_ctrv_model(
     stan_data = build_stan_data(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
     )
     model = compile_bayesian_ctrv_model()

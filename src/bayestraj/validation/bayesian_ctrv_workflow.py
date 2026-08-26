@@ -42,7 +42,6 @@ def run_bayesian_ctrv_evaluation(
         window_mode=options.window_mode,
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
-        history_position_count=options.history_position_count,
         stride=options.stride,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
@@ -85,10 +84,6 @@ def _run_evaluation(
     plot_each_window,
 ):
     """Run one configured rolling evaluation."""
-    history_position_count = observation_support.validate_history_position_count(
-        experiment.history_position_count,
-        observation_count=experiment.observation_count,
-    )
     inference_method, inference_config = inference.select_inference_config(
         experiment.inference_method,
         vi_algorithm=vi_algorithm,
@@ -136,7 +131,6 @@ def _run_evaluation(
     print(f"Run ID                : {experiment.run_id}")
     print(f"Window mode           : {experiment.window_mode}")
     print(f"Initial observations  : {experiment.observation_count}")
-    print(f"History positions K   : {history_position_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Rolling windows       : {len(windows)}")
@@ -179,14 +173,12 @@ def _run_evaluation(
         print(
             f"\nWindow {number}/{len(windows)}: "
             f"observations={specification.observation_count}, "
-            f"history={history_position_count}, "
             f"predictions={specification.prediction_count}, seed={window_seed}"
         )
         runtime_started = time.perf_counter()
         fit, window_seed = _fit_window(
             window,
             priors=priors,
-            history_position_count=history_position_count,
             position_observations=position_observations,
             inference_method=inference_method,
             inference_config=inference_config,
@@ -220,7 +212,6 @@ def _run_evaluation(
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
             diagnostics=diagnostics,
-            history_position_count=history_position_count,
             additional_position_noise_std_m=(
                 experiment.additional_position_noise_std_m
             ),
@@ -258,7 +249,6 @@ def _run_evaluation(
                     if experiment.additional_position_noise_std_m > 0
                     else "Für Fit verwendete Beobachtungen"
                 ),
-                fit_history_position_count=history_position_count,
                 additional_position_noise_std_m=(
                     experiment.additional_position_noise_std_m
                 ),
@@ -286,7 +276,6 @@ def _run_evaluation(
             if experiment.additional_position_noise_std_m > 0
             else "Anfängliche Beobachtungen"
         ),
-        history_position_count=history_position_count,
         forecast_label="Rollierende parametrische Posterior-Mediane",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",
     )
@@ -297,7 +286,6 @@ def _fit_window(
     window,
     *,
     priors,
-    history_position_count,
     position_observations,
     inference_method,
     inference_config,
@@ -310,7 +298,6 @@ def _fit_window(
             fit = bayesian_model.fit_bayesian_ctrv_model(
                 window,
                 priors=priors,
-                history_position_count=history_position_count,
                 position_observations=position_observations,
                 inference_method=inference_method,
                 seed=seed,
@@ -415,7 +402,6 @@ def _build_route_prediction_table(
     converged,
     mcmc_diagnostics_ok,
     diagnostics,
-    history_position_count,
     additional_position_noise_std_m,
     position_noise_seed,
 ):
@@ -445,10 +431,6 @@ def _build_route_prediction_table(
     table.insert(3, "target_index", target_indices)
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
-    table["history_position_count"] = history_position_count
-    table["history_start_index"] = (
-        specification.forecast_start_index - history_position_count
-    )
     table["prediction_count"] = specification.prediction_count
     table["inference_method"] = inference_method
     table["model_variant"] = "bayesian"

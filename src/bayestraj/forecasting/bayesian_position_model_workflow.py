@@ -1,4 +1,4 @@
-"""Single-window prediction workflow for the Bayesian Position Model."""
+"""Single-window workflow for the latent Bayesian position model."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def run_bayesian_position_prediction(
     require_converged,
     plot_coordinate_mode,
 ):
-    """Fit and evaluate one configured local position-model forecast."""
+    """Fit and evaluate one latent-position measurement-error forecast."""
     inference_method, inference_config = inference.select_inference_config(
         inference_method,
         vi_algorithm=vi_algorithm,
@@ -63,13 +63,20 @@ def run_bayesian_position_prediction(
     print(
         reporting.format_aligned_rows(
             [
-                ("Model", "Bayesian Position Model"),
+                (
+                    "Model",
+                    "Bayesian latent-position autoregressive measurement-error model",
+                ),
                 ("Run ID", experiment.run_id),
                 ("Observed positions", window.observation_count),
                 ("Prediction positions", window.prediction_count),
                 ("Sampling interval", f"{_sampling_interval(window):g} s"),
                 ("Inference method", inference_method.upper()),
                 ("Position-only input", "yes"),
+                (
+                    "Fixed observation noise",
+                    f"{position_observations.observation_noise_std_m:g} m per axis",
+                ),
             ]
         )
     )
@@ -88,8 +95,8 @@ def run_bayesian_position_prediction(
         window,
         credible_interval=credible_interval,
         position_variable_names=(
-            "x_observation_prediction",
-            "y_observation_prediction",
+            "x_model_prediction",
+            "y_model_prediction",
         ),
     )
     computation_time_seconds = time.perf_counter() - computation_started
@@ -115,8 +122,8 @@ def run_bayesian_position_prediction(
         window,
         fit,
         state_prediction_variable_names=(
-            "x_observation_prediction",
-            "y_observation_prediction",
+            "x_model_prediction",
+            "y_model_prediction",
         ),
         observed_position_values=(
             position_observations.x_meters,
@@ -129,6 +136,8 @@ def run_bayesian_position_prediction(
         ),
         additional_position_noise_std_m=position_noise_std_m,
         coordinate_mode=plot_coordinate_mode,
+        forecast_label="Median der latenten Trajektorienprognose",
+        sample_label="Latente Trajektorienprognosen",
     )
     return {
         "fit": fit,

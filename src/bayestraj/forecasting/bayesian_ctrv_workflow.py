@@ -25,7 +25,6 @@ def run_bayesian_ctrv_prediction(
     mcmc_config: Mapping[str, Any],
     fullrank_grad_samples: int,
     credible_interval: float,
-    history_position_count: int,
     inference_method: str,
     vi_algorithm: str,
     seed: int,
@@ -64,7 +63,6 @@ def run_bayesian_ctrv_prediction(
     stan_data = bayesian_model.build_stan_data(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
     )
     forecast_horizon_seconds = float(
@@ -81,11 +79,6 @@ def run_bayesian_ctrv_prediction(
                 "speed, heading_initial, turn_rate, sigma_position_observation",
             ),
             ("Inference method", inference_method.upper()),
-            ("History positions used", history_position_count),
-            (
-                "History start index",
-                window.observation_count - history_position_count,
-            ),
             ("Inference seed", seed),
             (
                 "Hidden synthetic noise",
@@ -113,7 +106,6 @@ def run_bayesian_ctrv_prediction(
     fit = bayesian_model.fit_bayesian_ctrv_model(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,
@@ -176,7 +168,6 @@ def run_bayesian_ctrv_prediction(
             if position_observations.additional_noise_std_m > 0
             else "Für Fit verwendete Beobachtungen"
         ),
-        fit_history_position_count=history_position_count,
         additional_position_noise_std_m=(position_observations.additional_noise_std_m),
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der parametrischen CTRV-Trajektorie",

@@ -1,4 +1,4 @@
-"""Evaluate Bayesian Position Model forecasts across rolling windows."""
+"""Evaluate Bayesian latent-position forecasts across rolling windows."""
 
 import bayestraj.forecasting.bayesian_position_model as config
 import bayestraj.forecasting.inference as inference
@@ -22,20 +22,21 @@ EXPERIMENT = config.RollingExperimentConfig(
     inference_seed=42,
 )
 PRIORS = position_model.BayesianPositionModelPriors(
+    # Provisional only: calibrated observed residuals include measurement noise.
     log_displacement_scale_prior_scale=0.016354,
     rotation_angle_prior_scale=0.016980,
-    sigma_displacement_residual_prior_scale=1.989083,
+    sigma_motion_residual_prior_scale=1.989083,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
-PLOT_EACH_WINDOW = False
+PLOT_EACH_WINDOW = True
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15
 
 
 def main(argv=None):
-    """Run the configured rolling Bayesian Position Model evaluation."""
+    """Run the configured rolling latent-position model evaluation."""
     options = config.parse_evaluation_arguments(
         description=__doc__,
         experiment=EXPERIMENT,

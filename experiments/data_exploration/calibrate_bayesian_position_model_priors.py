@@ -1,4 +1,4 @@
-"""Calibrate position-only priors for the local Bayesian position model."""
+"""Diagnose provisional priors for the latent Bayesian position model."""
 
 from __future__ import annotations
 
@@ -23,19 +23,19 @@ HALF_NORMAL_MEDIAN_FACTOR = 0.6744897501960817
 
 @dataclass(frozen=True, slots=True)
 class PositionModelPriorCalibration:
-    """Robust position-only prior candidates and their sample count."""
+    """Robust prior candidates from measurement-contaminated displacements."""
 
     sample_count: int
     log_displacement_scale_prior_scale: float
     rotation_angle_prior_scale: float
-    displacement_residual_empirical_scale_m: float
-    sigma_displacement_residual_prior_scale_m: float
+    observed_displacement_residual_empirical_scale_m: float
+    provisional_sigma_motion_residual_prior_scale_m: float
 
 
 def calibrate_position_model_priors(
     data: pd.DataFrame,
 ) -> PositionModelPriorCalibration:
-    """Return robust prior scales from consecutive valid position changes."""
+    """Return provisional scales from consecutive observed position changes."""
     log_scale_changes = []
     rotation_changes = []
     displacement_residual_components = []
@@ -82,19 +82,19 @@ def calibrate_position_model_priors(
         sample_count=len(log_scale_changes),
         log_displacement_scale_prior_scale=log_scale,
         rotation_angle_prior_scale=rotation_scale,
-        displacement_residual_empirical_scale_m=residual_empirical_scale,
-        sigma_displacement_residual_prior_scale_m=(
+        observed_displacement_residual_empirical_scale_m=residual_empirical_scale,
+        provisional_sigma_motion_residual_prior_scale_m=(
             residual_empirical_scale / HALF_NORMAL_MEDIAN_FACTOR
         ),
     )
 
 
 def main() -> PositionModelPriorCalibration:
-    """Load the independent historical runs and print reproducible candidates."""
+    """Print reproducible candidates without claiming motion-noise calibration."""
     data = observations_io.read_ship_data(DATA_FILE, run_id=RUN_ID_RANGE)
     data = data.loc[:, ["time", "run_id", "gps_latitude", "gps_longitude"]].copy()
     calibration = calibrate_position_model_priors(data)
-    print("Bayesian Position Model prior calibration")
+    print("Bayesian latent-position model prior diagnostics")
     print("=" * 48)
     print(f"Transition samples              : {calibration.sample_count}")
     print(
@@ -106,13 +106,14 @@ def main() -> PositionModelPriorCalibration:
     )
     print(
         "Residual empirical scale [m] : "
-        f"{calibration.displacement_residual_empirical_scale_m:.6f}"
+        f"{calibration.observed_displacement_residual_empirical_scale_m:.6f}"
     )
     print(
-        "Residual HalfNormal scale [m] : "
-        f"{calibration.sigma_displacement_residual_prior_scale_m:.6f}"
+        "Provisional motion scale [m] : "
+        f"{calibration.provisional_sigma_motion_residual_prior_scale_m:.6f}"
     )
-    print("The residual combines observed sensor variation and local-model mismatch.")
+    print("The observed residual combines measurement noise and motion mismatch.")
+    print("It is not a calibrated motion-only residual for the latent-position model.")
     return calibration
 
 
