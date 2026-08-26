@@ -37,6 +37,7 @@ def run_bayesian_position_evaluation(
     priors,
     vi_config,
     mcmc_config,
+    sequential_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -55,14 +56,26 @@ def run_bayesian_position_evaluation(
         position_noise_std_m=options.position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
-    inference_method, inference_config = inference.select_inference_config(
-        configured_experiment.inference_method,
-        vi_algorithm=options.vi_algorithm,
-        require_converged=options.require_converged,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-    )
+    sequential_mode = configured_experiment.window_mode == "sequential"
+    if not isinstance(
+        sequential_config,
+        position_model.SequentialPositionFilterConfig,
+    ):
+        raise TypeError(
+            "sequential_config must be a SequentialPositionFilterConfig instance."
+        )
+    if sequential_mode:
+        inference_method = "sequential"
+        inference_config = {}
+    else:
+        inference_method, inference_config = inference.select_inference_config(
+            configured_experiment.inference_method,
+            vi_algorithm=options.vi_algorithm,
+            require_converged=options.require_converged,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+        )
     trajectory_data = (
         observations_io.read_ship_data(
             data_file,
@@ -80,7 +93,9 @@ def run_bayesian_position_evaluation(
         initial_observation_count=configured_experiment.observation_count,
         prediction_count=configured_experiment.prediction_count,
         stride=configured_experiment.stride,
-        window_mode=configured_experiment.window_mode,
+        window_mode=(
+            "expanding" if sequential_mode else configured_experiment.window_mode
+        ),
     )
     if options.max_windows is not None:
         if isinstance(options.max_windows, bool) or options.max_windows < 1:
@@ -88,56 +103,75 @@ def run_bayesian_position_evaluation(
         windows = windows[: options.max_windows]
 
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    sampling_interval_seconds = None
+    if sequential_mode:
+        sampling_interval_seconds = _validate_regular_route_times(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
         position_noise_std_m=configured_experiment.position_noise_std_m,
         seed=configured_experiment.position_noise_seed,
     )
-    print(
-        reporting.format_aligned_rows(
+    setup_rows = [
+        (
+            "Model",
+            "Bayesian latent-position autoregressive measurement-error model",
+        ),
+        ("Run ID", configured_experiment.run_id),
+        ("Window mode", configured_experiment.window_mode),
+        ("Initial observations", configured_experiment.observation_count),
+        ("Prediction positions", configured_experiment.prediction_count),
+        ("Rolling windows", len(windows)),
+        ("Inference method", inference_method.upper()),
+        (
+            "Displacement-scale prior",
+            _displacement_scale_prior_description(priors),
+        ),
+        (
+            "Rotation-angle prior",
+            _rotation_angle_prior_description(priors),
+        ),
+        (
+            "Injected position noise",
+            f"{configured_experiment.position_noise_std_m:g} m per axis",
+        ),
+        (
+            "Observation-noise prior",
+            _noise_prior_description(
+                priors.sigma_position_observation_prior_upper_m,
+                priors.sigma_position_observation_prior_tail_probability,
+            ),
+        ),
+        (
+            "Motion-residual prior",
+            _noise_prior_description(
+                priors.sigma_motion_residual_prior_upper_m,
+                priors.sigma_motion_residual_prior_tail_probability,
+            ),
+        ),
+    ]
+    if sequential_mode:
+        setup_rows.extend(
             [
+                ("Sampling interval", f"{sampling_interval_seconds:g} s"),
+                ("Particles", sequential_config.particle_count),
+                ("Posterior draws", sequential_config.posterior_draw_count),
                 (
-                    "Model",
-                    "Bayesian latent-position autoregressive measurement-error model",
-                ),
-                ("Run ID", configured_experiment.run_id),
-                ("Window mode", configured_experiment.window_mode),
-                ("Initial observations", configured_experiment.observation_count),
-                ("Prediction positions", configured_experiment.prediction_count),
-                ("Rolling windows", len(windows)),
-                ("Inference method", inference_method.upper()),
-                (
-                    "Displacement-scale prior",
-                    _displacement_scale_prior_description(priors),
+                    "Resampling ESS",
+                    f"{sequential_config.resample_ess_fraction:.0%} of particles",
                 ),
                 (
-                    "Rotation-angle prior",
-                    _rotation_angle_prior_description(priors),
-                ),
-                (
-                    "Injected position noise",
-                    f"{configured_experiment.position_noise_std_m:g} m per axis",
-                ),
-                (
-                    "Observation-noise prior",
-                    _noise_prior_description(
-                        priors.sigma_position_observation_prior_upper_m,
-                        priors.sigma_position_observation_prior_tail_probability,
-                    ),
-                ),
-                (
-                    "Motion-residual prior",
-                    _noise_prior_description(
-                        priors.sigma_motion_residual_prior_upper_m,
-                        priors.sigma_motion_residual_prior_tail_probability,
-                    ),
+                    "Parameter rejuvenation",
+                    f"Liu-West scale {sequential_config.rejuvenation_scale:g}",
                 ),
             ]
         )
-    )
+    print(reporting.format_aligned_rows(setup_rows))
 
     prediction_tables = []
     posterior_groups = []
+    sequential_filter = None
+    noisy_route_x = route_x + route_noise_x
+    noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
         window_seed = configured_experiment.inference_seed + specification.window_index
         print(
@@ -160,18 +194,47 @@ def run_bayesian_position_evaluation(
             noise_seed=configured_experiment.position_noise_seed,
         )
         runtime_started = time.perf_counter()
-        fit = position_model.fit_bayesian_position_model(
-            window,
-            priors=priors,
-            position_observations=position_observations,
-            inference_method=inference_method,
-            seed=window_seed,
-            **inference_config,
-        )
+        if sequential_mode:
+            if sequential_filter is None:
+                sequential_filter = (
+                    position_model.SequentialBayesianPositionFilter.initialize(
+                        noisy_route_x[: specification.forecast_start_index],
+                        noisy_route_y[: specification.forecast_start_index],
+                        priors=priors,
+                        config=sequential_config,
+                        seed=configured_experiment.inference_seed,
+                    )
+                )
+            else:
+                update_start_index = sequential_filter.processed_observation_count
+                update_stop_index = specification.forecast_start_index
+                if update_start_index > update_stop_index:
+                    raise RuntimeError(
+                        "Sequential windows must advance monotonically without reset."
+                    )
+                sequential_filter.update_many(
+                    noisy_route_x[update_start_index:update_stop_index],
+                    noisy_route_y[update_start_index:update_stop_index],
+                )
+            fit = sequential_filter.forecast(
+                specification.prediction_count,
+                seed=1_000_000 + window_seed,
+            )
+            converged = None
+            mcmc_diagnostics_ok = None
+        else:
+            fit = position_model.fit_bayesian_position_model(
+                window,
+                priors=priors,
+                position_observations=position_observations,
+                inference_method=inference_method,
+                seed=window_seed,
+                **inference_config,
+            )
         if inference_method == "vi":
             converged = position_model.variational_converged(fit)
             mcmc_diagnostics_ok = None
-        else:
+        elif inference_method == "mcmc":
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
         evaluation = metrics.evaluate_position_predictions(
@@ -237,6 +300,14 @@ def run_bayesian_position_evaluation(
             f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
             f"runtime={window_runtime_seconds:.3f} s"
         )
+        if sequential_filter is not None:
+            print(
+                "  Sequential posterior: "
+                f"processed={sequential_filter.processed_observation_count}, "
+                f"ESS={sequential_filter.effective_sample_size:.0f}/"
+                f"{sequential_config.particle_count}, "
+                f"resamples={sequential_filter.resample_count}"
+            )
         if options.plot_each_window:
             figure, _ = prediction_plotting.plot_prediction(
                 window,
@@ -298,6 +369,29 @@ def _prepare_route_coordinates(trajectory_data):
         unit="m",
     )
     return route_x, route_y, longitude, latitude
+
+
+def _validate_regular_route_times(trajectory_data) -> float:
+    """Require one fixed sampling interval for sequential displacement updates."""
+    timestamps = pd.to_datetime(trajectory_data["time"], utc=True)
+    time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
+    time_steps = np.diff(time_seconds)
+    if (
+        time_steps.size == 0
+        or not np.all(np.isfinite(time_steps))
+        or np.any(time_steps <= 0.0)
+        or not np.allclose(
+            time_steps,
+            time_steps[0],
+            rtol=0.0,
+            atol=position_model.REGULAR_TIME_STEP_ATOL_SECONDS,
+        )
+    ):
+        raise ValueError(
+            "Sequential Bayesian position filtering requires one regular "
+            "sampling interval."
+        )
+    return float(time_steps[0])
 
 
 def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):

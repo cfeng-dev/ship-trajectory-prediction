@@ -12,7 +12,7 @@ DATA_FILE = paths.data_path(
 
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=102,
-    window_mode="sliding",
+    window_mode="sequential",
     observation_count=5,
     prediction_count=3,
     position_noise_std_m=5.0,
@@ -33,9 +33,15 @@ PRIORS = position_model.BayesianPositionModelPriors(
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
+SEQUENTIAL_CONFIG = position_model.SequentialPositionFilterConfig(
+    particle_count=4_000,
+    posterior_draw_count=1_000,
+    resample_ess_fraction=0.5,
+    rejuvenation_scale=0.05,
+)
 CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
-PLOT_EACH_WINDOW = True
+PLOT_EACH_WINDOW = False
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15
 SHOW_TIME_LABELS = False  # Avoid repeated labels across all rolling windows.
 
@@ -56,6 +62,7 @@ def main(argv=None):
         priors=PRIORS,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
+        sequential_config=SEQUENTIAL_CONFIG,
         fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,

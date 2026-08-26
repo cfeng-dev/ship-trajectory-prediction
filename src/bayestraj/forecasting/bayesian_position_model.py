@@ -119,7 +119,7 @@ def parse_evaluation_arguments(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
-        choices=("sliding", "expanding"),
+        choices=("sliding", "expanding", "sequential"),
         default=experiment.window_mode,
     )
     parser.add_argument(

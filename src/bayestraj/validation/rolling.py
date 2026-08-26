@@ -244,10 +244,12 @@ def summarize_rolling_predictions(
         .reset_index(drop=True)
     )
     inference_methods = prediction_table["inference_method"].dropna().unique()
-    if len(inference_methods) != 1 or inference_methods[0] not in {"vi", "mcmc"}:
-        raise ValueError(
-            "inference_method must contain exactly one value: 'vi' or 'mcmc'."
-        )
+    if len(inference_methods) != 1 or inference_methods[0] not in {
+        "vi",
+        "mcmc",
+        "sequential",
+    }:
+        raise ValueError("inference_method must contain exactly one supported value.")
     inference_method = str(inference_methods[0])
     runtime_summary = summarize_window_runtimes(prediction_table)
     diagnostics_by_window = prediction_table.groupby("window_index")[
@@ -263,13 +265,16 @@ def summarize_rolling_predictions(
             diagnostics_by_window["converged"].astype(bool).mean()
         )
         mcmc_diagnostics_pass_rate = None
-    else:
+    elif inference_method == "mcmc":
         if diagnostics_by_window["mcmc_diagnostics_ok"].isna().any():
             raise ValueError("MCMC predictions require sampler diagnostic values.")
         vi_convergence_rate = None
         mcmc_diagnostics_pass_rate = float(
             diagnostics_by_window["mcmc_diagnostics_ok"].astype(bool).mean()
         )
+    else:
+        vi_convergence_rate = None
+        mcmc_diagnostics_pass_rate = None
 
     return RollingPositionSummary(
         inference_method=inference_method,
