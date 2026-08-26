@@ -220,6 +220,9 @@ def _window_mode_label(window_mode):
         return {
             "sliding": "gleitendes Fenster",
             "expanding": "wachsendes Fenster",
+            "sequential": "sequenzielle Aktualisierung",
         }[window_mode]
     except (KeyError, TypeError) as error:
-        raise ValueError("window_mode must be 'sliding' or 'expanding'.") from error
+        raise ValueError(
+            "window_mode must be 'sliding', 'expanding', or 'sequential'."
+        ) from error

@@ -31,6 +31,7 @@ def run_bayesian_ctrv_evaluation(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config,
     mcmc_config,
+    sequential_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -61,6 +62,7 @@ def run_bayesian_ctrv_evaluation(
         priors=configured_priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
+        sequential_config=sequential_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -79,6 +81,7 @@ def _run_evaluation(
     priors,
     vi_config,
     mcmc_config,
+    sequential_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -89,14 +92,23 @@ def _run_evaluation(
     show_time_labels,
 ):
     """Run one configured rolling evaluation."""
-    inference_method, inference_config = inference.select_inference_config(
-        experiment.inference_method,
-        vi_algorithm=vi_algorithm,
-        require_converged=require_converged,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-    )
+    sequential_mode = experiment.window_mode == "sequential"
+    if not isinstance(sequential_config, bayesian_model.SequentialCTRVFilterConfig):
+        raise TypeError(
+            "sequential_config must be a SequentialCTRVFilterConfig instance."
+        )
+    if sequential_mode:
+        inference_method = "sequential"
+        inference_config = {}
+    else:
+        inference_method, inference_config = inference.select_inference_config(
+            experiment.inference_method,
+            vi_algorithm=vi_algorithm,
+            require_converged=require_converged,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+        )
     trajectory_data = (
         observations_io.read_ship_data(
             data_file,
@@ -113,7 +125,7 @@ def _run_evaluation(
         initial_observation_count=experiment.observation_count,
         prediction_count=experiment.prediction_count,
         stride=experiment.stride,
-        window_mode=experiment.window_mode,
+        window_mode="expanding" if sequential_mode else experiment.window_mode,
     )
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
@@ -121,6 +133,7 @@ def _run_evaluation(
         windows = windows[:max_windows]
 
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    route_time_seconds = _prepare_route_time_seconds(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
         position_noise_std_m=experiment.position_noise_std_m,
@@ -172,10 +185,24 @@ def _run_evaluation(
         f"{priors.sigma_position_observation_prior_tail_probability:g})"
     )
     print("Prior status          : ship-independent domain assumptions")
+    if sequential_mode:
+        print(f"Particles             : {sequential_config.particle_count}")
+        print(f"Posterior draws       : {sequential_config.posterior_draw_count}")
+        print(
+            "Resampling ESS        : "
+            f"{sequential_config.resample_ess_fraction:.0%} of particles"
+        )
+        print(
+            "Parameter rejuvenation: Liu-West scale "
+            f"{sequential_config.rejuvenation_scale:g}"
+        )
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
     posterior_plot_groups = []
+    sequential_filter = None
+    noisy_route_x = route_x + route_noise_x
+    noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
         window_seed = experiment.inference_seed + specification.window_index
         window = observation_window.prepare_trajectory_window(
@@ -198,22 +225,70 @@ def _run_evaluation(
             f"predictions={specification.prediction_count}, seed={window_seed}"
         )
         runtime_started = time.perf_counter()
-        fit, window_seed = _fit_window(
-            window,
-            priors=priors,
-            position_observations=position_observations,
-            inference_method=inference_method,
-            inference_config=inference_config,
-            initial_seed=window_seed,
-        )
+        if sequential_mode:
+            if sequential_filter is None:
+                observed_stop_index = specification.forecast_start_index
+                sequential_filter = (
+                    bayesian_model.SequentialBayesianCTRVFilter.initialize(
+                        route_time_seconds[:observed_stop_index],
+                        noisy_route_x[:observed_stop_index],
+                        noisy_route_y[:observed_stop_index],
+                        priors=priors,
+                        config=sequential_config,
+                        seed=experiment.inference_seed,
+                    )
+                )
+            else:
+                update_start_index = sequential_filter.processed_observation_count
+                update_stop_index = specification.forecast_start_index
+                if update_start_index > update_stop_index:
+                    raise RuntimeError(
+                        "Sequential windows must advance monotonically without reset."
+                    )
+                sequential_filter.update_many(
+                    route_time_seconds[update_start_index:update_stop_index],
+                    noisy_route_x[update_start_index:update_stop_index],
+                    noisy_route_y[update_start_index:update_stop_index],
+                )
+            prediction_stop_index = (
+                specification.forecast_start_index + specification.prediction_count
+            )
+            fit = sequential_filter.forecast(
+                route_time_seconds[
+                    specification.forecast_start_index : prediction_stop_index
+                ],
+                seed=1_000_000 + window_seed,
+            )
+        else:
+            fit, window_seed = _fit_window(
+                window,
+                priors=priors,
+                position_observations=position_observations,
+                inference_method=inference_method,
+                inference_config=inference_config,
+                initial_seed=window_seed,
+            )
         if inference_method == "vi":
             converged = bayesian_model.variational_converged(fit)
             mcmc_diagnostics_ok = None
             inference_status = f"VI converged={converged}"
-        else:
+        elif inference_method == "mcmc":
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
+        else:
+            converged = None
+            mcmc_diagnostics_ok = None
+            latest_update_ess = sequential_filter.last_effective_sample_size
+            if latest_update_ess is None:
+                latest_update_ess = sequential_filter.effective_sample_size
+            inference_status = (
+                "sequential posterior "
+                f"processed={sequential_filter.processed_observation_count}, "
+                f"latest-update ESS={latest_update_ess:.0f}/"
+                f"{sequential_config.particle_count}, "
+                f"resamples={sequential_filter.resample_count}"
+            )
 
         evaluation = metrics.evaluate_position_predictions(
             fit,
@@ -493,6 +568,23 @@ def _prepare_route_coordinates(trajectory_data):
         unit="m",
     )
     return route_x, route_y, longitude, latitude
+
+
+def _prepare_route_time_seconds(trajectory_data):
+    """Return finite increasing route timestamps relative to the first point."""
+    timestamps = pd.to_datetime(trajectory_data["time"], utc=True, errors="coerce")
+    if timestamps.isna().any():
+        raise ValueError("Trajectory timestamps must be valid for sequential updates.")
+    time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
+    if (
+        not np.all(np.isfinite(time_seconds))
+        or time_seconds.size < 2
+        or np.any(np.diff(time_seconds) <= 0.0)
+    ):
+        raise ValueError(
+            "Trajectory timestamps must be finite and strictly increasing."
+        )
+    return time_seconds
 
 
 def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):

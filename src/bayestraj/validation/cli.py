@@ -57,9 +57,12 @@ def parse_bayesian_ctrv_evaluation_arguments(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
-        choices=("sliding", "expanding"),
+        choices=("sliding", "expanding", "sequential"),
         default=experiment.window_mode,
-        help="Keep a fixed history or expand it from the beginning of the run.",
+        help=(
+            "Use fixed or growing refits, or update one persistent sequential "
+            "posterior without reusing observations."
+        ),
     )
     parser.add_argument(
         "--observations",
