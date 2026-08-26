@@ -35,9 +35,8 @@ class DeterministicCTRVEvaluationOptions:
 
     window_mode: str
     observation_count: int
+    prediction_count: int
     stride: int | None
-    speed_estimation_points: int
-    heading_estimation_segments: int
     additional_position_noise_std_m: float
     position_noise_seed: int
     max_windows: int | None
@@ -148,8 +147,6 @@ def parse_deterministic_ctrv_evaluation_arguments(
     *,
     description: str | None,
     experiment: deterministic_forecasting.DeterministicRollingExperimentConfig,
-    speed_estimation_points: int,
-    heading_estimation_segments: int,
     max_windows: int | None,
     show_plot: bool,
     argv: Sequence[str] | None = None,
@@ -166,17 +163,12 @@ def parse_deterministic_ctrv_evaluation_arguments(
         type=int,
         default=experiment.observation_count,
     )
+    parser.add_argument(
+        "--predictions",
+        type=int,
+        default=experiment.prediction_count,
+    )
     parser.add_argument("--stride", type=int, default=experiment.stride)
-    parser.add_argument(
-        "--speed-estimation-points",
-        type=int,
-        default=speed_estimation_points,
-    )
-    parser.add_argument(
-        "--heading-estimation-segments",
-        type=int,
-        default=heading_estimation_segments,
-    )
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
@@ -199,9 +191,8 @@ def parse_deterministic_ctrv_evaluation_arguments(
     return DeterministicCTRVEvaluationOptions(
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
+        prediction_count=arguments.predictions,
         stride=arguments.stride,
-        speed_estimation_points=arguments.speed_estimation_points,
-        heading_estimation_segments=arguments.heading_estimation_segments,
         additional_position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         max_windows=arguments.max_windows,

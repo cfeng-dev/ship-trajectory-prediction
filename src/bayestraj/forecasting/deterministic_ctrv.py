@@ -8,8 +8,6 @@ import pandas as pd
 import bayestraj.models.deterministic_ctrv as deterministic_model
 import bayestraj.observations.window as observation_window
 
-DEFAULT_SPEED_ESTIMATION_POINTS = 5
-DEFAULT_HEADING_ESTIMATION_SEGMENTS = 5
 MINIMUM_MOVEMENT_METERS = 1e-6
 
 
@@ -20,6 +18,7 @@ class DeterministicExperimentConfig:
     run_id: int
     start_index: int
     observation_count: int
+    prediction_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
 
@@ -31,6 +30,7 @@ class DeterministicRollingExperimentConfig:
     run_id: int
     window_mode: str
     observation_count: int
+    prediction_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
@@ -38,36 +38,13 @@ class DeterministicRollingExperimentConfig:
 
 def estimate_ctrv_state(
     window: observation_window.TrajectoryWindowData,
-    *,
-    speed_estimation_points=DEFAULT_SPEED_ESTIMATION_POINTS,
-    heading_estimation_segments=DEFAULT_HEADING_ESTIMATION_SEGMENTS,
 ) -> deterministic_model.CTRVState:
     """Estimate the final CTRV state from observed positions and times only."""
-    if (
-        isinstance(speed_estimation_points, bool)
-        or not isinstance(speed_estimation_points, int)
-        or speed_estimation_points < 2
-    ):
-        raise ValueError("speed_estimation_points must be an integer of at least 2.")
-    if (
-        isinstance(heading_estimation_segments, bool)
-        or not isinstance(heading_estimation_segments, int)
-        or heading_estimation_segments < 2
-    ):
-        raise ValueError(
-            "heading_estimation_segments must be an integer greater than or equal to 2."
-        )
-
     observed = window.observed_slice
     time_observed = window.time_seconds[observed]
     x_observed = window.x_meters[observed]
     y_observed = window.y_meters[observed]
-    speed = estimate_speed_from_positions(
-        time_observed,
-        x_observed,
-        y_observed,
-        point_count=speed_estimation_points,
-    )
+    speed = estimate_speed_from_positions(time_observed, x_observed, y_observed)
 
     delta_x = np.diff(x_observed)
     delta_y = np.diff(y_observed)
@@ -79,10 +56,9 @@ def estimate_ctrv_state(
             "Observed positions must contain at least two moving segments."
         )
 
-    fit_count = min(heading_estimation_segments, len(segment_headings))
     turn_rate, heading_intercept = np.polyfit(
-        segment_midpoint_times[-fit_count:],
-        segment_headings[-fit_count:],
+        segment_midpoint_times,
+        segment_headings,
         deg=1,
     )
     heading = heading_intercept + turn_rate * time_observed[-1]
@@ -100,10 +76,8 @@ def estimate_speed_from_positions(
     time_seconds,
     x_meters,
     y_meters,
-    *,
-    point_count=DEFAULT_SPEED_ESTIMATION_POINTS,
 ) -> float:
-    """Estimate speed from a local linear fit to recent position measurements."""
+    """Estimate speed from a linear fit to all supplied position measurements."""
     time_seconds = np.asarray(time_seconds, dtype=float)
     x_meters = np.asarray(x_meters, dtype=float)
     y_meters = np.asarray(y_meters, dtype=float)
@@ -120,27 +94,18 @@ def estimate_speed_from_positions(
             "time_seconds, x_meters, and y_meters must be matching finite "
             "vectors with at least two values."
         )
-    if isinstance(point_count, bool) or not isinstance(point_count, int):
-        raise ValueError("point_count must be an integer of at least 2.")
-    if point_count < 2:
-        raise ValueError("point_count must be an integer of at least 2.")
+    if np.any(np.diff(time_seconds) <= 0):
+        raise ValueError("Position timestamps must be strictly increasing.")
 
-    fit_count = min(point_count, time_seconds.size)
-    selected_time = time_seconds[-fit_count:]
-    selected_x = x_meters[-fit_count:]
-    selected_y = y_meters[-fit_count:]
-    if np.any(np.diff(selected_time) <= 0):
-        raise ValueError("Selected position timestamps must be strictly increasing.")
-
-    centered_time = selected_time - np.mean(selected_time)
+    centered_time = time_seconds - np.mean(time_seconds)
     denominator = float(np.dot(centered_time, centered_time))
     if denominator <= 0:
         raise ValueError("Selected position timestamps must span positive time.")
     velocity_x = float(
-        np.dot(centered_time, selected_x - np.mean(selected_x)) / denominator
+        np.dot(centered_time, x_meters - np.mean(x_meters)) / denominator
     )
     velocity_y = float(
-        np.dot(centered_time, selected_y - np.mean(selected_y)) / denominator
+        np.dot(centered_time, y_meters - np.mean(y_meters)) / denominator
     )
     return float(np.hypot(velocity_x, velocity_y))
 

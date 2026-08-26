@@ -18,8 +18,6 @@ def run_deterministic_ctrv_prediction(
     *,
     data_file,
     experiment: deterministic_forecasting.DeterministicExperimentConfig,
-    speed_estimation_points: int,
-    heading_estimation_segments: int,
     position_noise_std_m: float,
     position_noise_seed: int,
     show_plot: bool,
@@ -31,7 +29,7 @@ def run_deterministic_ctrv_prediction(
     window = observation_window.prepare_trajectory_window(
         trajectory_data,
         observation_count=experiment.observation_count,
-        prediction_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
         start_index=experiment.start_index,
     )
     window = _add_position_observation_noise(
@@ -40,11 +38,7 @@ def run_deterministic_ctrv_prediction(
         seed=position_noise_seed,
     )
     computation_started = time.perf_counter()
-    initial_state = deterministic_forecasting.estimate_ctrv_state(
-        window,
-        speed_estimation_points=speed_estimation_points,
-        heading_estimation_segments=heading_estimation_segments,
-    )
+    initial_state = deterministic_forecasting.estimate_ctrv_state(window)
     prediction_table = deterministic_forecasting.build_prediction_table(
         window,
         initial_state,
@@ -67,7 +61,7 @@ def run_deterministic_ctrv_prediction(
             ),
             (
                 "Speed estimator",
-                f"linear fit over {speed_estimation_points} noisy positions",
+                "linear fit over all noisy observations",
             ),
             ("Estimated speed", f"{initial_state.speed:.3f} m/s"),
             ("Estimated heading", f"{initial_state.heading:.5f} rad"),
@@ -140,7 +134,8 @@ def plot_deterministic_ctrv_prediction(
         observed_label=observed_label,
         reference_label="Referenztrajektorie",
         forecast_label="Deterministische CTRV-Vorhersage",
-        prediction_origin_label="Prognosebeginn",
+        prediction_origin_label="Beobachtungsende / Prognosebeginn",
+        show_position_markers=True,
     )
     plt.show()
     return figure, axis

@@ -46,6 +46,11 @@ REFERENCE_TRAJECTORY_LINE_WIDTH = 2.0
 PREDICTION_ORIGIN_COLOR = OBSERVED_TRAJECTORY_COLOR
 PREDICTION_ORIGIN_EDGE_COLOR = "white"
 PREDICTION_ORIGIN_EDGE_LINE_WIDTH = 0.6
+POSITION_MARKER = "o"
+POSITION_MARKER_SIZE = 5.5
+POSITION_MARKER_EDGE_LINE_WIDTH = 1.0
+EMPHASIZED_PREDICTION_ORIGIN_SIZE = 72.0
+EMPHASIZED_PREDICTION_ORIGIN_EDGE_COLOR = "black"
 
 # Posterior appearance
 POSTERIOR_COLOR = "tab:red"
@@ -72,7 +77,7 @@ def plot_trajectory_paths(
     sample_paths=(),
     sample_label="Posterior-prädiktive Trajektorien",
     prediction_origins=None,
-    prediction_origin_label="Prognosebeginn",
+    prediction_origin_label="Beobachtungsende / Prognosebeginn",
     posterior_draws=None,
     forecast_time_seconds=None,
     posterior_draw_groups=(),
@@ -82,6 +87,7 @@ def plot_trajectory_paths(
     figsize=PLOT_FIGURE_SIZE,
     forecast_alpha=POSTERIOR_MEDIAN_ALPHA,
     forecast_linewidth=POSTERIOR_MEDIAN_LINE_WIDTH,
+    show_position_markers=False,
     x_axis_label="Ostposition x [m]",
     y_axis_label="Nordposition y [m]",
     spatial_aspect=1.0,
@@ -132,12 +138,22 @@ def plot_trajectory_paths(
             linewidth=OBSERVED_TRAJECTORY_LINE_WIDTH,
             label=context_label,
         )[0]
+    observed_marker_style = (
+        {
+            "marker": POSITION_MARKER,
+            "markersize": POSITION_MARKER_SIZE,
+            "markeredgewidth": 0.0,
+        }
+        if show_position_markers
+        else {}
+    )
     observed_line = axis.plot(
         observed_x,
         observed_y,
         color=OBSERVED_TRAJECTORY_COLOR,
         linewidth=OBSERVED_TRAJECTORY_LINE_WIDTH,
         label=observed_label,
+        **observed_marker_style,
     )[0]
     reference_line = None
     if reference is not None:
@@ -147,6 +163,10 @@ def plot_trajectory_paths(
             linestyle=REFERENCE_TRAJECTORY_LINE_STYLE,
             linewidth=REFERENCE_TRAJECTORY_LINE_WIDTH,
             label=reference_label,
+            marker=POSITION_MARKER if show_position_markers else None,
+            markersize=POSITION_MARKER_SIZE,
+            markerfacecolor="none",
+            markeredgewidth=POSITION_MARKER_EDGE_LINE_WIDTH,
         )[0]
 
     region_inputs = _prediction_region_inputs(
@@ -196,6 +216,9 @@ def plot_trajectory_paths(
                 linewidth=forecast_linewidth,
                 label=forecast_label if path_index == 0 else None,
                 zorder=4,
+                marker=POSITION_MARKER if show_position_markers else None,
+                markersize=POSITION_MARKER_SIZE,
+                markeredgewidth=0.0,
             )[0]
         )
 
@@ -205,8 +228,17 @@ def plot_trajectory_paths(
             origin_x,
             origin_y,
             color=PREDICTION_ORIGIN_COLOR,
-            edgecolor=PREDICTION_ORIGIN_EDGE_COLOR,
-            linewidth=PREDICTION_ORIGIN_EDGE_LINE_WIDTH,
+            edgecolor=(
+                EMPHASIZED_PREDICTION_ORIGIN_EDGE_COLOR
+                if show_position_markers
+                else PREDICTION_ORIGIN_EDGE_COLOR
+            ),
+            linewidth=(
+                POSITION_MARKER_EDGE_LINE_WIDTH
+                if show_position_markers
+                else PREDICTION_ORIGIN_EDGE_LINE_WIDTH
+            ),
+            s=EMPHASIZED_PREDICTION_ORIGIN_SIZE if show_position_markers else None,
             zorder=5,
             label=prediction_origin_label,
         )
@@ -365,6 +397,7 @@ def plot_prediction(
         observed_label=plot_data["observed_label"],
         forecast_label=forecast_label,
         sample_label=sample_label,
+        show_position_markers=True,
         x_axis_label=plot_data["x_axis_label"],
         y_axis_label=plot_data["y_axis_label"],
         spatial_aspect=plot_data["spatial_aspect"],

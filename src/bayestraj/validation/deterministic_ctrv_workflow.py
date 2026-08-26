@@ -40,6 +40,7 @@ def run_deterministic_ctrv_evaluation(
         experiment,
         window_mode=options.window_mode,
         observation_count=options.observation_count,
+        prediction_count=options.prediction_count,
         stride=options.stride,
         additional_position_noise_std_m=options.additional_position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
@@ -47,8 +48,6 @@ def run_deterministic_ctrv_evaluation(
     return _run_deterministic_ctrv_evaluation(
         data_file=data_file,
         experiment=configured_experiment,
-        speed_estimation_points=options.speed_estimation_points,
-        heading_estimation_segments=options.heading_estimation_segments,
         max_windows=options.max_windows,
         show_plot=options.show_plot,
     )
@@ -58,14 +57,13 @@ def _run_deterministic_ctrv_evaluation(
     *,
     data_file,
     experiment,
-    speed_estimation_points,
-    heading_estimation_segments,
     max_windows,
     show_plot,
 ):
     """Estimate and evaluate deterministic CTRV in every rolling window."""
     window_mode = experiment.window_mode
     observation_count = experiment.observation_count
+    prediction_count = experiment.prediction_count
     stride = experiment.stride
     position_noise_std_m = experiment.additional_position_noise_std_m
     position_noise_seed = experiment.position_noise_seed
@@ -80,7 +78,7 @@ def _run_deterministic_ctrv_evaluation(
     windows = rolling_validation.build_rolling_window_specs(
         len(trajectory_data),
         initial_observation_count=observation_count,
-        prediction_count=observation_count,
+        prediction_count=prediction_count,
         stride=stride,
         window_mode=window_mode,
     )
@@ -97,16 +95,15 @@ def _run_deterministic_ctrv_evaluation(
         standard_deviation_m=position_noise_std_m,
         seed=position_noise_seed,
     )
-    effective_stride = observation_count if stride is None else stride
+    effective_stride = prediction_count if stride is None else stride
     _print_setup(
         data_file=data_file,
         run_id=experiment.run_id,
         window_mode=window_mode,
         observation_count=observation_count,
+        prediction_count=prediction_count,
         stride=effective_stride,
         window_count=len(windows),
-        speed_estimation_points=speed_estimation_points,
-        heading_estimation_segments=heading_estimation_segments,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=position_noise_seed,
     )
@@ -126,11 +123,7 @@ def _run_deterministic_ctrv_evaluation(
             route_noise_y=route_noise_y,
         )
         runtime_started = time.perf_counter()
-        initial_state = forecasting.estimate_ctrv_state(
-            estimation_window,
-            speed_estimation_points=speed_estimation_points,
-            heading_estimation_segments=heading_estimation_segments,
-        )
+        initial_state = forecasting.estimate_ctrv_state(estimation_window)
         local_table = forecasting.build_prediction_table(
             estimation_window,
             initial_state,
@@ -356,11 +349,9 @@ def _print_setup(**values):
     print(f"Run ID                : {values['run_id']}")
     print(f"Window mode           : {values['window_mode']}")
     print(f"Initial observations  : {values['observation_count']}")
-    print(f"Prediction horizon    : {values['observation_count']}")
+    print(f"Prediction horizon    : {values['prediction_count']}")
     print(f"Stride                : {values['stride']}")
     print(f"Rolling windows       : {values['window_count']}")
-    print(f"Speed fit positions   : {values['speed_estimation_points']}")
-    print(f"Heading segments      : {values['heading_estimation_segments']}")
     noise = (
         f"{values['position_noise_std_m']:g} m (seed={values['position_noise_seed']})"
         if values["position_noise_std_m"] > 0
