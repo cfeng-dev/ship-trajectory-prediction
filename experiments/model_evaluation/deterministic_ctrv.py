@@ -12,11 +12,10 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.DeterministicRollingExperimentConfig(
     run_id=102,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
-    observation_count=20,  # Position points used for the first estimate.
-    prediction_count=3,  # Held-out future points per rolling forecast.
+    observation_count=5,  # Observed and held-out points per initial window.
     additional_position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
     position_noise_seed=2026,  # Reproduces route-wide added position noise.
-    stride=None,  # Forecast-origin step; None uses prediction_count.
+    stride=None,  # Forecast-origin step; None uses observation_count.
 )
 MAX_WINDOWS = None  # Optional smoke-test limit; None evaluates every window.
 SPEED_ESTIMATION_POINTS = 5  # Recent noisy positions used for the speed fit.

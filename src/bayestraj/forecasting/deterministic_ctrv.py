@@ -20,7 +20,6 @@ class DeterministicExperimentConfig:
     run_id: int
     start_index: int
     observation_count: int
-    prediction_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
 
@@ -32,7 +31,6 @@ class DeterministicRollingExperimentConfig:
     run_id: int
     window_mode: str
     observation_count: int
-    prediction_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
     stride: int | None

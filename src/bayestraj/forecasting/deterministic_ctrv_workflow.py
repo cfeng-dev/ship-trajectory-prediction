@@ -31,7 +31,7 @@ def run_deterministic_ctrv_prediction(
     window = observation_window.prepare_trajectory_window(
         trajectory_data,
         observation_count=experiment.observation_count,
-        prediction_count=experiment.prediction_count,
+        prediction_count=experiment.observation_count,
         start_index=experiment.start_index,
     )
     window = _add_position_observation_noise(

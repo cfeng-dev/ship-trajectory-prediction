@@ -35,7 +35,6 @@ class DeterministicCTRVEvaluationOptions:
 
     window_mode: str
     observation_count: int
-    prediction_count: int
     stride: int | None
     speed_estimation_points: int
     heading_estimation_segments: int
@@ -167,11 +166,6 @@ def parse_deterministic_ctrv_evaluation_arguments(
         type=int,
         default=experiment.observation_count,
     )
-    parser.add_argument(
-        "--predictions",
-        type=int,
-        default=experiment.prediction_count,
-    )
     parser.add_argument("--stride", type=int, default=experiment.stride)
     parser.add_argument(
         "--speed-estimation-points",
@@ -205,7 +199,6 @@ def parse_deterministic_ctrv_evaluation_arguments(
     return DeterministicCTRVEvaluationOptions(
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
-        prediction_count=arguments.predictions,
         stride=arguments.stride,
         speed_estimation_points=arguments.speed_estimation_points,
         heading_estimation_segments=arguments.heading_estimation_segments,
