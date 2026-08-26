@@ -77,7 +77,10 @@ def run_bayesian_ctrv_prediction(
         extra_rows=[
             (
                 "Model parameters",
-                "speed, heading_initial, turn_rate, sigma_position_observation",
+                (
+                    "speed, heading_initial, turn_rate, sigma_motion_process, "
+                    "sigma_position_observation"
+                ),
             ),
             ("Inference method", inference_method.upper()),
             ("Inference seed", seed),
@@ -105,6 +108,14 @@ def run_bayesian_ctrv_prediction(
                     f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
                     f"{priors.turn_rate_prior_tail_probability:g}"
                 ),
+            ),
+            (
+                "Motion-process prior",
+                "Exponential("
+                f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
+                "P(sigma > "
+                f"{priors.sigma_motion_process_prior_upper_m:g} m)="
+                f"{priors.sigma_motion_process_prior_tail_probability:g})",
             ),
             (
                 "Observation-noise prior",
@@ -161,6 +172,10 @@ def run_bayesian_ctrv_prediction(
             f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate')):.6f}",
         ),
         (
+            "Motion process [m]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_motion_process')):.3f}",
+        ),
+        (
             "Observation noise [m]",
             f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_position_observation')):.3f}",
         ),
@@ -188,8 +203,8 @@ def run_bayesian_ctrv_prediction(
         ),
         position_noise_std_m=position_observations.position_noise_std_m,
         coordinate_mode=plot_coordinate_mode,
-        forecast_label="Median der parametrischen CTRV-Trajektorie",
-        sample_label="Trajektorien aus Posterior-Parameterziehungen",
+        forecast_label="Median der latenten CTRV-Trajektorie",
+        sample_label="Latente CTRV-Trajektorienprognosen",
         show_time_labels=show_time_labels,
     )
     return {

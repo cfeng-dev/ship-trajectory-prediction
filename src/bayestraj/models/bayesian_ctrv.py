@@ -33,6 +33,7 @@ PARAMETER_NAMES = (
     "speed",
     "heading_initial",
     "turn_rate",
+    "sigma_motion_process",
     "sigma_position_observation",
 )
 
@@ -46,6 +47,8 @@ class BayesianCTRVPriors:
     turn_rate_prior_abs_heading_change_deg: float = 45.0
     turn_rate_prior_reference_interval_seconds: float = 10.0
     turn_rate_prior_tail_probability: float = 0.05
+    sigma_motion_process_prior_upper_m: float = 20.0
+    sigma_motion_process_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
 
@@ -89,9 +92,17 @@ class BayesianCTRVPriors:
     @property
     def sigma_position_observation_prior_rate(self) -> float:
         """Return the exponential rate implied by one prior tail statement."""
-        return float(
-            -np.log(self.sigma_position_observation_prior_tail_probability)
-            / self.sigma_position_observation_prior_upper_m
+        return _exponential_rate_from_tail(
+            self.sigma_position_observation_prior_upper_m,
+            self.sigma_position_observation_prior_tail_probability,
+        )
+
+    @property
+    def sigma_motion_process_prior_rate(self) -> float:
+        """Return the process-noise exponential rate from its tail statement."""
+        return _exponential_rate_from_tail(
+            self.sigma_motion_process_prior_upper_m,
+            self.sigma_motion_process_prior_tail_probability,
         )
 
 
@@ -142,6 +153,7 @@ def build_stan_data(
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
+        "sigma_motion_process_prior_rate": priors.sigma_motion_process_prior_rate,
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
         ),
@@ -190,7 +202,7 @@ def fit_bayesian_ctrv_model(
     variational_options: Mapping[str, Any] | None = None,
     mcmc_options: Mapping[str, Any] | None = None,
 ) -> CmdStanVB | CmdStanMCMC:
-    """Fit the three-parameter CTRV model with VI or MCMC."""
+    """Fit the latent-state CTRV model with VI or MCMC."""
     inference_method = inference_support.normalize_inference_method(inference_method)
     stan_data = build_stan_data(
         window,
@@ -395,17 +407,27 @@ def estimate_constant_motion_from_positions(
 
 
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
-    """Create seeded initials from the selected position history."""
+    """Create seeded latent-state initials from the position history."""
     generator = np.random.default_rng(seed)
+    x_true = _smooth_position_initials(stan_data["x_observed"])
+    y_true = _smooth_position_initials(stan_data["y_observed"])
+    observation_noise_initial = 1.0 / float(
+        stan_data["sigma_position_observation_prior_rate"]
+    )
+    latent_jitter_scale = 0.02 * observation_noise_initial
+    x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
+    y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
     speed, heading_initial, turn_rate = estimate_constant_motion_from_positions(
         stan_data["time_observed"],
-        stan_data["x_observed"],
-        stan_data["y_observed"],
+        x_true,
+        y_true,
     )
     speed_jitter = 0.02 * float(stan_data["speed_prior_scale"])
     turn_jitter = 0.02 * float(stan_data["turn_rate_prior_scale"])
     angle_limit = np.pi - 1e-6
     return {
+        "x_true": x_true,
+        "y_true": y_true,
         "speed": float(
             max(
                 speed + generator.normal(0.0, speed_jitter),
@@ -420,9 +442,10 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             )
         ),
         "turn_rate": float(turn_rate + generator.normal(0.0, turn_jitter)),
-        "sigma_position_observation": float(
-            1.0 / stan_data["sigma_position_observation_prior_rate"]
+        "sigma_motion_process": float(
+            0.5 / stan_data["sigma_motion_process_prior_rate"]
         ),
+        "sigma_position_observation": float(observation_noise_initial),
     }
 
 
@@ -443,6 +466,19 @@ def _two_sided_normal_scale(absolute_upper: float, tail_probability: float) -> f
     """Return a zero-centered normal scale from a two-sided tail statement."""
     quantile = NormalDist().inv_cdf(1.0 - tail_probability / 2.0)
     return float(absolute_upper / quantile)
+
+
+def _exponential_rate_from_tail(upper: float, tail_probability: float) -> float:
+    """Return an exponential rate from one upper-tail probability statement."""
+    return float(-np.log(tail_probability) / upper)
+
+
+def _smooth_position_initials(observed) -> np.ndarray:
+    """Return a lightly smoothed position history for latent-state initials."""
+    observed = np.asarray(observed, dtype=float)
+    initial = observed.copy()
+    initial[1:-1] = 0.25 * observed[:-2] + 0.5 * observed[1:-1] + 0.25 * observed[2:]
+    return initial
 
 
 def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):

@@ -158,6 +158,13 @@ def _run_evaluation(
         f"{priors.turn_rate_prior_tail_probability:g}"
     )
     print(
+        "Motion-process prior  : Exponential("
+        f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
+        "P(sigma > "
+        f"{priors.sigma_motion_process_prior_upper_m:g} m)="
+        f"{priors.sigma_motion_process_prior_tail_probability:g})"
+    )
+    print(
         "Observation-noise prior: Exponential("
         f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
         "P(sigma > "
@@ -263,8 +270,8 @@ def _run_evaluation(
                     else "Für Fit verwendete Beobachtungen"
                 ),
                 position_noise_std_m=experiment.position_noise_std_m,
-                forecast_label="Median der parametrischen CTRV-Trajektorie",
-                sample_label="Trajektorien aus Posterior-Parameterziehungen",
+                forecast_label="Median der latenten CTRV-Trajektorie",
+                sample_label="Latente CTRV-Trajektorienprognosen",
                 show_time_labels=show_time_labels,
             )
             plt.close(figure)
@@ -288,8 +295,8 @@ def _run_evaluation(
             if experiment.position_noise_std_m > 0
             else "Anfängliche Beobachtungen"
         ),
-        forecast_label="Rollierende parametrische Posterior-Mediane",
-        sample_label="Trajektorien aus Posterior-Parameterziehungen",
+        forecast_label="Rollierende latente Prognosemediane",
+        sample_label="Latente CTRV-Trajektorienprognosen",
         show_time_labels=show_time_labels,
     )
     return predictions, summary
@@ -339,6 +346,7 @@ def _posterior_diagnostics(fit, window):
         "posterior_speed_median_mps": medians["speed"],
         "posterior_heading_initial_median_rad": medians["heading_initial"],
         "posterior_turn_rate_median_rad_s": medians["turn_rate"],
+        "posterior_sigma_motion_process_median_m": medians["sigma_motion_process"],
         "posterior_sigma_position_observation_median_m": medians[
             "sigma_position_observation"
         ],
@@ -452,6 +460,9 @@ def _build_route_prediction_table(
     table["position_noise_std_m"] = position_noise_std_m
     table["position_observation_noise_std_m"] = diagnostics[
         "posterior_sigma_position_observation_median_m"
+    ]
+    table["position_motion_process_std_m"] = diagnostics[
+        "posterior_sigma_motion_process_median_m"
     ]
     table["position_noise_seed"] = position_noise_seed
     for name, value in diagnostics.items():
@@ -601,6 +612,14 @@ def _print_parameter_summary(predictions):
         (
             "Median absolute turn rate",
             f"{windows['posterior_turn_rate_median_rad_s'].abs().median():.6f} rad/s",
+        ),
+        (
+            "Median motion-process noise",
+            f"{windows['posterior_sigma_motion_process_median_m'].median():.3f} m",
+        ),
+        (
+            "Median observation noise",
+            f"{windows['posterior_sigma_position_observation_median_m'].median():.3f} m",
         ),
     ]
     print("\nParametric CTRV diagnostics:")
