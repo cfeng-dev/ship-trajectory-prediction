@@ -38,6 +38,7 @@ CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
 PLOT_EACH_WINDOW = False
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15
+SHOW_TIME_LABELS = False  # Avoid repeated labels across all rolling windows.
 
 
 def main(argv=None):
@@ -61,6 +62,7 @@ def main(argv=None):
         credible_interval=CREDIBLE_INTERVAL,
         sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
         options=options,
+        show_time_labels=SHOW_TIME_LABELS,
     )
 
 

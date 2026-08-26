@@ -87,6 +87,8 @@ def plot_trajectory_paths(
     figsize=PLOT_FIGURE_SIZE,
     forecast_alpha=POSTERIOR_MEDIAN_ALPHA,
     forecast_linewidth=POSTERIOR_MEDIAN_LINE_WIDTH,
+    forecast_horizon_seconds=None,
+    forecast_horizon_groups=(),
     show_position_markers=False,
     x_axis_label="Ostposition x [m]",
     y_axis_label="Nordposition y [m]",
@@ -221,6 +223,33 @@ def plot_trajectory_paths(
                 markeredgewidth=0.0,
             )[0]
         )
+    horizon_groups = tuple(forecast_horizon_groups)
+    if forecast_horizon_seconds is not None and horizon_groups:
+        raise ValueError(
+            "forecast_horizon_seconds cannot be combined with forecast_horizon_groups."
+        )
+    if forecast_horizon_seconds is not None:
+        if len(forecasts) != 1:
+            raise ValueError(
+                "forecast_horizon_seconds requires exactly one forecast path."
+            )
+        _label_forecast_path(
+            axis,
+            forecasts[0],
+            forecast_horizon_seconds,
+        )
+    elif horizon_groups:
+        if len(horizon_groups) != len(forecasts):
+            raise ValueError(
+                "forecast_horizon_groups must contain one time vector per "
+                "forecast path."
+            )
+        for forecast_path, horizon_seconds in zip(
+            forecasts,
+            horizon_groups,
+            strict=True,
+        ):
+            _label_forecast_path(axis, forecast_path, horizon_seconds)
 
     origin_artist = None
     if prediction_origins is not None:
@@ -329,6 +358,7 @@ def plot_prediction(
     title=None,
     forecast_label="Posterior-prädiktiver Median",
     sample_label="Posterior-prädiktive Trajektorien",
+    show_time_labels=True,
 ):
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
@@ -392,6 +422,7 @@ def plot_prediction(
         prediction_origins=plot_data["prediction_origin"],
         posterior_draws=plot_data["posterior_draws"],
         forecast_time_seconds=plot_data["forecast_time_seconds"],
+        annotate_prediction_regions=show_time_labels,
         annotation_text=annotation_text,
         title=title,
         observed_label=plot_data["observed_label"],
@@ -423,6 +454,7 @@ def plot_operational_prediction(
     title=None,
     forecast_label="Posterior-prädiktiver Median",
     sample_label="Posterior-prädiktive Trajektorien",
+    show_time_labels=True,
 ):
     """Plot an operational forecast through the shared plot-mode interface."""
     return plot_prediction(
@@ -440,6 +472,7 @@ def plot_operational_prediction(
         title=title,
         forecast_label=forecast_label,
         sample_label=sample_label,
+        show_time_labels=show_time_labels,
     )
 
 
@@ -620,7 +653,7 @@ def _draw_prediction_regions(
             axis.add_patch(ellipse)
 
     if annotate_time:
-        _label_prediction_regions(axis, centers, horizon_seconds)
+        _label_prediction_horizons(axis, centers, horizon_seconds)
     return [
         Patch(
             facecolor=region_styles[0.5][0],
@@ -654,8 +687,28 @@ def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):
     return time_values[1:]
 
 
-def _label_prediction_regions(axis, centers, horizon_seconds):
-    """Label a small non-repeating selection of future-time regions."""
+def _label_forecast_path(axis, forecast_path, horizon_seconds):
+    """Label selected future positions along one connected forecast path."""
+    x_values, y_values = forecast_path
+    prediction_count = len(x_values) - 1
+    time_values = np.asarray(horizon_seconds, dtype=float)
+    if (
+        prediction_count < 1
+        or time_values.shape != (prediction_count,)
+        or not np.all(np.isfinite(time_values))
+        or np.any(time_values <= 0)
+        or np.any(np.diff(time_values) <= 0)
+    ):
+        raise ValueError(
+            "forecast_horizon_seconds must contain one positive increasing "
+            "value for every future forecast position."
+        )
+    centers = np.column_stack((x_values[1:], y_values[1:]))
+    _label_prediction_horizons(axis, centers, time_values)
+
+
+def _label_prediction_horizons(axis, centers, horizon_seconds):
+    """Label a small non-repeating selection of future prediction positions."""
     for time_index in _selected_time_label_indices(len(horizon_seconds)):
         axis.annotate(
             f"+{horizon_seconds[time_index]:g} s",

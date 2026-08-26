@@ -30,6 +30,7 @@ def run_bayesian_position_prediction(
     position_noise_seed,
     require_converged,
     plot_coordinate_mode,
+    show_time_labels,
 ):
     """Fit and evaluate one latent-position measurement-error forecast."""
     inference_method, inference_config = inference.select_inference_config(
@@ -138,6 +139,7 @@ def run_bayesian_position_prediction(
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der latenten Trajektorienprognose",
         sample_label="Latente Trajektorienprognosen",
+        show_time_labels=show_time_labels,
     )
     return {
         "fit": fit,

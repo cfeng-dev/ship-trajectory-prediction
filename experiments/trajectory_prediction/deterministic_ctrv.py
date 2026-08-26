@@ -17,6 +17,7 @@ EXPERIMENT = config.DeterministicExperimentConfig(
     additional_position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
     position_noise_seed=2026,  # Reproduces the added position noise.
 )
+SHOW_TIME_LABELS = True  # Label selected forecast horizons in the plot.
 
 
 def main(argv=None):
@@ -32,6 +33,7 @@ def main(argv=None):
         position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         show_plot=not arguments.no_plot,
+        show_time_labels=SHOW_TIME_LABELS,
     )
 
 

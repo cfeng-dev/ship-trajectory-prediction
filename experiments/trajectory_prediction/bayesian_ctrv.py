@@ -35,6 +35,7 @@ VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9
 PLOT_COORDINATE_MODE = "m"
+SHOW_TIME_LABELS = True
 
 
 def main(argv=None):
@@ -61,6 +62,7 @@ def main(argv=None):
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
+        show_time_labels=SHOW_TIME_LABELS,
     )
 
 

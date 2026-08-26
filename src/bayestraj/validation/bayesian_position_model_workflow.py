@@ -42,6 +42,7 @@ def run_bayesian_position_evaluation(
     credible_interval,
     sample_trajectories_per_forecast,
     options,
+    show_time_labels=False,
 ):
     """Evaluate the latent-position model over leakage-free rolling windows."""
     configured_experiment = dataclasses.replace(
@@ -230,6 +231,7 @@ def run_bayesian_position_evaluation(
                 ),
                 forecast_label="Median der latenten Trajektorienprognose",
                 sample_label="Latente Trajektorienprognosen",
+                show_time_labels=show_time_labels,
             )
             plt.close(figure)
 
@@ -251,6 +253,7 @@ def run_bayesian_position_evaluation(
             if configured_experiment.additional_position_noise_std_m > 0
             else "Anfangsbeobachtungen"
         ),
+        show_time_labels=show_time_labels,
     )
     return predictions, summary
 
@@ -465,6 +468,7 @@ def _plot_rolling_predictions(
     observed_route_x,
     observed_route_y,
     observed_trajectory_label,
+    show_time_labels,
 ):
     """Plot rolling position-model forecasts with shared trajectory styling."""
     posterior_groups = tuple(posterior_groups)
@@ -521,7 +525,7 @@ def _plot_rolling_predictions(
         forecast_time_groups=tuple(
             group.forecast_time_seconds for group in posterior_groups
         ),
-        annotate_prediction_regions=False,
+        annotate_prediction_regions=show_time_labels,
         title=None,
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",

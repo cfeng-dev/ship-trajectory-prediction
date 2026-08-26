@@ -21,6 +21,7 @@ def run_deterministic_ctrv_prediction(
     position_noise_std_m: float,
     position_noise_seed: int,
     show_plot: bool,
+    show_time_labels: bool,
 ) -> pd.DataFrame:
     """Estimate and evaluate one deterministic CTRV prediction."""
     trajectory_data = observations_io.read_ship_data(
@@ -96,6 +97,7 @@ def run_deterministic_ctrv_prediction(
             window,
             prediction_table,
             additional_position_noise_std_m=position_noise_std_m,
+            show_time_labels=show_time_labels,
         )
     return prediction_table
 
@@ -105,6 +107,7 @@ def plot_deterministic_ctrv_prediction(
     prediction_table: pd.DataFrame,
     *,
     additional_position_noise_std_m=0.0,
+    show_time_labels=True,
 ):
     """Plot observed, held-out, and deterministic CTRV trajectories."""
     observed = window.observed_slice
@@ -135,6 +138,11 @@ def plot_deterministic_ctrv_prediction(
         reference_label="Referenztrajektorie",
         forecast_label="Deterministische CTRV-Vorhersage",
         prediction_origin_label="Beobachtungsende / Prognosebeginn",
+        forecast_horizon_seconds=(
+            prediction_table["horizon_seconds"].to_numpy(dtype=float)
+            if show_time_labels
+            else None
+        ),
         show_position_markers=True,
     )
     plt.show()

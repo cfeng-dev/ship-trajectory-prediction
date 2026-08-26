@@ -37,6 +37,7 @@ def plot_bayesian_rolling_predictions(
     title_prefix=None,
     forecast_label="Rollierende Posterior-Mediane",
     sample_label="Posterior-prädiktive Trajektorien aller Prognosen",
+    show_time_labels=False,
 ):
     """Plot rolling Bayesian paths and posterior-predictive uncertainty."""
     window_mode_label = _window_mode_label(window_mode)
@@ -85,7 +86,7 @@ def plot_bayesian_rolling_predictions(
         forecast_time_groups=tuple(
             group.forecast_time_seconds for group in posterior_plot_groups
         ),
-        annotate_prediction_regions=False,
+        annotate_prediction_regions=show_time_labels,
         title=title,
         observed_label=observed_trajectory_label,
         reference_label="Aufgezeichnete Trajektorie",
@@ -110,10 +111,12 @@ def plot_deterministic_rolling_predictions(
     observed_route_x,
     observed_route_y,
     position_noise_std_m,
+    show_time_labels=False,
 ):
     """Plot deterministic rolling forecasts with shared scientific styling."""
     _window_mode_label(window_mode)
     forecast_paths = []
+    forecast_horizon_groups = []
     forecast_origin_x = []
     forecast_origin_y = []
     for _, group in predictions.groupby("window_index", sort=True):
@@ -133,6 +136,7 @@ def plot_deterministic_rolling_predictions(
                 ),
             )
         )
+        forecast_horizon_groups.append(group["horizon_seconds"].to_numpy(dtype=float))
         forecast_origin_x.append(group["forecast_origin_x_route"].iloc[0])
         forecast_origin_y.append(group["forecast_origin_y_route"].iloc[0])
 
@@ -143,6 +147,7 @@ def plot_deterministic_rolling_predictions(
         ),
         reference_path=(route_x, route_y),
         forecast_paths=forecast_paths,
+        forecast_horizon_groups=(forecast_horizon_groups if show_time_labels else ()),
         prediction_origins=(forecast_origin_x, forecast_origin_y),
         title=None,
         observed_label=(

@@ -13,7 +13,7 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=102,
     window_mode="sliding",
-    observation_count=10,
+    observation_count=5,
     prediction_count=3,
     additional_position_noise_std_m=5.0,
     position_noise_seed=2026,
@@ -33,6 +33,7 @@ CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
 PLOT_EACH_WINDOW = True
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15
+SHOW_TIME_LABELS = False  # Avoid repeated labels across all rolling windows.
 
 
 def main(argv=None):
@@ -55,6 +56,7 @@ def main(argv=None):
         credible_interval=CREDIBLE_INTERVAL,
         sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
         options=options,
+        show_time_labels=SHOW_TIME_LABELS,
     )
 
 

@@ -35,6 +35,7 @@ def run_bayesian_ctrv_evaluation(
     credible_interval,
     sample_trajectories_per_forecast,
     options: validation_cli.BayesianCTRVEvaluationOptions,
+    show_time_labels=False,
 ):
     """Evaluate constant-parameter Bayesian CTRV forecasts across one run."""
     configured_experiment = dataclasses.replace(
@@ -65,6 +66,7 @@ def run_bayesian_ctrv_evaluation(
         require_converged=options.require_converged,
         max_windows=options.max_windows,
         plot_each_window=options.plot_each_window,
+        show_time_labels=show_time_labels,
     )
 
 
@@ -82,6 +84,7 @@ def _run_evaluation(
     require_converged,
     max_windows,
     plot_each_window,
+    show_time_labels,
 ):
     """Run one configured rolling evaluation."""
     inference_method, inference_config = inference.select_inference_config(
@@ -254,6 +257,7 @@ def _run_evaluation(
                 ),
                 forecast_label="Median der parametrischen CTRV-Trajektorie",
                 sample_label="Trajektorien aus Posterior-Parameterziehungen",
+                show_time_labels=show_time_labels,
             )
             plt.close(figure)
 
@@ -278,6 +282,7 @@ def _run_evaluation(
         ),
         forecast_label="Rollierende parametrische Posterior-Mediane",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",
+        show_time_labels=show_time_labels,
     )
     return predictions, summary
 

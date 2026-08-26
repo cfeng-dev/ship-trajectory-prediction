@@ -32,6 +32,7 @@ def run_bayesian_ctrv_prediction(
     position_noise_seed: int,
     require_converged: bool,
     plot_coordinate_mode: str,
+    show_time_labels: bool,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
     inference_method, inference_config = inference.select_inference_config(
@@ -172,6 +173,7 @@ def run_bayesian_ctrv_prediction(
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der parametrischen CTRV-Trajektorie",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",
+        show_time_labels=show_time_labels,
     )
     return {
         "fit": fit,

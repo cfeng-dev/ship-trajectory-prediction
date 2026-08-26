@@ -13,7 +13,7 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.ExperimentConfig(
     run_id=102,
     start_index=0,
-    observation_count=10,
+    observation_count=5,
     prediction_count=3,
     additional_position_noise_std_m=5.0,
     position_noise_seed=2026,
@@ -31,6 +31,7 @@ VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
 CREDIBLE_INTERVAL = 0.9
 PLOT_COORDINATE_MODE = "m"
+SHOW_TIME_LABELS = True
 
 
 def main(argv=None):
@@ -58,6 +59,7 @@ def main(argv=None):
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
+        show_time_labels=SHOW_TIME_LABELS,
     )
 
 

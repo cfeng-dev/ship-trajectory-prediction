@@ -34,6 +34,7 @@ def run_deterministic_ctrv_evaluation(
     data_file,
     experiment: forecasting.DeterministicRollingExperimentConfig,
     options: validation_cli.DeterministicCTRVEvaluationOptions,
+    show_time_labels=False,
 ):
     """Apply runtime options and evaluate deterministic rolling forecasts."""
     configured_experiment = dataclasses.replace(
@@ -50,6 +51,7 @@ def run_deterministic_ctrv_evaluation(
         experiment=configured_experiment,
         max_windows=options.max_windows,
         show_plot=options.show_plot,
+        show_time_labels=show_time_labels,
     )
 
 
@@ -59,6 +61,7 @@ def _run_deterministic_ctrv_evaluation(
     experiment,
     max_windows,
     show_plot,
+    show_time_labels,
 ):
     """Estimate and evaluate deterministic CTRV in every rolling window."""
     window_mode = experiment.window_mode
@@ -165,6 +168,7 @@ def _run_deterministic_ctrv_evaluation(
             observed_route_x=route_x + route_noise_x,
             observed_route_y=route_y + route_noise_y,
             position_noise_std_m=position_noise_std_m,
+            show_time_labels=show_time_labels,
         )
     return predictions, summary
 
