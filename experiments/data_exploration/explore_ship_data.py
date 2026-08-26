@@ -2,10 +2,10 @@
 
 import numpy as np
 
-import ship_trajectory_prediction.observations.coordinates as coordinates
-import ship_trajectory_prediction.observations.io as observations_io
-import ship_trajectory_prediction.observations.paths as paths
-import ship_trajectory_prediction.observations.plotting as plotting
+import bayestraj.observations.coordinates as coordinates
+import bayestraj.observations.io as observations_io
+import bayestraj.observations.paths as paths
+import bayestraj.observations.plotting as plotting
 
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

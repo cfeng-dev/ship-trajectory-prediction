@@ -35,7 +35,7 @@ Alternatively, the simulator can be started by running `cli.py` directly from
 the project root:
 
 ```bash
-uv run python src/ship_trajectory_prediction/simulation/cli.py
+uv run python src/bayestraj/simulation/cli.py
 ```
 
 The project environment must be synchronized first with `uv sync --locked`.

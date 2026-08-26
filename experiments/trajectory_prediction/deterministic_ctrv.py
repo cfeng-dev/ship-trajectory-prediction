@@ -1,9 +1,9 @@
 """Run one deterministic CTRV trajectory prediction."""
 
-import ship_trajectory_prediction.forecasting.cli as cli
-import ship_trajectory_prediction.forecasting.deterministic_ctrv as config
-import ship_trajectory_prediction.forecasting.deterministic_ctrv_workflow as workflow
-import ship_trajectory_prediction.observations.paths as paths
+import bayestraj.forecasting.cli as cli
+import bayestraj.forecasting.deterministic_ctrv as config
+import bayestraj.forecasting.deterministic_ctrv_workflow as workflow
+import bayestraj.observations.paths as paths
 
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

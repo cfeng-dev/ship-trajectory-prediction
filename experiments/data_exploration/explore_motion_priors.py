@@ -1,8 +1,8 @@
 """Explore empirical motion distributions for Bayesian CTRV prior design."""
 
-import ship_trajectory_prediction.calibration.motion_priors as motion_priors
-import ship_trajectory_prediction.observations.io as observations_io
-import ship_trajectory_prediction.observations.paths as paths
+import bayestraj.calibration.motion_priors as motion_priors
+import bayestraj.observations.io as observations_io
+import bayestraj.observations.paths as paths
 
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

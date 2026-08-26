@@ -2,7 +2,7 @@
 
 from cmdstanpy import CmdStanModel, cmdstan_path
 
-from ship_trajectory_prediction.models.paths import stan_path
+from bayestraj.models.paths import stan_path
 
 STAN_FILE = stan_path("examples/test_cmdstan.stan")
 

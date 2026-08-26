@@ -1,11 +1,11 @@
 """Evaluate parametric Bayesian CTRV forecasts across rolling windows."""
 
-import ship_trajectory_prediction.forecasting.bayesian_ctrv as config
-import ship_trajectory_prediction.forecasting.inference as inference
-import ship_trajectory_prediction.models.bayesian_ctrv as bayesian_model
-import ship_trajectory_prediction.observations.paths as paths
-import ship_trajectory_prediction.validation.bayesian_ctrv_workflow as workflow
-import ship_trajectory_prediction.validation.cli as cli
+import bayestraj.forecasting.bayesian_ctrv as config
+import bayestraj.forecasting.inference as inference
+import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.observations.paths as paths
+import bayestraj.validation.bayesian_ctrv_workflow as workflow
+import bayestraj.validation.cli as cli
 
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"

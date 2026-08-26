@@ -1,11 +1,11 @@
 """Load, resample, and plot a saved simulated ship trajectory."""
 
-from ship_trajectory_prediction.observations.io import (
+from bayestraj.observations.io import (
     read_ship_data,
     resample_trajectory_data,
 )
-from ship_trajectory_prediction.observations.paths import data_path
-from ship_trajectory_prediction.observations.plotting import plot_ship_trajectory
+from bayestraj.observations.paths import data_path
+from bayestraj.observations.plotting import plot_ship_trajectory
 
 DATA_FILE = data_path("simulated/example_simulated_trajectory.csv")
 
