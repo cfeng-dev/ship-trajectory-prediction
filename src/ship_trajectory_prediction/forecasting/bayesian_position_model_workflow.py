@@ -22,7 +22,7 @@ def run_bayesian_position_prediction(
     mcmc_config,
     fullrank_grad_samples,
     credible_interval,
-    history_position_count,
+    observation_count,
     inference_method,
     vi_algorithm,
     seed,
@@ -46,7 +46,7 @@ def run_bayesian_position_prediction(
     )
     window = observation_window.prepare_trajectory_window(
         trajectory_data,
-        observation_count=experiment.observation_count,
+        observation_count=observation_count,
         prediction_count=experiment.prediction_count,
         start_index=experiment.start_index,
     )
@@ -58,7 +58,6 @@ def run_bayesian_position_prediction(
     stan_data = position_model.build_stan_data(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
     )
     print(
@@ -67,7 +66,6 @@ def run_bayesian_position_prediction(
                 ("Model", "Bayesian Position Model"),
                 ("Run ID", experiment.run_id),
                 ("Observed positions", window.observation_count),
-                ("Local history positions", history_position_count),
                 ("Prediction positions", window.prediction_count),
                 ("Sampling interval", f"{_sampling_interval(window):g} s"),
                 ("Inference method", inference_method.upper()),
@@ -80,7 +78,6 @@ def run_bayesian_position_prediction(
     fit = position_model.fit_bayesian_position_model(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
         inference_method=inference_method,
         seed=seed,

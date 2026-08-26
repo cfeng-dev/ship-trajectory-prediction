@@ -13,16 +13,15 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.ExperimentConfig(
     run_id=102,
     start_index=0,
-    observation_count=20,
+    observation_count=10,
     prediction_count=3,
-    history_position_count=20,  # Use 20 or 10 trailing positions.
     additional_position_noise_std_m=5.0,
     position_noise_seed=2026,
     inference_method="vi",
     inference_seed=42,
 )
 PRIORS = position_model.BayesianPositionModelPriors(
-    # Robust position-only calibration on disjoint historical run IDs 0-99.
+    # Provisional position-only priors; validate for the 10-position window.
     log_displacement_scale_prior_scale=0.016354,
     rotation_angle_prior_scale=0.016980,
     sigma_displacement_residual_prior_scale=1.989083,
@@ -50,7 +49,7 @@ def main(argv=None):
         mcmc_config=MCMC_CONFIG,
         fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
-        history_position_count=arguments.history_positions,
+        observation_count=arguments.observations,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,

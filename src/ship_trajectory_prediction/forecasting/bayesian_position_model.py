@@ -7,8 +7,6 @@ from dataclasses import dataclass
 
 import ship_trajectory_prediction.validation.prediction_plotting as prediction_plotting
 
-HISTORY_POSITION_COUNT_OPTIONS = (20, 10)
-
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfig:
@@ -18,7 +16,6 @@ class ExperimentConfig:
     start_index: int
     observation_count: int
     prediction_count: int
-    history_position_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
     inference_method: str
@@ -33,7 +30,6 @@ class RollingExperimentConfig:
     window_mode: str
     observation_count: int
     prediction_count: int
-    history_position_count: int
     additional_position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
@@ -48,7 +44,6 @@ class EvaluationOptions:
     window_mode: str
     observation_count: int
     prediction_count: int
-    history_position_count: int
     stride: int | None
     inference_method: str
     vi_algorithm: str
@@ -71,11 +66,10 @@ def parse_prediction_arguments(
     """Parse single-window position-model runtime options."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--history-positions",
+        "--observations",
         type=int,
-        choices=HISTORY_POSITION_COUNT_OPTIONS,
-        default=experiment.history_position_count,
-        help="Use the last 20 or 10 observed positions in the local VAR likelihood.",
+        default=experiment.observation_count,
+        help="Use this many observed positions; at least 3 are required.",
     )
     parser.add_argument(
         "--inference",
@@ -132,12 +126,6 @@ def parse_evaluation_arguments(
         "--observations", type=int, default=experiment.observation_count
     )
     parser.add_argument("--predictions", type=int, default=experiment.prediction_count)
-    parser.add_argument(
-        "--history-positions",
-        type=int,
-        choices=HISTORY_POSITION_COUNT_OPTIONS,
-        default=experiment.history_position_count,
-    )
     parser.add_argument("--stride", type=int, default=experiment.stride)
     parser.add_argument(
         "--inference",
@@ -176,7 +164,6 @@ def parse_evaluation_arguments(
         window_mode=arguments.window_mode,
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
-        history_position_count=arguments.history_positions,
         stride=arguments.stride,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,

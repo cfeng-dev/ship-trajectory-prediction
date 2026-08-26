@@ -16,7 +16,7 @@ import ship_trajectory_prediction.models.paths as model_paths
 import ship_trajectory_prediction.observations.window as observation_window
 
 STAN_FILE = model_paths.stan_path("models/bayesian_position_model.stan")
-MIN_HISTORY_POSITION_COUNT = 3
+MIN_OBSERVATION_COUNT = 3
 REGULAR_TIME_STEP_ATOL_SECONDS = 1e-9
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
@@ -53,16 +53,15 @@ def build_stan_data(
     window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianPositionModelPriors,
-    history_position_count: int,
     position_observations: PositionObservations | None = None,
 ) -> dict[str, Any]:
-    """Build Stan data from the last regular, observed position history."""
+    """Build Stan data from the complete regular observation window."""
     if not isinstance(priors, BayesianPositionModelPriors):
         raise TypeError("priors must be a BayesianPositionModelPriors instance.")
-    history_position_count = observation_support.validate_history_position_count(
-        history_position_count,
-        observation_count=window.observation_count,
-    )
+    if window.observation_count < MIN_OBSERVATION_COUNT:
+        raise ValueError(
+            f"window must contain at least {MIN_OBSERVATION_COUNT} observed positions."
+        )
     if window.prediction_count < 1:
         raise ValueError("window must contain at least one prediction position.")
 
@@ -70,25 +69,24 @@ def build_stan_data(
         window,
         position_observations,
     )
-    history_slice = slice(-history_position_count, None)
     time_history = np.asarray(
-        position_observations.time_seconds[history_slice],
+        position_observations.time_seconds,
         dtype=float,
     )
     _validate_regular_prediction_times(window, time_history)
     x_history = np.asarray(
-        position_observations.x_meters[history_slice],
+        position_observations.x_meters,
         dtype=float,
     )
     y_history = np.asarray(
-        position_observations.y_meters[history_slice],
+        position_observations.y_meters,
         dtype=float,
     )
     observation_support.validate_finite_vector("x_observed", x_history)
     observation_support.validate_finite_vector("y_observed", y_history)
 
     return {
-        "N_history": history_position_count,
+        "N_observed": window.observation_count,
         "x_observed": x_history,
         "y_observed": y_history,
         "N_prediction": window.prediction_count,
@@ -116,7 +114,6 @@ def fit_bayesian_position_model(
     window: observation_window.TrajectoryWindowData,
     *,
     priors: BayesianPositionModelPriors,
-    history_position_count: int,
     position_observations: PositionObservations | None = None,
     inference_method: str = "vi",
     algorithm: str = "meanfield",
@@ -146,7 +143,6 @@ def fit_bayesian_position_model(
     stan_data = build_stan_data(
         window,
         priors=priors,
-        history_position_count=history_position_count,
         position_observations=position_observations,
     )
     model = compile_bayesian_position_model()

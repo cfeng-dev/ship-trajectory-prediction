@@ -1,8 +1,8 @@
 data {
-  // Local observed position history used by the displacement model
-  int<lower=3> N_history;
-  vector[N_history] x_observed;
-  vector[N_history] y_observed;
+  // Complete local observation window used by the displacement model
+  int<lower=3> N_observed;
+  vector[N_observed] x_observed;
+  vector[N_observed] y_observed;
 
   // Number of future observation steps
   int<lower=1> N_prediction;
@@ -14,9 +14,9 @@ data {
 }
 
 transformed data {
-  array[N_history - 1] vector[2] displacement;
+  array[N_observed - 1] vector[2] displacement;
 
-  for (n in 1:(N_history - 1)) {
+  for (n in 1:(N_observed - 1)) {
     displacement[n][1] = x_observed[n + 1] - x_observed[n];
     displacement[n][2] = y_observed[n + 1] - y_observed[n];
   }
@@ -57,7 +57,7 @@ model {
       sigma_displacement_residual_prior_scale);
 
   // Local VAR(1) likelihood for directly observed displacements
-  for (n in 2:(N_history - 1)) {
+  for (n in 2:(N_observed - 1)) {
     displacement[n] ~ multi_normal_cholesky(
         autoregressive_matrix * displacement[n - 1],
         residual_cholesky);
@@ -69,18 +69,18 @@ generated quantities {
   vector[N_prediction] y_model_prediction;
   vector[N_prediction] x_observation_prediction;
   vector[N_prediction] y_observation_prediction;
-  vector[N_history - 2] log_likelihood;
+  vector[N_observed - 2] log_likelihood;
 
   {
     matrix[2, 2] residual_cholesky =
         diag_matrix(rep_vector(sigma_displacement_residual, 2));
     vector[2] model_position;
-    vector[2] model_displacement = displacement[N_history - 1];
+    vector[2] model_displacement = displacement[N_observed - 1];
     vector[2] observation_position;
-    vector[2] observation_displacement = displacement[N_history - 1];
+    vector[2] observation_displacement = displacement[N_observed - 1];
 
-    model_position[1] = x_observed[N_history];
-    model_position[2] = y_observed[N_history];
+    model_position[1] = x_observed[N_observed];
+    model_position[2] = y_observed[N_observed];
     observation_position = model_position;
 
     for (n in 1:N_prediction) {
@@ -97,7 +97,7 @@ generated quantities {
       y_observation_prediction[n] = observation_position[2];
     }
 
-    for (n in 2:(N_history - 1)) {
+    for (n in 2:(N_observed - 1)) {
       log_likelihood[n - 1] = multi_normal_cholesky_lpdf(
           displacement[n] |
           autoregressive_matrix * displacement[n - 1],

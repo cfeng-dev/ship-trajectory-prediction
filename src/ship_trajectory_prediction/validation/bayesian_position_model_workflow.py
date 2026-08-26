@@ -49,7 +49,6 @@ def run_bayesian_position_evaluation(
         window_mode=options.window_mode,
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
-        history_position_count=options.history_position_count,
         stride=options.stride,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
@@ -101,10 +100,6 @@ def run_bayesian_position_evaluation(
                 ("Run ID", configured_experiment.run_id),
                 ("Window mode", configured_experiment.window_mode),
                 ("Initial observations", configured_experiment.observation_count),
-                (
-                    "Local history positions",
-                    configured_experiment.history_position_count,
-                ),
                 ("Prediction positions", configured_experiment.prediction_count),
                 ("Rolling windows", len(windows)),
                 ("Inference method", inference_method.upper()),
@@ -119,7 +114,6 @@ def run_bayesian_position_evaluation(
         print(
             f"Window {number}/{len(windows)}: "
             f"observations={specification.observation_count}, "
-            f"history={configured_experiment.history_position_count}, "
             f"predictions={specification.prediction_count}"
         )
         window = observation_window.prepare_trajectory_window(
@@ -142,7 +136,6 @@ def run_bayesian_position_evaluation(
         fit = position_model.fit_bayesian_position_model(
             window,
             priors=priors,
-            history_position_count=configured_experiment.history_position_count,
             position_observations=position_observations,
             inference_method=inference_method,
             seed=window_seed,
@@ -175,7 +168,6 @@ def run_bayesian_position_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
-            history_position_count=configured_experiment.history_position_count,
         )
         table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
@@ -235,7 +227,6 @@ def run_bayesian_position_evaluation(
             if configured_experiment.additional_position_noise_std_m > 0
             else "Anfangsbeobachtungen"
         ),
-        history_position_count=configured_experiment.history_position_count,
     )
     return predictions, summary
 
@@ -318,7 +309,6 @@ def _build_route_prediction_table(
     inference_method,
     converged,
     mcmc_diagnostics_ok,
-    history_position_count,
 ):
     """Add rolling and common-route metadata to one prediction table."""
     table = prediction_table.copy()
@@ -346,7 +336,6 @@ def _build_route_prediction_table(
     table.insert(3, "target_index", target_indices)
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
-    table["history_position_count"] = history_position_count
     table["prediction_count"] = specification.prediction_count
     table["inference_method"] = inference_method
     table["model_variant"] = "bayesian_position_model"
@@ -446,7 +435,6 @@ def _plot_rolling_predictions(
     observed_route_x,
     observed_route_y,
     observed_trajectory_label,
-    history_position_count,
 ):
     """Plot rolling position-model forecasts with shared trajectory styling."""
     posterior_groups = tuple(posterior_groups)
