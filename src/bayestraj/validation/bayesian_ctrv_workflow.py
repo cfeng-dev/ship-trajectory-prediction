@@ -518,11 +518,6 @@ def _build_window_position_observations(
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
         position_noise_std_m=position_noise_std_m,
         noise_seed=noise_seed,
-        observation_noise_std_m=(
-            position_noise_std_m
-            if position_noise_std_m > 0
-            else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-        ),
     )
 
 

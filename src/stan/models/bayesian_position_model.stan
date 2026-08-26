@@ -4,16 +4,14 @@ data {
   vector[N_history] x_observed;
   vector[N_history] y_observed;
 
-  // Fixed position-measurement SD per local x/y axis [m]
-  real<lower=1e-6> sigma_position_observation;
-
   // Number of future trajectory positions
   int<lower=1> N_prediction;
 
-  // Weakly informative position-only prior scales
+  // Weakly informative position-only priors
   real<lower=0> log_displacement_scale_prior_scale;
   real<lower=0> rotation_angle_prior_scale;
-  real<lower=0> sigma_motion_residual_prior_scale;
+  real<lower=0> sigma_position_observation_prior_rate;
+  real<lower=0> sigma_motion_residual_prior_rate;
 }
 
 parameters {
@@ -27,6 +25,9 @@ parameters {
 
   // Motion-model residual SD per displacement axis [m]
   real<lower=1e-6> sigma_motion_residual;
+
+  // Position-measurement SD per local x/y axis [m]
+  real<lower=1e-6> sigma_position_observation;
 }
 
 transformed parameters {
@@ -56,9 +57,11 @@ model {
   // Identity-centered motion prior: rho near 1 and rotation near 0
   log_displacement_scale ~ normal(0, log_displacement_scale_prior_scale);
   rotation_angle ~ normal(0, rotation_angle_prior_scale);
-  sigma_motion_residual ~ normal(0, sigma_motion_residual_prior_scale);
+  sigma_position_observation ~ exponential(
+      sigma_position_observation_prior_rate);
+  sigma_motion_residual ~ exponential(sigma_motion_residual_prior_rate);
 
-  // Explicit measurement-error model with known sensor uncertainty
+  // Explicit measurement-error model with inferred sensor uncertainty
   x_observed ~ normal(x_true, sigma_position_observation);
   y_observed ~ normal(y_true, sigma_position_observation);
 

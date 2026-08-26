@@ -8,8 +8,6 @@ import numpy as np
 
 import bayestraj.observations.window as observation_window
 
-DEFAULT_POSITION_OBSERVATION_NOISE_STD_M = 2.0
-
 
 @dataclass(frozen=True, slots=True)
 class PositionObservations:
@@ -20,7 +18,6 @@ class PositionObservations:
     y_meters: np.ndarray
     position_noise_std_m: float
     noise_seed: int
-    observation_noise_std_m: float = DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
 
     def __post_init__(self) -> None:
         """Copy, validate, and make all observation arrays read-only."""
@@ -35,10 +32,6 @@ class PositionObservations:
             self.position_noise_std_m,
         )
         noise_seed = validate_non_negative_integer("noise_seed", self.noise_seed)
-        observation_noise_std_m = validate_positive_finite(
-            "observation_noise_std_m",
-            self.observation_noise_std_m,
-        )
         for values in (time_seconds, x_meters, y_meters):
             values.setflags(write=False)
         object.__setattr__(self, "time_seconds", time_seconds)
@@ -50,11 +43,6 @@ class PositionObservations:
             position_noise_std_m,
         )
         object.__setattr__(self, "noise_seed", noise_seed)
-        object.__setattr__(
-            self,
-            "observation_noise_std_m",
-            observation_noise_std_m,
-        )
 
 
 def simulate_position_observations(
@@ -87,11 +75,6 @@ def simulate_position_observations(
         y_meters=y_meters,
         position_noise_std_m=position_noise_std_m,
         noise_seed=seed,
-        observation_noise_std_m=(
-            position_noise_std_m
-            if position_noise_std_m > 0
-            else DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-        ),
     )
 
 

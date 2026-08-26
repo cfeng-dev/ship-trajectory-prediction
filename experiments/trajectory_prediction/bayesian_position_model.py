@@ -21,11 +21,12 @@ EXPERIMENT = config.ExperimentConfig(
     inference_seed=42,
 )
 PRIORS = position_model.BayesianPositionModelPriors(
-    # The motion-residual value is provisional: its calibration used noisy
-    # observed displacements rather than latent motion-only residuals.
     log_displacement_scale_prior_scale=0.016354,
     rotation_angle_prior_scale=0.016980,
-    sigma_motion_residual_prior_scale=1.989083,
+    sigma_position_observation_prior_upper_m=20.0,
+    sigma_position_observation_prior_tail_probability=0.05,
+    sigma_motion_residual_prior_upper_m=20.0,
+    sigma_motion_residual_prior_tail_probability=0.05,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()

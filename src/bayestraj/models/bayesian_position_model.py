@@ -25,28 +25,57 @@ PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
 variational_converged = inference_support.variational_converged
 
-NOISE_PARAMETER_NAMES = ("sigma_motion_residual",)
+NOISE_PARAMETER_NAMES = (
+    "sigma_position_observation",
+    "sigma_motion_residual",
+)
 PARAMETER_NAMES = (
     "displacement_scale",
     "rotation_angle",
+    "sigma_position_observation",
     "sigma_motion_residual",
 )
 
 
 @dataclass(frozen=True, slots=True)
 class BayesianPositionModelPriors:
-    """Position-only prior scales for local latent displacement dynamics."""
+    """Ship-independent priors for local latent displacement dynamics."""
 
     log_displacement_scale_prior_scale: float
     rotation_angle_prior_scale: float
-    sigma_motion_residual_prior_scale: float
+    sigma_position_observation_prior_upper_m: float = 20.0
+    sigma_position_observation_prior_tail_probability: float = 0.05
+    sigma_motion_residual_prior_upper_m: float = 20.0
+    sigma_motion_residual_prior_tail_probability: float = 0.05
 
     def __post_init__(self) -> None:
         """Validate every configured prior scale."""
         for prior_field in fields(self):
-            value = getattr(self, prior_field.name)
-            observation_support.validate_positive_finite(prior_field.name, value)
-            object.__setattr__(self, prior_field.name, float(value))
+            name = prior_field.name
+            value = getattr(self, name)
+            if name.endswith("_tail_probability"):
+                value = observation_support.validate_finite_scalar(name, value)
+                if not 0.0 < value < 1.0:
+                    raise ValueError(f"{name} must be strictly between zero and one.")
+            else:
+                value = observation_support.validate_positive_finite(name, value)
+            object.__setattr__(self, name, float(value))
+
+    @property
+    def sigma_position_observation_prior_rate(self) -> float:
+        """Return the observation-noise exponential rate from its tail statement."""
+        return _exponential_rate_from_tail(
+            self.sigma_position_observation_prior_upper_m,
+            self.sigma_position_observation_prior_tail_probability,
+        )
+
+    @property
+    def sigma_motion_residual_prior_rate(self) -> float:
+        """Return the motion-noise exponential rate from its tail statement."""
+        return _exponential_rate_from_tail(
+            self.sigma_motion_residual_prior_upper_m,
+            self.sigma_motion_residual_prior_tail_probability,
+        )
 
 
 def build_stan_data(
@@ -89,13 +118,15 @@ def build_stan_data(
         "N_history": window.observation_count,
         "x_observed": x_history,
         "y_observed": y_history,
-        "sigma_position_observation": (position_observations.observation_noise_std_m),
         "N_prediction": window.prediction_count,
         "log_displacement_scale_prior_scale": (
             priors.log_displacement_scale_prior_scale
         ),
         "rotation_angle_prior_scale": priors.rotation_angle_prior_scale,
-        "sigma_motion_residual_prior_scale": (priors.sigma_motion_residual_prior_scale),
+        "sigma_position_observation_prior_rate": (
+            priors.sigma_position_observation_prior_rate
+        ),
+        "sigma_motion_residual_prior_rate": priors.sigma_motion_residual_prior_rate,
     }
 
 
@@ -262,7 +293,10 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     y_observed = np.asarray(stan_data["y_observed"], dtype=float)
     x_true = _smooth_position_initials(x_observed)
     y_true = _smooth_position_initials(y_observed)
-    latent_jitter_scale = 0.02 * float(stan_data["sigma_position_observation"])
+    observation_noise_initial = 1.0 / float(
+        stan_data["sigma_position_observation_prior_rate"]
+    )
+    latent_jitter_scale = 0.02 * observation_noise_initial
     x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
     y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
     displacement = np.column_stack((np.diff(x_true), np.diff(y_true)))
@@ -290,7 +324,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     residual = current - previous @ autoregressive_matrix.T
     residual_scale = max(
         float(np.sqrt(np.mean(residual**2))),
-        0.5 * float(stan_data["sigma_motion_residual_prior_scale"]),
+        0.5 / float(stan_data["sigma_motion_residual_prior_rate"]),
     )
     angle_limit = np.pi - 1e-6
     return {
@@ -299,6 +333,9 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "log_displacement_scale": float(np.log(scale) + generator.normal(0.0, 1e-3)),
         "rotation_angle": float(
             np.clip(angle + generator.normal(0.0, 1e-3), -angle_limit, angle_limit)
+        ),
+        "sigma_position_observation": float(
+            max(observation_noise_initial * np.exp(generator.normal(0.0, 1e-3)), 1e-6)
         ),
         "sigma_motion_residual": float(
             max(residual_scale * np.exp(generator.normal(0.0, 1e-3)), 1e-6)
@@ -332,3 +369,8 @@ def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None
         raise ValueError(
             "Bayesian latent-position model requires one regular sampling interval."
         )
+
+
+def _exponential_rate_from_tail(upper: float, tail_probability: float) -> float:
+    """Return the exponential rate with the configured probability above upper."""
+    return float(-np.log(tail_probability) / upper)

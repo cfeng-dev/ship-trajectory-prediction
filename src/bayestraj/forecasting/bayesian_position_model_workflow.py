@@ -75,8 +75,22 @@ def run_bayesian_position_prediction(
                 ("Inference method", inference_method.upper()),
                 ("Position-only input", "yes"),
                 (
-                    "Fixed observation noise",
-                    f"{position_observations.observation_noise_std_m:g} m per axis",
+                    "Injected position noise",
+                    f"{position_observations.position_noise_std_m:g} m per axis",
+                ),
+                (
+                    "Observation-noise prior",
+                    _noise_prior_description(
+                        priors.sigma_position_observation_prior_upper_m,
+                        priors.sigma_position_observation_prior_tail_probability,
+                    ),
+                ),
+                (
+                    "Motion-residual prior",
+                    _noise_prior_description(
+                        priors.sigma_motion_residual_prior_upper_m,
+                        priors.sigma_motion_residual_prior_tail_probability,
+                    ),
                 ),
             ]
         )
@@ -154,3 +168,8 @@ def _sampling_interval(window) -> float:
     """Return the displacement-model interval for reporting."""
     observed_times = window.time_seconds[window.observed_slice]
     return float(observed_times[-1] - observed_times[-2])
+
+
+def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
+    """Describe one ship-independent exponential noise prior."""
+    return f"Exponential; P(sigma > {upper_m:g} m)={tail_probability:g}"

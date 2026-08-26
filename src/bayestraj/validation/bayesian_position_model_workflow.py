@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.inference as inference
-import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
@@ -108,14 +107,21 @@ def run_bayesian_position_evaluation(
                 ("Rolling windows", len(windows)),
                 ("Inference method", inference_method.upper()),
                 (
-                    "Fixed observation noise",
-                    (
-                        f"{configured_experiment.position_noise_std_m:g} m per axis"
-                        if configured_experiment.position_noise_std_m > 0
-                        else (
-                            f"{observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M:g} "
-                            "m per axis"
-                        )
+                    "Injected position noise",
+                    f"{configured_experiment.position_noise_std_m:g} m per axis",
+                ),
+                (
+                    "Observation-noise prior",
+                    _noise_prior_description(
+                        priors.sigma_position_observation_prior_upper_m,
+                        priors.sigma_position_observation_prior_tail_probability,
+                    ),
+                ),
+                (
+                    "Motion-residual prior",
+                    _noise_prior_description(
+                        priors.sigma_motion_residual_prior_upper_m,
+                        priors.sigma_motion_residual_prior_tail_probability,
                     ),
                 ),
             ]
@@ -169,6 +175,22 @@ def run_bayesian_position_evaluation(
                 "y_model_prediction",
             ),
         )
+        posterior_sigma_position_observation_median_m = float(
+            np.median(
+                reporting.posterior_variable_samples(
+                    fit,
+                    "sigma_position_observation",
+                )
+            )
+        )
+        posterior_sigma_motion_residual_median_m = float(
+            np.median(
+                reporting.posterior_variable_samples(
+                    fit,
+                    "sigma_motion_residual",
+                )
+            )
+        )
         window_runtime_seconds = time.perf_counter() - runtime_started
         table = _build_route_prediction_table(
             evaluation.prediction_table,
@@ -181,8 +203,11 @@ def run_bayesian_position_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
-            position_observation_noise_std_m=(
-                position_observations.observation_noise_std_m
+            posterior_sigma_position_observation_median_m=(
+                posterior_sigma_position_observation_median_m
+            ),
+            posterior_sigma_motion_residual_median_m=(
+                posterior_sigma_motion_residual_median_m
             ),
             position_noise_std_m=configured_experiment.position_noise_std_m,
             position_noise_seed=configured_experiment.position_noise_seed,
@@ -309,11 +334,6 @@ def _build_window_position_observations(
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
         position_noise_std_m=position_noise_std_m,
         noise_seed=noise_seed,
-        observation_noise_std_m=(
-            position_noise_std_m
-            if position_noise_std_m > 0
-            else observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
-        ),
     )
 
 
@@ -329,7 +349,8 @@ def _build_route_prediction_table(
     inference_method,
     converged,
     mcmc_diagnostics_ok,
-    position_observation_noise_std_m,
+    posterior_sigma_position_observation_median_m,
+    posterior_sigma_motion_residual_median_m,
     position_noise_std_m,
     position_noise_seed,
 ):
@@ -364,7 +385,12 @@ def _build_route_prediction_table(
     table["model_variant"] = "bayesian_position_model"
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
-    table["position_observation_noise_std_m"] = position_observation_noise_std_m
+    table["posterior_sigma_position_observation_median_m"] = (
+        posterior_sigma_position_observation_median_m
+    )
+    table["posterior_sigma_motion_residual_median_m"] = (
+        posterior_sigma_motion_residual_median_m
+    )
     table["position_noise_std_m"] = position_noise_std_m
     table["position_noise_seed"] = position_noise_seed
     table["forecast_origin_x_route"] = route_x[forecast_origin_index]
@@ -562,3 +588,8 @@ def _mcmc_diagnostics_ok(fit) -> bool:
     """Return whether CmdStan reports no MCMC diagnostic problems."""
     diagnostic = fit.diagnose().lower()
     return "no problems detected" in diagnostic
+
+
+def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
+    """Describe one ship-independent exponential noise prior."""
+    return f"Exponential; P(sigma > {upper_m:g} m)={tail_probability:g}"

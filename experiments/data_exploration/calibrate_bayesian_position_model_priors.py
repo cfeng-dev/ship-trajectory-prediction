@@ -18,7 +18,6 @@ RUN_ID_RANGE = range(0, 100)
 MAX_TIME_GAP_SECONDS = 15.0
 MIN_DISPLACEMENT_METERS = 1.0
 ROBUST_MAD_SCALE_FACTOR = 1.4826
-HALF_NORMAL_MEDIAN_FACTOR = 0.6744897501960817
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +28,6 @@ class PositionModelPriorCalibration:
     log_displacement_scale_prior_scale: float
     rotation_angle_prior_scale: float
     observed_displacement_residual_empirical_scale_m: float
-    provisional_sigma_motion_residual_prior_scale_m: float
 
 
 def calibrate_position_model_priors(
@@ -83,9 +81,6 @@ def calibrate_position_model_priors(
         log_displacement_scale_prior_scale=log_scale,
         rotation_angle_prior_scale=rotation_scale,
         observed_displacement_residual_empirical_scale_m=residual_empirical_scale,
-        provisional_sigma_motion_residual_prior_scale_m=(
-            residual_empirical_scale / HALF_NORMAL_MEDIAN_FACTOR
-        ),
     )
 
 
@@ -108,12 +103,8 @@ def main() -> PositionModelPriorCalibration:
         "Residual empirical scale [m] : "
         f"{calibration.observed_displacement_residual_empirical_scale_m:.6f}"
     )
-    print(
-        "Provisional motion scale [m] : "
-        f"{calibration.provisional_sigma_motion_residual_prior_scale_m:.6f}"
-    )
     print("The observed residual combines measurement noise and motion mismatch.")
-    print("It is not a calibrated motion-only residual for the latent-position model.")
+    print("It is diagnostic only and is not used as a noise prior by the model.")
     return calibration
 
 
