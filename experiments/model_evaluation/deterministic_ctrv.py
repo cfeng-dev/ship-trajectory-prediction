@@ -14,7 +14,7 @@ EXPERIMENT = config.DeterministicRollingExperimentConfig(
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=5,  # Position points used for the first estimate.
     prediction_count=3,  # Held-out future points per rolling forecast.
-    additional_position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
+    position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
     position_noise_seed=2026,  # Reproduces route-wide added position noise.
     stride=None,  # Forecast-origin step; None uses prediction_count.
 )

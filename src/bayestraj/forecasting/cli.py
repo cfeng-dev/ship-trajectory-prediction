@@ -51,8 +51,8 @@ def _parse_bayesian_prediction_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
-        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+        default=experiment.position_noise_std_m,
+        help="Gaussian position-noise standard deviation per local x/y axis.",
     )
     parser.add_argument(
         "--position-noise-seed",
@@ -89,8 +89,8 @@ def parse_deterministic_ctrv_prediction_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
-        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+        default=experiment.position_noise_std_m,
+        help="Gaussian position-noise standard deviation per local x/y axis.",
     )
     parser.add_argument(
         "--position-noise-seed",

@@ -18,7 +18,7 @@ class PositionObservations:
     time_seconds: np.ndarray
     x_meters: np.ndarray
     y_meters: np.ndarray
-    additional_noise_std_m: float
+    position_noise_std_m: float
     noise_seed: int
     observation_noise_std_m: float = DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
 
@@ -30,9 +30,9 @@ class PositionObservations:
         validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
         if np.any(np.diff(time_seconds) <= 0):
             raise ValueError("time_seconds must be strictly increasing.")
-        additional_noise_std_m = validate_non_negative_finite(
-            "additional_noise_std_m",
-            self.additional_noise_std_m,
+        position_noise_std_m = validate_non_negative_finite(
+            "position_noise_std_m",
+            self.position_noise_std_m,
         )
         noise_seed = validate_non_negative_integer("noise_seed", self.noise_seed)
         observation_noise_std_m = validate_positive_finite(
@@ -46,8 +46,8 @@ class PositionObservations:
         object.__setattr__(self, "y_meters", y_meters)
         object.__setattr__(
             self,
-            "additional_noise_std_m",
-            additional_noise_std_m,
+            "position_noise_std_m",
+            position_noise_std_m,
         )
         object.__setattr__(self, "noise_seed", noise_seed)
         object.__setattr__(
@@ -60,13 +60,13 @@ class PositionObservations:
 def simulate_position_observations(
     window: observation_window.TrajectoryWindowData,
     *,
-    additional_noise_std_m: float = 0.0,
+    position_noise_std_m: float = 0.0,
     seed: int = 2026,
 ) -> PositionObservations:
     """Create reproducible full-window position observations."""
-    additional_noise_std_m = validate_non_negative_finite(
-        "additional_noise_std_m",
-        additional_noise_std_m,
+    position_noise_std_m = validate_non_negative_finite(
+        "position_noise_std_m",
+        position_noise_std_m,
     )
     seed = validate_non_negative_integer("seed", seed)
     if window.observation_count < 2:
@@ -76,20 +76,20 @@ def simulate_position_observations(
     time_seconds = np.asarray(window.time_seconds[observed], dtype=float).copy()
     x_meters = np.asarray(window.x_meters[observed], dtype=float).copy()
     y_meters = np.asarray(window.y_meters[observed], dtype=float).copy()
-    if additional_noise_std_m > 0:
+    if position_noise_std_m > 0:
         generator = np.random.default_rng(seed)
-        x_meters += generator.normal(0.0, additional_noise_std_m, x_meters.size)
-        y_meters += generator.normal(0.0, additional_noise_std_m, y_meters.size)
+        x_meters += generator.normal(0.0, position_noise_std_m, x_meters.size)
+        y_meters += generator.normal(0.0, position_noise_std_m, y_meters.size)
 
     return PositionObservations(
         time_seconds=time_seconds,
         x_meters=x_meters,
         y_meters=y_meters,
-        additional_noise_std_m=additional_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         noise_seed=seed,
         observation_noise_std_m=(
-            additional_noise_std_m
-            if additional_noise_std_m > 0
+            position_noise_std_m
+            if position_noise_std_m > 0
             else DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
         ),
     )
@@ -103,7 +103,7 @@ def resolve_position_observations(
     if position_observations is None:
         position_observations = simulate_position_observations(
             window,
-            additional_noise_std_m=0.0,
+            position_noise_std_m=0.0,
             seed=0,
         )
     if not isinstance(position_observations, PositionObservations):

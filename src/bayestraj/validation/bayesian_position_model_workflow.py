@@ -53,7 +53,7 @@ def run_bayesian_position_evaluation(
         stride=options.stride,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
-        additional_position_noise_std_m=options.additional_position_noise_std_m,
+        position_noise_std_m=options.position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
     inference_method, inference_config = inference.select_inference_config(
@@ -91,7 +91,7 @@ def run_bayesian_position_evaluation(
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
-        additional_noise_std_m=(configured_experiment.additional_position_noise_std_m),
+        position_noise_std_m=configured_experiment.position_noise_std_m,
         seed=configured_experiment.position_noise_seed,
     )
     print(
@@ -110,9 +110,8 @@ def run_bayesian_position_evaluation(
                 (
                     "Fixed observation noise",
                     (
-                        f"{configured_experiment.additional_position_noise_std_m:g} "
-                        "m per axis"
-                        if configured_experiment.additional_position_noise_std_m > 0
+                        f"{configured_experiment.position_noise_std_m:g} m per axis"
+                        if configured_experiment.position_noise_std_m > 0
                         else (
                             f"{observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M:g} "
                             "m per axis"
@@ -143,9 +142,7 @@ def run_bayesian_position_evaluation(
             route_start_index=specification.start_index,
             route_noise_x=route_noise_x,
             route_noise_y=route_noise_y,
-            additional_noise_std_m=(
-                configured_experiment.additional_position_noise_std_m
-            ),
+            position_noise_std_m=(configured_experiment.position_noise_std_m),
             noise_seed=configured_experiment.position_noise_seed,
         )
         runtime_started = time.perf_counter()
@@ -187,9 +184,7 @@ def run_bayesian_position_evaluation(
             position_observation_noise_std_m=(
                 position_observations.observation_noise_std_m
             ),
-            additional_position_noise_std_m=(
-                configured_experiment.additional_position_noise_std_m
-            ),
+            position_noise_std_m=configured_experiment.position_noise_std_m,
             position_noise_seed=configured_experiment.position_noise_seed,
         )
         table["window_runtime_seconds"] = window_runtime_seconds
@@ -223,12 +218,10 @@ def run_bayesian_position_evaluation(
                 ),
                 observed_trajectory_label=(
                     "Verrauschte Beobachtungen"
-                    if configured_experiment.additional_position_noise_std_m > 0
+                    if configured_experiment.position_noise_std_m > 0
                     else "Beobachtungen"
                 ),
-                additional_position_noise_std_m=(
-                    configured_experiment.additional_position_noise_std_m
-                ),
+                position_noise_std_m=configured_experiment.position_noise_std_m,
                 forecast_label="Median der latenten Trajektorienprognose",
                 sample_label="Latente Trajektorienprognosen",
                 show_time_labels=show_time_labels,
@@ -250,7 +243,7 @@ def run_bayesian_position_evaluation(
         observed_route_y=route_y + route_noise_y,
         observed_trajectory_label=(
             "Verrauschte Anfangsbeobachtungen"
-            if configured_experiment.additional_position_noise_std_m > 0
+            if configured_experiment.position_noise_std_m > 0
             else "Anfangsbeobachtungen"
         ),
         show_time_labels=show_time_labels,
@@ -274,24 +267,24 @@ def _prepare_route_coordinates(trajectory_data):
     return route_x, route_y, longitude, latitude
 
 
-def _simulate_route_position_noise(position_count, *, additional_noise_std_m, seed):
+def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):
     """Generate one reproducible perturbation for every route position."""
     if (
-        isinstance(additional_noise_std_m, bool)
-        or not np.isfinite(additional_noise_std_m)
-        or additional_noise_std_m < 0
+        isinstance(position_noise_std_m, bool)
+        or not np.isfinite(position_noise_std_m)
+        or position_noise_std_m < 0
     ):
-        raise ValueError("additional_position_noise_std_m must be non-negative.")
+        raise ValueError("position_noise_std_m must be non-negative.")
     if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
         raise ValueError("position_noise_seed must be a non-negative integer.")
     if position_count < 1:
         raise ValueError("position_count must be positive.")
-    if additional_noise_std_m == 0:
+    if position_noise_std_m == 0:
         zeros = np.zeros(int(position_count), dtype=float)
         return zeros, zeros.copy()
     noise = np.random.default_rng(int(seed)).normal(
         0.0,
-        float(additional_noise_std_m),
+        float(position_noise_std_m),
         size=(int(position_count), 2),
     )
     return noise[:, 0], noise[:, 1]
@@ -303,7 +296,7 @@ def _build_window_position_observations(
     route_start_index,
     route_noise_x,
     route_noise_y,
-    additional_noise_std_m,
+    position_noise_std_m,
     noise_seed,
 ):
     """Apply the fixed route perturbation to one rolling observed window."""
@@ -314,11 +307,11 @@ def _build_window_position_observations(
         time_seconds=window.time_seconds[observed],
         x_meters=window.x_meters[observed] + route_noise_x[route_slice],
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
-        additional_noise_std_m=additional_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         noise_seed=noise_seed,
         observation_noise_std_m=(
-            additional_noise_std_m
-            if additional_noise_std_m > 0
+            position_noise_std_m
+            if position_noise_std_m > 0
             else observation_support.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
         ),
     )
@@ -337,7 +330,7 @@ def _build_route_prediction_table(
     converged,
     mcmc_diagnostics_ok,
     position_observation_noise_std_m,
-    additional_position_noise_std_m,
+    position_noise_std_m,
     position_noise_seed,
 ):
     """Add rolling and common-route metadata to one prediction table."""
@@ -372,7 +365,7 @@ def _build_route_prediction_table(
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
     table["position_observation_noise_std_m"] = position_observation_noise_std_m
-    table["additional_position_noise_std_m"] = additional_position_noise_std_m
+    table["position_noise_std_m"] = position_noise_std_m
     table["position_noise_seed"] = position_noise_seed
     table["forecast_origin_x_route"] = route_x[forecast_origin_index]
     table["forecast_origin_y_route"] = route_y[forecast_origin_index]

@@ -46,7 +46,7 @@ def run_bayesian_ctrv_evaluation(
         stride=options.stride,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
-        additional_position_noise_std_m=options.additional_position_noise_std_m,
+        position_noise_std_m=options.position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
     configured_priors = dataclasses.replace(
@@ -121,7 +121,7 @@ def _run_evaluation(
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
-        additional_noise_std_m=experiment.additional_position_noise_std_m,
+        position_noise_std_m=experiment.position_noise_std_m,
         seed=experiment.position_noise_seed,
     )
     effective_stride = (
@@ -139,12 +139,11 @@ def _run_evaluation(
     print(f"Rolling windows       : {len(windows)}")
     print(f"Inference method      : {inference_method.upper()}")
     noise_description = (
-        f"{experiment.additional_position_noise_std_m:g} m "
-        f"(seed={experiment.position_noise_seed})"
-        if experiment.additional_position_noise_std_m > 0
+        f"{experiment.position_noise_std_m:g} m (seed={experiment.position_noise_seed})"
+        if experiment.position_noise_std_m > 0
         else "disabled"
     )
-    print(f"Hidden synthetic noise: {noise_description}")
+    print(f"Position noise        : {noise_description}")
     print(
         "Observation-noise prior: Exponential("
         f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
@@ -170,7 +169,7 @@ def _run_evaluation(
             route_start_index=specification.start_index,
             route_noise_x=route_noise_x,
             route_noise_y=route_noise_y,
-            additional_noise_std_m=experiment.additional_position_noise_std_m,
+            position_noise_std_m=experiment.position_noise_std_m,
             noise_seed=experiment.position_noise_seed,
         )
         print(
@@ -215,9 +214,7 @@ def _run_evaluation(
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
             diagnostics=diagnostics,
-            additional_position_noise_std_m=(
-                experiment.additional_position_noise_std_m
-            ),
+            position_noise_std_m=experiment.position_noise_std_m,
             position_noise_seed=experiment.position_noise_seed,
         )
         posterior_plot_groups.append(
@@ -249,12 +246,10 @@ def _run_evaluation(
                 ),
                 observed_trajectory_label=(
                     "Für Fit verwendete verrauschte Beobachtungen"
-                    if experiment.additional_position_noise_std_m > 0
+                    if experiment.position_noise_std_m > 0
                     else "Für Fit verwendete Beobachtungen"
                 ),
-                additional_position_noise_std_m=(
-                    experiment.additional_position_noise_std_m
-                ),
+                position_noise_std_m=experiment.position_noise_std_m,
                 forecast_label="Median der parametrischen CTRV-Trajektorie",
                 sample_label="Trajektorien aus Posterior-Parameterziehungen",
                 show_time_labels=show_time_labels,
@@ -277,7 +272,7 @@ def _run_evaluation(
         observed_route_y=route_y + route_noise_y,
         observed_trajectory_label=(
             "Verrauschte Anfangsbeobachtungen"
-            if experiment.additional_position_noise_std_m > 0
+            if experiment.position_noise_std_m > 0
             else "Anfängliche Beobachtungen"
         ),
         forecast_label="Rollierende parametrische Posterior-Mediane",
@@ -407,7 +402,7 @@ def _build_route_prediction_table(
     converged,
     mcmc_diagnostics_ok,
     diagnostics,
-    additional_position_noise_std_m,
+    position_noise_std_m,
     position_noise_seed,
 ):
     """Add rolling metadata and route-wide coordinates."""
@@ -441,7 +436,7 @@ def _build_route_prediction_table(
     table["model_variant"] = "bayesian"
     table["converged"] = converged
     table["mcmc_diagnostics_ok"] = mcmc_diagnostics_ok
-    table["additional_position_noise_std_m"] = additional_position_noise_std_m
+    table["position_noise_std_m"] = position_noise_std_m
     table["position_observation_noise_std_m"] = diagnostics[
         "posterior_sigma_position_observation_median_m"
     ]
@@ -476,11 +471,11 @@ def _prepare_route_coordinates(trajectory_data):
     return route_x, route_y, longitude, latitude
 
 
-def _simulate_route_position_noise(position_count, *, additional_noise_std_m, seed):
+def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):
     """Generate one reproducible perturbation for every route position."""
-    additional_noise_std_m = observation_support.validate_non_negative_finite(
-        "additional_position_noise_std_m",
-        additional_noise_std_m,
+    position_noise_std_m = observation_support.validate_non_negative_finite(
+        "position_noise_std_m",
+        position_noise_std_m,
     )
     seed = observation_support.validate_non_negative_integer(
         "position_noise_seed",
@@ -492,13 +487,13 @@ def _simulate_route_position_noise(position_count, *, additional_noise_std_m, se
         or position_count < 1
     ):
         raise ValueError("position_count must be a positive integer.")
-    if additional_noise_std_m == 0:
+    if position_noise_std_m == 0:
         zeros = np.zeros(int(position_count), dtype=float)
         return zeros, zeros.copy()
     generator = np.random.default_rng(seed)
     noise = generator.normal(
         0.0,
-        additional_noise_std_m,
+        position_noise_std_m,
         size=(int(position_count), 2),
     )
     return noise[:, 0], noise[:, 1]
@@ -510,7 +505,7 @@ def _build_window_position_observations(
     route_start_index,
     route_noise_x,
     route_noise_y,
-    additional_noise_std_m,
+    position_noise_std_m,
     noise_seed,
 ):
     """Apply the fixed route perturbation to one complete observed window."""
@@ -521,11 +516,11 @@ def _build_window_position_observations(
         time_seconds=window.time_seconds[observed],
         x_meters=window.x_meters[observed] + route_noise_x[route_slice],
         y_meters=window.y_meters[observed] + route_noise_y[route_slice],
-        additional_noise_std_m=additional_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         noise_seed=noise_seed,
         observation_noise_std_m=(
-            additional_noise_std_m
-            if additional_noise_std_m > 0
+            position_noise_std_m
+            if position_noise_std_m > 0
             else bayesian_model.DEFAULT_POSITION_OBSERVATION_NOISE_STD_M
         ),
     )

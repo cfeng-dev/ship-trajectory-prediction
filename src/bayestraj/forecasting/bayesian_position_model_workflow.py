@@ -53,7 +53,7 @@ def run_bayesian_position_prediction(
     )
     position_observations = position_model.simulate_position_observations(
         window,
-        additional_noise_std_m=position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
     stan_data = position_model.build_stan_data(
@@ -132,10 +132,10 @@ def run_bayesian_position_prediction(
         ),
         observed_trajectory_label=(
             "Verrauschte Beobachtungen"
-            if position_observations.additional_noise_std_m > 0
+            if position_observations.position_noise_std_m > 0
             else "Beobachtungen"
         ),
-        additional_position_noise_std_m=position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der latenten Trajektorienprognose",
         sample_label="Latente Trajektorienprognosen",

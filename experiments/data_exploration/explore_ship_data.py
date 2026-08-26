@@ -24,7 +24,7 @@ TURN_RATE_CENTRAL_RANGE = 0.90
 TRAJECTORY_COORDINATE_UNIT = "m"  # "m", "km", or "gps"
 SPEED_UNIT = "m/s"  # "m/s" or "km/h"
 PROPULSION_SPEED_UNIT = "rpm"
-ADDITIONAL_POSITION_NOISE_STD_M = 5.0  # Per x/y axis [m]; 0 disables.
+POSITION_NOISE_STD_M = 5.0  # Per x/y axis [m]; 0 disables.
 POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 MIN_CURVATURE_DISPLACEMENT_METERS = 2.0
 MAX_CURVATURE_TIME_GAP_SECONDS = 15.0
@@ -66,7 +66,7 @@ def main() -> None:
     )
     ship_data = _add_position_noise(
         ship_data,
-        additional_noise_std_m=ADDITIONAL_POSITION_NOISE_STD_M,
+        position_noise_std_m=POSITION_NOISE_STD_M,
         seed=POSITION_NOISE_SEED,
     )
 
@@ -100,28 +100,28 @@ def main() -> None:
 
 def _trajectory_label() -> str:
     """Describe whether the plotted trajectory contains added position noise."""
-    if ADDITIONAL_POSITION_NOISE_STD_M > 0:
+    if POSITION_NOISE_STD_M > 0:
         return "Verrauschte Schiffstrajektorie"
     return "Schiffstrajektorie"
 
 
-def _add_position_noise(data, *, additional_noise_std_m, seed):
+def _add_position_noise(data, *, position_noise_std_m, seed):
     """Return a copy with reproducible Gaussian noise on GPS positions."""
-    if isinstance(additional_noise_std_m, bool):
-        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+    if isinstance(position_noise_std_m, bool):
+        raise ValueError("position_noise_std_m must be finite and non-negative.")
     try:
-        additional_noise_std_m = float(additional_noise_std_m)
+        position_noise_std_m = float(position_noise_std_m)
     except (TypeError, ValueError) as error:
         raise ValueError(
-            "additional_noise_std_m must be finite and non-negative."
+            "position_noise_std_m must be finite and non-negative."
         ) from error
-    if not np.isfinite(additional_noise_std_m) or additional_noise_std_m < 0:
-        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+    if not np.isfinite(position_noise_std_m) or position_noise_std_m < 0:
+        raise ValueError("position_noise_std_m must be finite and non-negative.")
     if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
         raise ValueError("seed must be a non-negative integer.")
 
     noisy_data = data.copy()
-    if noisy_data.empty or additional_noise_std_m == 0:
+    if noisy_data.empty or position_noise_std_m == 0:
         return noisy_data
 
     generator = np.random.default_rng(seed)
@@ -147,12 +147,12 @@ def _add_position_noise(data, *, additional_noise_std_m, seed):
         )
         x_meters += generator.normal(
             0.0,
-            additional_noise_std_m,
+            position_noise_std_m,
             len(run_data),
         )
         y_meters += generator.normal(
             0.0,
-            additional_noise_std_m,
+            position_noise_std_m,
             len(run_data),
         )
         noisy_longitude, noisy_latitude = coordinates.local_to_gps_coordinates(
@@ -171,9 +171,8 @@ def _add_position_noise(data, *, additional_noise_std_m, seed):
 def _print_position_noise_setting() -> None:
     """Print the configured artificial position-noise scenario."""
     description = (
-        f"{ADDITIONAL_POSITION_NOISE_STD_M:g} m per x/y axis "
-        f"(seed={POSITION_NOISE_SEED})"
-        if ADDITIONAL_POSITION_NOISE_STD_M > 0
+        f"{POSITION_NOISE_STD_M:g} m per x/y axis (seed={POSITION_NOISE_SEED})"
+        if POSITION_NOISE_STD_M > 0
         else "disabled"
     )
     print(f"\n{'Added position noise':<{SUMMARY_LABEL_WIDTH}}: {description}")

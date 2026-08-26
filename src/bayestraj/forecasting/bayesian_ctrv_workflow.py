@@ -58,7 +58,7 @@ def run_bayesian_ctrv_prediction(
     )
     position_observations = bayesian_model.simulate_position_observations(
         window,
-        additional_noise_std_m=position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
     stan_data = bayesian_model.build_stan_data(
@@ -82,7 +82,7 @@ def run_bayesian_ctrv_prediction(
             ("Inference method", inference_method.upper()),
             ("Inference seed", seed),
             (
-                "Hidden synthetic noise",
+                "Position noise",
                 (
                     f"{position_noise_std_m:g} m (seed={position_noise_seed})"
                     if position_noise_std_m > 0
@@ -166,10 +166,10 @@ def run_bayesian_ctrv_prediction(
         ),
         observed_trajectory_label=(
             "Für Fit verwendete verrauschte Beobachtungen"
-            if position_observations.additional_noise_std_m > 0
+            if position_observations.position_noise_std_m > 0
             else "Für Fit verwendete Beobachtungen"
         ),
-        additional_position_noise_std_m=(position_observations.additional_noise_std_m),
+        position_noise_std_m=position_observations.position_noise_std_m,
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der parametrischen CTRV-Trajektorie",
         sample_label="Trajektorien aus Posterior-Parameterziehungen",

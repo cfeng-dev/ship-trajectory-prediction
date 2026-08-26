@@ -35,7 +35,7 @@ def run_deterministic_ctrv_prediction(
     )
     window = _add_position_observation_noise(
         window,
-        additional_noise_std_m=position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         seed=position_noise_seed,
     )
     computation_started = time.perf_counter()
@@ -53,7 +53,7 @@ def run_deterministic_ctrv_prediction(
         window=window,
         extra_rows=[
             (
-                "Additional position noise",
+                "Position noise",
                 (
                     f"{position_noise_std_m:g} m (seed={position_noise_seed})"
                     if position_noise_std_m > 0
@@ -96,7 +96,7 @@ def run_deterministic_ctrv_prediction(
         plot_deterministic_ctrv_prediction(
             window,
             prediction_table,
-            additional_position_noise_std_m=position_noise_std_m,
+            position_noise_std_m=position_noise_std_m,
             show_time_labels=show_time_labels,
         )
     return prediction_table
@@ -106,7 +106,7 @@ def plot_deterministic_ctrv_prediction(
     window: observation_window.TrajectoryWindowData,
     prediction_table: pd.DataFrame,
     *,
-    additional_position_noise_std_m=0.0,
+    position_noise_std_m=0.0,
     show_time_labels=True,
 ):
     """Plot observed, held-out, and deterministic CTRV trajectories."""
@@ -121,9 +121,7 @@ def plot_deterministic_ctrv_prediction(
     predicted_y = np.concatenate(([start_y], prediction_table["y_predicted"]))
 
     observed_label = (
-        "Verrauschte Beobachtungen"
-        if additional_position_noise_std_m > 0
-        else "Beobachtungen"
+        "Verrauschte Beobachtungen" if position_noise_std_m > 0 else "Beobachtungen"
     )
     figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
@@ -152,32 +150,32 @@ def plot_deterministic_ctrv_prediction(
 def _add_position_observation_noise(
     window: observation_window.TrajectoryWindowData,
     *,
-    additional_noise_std_m: float,
+    position_noise_std_m: float,
     seed: int,
 ) -> observation_window.TrajectoryWindowData:
     """Return a window with reproducible noise on observed positions only."""
     if (
-        isinstance(additional_noise_std_m, bool)
-        or not np.isfinite(additional_noise_std_m)
-        or additional_noise_std_m < 0
+        isinstance(position_noise_std_m, bool)
+        or not np.isfinite(position_noise_std_m)
+        or position_noise_std_m < 0
     ):
-        raise ValueError("additional_noise_std_m must be finite and non-negative.")
+        raise ValueError("position_noise_std_m must be finite and non-negative.")
     if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
         raise ValueError("seed must be a non-negative integer.")
 
     x_meters = np.asarray(window.x_meters, dtype=float).copy()
     y_meters = np.asarray(window.y_meters, dtype=float).copy()
-    if additional_noise_std_m > 0:
+    if position_noise_std_m > 0:
         generator = np.random.default_rng(int(seed))
         observed_count = window.observation_count
         x_meters[window.observed_slice] += generator.normal(
             0.0,
-            additional_noise_std_m,
+            position_noise_std_m,
             observed_count,
         )
         y_meters[window.observed_slice] += generator.normal(
             0.0,
-            additional_noise_std_m,
+            position_noise_std_m,
             observed_count,
         )
     return replace(window, x_meters=x_meters, y_meters=y_meters)

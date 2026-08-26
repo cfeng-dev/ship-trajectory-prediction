@@ -353,7 +353,7 @@ def plot_prediction(
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
     observed_trajectory_label="Beobachtungen",
-    additional_position_noise_std_m=None,
+    position_noise_std_m=None,
     coordinate_mode="m",
     title=None,
     forecast_label="Posterior-prädiktiver Median",
@@ -363,9 +363,7 @@ def plot_prediction(
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
     coordinate_mode = normalize_plot_coordinate_mode(coordinate_mode)
-    additional_position_noise_std_m = _validate_additional_position_noise_std_m(
-        additional_position_noise_std_m
-    )
+    position_noise_std_m = _validate_position_noise_std_m(position_noise_std_m)
     plot_data = _prepare_prediction_plot_data(
         window,
         fit,
@@ -380,7 +378,7 @@ def plot_prediction(
     reference_path = None
     annotation_text = _operational_annotation(
         window,
-        additional_position_noise_std_m=additional_position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
     )
     if plot_mode == "evaluation":
         evaluation = metrics.evaluate_position_predictions(
@@ -410,7 +408,7 @@ def plot_prediction(
         annotation_text = _evaluation_annotation(
             window,
             evaluation,
-            additional_position_noise_std_m=additional_position_noise_std_m,
+            position_noise_std_m=position_noise_std_m,
         )
 
     figure, axis = plot_trajectory_paths(
@@ -449,7 +447,7 @@ def plot_operational_prediction(
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
     observed_trajectory_label="Beobachtungen",
-    additional_position_noise_std_m=None,
+    position_noise_std_m=None,
     coordinate_mode="m",
     title=None,
     forecast_label="Posterior-prädiktiver Median",
@@ -467,7 +465,7 @@ def plot_operational_prediction(
         state_prediction_variable_names=state_prediction_variable_names,
         observed_position_values=observed_position_values,
         observed_trajectory_label=observed_trajectory_label,
-        additional_position_noise_std_m=additional_position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
         coordinate_mode=coordinate_mode,
         title=title,
         forecast_label=forecast_label,
@@ -772,7 +770,7 @@ def _evaluation_annotation(
     window,
     evaluation,
     *,
-    additional_position_noise_std_m,
+    position_noise_std_m,
 ):
     """Format evaluation timing and accuracy for the figure footer."""
     observation_duration, prediction_horizon = _window_durations(window)
@@ -790,7 +788,7 @@ def _evaluation_annotation(
             _timing_annotation(
                 observation_duration,
                 prediction_horizon,
-                additional_position_noise_std_m=additional_position_noise_std_m,
+                position_noise_std_m=position_noise_std_m,
             ),
             " | ".join(
                 (
@@ -805,13 +803,13 @@ def _evaluation_annotation(
     )
 
 
-def _operational_annotation(window, *, additional_position_noise_std_m):
+def _operational_annotation(window, *, position_noise_std_m):
     """Format operationally available timing for the figure footer."""
     observation_duration, prediction_horizon = _window_durations(window)
     return _timing_annotation(
         observation_duration,
         prediction_horizon,
-        additional_position_noise_std_m=additional_position_noise_std_m,
+        position_noise_std_m=position_noise_std_m,
     )
 
 
@@ -819,20 +817,20 @@ def _timing_annotation(
     observation_duration,
     prediction_horizon,
     *,
-    additional_position_noise_std_m,
+    position_noise_std_m,
 ):
     """Format timing and optional noise settings as one compact line."""
     parts = [
         f"Beobachtungsdauer: {observation_duration:g} s",
         f"Prognosehorizont: {prediction_horizon:g} s",
     ]
-    if additional_position_noise_std_m is not None:
-        noise_std_m = _format_general_decimal_comma(additional_position_noise_std_m)
-        parts.append(f"Zusatzrauschen: σ_add = {noise_std_m} m je Achse")
+    if position_noise_std_m is not None:
+        noise_std_m = _format_general_decimal_comma(position_noise_std_m)
+        parts.append(f"Positionsrauschen: σ = {noise_std_m} m je Achse")
     return " | ".join(parts)
 
 
-def _validate_additional_position_noise_std_m(value):
+def _validate_position_noise_std_m(value):
     """Return one optional finite non-negative plotting noise value."""
     if value is None:
         return None
@@ -843,8 +841,7 @@ def _validate_additional_position_noise_std_m(value):
         or value < 0
     ):
         raise ValueError(
-            "additional_position_noise_std_m must be a finite non-negative "
-            "number or None."
+            "position_noise_std_m must be a finite non-negative number or None."
         )
     return float(value) if value > 0 else None
 

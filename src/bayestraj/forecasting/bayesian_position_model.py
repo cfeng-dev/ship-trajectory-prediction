@@ -16,7 +16,7 @@ class ExperimentConfig:
     start_index: int
     observation_count: int
     prediction_count: int
-    additional_position_noise_std_m: float
+    position_noise_std_m: float
     position_noise_seed: int
     inference_method: str
     inference_seed: int
@@ -30,7 +30,7 @@ class RollingExperimentConfig:
     window_mode: str
     observation_count: int
     prediction_count: int
-    additional_position_noise_std_m: float
+    position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
     inference_method: str
@@ -48,7 +48,7 @@ class EvaluationOptions:
     inference_method: str
     vi_algorithm: str
     inference_seed: int
-    additional_position_noise_std_m: float
+    position_noise_std_m: float
     position_noise_seed: int
     require_converged: bool
     max_windows: int | None
@@ -85,8 +85,8 @@ def parse_prediction_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
-        help="Extra Gaussian standard deviation per local x/y axis; 0 disables it.",
+        default=experiment.position_noise_std_m,
+        help="Gaussian position-noise standard deviation per local x/y axis.",
     )
     parser.add_argument(
         "--position-noise-seed",
@@ -141,7 +141,7 @@ def parse_evaluation_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
+        default=experiment.position_noise_std_m,
     )
     parser.add_argument(
         "--position-noise-seed",
@@ -168,7 +168,7 @@ def parse_evaluation_arguments(
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
         inference_seed=arguments.seed,
-        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,

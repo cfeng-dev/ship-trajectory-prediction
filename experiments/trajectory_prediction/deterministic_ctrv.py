@@ -14,7 +14,7 @@ EXPERIMENT = config.DeterministicExperimentConfig(
     start_index=0,  # First point of the selected window.
     observation_count=5,  # Position points used for state estimation.
     prediction_count=3,  # Held-out future position points.
-    additional_position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
+    position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
     position_noise_seed=2026,  # Reproduces the added position noise.
 )
 SHOW_TIME_LABELS = True  # Label selected forecast horizons in the plot.

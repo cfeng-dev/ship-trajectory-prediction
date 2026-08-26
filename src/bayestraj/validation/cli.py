@@ -22,7 +22,7 @@ class BayesianCTRVEvaluationOptions:
     vi_algorithm: str
     turn_rate_prior_scale: float
     inference_seed: int
-    additional_position_noise_std_m: float
+    position_noise_std_m: float
     position_noise_seed: int
     require_converged: bool
     max_windows: int | None
@@ -37,7 +37,7 @@ class DeterministicCTRVEvaluationOptions:
     observation_count: int
     prediction_count: int
     stride: int | None
-    additional_position_noise_std_m: float
+    position_noise_std_m: float
     position_noise_seed: int
     max_windows: int | None
     show_plot: bool
@@ -98,8 +98,8 @@ def parse_bayesian_ctrv_evaluation_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
-        help="Additional Gaussian x/y observation noise in meters; 0 disables.",
+        default=experiment.position_noise_std_m,
+        help="Gaussian x/y position-noise standard deviation in meters; 0 disables.",
     )
     parser.add_argument(
         "--position-noise-seed",
@@ -135,7 +135,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         vi_algorithm=arguments.vi_algorithm,
         turn_rate_prior_scale=arguments.turn_rate_prior_scale,
         inference_seed=arguments.seed,
-        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         require_converged=arguments.require_converged,
         max_windows=arguments.max_windows,
@@ -172,7 +172,7 @@ def parse_deterministic_ctrv_evaluation_arguments(
     parser.add_argument(
         "--position-noise-std-m",
         type=float,
-        default=experiment.additional_position_noise_std_m,
+        default=experiment.position_noise_std_m,
     )
     parser.add_argument(
         "--position-noise-seed",
@@ -193,7 +193,7 @@ def parse_deterministic_ctrv_evaluation_arguments(
         observation_count=arguments.observations,
         prediction_count=arguments.predictions,
         stride=arguments.stride,
-        additional_position_noise_std_m=arguments.position_noise_std_m,
+        position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,
         max_windows=arguments.max_windows,
         show_plot=arguments.show_plot,

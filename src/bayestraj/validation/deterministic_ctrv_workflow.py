@@ -43,7 +43,7 @@ def run_deterministic_ctrv_evaluation(
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
         stride=options.stride,
-        additional_position_noise_std_m=options.additional_position_noise_std_m,
+        position_noise_std_m=options.position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
     return _run_deterministic_ctrv_evaluation(
@@ -68,7 +68,7 @@ def _run_deterministic_ctrv_evaluation(
     observation_count = experiment.observation_count
     prediction_count = experiment.prediction_count
     stride = experiment.stride
-    position_noise_std_m = experiment.additional_position_noise_std_m
+    position_noise_std_m = experiment.position_noise_std_m
     position_noise_seed = experiment.position_noise_seed
     trajectory_data = observations_io.read_ship_data(
         data_file,
@@ -326,7 +326,7 @@ def _build_route_prediction_table(
     table["model_variant"] = "deterministic"
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
-    table["additional_position_noise_std_m"] = position_noise_std_m
+    table["position_noise_std_m"] = position_noise_std_m
     table["position_noise_seed"] = position_noise_seed
     table["estimated_speed_mps"] = initial_state.speed
     table["estimated_heading_rad"] = initial_state.heading
@@ -361,7 +361,7 @@ def _print_setup(**values):
         if values["position_noise_std_m"] > 0
         else "disabled"
     )
-    print(f"Additional pos. noise : {noise}")
+    print(f"Position noise        : {noise}")
 
 
 def _print_summary(summary):
