@@ -90,6 +90,23 @@ def run_bayesian_ctrv_prediction(
                 ),
             ),
             (
+                "Speed prior",
+                (
+                    "Half-Normal; P(speed > "
+                    f"{priors.speed_prior_upper_mps:g} m/s)="
+                    f"{priors.speed_prior_tail_probability:g}"
+                ),
+            ),
+            (
+                "Turn-rate prior",
+                (
+                    "Normal(0, scale); P(|heading change over "
+                    f"{priors.turn_rate_prior_reference_interval_seconds:g} s| > "
+                    f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
+                    f"{priors.turn_rate_prior_tail_probability:g}"
+                ),
+            ),
+            (
                 "Observation-noise prior",
                 "Exponential("
                 f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
@@ -99,7 +116,7 @@ def run_bayesian_ctrv_prediction(
             ),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             ("Plot coordinates", plot_coordinate_mode),
-            ("Prior status", "provisional transfer; model-specific validation pending"),
+            ("Prior status", "ship-independent domain assumptions"),
         ],
     )
 

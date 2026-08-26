@@ -20,7 +20,7 @@ class BayesianCTRVEvaluationOptions:
     stride: int | None
     inference_method: str
     vi_algorithm: str
-    turn_rate_prior_scale: float
+    turn_rate_prior_abs_heading_change_deg: float
     inference_seed: int
     position_noise_std_m: float
     position_noise_seed: int
@@ -89,10 +89,13 @@ def parse_bayesian_ctrv_evaluation_arguments(
         default=vi_config["algorithm"],
     )
     parser.add_argument(
-        "--turn-rate-prior-scale",
+        "--turn-rate-prior-abs-heading-change-deg",
         type=float,
-        default=priors.turn_rate_prior_scale,
-        help="Provisional scale for the constant turn-rate prior.",
+        default=priors.turn_rate_prior_abs_heading_change_deg,
+        help=(
+            "Absolute heading change over the configured reference interval "
+            "that the prior exceeds with its configured tail probability."
+        ),
     )
     parser.add_argument("--seed", type=int, default=experiment.inference_seed)
     parser.add_argument(
@@ -133,7 +136,9 @@ def parse_bayesian_ctrv_evaluation_arguments(
         stride=arguments.stride,
         inference_method=arguments.inference,
         vi_algorithm=arguments.vi_algorithm,
-        turn_rate_prior_scale=arguments.turn_rate_prior_scale,
+        turn_rate_prior_abs_heading_change_deg=(
+            arguments.turn_rate_prior_abs_heading_change_deg
+        ),
         inference_seed=arguments.seed,
         position_noise_std_m=arguments.position_noise_std_m,
         position_noise_seed=arguments.position_noise_seed,

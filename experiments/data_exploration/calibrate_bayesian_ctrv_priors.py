@@ -1,4 +1,4 @@
-"""Explore provisional priors for the parametric Bayesian CTRV model."""
+"""Describe position-only CTRV motion without setting model priors."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class DistributionSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class CalibrationResult:
+class MotionDiagnosticResult:
     """Position-only constant-motion estimates for disjoint observation windows."""
 
     run_start: int
@@ -49,8 +49,8 @@ class CalibrationResult:
     turn_rate_summary: DistributionSummary
 
 
-def main(argv=None) -> CalibrationResult:
-    """Print empirical candidates that still require forecast validation."""
+def main(argv=None) -> MotionDiagnosticResult:
+    """Print empirical motion diagnostics that are not used as model priors."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-start", type=int, default=RUN_ID_RANGE.start)
     parser.add_argument("--run-stop", type=int, default=RUN_ID_RANGE.stop)
@@ -63,7 +63,7 @@ def main(argv=None) -> CalibrationResult:
     arguments = parser.parse_args(argv)
     run_ids = _validate_run_range(arguments.run_start, arguments.run_stop)
     data = observations_io.read_ship_data(DATA_FILE, run_id=run_ids)
-    result = calibrate_parametric_ctrv_priors(
+    result = analyze_parametric_ctrv_motion(
         data.loc[:, POSITION_COLUMNS],
         run_start=arguments.run_start,
         run_stop=arguments.run_stop,
@@ -73,13 +73,13 @@ def main(argv=None) -> CalibrationResult:
     return result
 
 
-def calibrate_parametric_ctrv_priors(
+def analyze_parametric_ctrv_motion(
     data: pd.DataFrame,
     *,
     run_start: int,
     run_stop: int,
     observation_count: int,
-) -> CalibrationResult:
+) -> MotionDiagnosticResult:
     """Estimate one speed and turn rate per disjoint position-only window."""
     run_ids = _validate_run_range(run_start, run_stop)
     if isinstance(observation_count, bool) or not isinstance(
@@ -142,7 +142,7 @@ def calibrate_parametric_ctrv_priors(
     estimates = pd.DataFrame(rows)
     if estimates.empty:
         raise ValueError("No valid constant-motion observation windows were found.")
-    return CalibrationResult(
+    return MotionDiagnosticResult(
         run_start=run_start,
         run_stop=run_stop,
         observation_count=observation_count,
@@ -196,7 +196,7 @@ def _prepare_run(run_data):
 
 
 def _summarize(values, *, minimum_scale):
-    """Return a robust normal-prior candidate from finite estimates."""
+    """Return robust descriptive statistics for finite estimates."""
     values = np.asarray(values, dtype=float)
     if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
         raise ValueError("Parameter estimates must be a finite non-empty vector.")
@@ -214,27 +214,26 @@ def _summarize(values, *, minimum_scale):
     )
 
 
-def _print_report(result: CalibrationResult) -> None:
-    """Print candidates without presenting them as final model calibration."""
+def _print_report(result: MotionDiagnosticResult) -> None:
+    """Print descriptive statistics without presenting them as priors."""
     print("=" * 72)
-    print("Parametric Bayesian CTRV prior candidates")
+    print("Parametric CTRV position-only motion diagnostics")
     print("=" * 72)
     print(f"Run IDs               : {result.run_start}-{result.run_stop - 1}")
     print(f"Observations per fit  : {result.observation_count}")
     print(f"Valid windows         : {len(result.estimates)}")
     print(f"Skipped runs          : {len(result.skipped_runs)}")
     print(
-        "Speed candidate       : "
-        f"Normal({result.speed_summary.median:.6f}, "
-        f"{result.speed_summary.robust_scale:.6f}) m/s"
+        "Empirical speed       : "
+        f"median={result.speed_summary.median:.6f} m/s, "
+        f"robust scale={result.speed_summary.robust_scale:.6f} m/s"
     )
     print(
-        "Turn-rate candidate   : "
-        f"Normal({result.turn_rate_summary.median:.8f}, "
-        f"{result.turn_rate_summary.robust_scale:.8f}) rad/s"
+        "Empirical turn rate   : "
+        f"median={result.turn_rate_summary.median:.8f} rad/s, "
+        f"robust scale={result.turn_rate_summary.robust_scale:.8f} rad/s"
     )
-    print("Heading prior         : Uniform(-pi, pi), not calibrated here")
-    print("Status                : empirical candidates; held-out validation pending")
+    print("Status                : descriptive only; not used as model priors")
 
 
 def _validate_run_range(run_start, run_stop):

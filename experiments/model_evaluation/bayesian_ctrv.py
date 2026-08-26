@@ -23,12 +23,11 @@ EXPERIMENT = config.RollingExperimentConfig(
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
-    # Provisional transfer; validate specifically for the parametric CTRV model.
-    speed_prior_mean=3.524,
-    speed_prior_scale=0.365,
-    turn_rate_prior_mean=0.0,
-    turn_rate_prior_scale=0.001698,
-    # Scenario assumption, not derived from run IDs: P(sigma_obs > 20 m) = 5%.
+    speed_prior_upper_mps=20.0,
+    speed_prior_tail_probability=0.05,
+    turn_rate_prior_abs_heading_change_deg=45.0,
+    turn_rate_prior_reference_interval_seconds=10.0,
+    turn_rate_prior_tail_probability=0.05,
     sigma_position_observation_prior_upper_m=20.0,
     sigma_position_observation_prior_tail_probability=0.05,
 )

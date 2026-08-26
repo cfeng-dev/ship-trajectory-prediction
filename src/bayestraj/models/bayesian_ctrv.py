@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
+from statistics import NormalDist
 from typing import Any
 
 import numpy as np
@@ -38,17 +39,13 @@ PARAMETER_NAMES = (
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Provisional priors transferred from the earlier CTRV experiments.
+    """Ship-independent priors for constant CTRV motion and observation noise."""
 
-    The kinematic values are useful initial candidates but are not claimed to
-    be final calibration results for this constant-parameter CTRV model. The
-    observation-noise prior is a separately configurable scenario assumption.
-    """
-
-    speed_prior_mean: float = 3.524
-    speed_prior_scale: float = 0.365
-    turn_rate_prior_mean: float = 0.0
-    turn_rate_prior_scale: float = 0.001698
+    speed_prior_upper_mps: float = 20.0
+    speed_prior_tail_probability: float = 0.05
+    turn_rate_prior_abs_heading_change_deg: float = 45.0
+    turn_rate_prior_reference_interval_seconds: float = 10.0
+    turn_rate_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
 
@@ -57,17 +54,37 @@ class BayesianCTRVPriors:
         for prior_field in fields(self):
             name = prior_field.name
             value = getattr(self, name)
-            if name == "speed_prior_mean":
-                value = observation_support.validate_non_negative_finite(name, value)
-            elif name == "turn_rate_prior_mean":
-                value = observation_support.validate_finite_scalar(name, value)
-            elif name == "sigma_position_observation_prior_tail_probability":
+            if name.endswith("_tail_probability"):
                 value = observation_support.validate_finite_scalar(name, value)
                 if not 0.0 < value < 1.0:
                     raise ValueError(f"{name} must be strictly between zero and one.")
+            elif name == "turn_rate_prior_abs_heading_change_deg":
+                value = observation_support.validate_positive_finite(name, value)
+                if value > 180.0:
+                    raise ValueError(f"{name} must not exceed 180 degrees.")
             else:
                 value = observation_support.validate_positive_finite(name, value)
-            object.__setattr__(self, name, value)
+            object.__setattr__(self, name, float(value))
+
+    @property
+    def speed_prior_scale(self) -> float:
+        """Return the half-normal scale implied by the speed tail statement."""
+        return _two_sided_normal_scale(
+            self.speed_prior_upper_mps,
+            self.speed_prior_tail_probability,
+        )
+
+    @property
+    def turn_rate_prior_scale(self) -> float:
+        """Return the normal turn-rate scale implied by a heading-change tail."""
+        absolute_upper_rad_s = (
+            np.deg2rad(self.turn_rate_prior_abs_heading_change_deg)
+            / self.turn_rate_prior_reference_interval_seconds
+        )
+        return _two_sided_normal_scale(
+            absolute_upper_rad_s,
+            self.turn_rate_prior_tail_probability,
+        )
 
     @property
     def sigma_position_observation_prior_rate(self) -> float:
@@ -130,9 +147,7 @@ def build_stan_data(
         ),
         "N_prediction": window.prediction_count,
         "time_prediction": time_prediction,
-        "speed_prior_mean": priors.speed_prior_mean,
         "speed_prior_scale": priors.speed_prior_scale,
-        "turn_rate_prior_mean": priors.turn_rate_prior_mean,
         "turn_rate_prior_scale": priors.turn_rate_prior_scale,
     }
 
@@ -422,6 +437,12 @@ def _validate_time_arrays(time_observed, time_prediction) -> None:
             "Prediction timestamps must be strictly increasing and follow "
             "the observed timestamps."
         )
+
+
+def _two_sided_normal_scale(absolute_upper: float, tail_probability: float) -> float:
+    """Return a zero-centered normal scale from a two-sided tail statement."""
+    quantile = NormalDist().inv_cdf(1.0 - tail_probability / 2.0)
+    return float(absolute_upper / quantile)
 
 
 def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):

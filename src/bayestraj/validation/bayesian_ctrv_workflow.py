@@ -51,7 +51,9 @@ def run_bayesian_ctrv_evaluation(
     )
     configured_priors = dataclasses.replace(
         priors,
-        turn_rate_prior_scale=options.turn_rate_prior_scale,
+        turn_rate_prior_abs_heading_change_deg=(
+            options.turn_rate_prior_abs_heading_change_deg
+        ),
     )
     return _run_evaluation(
         data_file=data_file,
@@ -145,13 +147,24 @@ def _run_evaluation(
     )
     print(f"Position noise        : {noise_description}")
     print(
+        "Speed prior           : Half-Normal; P(speed > "
+        f"{priors.speed_prior_upper_mps:g} m/s)="
+        f"{priors.speed_prior_tail_probability:g}"
+    )
+    print(
+        "Turn-rate prior       : Normal(0, scale); P(|heading change over "
+        f"{priors.turn_rate_prior_reference_interval_seconds:g} s| > "
+        f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
+        f"{priors.turn_rate_prior_tail_probability:g}"
+    )
+    print(
         "Observation-noise prior: Exponential("
         f"rate={priors.sigma_position_observation_prior_rate:.4f} 1/m; "
         "P(sigma > "
         f"{priors.sigma_position_observation_prior_upper_m:g} m)="
         f"{priors.sigma_position_observation_prior_tail_probability:g})"
     )
-    print("Prior status          : provisional; model-specific validation pending")
+    print("Prior status          : ship-independent domain assumptions")
     print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []

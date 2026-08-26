@@ -31,9 +31,7 @@ data {
   int<lower=1> N_prediction;
   vector[N_prediction] time_prediction;
 
-  real<lower=0> speed_prior_mean;
   real<lower=0> speed_prior_scale;
-  real turn_rate_prior_mean;
   real<lower=0> turn_rate_prior_scale;
 }
 
@@ -56,7 +54,7 @@ transformed data {
 parameters {
   real<lower=0> speed;
   real<lower=-pi(), upper=pi()> heading_initial;
-  real<offset=turn_rate_prior_mean, multiplier=turn_rate_prior_scale> turn_rate;
+  real<multiplier=turn_rate_prior_scale> turn_rate;
   real<lower=1e-6> sigma_position_observation;
 }
 
@@ -86,9 +84,9 @@ transformed parameters {
 }
 
 model {
-  speed ~ normal(speed_prior_mean, speed_prior_scale);
+  speed ~ normal(0, speed_prior_scale);
   heading_initial ~ uniform(-pi(), pi());
-  turn_rate ~ normal(turn_rate_prior_mean, turn_rate_prior_scale);
+  turn_rate ~ normal(0, turn_rate_prior_scale);
   sigma_position_observation ~ exponential(
       sigma_position_observation_prior_rate);
 
