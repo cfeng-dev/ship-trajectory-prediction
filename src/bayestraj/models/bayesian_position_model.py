@@ -18,7 +18,7 @@ import bayestraj.observations.window as observation_window
 
 STAN_FILE = model_paths.stan_path("models/bayesian_position_model.stan")
 MIN_OBSERVATION_COUNT = 5
-REGULAR_TIME_STEP_ATOL_SECONDS = 1e-9
+POSITION_MODEL_REFERENCE_INTERVAL_SECONDS = 10.0
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 
@@ -31,14 +31,16 @@ NOISE_PARAMETER_NAMES = (
     "sigma_motion_residual",
 )
 PARAMETER_NAMES = (
-    "displacement_scale",
-    "rotation_angle",
+    "log_displacement_scale_rate",
+    "rotation_rate",
+    "displacement_scale_at_reference",
+    "rotation_angle_at_reference",
     "sigma_position_observation",
     "sigma_motion_residual",
 )
 
-_LOG_DISPLACEMENT_SCALE_INDEX = 0
-_ROTATION_ANGLE_INDEX = 1
+_LOG_DISPLACEMENT_SCALE_RATE_INDEX = 0
+_ROTATION_RATE_INDEX = 1
 _LOG_OBSERVATION_NOISE_INDEX = 2
 _LOG_MOTION_NOISE_INDEX = 3
 _PARAMETER_COUNT = 4
@@ -49,7 +51,7 @@ _NUMERICAL_VARIANCE_FLOOR = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class BayesianPositionModelPriors:
-    """Ship-independent priors for local latent displacement dynamics."""
+    """Ship-independent priors stated over one reference interval."""
 
     displacement_scale_prior_factor: float = 2.0
     displacement_scale_prior_tail_probability: float = 0.05
@@ -82,20 +84,22 @@ class BayesianPositionModelPriors:
             object.__setattr__(self, name, float(value))
 
     @property
-    def log_displacement_scale_prior_scale(self) -> float:
-        """Return the normal scale implied by the symmetric factor statement."""
-        return _two_sided_normal_scale(
+    def log_displacement_scale_rate_prior_scale(self) -> float:
+        """Return the log motion-scale rate prior SD in inverse seconds."""
+        reference_scale = _two_sided_normal_scale(
             np.log(self.displacement_scale_prior_factor),
             self.displacement_scale_prior_tail_probability,
         )
+        return reference_scale / POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
 
     @property
-    def rotation_angle_prior_scale(self) -> float:
-        """Return the normal scale implied by the angular tail statement."""
-        return _two_sided_normal_scale(
+    def rotation_rate_prior_scale(self) -> float:
+        """Return the rotation-rate prior SD in radians per second."""
+        reference_scale = _two_sided_normal_scale(
             np.deg2rad(self.rotation_angle_prior_abs_upper_deg),
             self.rotation_angle_prior_tail_probability,
         )
+        return reference_scale / POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
 
     @property
     def sigma_position_observation_prior_rate(self) -> float:
@@ -184,6 +188,8 @@ class SequentialBayesianPositionFilter:
     state_means: np.ndarray
     state_covariances: np.ndarray
     generator: np.random.Generator
+    last_observation_time_seconds: float
+    previous_interval_seconds: float
     processed_observation_count: int
     resample_count: int = 0
     last_effective_sample_size: float | None = None
@@ -191,6 +197,7 @@ class SequentialBayesianPositionFilter:
     @classmethod
     def initialize(
         cls,
+        time_seconds,
         x_observed,
         y_observed,
         *,
@@ -208,7 +215,8 @@ class SequentialBayesianPositionFilter:
                 "config must be a SequentialPositionFilterConfig instance or None."
             )
         seed = observation_support.validate_non_negative_integer("seed", seed)
-        x_observed, y_observed = _validate_sequential_positions(
+        time_seconds, x_observed, y_observed = _validate_sequential_observations(
+            time_seconds,
             x_observed,
             y_observed,
             minimum_count=2,
@@ -219,15 +227,15 @@ class SequentialBayesianPositionFilter:
             (particle_count, _PARAMETER_COUNT),
             dtype=float,
         )
-        parameter_particles[:, _LOG_DISPLACEMENT_SCALE_INDEX] = generator.normal(
+        parameter_particles[:, _LOG_DISPLACEMENT_SCALE_RATE_INDEX] = generator.normal(
             0.0,
-            priors.log_displacement_scale_prior_scale,
+            priors.log_displacement_scale_rate_prior_scale,
             particle_count,
         )
-        parameter_particles[:, _ROTATION_ANGLE_INDEX] = _sample_rotation_angles(
-            generator,
-            scale=priors.rotation_angle_prior_scale,
-            size=particle_count,
+        parameter_particles[:, _ROTATION_RATE_INDEX] = generator.normal(
+            0.0,
+            priors.rotation_rate_prior_scale,
+            particle_count,
         )
         observation_noise = np.maximum(
             generator.exponential(
@@ -280,9 +288,15 @@ class SequentialBayesianPositionFilter:
             state_means=state_means,
             state_covariances=state_covariances,
             generator=generator,
+            last_observation_time_seconds=float(time_seconds[1]),
+            previous_interval_seconds=float(time_seconds[1] - time_seconds[0]),
             processed_observation_count=2,
         )
-        online_filter.update_many(x_observed[2:], y_observed[2:])
+        online_filter.update_many(
+            time_seconds[2:],
+            x_observed[2:],
+            y_observed[2:],
+        )
         return online_filter
 
     @property
@@ -290,18 +304,39 @@ class SequentialBayesianPositionFilter:
         """Return the current particle-weight effective sample size."""
         return float(1.0 / np.sum(self.weights**2))
 
-    def update_many(self, x_observed, y_observed) -> None:
+    def update_many(self, time_seconds, x_observed, y_observed) -> None:
         """Update the online posterior with matching new positions exactly once."""
-        x_observed, y_observed = _validate_sequential_positions(
+        time_seconds, x_observed, y_observed = _validate_sequential_observations(
+            time_seconds,
             x_observed,
             y_observed,
             minimum_count=0,
         )
-        for x_value, y_value in zip(x_observed, y_observed, strict=True):
-            self.update(float(x_value), float(y_value))
+        if time_seconds.size and time_seconds[0] <= self.last_observation_time_seconds:
+            raise ValueError(
+                "Sequential timestamps must follow processed observations."
+            )
+        for time_value, x_value, y_value in zip(
+            time_seconds,
+            x_observed,
+            y_observed,
+            strict=True,
+        ):
+            self.update(float(time_value), float(x_value), float(y_value))
 
-    def update(self, x_observed: float, y_observed: float) -> None:
+    def update(
+        self,
+        time_seconds: float,
+        x_observed: float,
+        y_observed: float,
+    ) -> None:
         """Condition particles and their Kalman states on one new observation."""
+        time_seconds = observation_support.validate_finite_scalar(
+            "time_seconds",
+            time_seconds,
+        )
+        if time_seconds <= self.last_observation_time_seconds:
+            raise ValueError("time_seconds must follow the previous observation.")
         x_observed = observation_support.validate_finite_scalar(
             "x_observed",
             x_observed,
@@ -310,8 +345,11 @@ class SequentialBayesianPositionFilter:
             "y_observed",
             y_observed,
         )
+        current_interval_seconds = time_seconds - self.last_observation_time_seconds
         transition, process_covariance = _sequential_transition_terms(
-            self.parameter_particles
+            self.parameter_particles,
+            current_interval_seconds=current_interval_seconds,
+            previous_interval_seconds=self.previous_interval_seconds,
         )
         predicted_means = np.einsum(
             "nij,nj->ni",
@@ -370,6 +408,8 @@ class SequentialBayesianPositionFilter:
             self.state_covariances + np.swapaxes(self.state_covariances, 1, 2)
         )
         self.state_covariances += _NUMERICAL_VARIANCE_FLOOR * np.eye(_STATE_COUNT)[None]
+        self.last_observation_time_seconds = time_seconds
+        self.previous_interval_seconds = current_interval_seconds
         self.processed_observation_count += 1
         self.last_effective_sample_size = self.effective_sample_size
 
@@ -379,15 +419,12 @@ class SequentialBayesianPositionFilter:
         ):
             self._resample_and_rejuvenate()
 
-    def forecast(self, prediction_count: int, *, seed: int) -> SequentialPositionFit:
+    def forecast(self, future_time_seconds, *, seed: int) -> SequentialPositionFit:
         """Draw latent and observation trajectories from the current posterior."""
-        if isinstance(prediction_count, bool) or not isinstance(
-            prediction_count,
-            (int, np.integer),
-        ):
-            raise TypeError("prediction_count must be an integer.")
-        if prediction_count < 1:
-            raise ValueError("prediction_count must be positive.")
+        future_time_seconds = _validate_future_times(
+            future_time_seconds,
+            after=self.last_observation_time_seconds,
+        )
         seed = observation_support.validate_non_negative_integer("seed", seed)
         generator = np.random.default_rng(seed)
         draw_count = self.config.posterior_draw_count
@@ -403,30 +440,47 @@ class SequentialBayesianPositionFilter:
             self.state_covariances[indices],
             generator,
         )
-        displacement_scale = np.exp(parameters[:, _LOG_DISPLACEMENT_SCALE_INDEX])
-        rotation_angle = parameters[:, _ROTATION_ANGLE_INDEX]
+        log_displacement_scale_rate = parameters[:, _LOG_DISPLACEMENT_SCALE_RATE_INDEX]
+        rotation_rate = parameters[:, _ROTATION_RATE_INDEX]
+        displacement_scale_at_reference = np.exp(
+            log_displacement_scale_rate * POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+        )
+        rotation_angle_at_reference = (
+            rotation_rate * POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+        )
         observation_noise = np.exp(parameters[:, _LOG_OBSERVATION_NOISE_INDEX])
         motion_noise = np.exp(parameters[:, _LOG_MOTION_NOISE_INDEX])
-        autoregressive_matrix = _autoregressive_matrices(
-            displacement_scale,
-            rotation_angle,
-        )
         model_position = states[:, :2].copy()
         model_displacement = states[:, 2:].copy()
+        prediction_count = future_time_seconds.size
         x_model_prediction = np.empty((draw_count, prediction_count), dtype=float)
         y_model_prediction = np.empty((draw_count, prediction_count), dtype=float)
         x_observation_prediction = np.empty_like(x_model_prediction)
         y_observation_prediction = np.empty_like(y_model_prediction)
-        for prediction_index in range(prediction_count):
+        previous_time_seconds = self.last_observation_time_seconds
+        previous_interval_seconds = self.previous_interval_seconds
+        for prediction_index, prediction_time_seconds in enumerate(future_time_seconds):
+            current_interval_seconds = float(
+                prediction_time_seconds - previous_time_seconds
+            )
+            displacement_transition = _displacement_transition_matrices(
+                log_displacement_scale_rate,
+                rotation_rate,
+                current_interval_seconds=current_interval_seconds,
+                previous_interval_seconds=previous_interval_seconds,
+            )
+            motion_residual_scale = motion_noise * np.sqrt(
+                current_interval_seconds / POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+            )
             motion_innovation = generator.normal(
                 0.0,
-                motion_noise[:, None],
+                motion_residual_scale[:, None],
                 size=(draw_count, _POSITION_COUNT),
             )
             model_displacement = (
                 np.einsum(
                     "nij,nj->ni",
-                    autoregressive_matrix,
+                    displacement_transition,
                     model_displacement,
                 )
                 + motion_innovation
@@ -445,11 +499,15 @@ class SequentialBayesianPositionFilter:
             y_observation_prediction[:, prediction_index] = (
                 model_position[:, 1] + observation_innovation[:, 1]
             )
+            previous_interval_seconds = current_interval_seconds
+            previous_time_seconds = float(prediction_time_seconds)
 
         return SequentialPositionFit(
             {
-                "displacement_scale": displacement_scale,
-                "rotation_angle": rotation_angle,
+                "log_displacement_scale_rate": log_displacement_scale_rate,
+                "rotation_rate": rotation_rate,
+                "displacement_scale_at_reference": (displacement_scale_at_reference),
+                "rotation_angle_at_reference": rotation_angle_at_reference,
                 "sigma_position_observation": observation_noise,
                 "sigma_motion_residual": motion_noise,
                 "x_model_prediction": x_model_prediction,
@@ -461,16 +519,16 @@ class SequentialBayesianPositionFilter:
 
     def _resample_and_rejuvenate(self) -> None:
         """Resample weighted particles and apply Liu-West-style shrinkage."""
-        adjusted_parameters, parameter_mean = _unwrap_parameter_particles(
-            self.parameter_particles,
-            self.weights,
+        parameter_mean = np.sum(
+            self.weights[:, None] * self.parameter_particles,
+            axis=0,
         )
-        centered_parameters = adjusted_parameters - parameter_mean
+        centered_parameters = self.parameter_particles - parameter_mean
         parameter_covariance = (
             centered_parameters.T * self.weights
         ) @ centered_parameters
         indices = _systematic_resample(self.weights, self.generator)
-        selected_parameters = adjusted_parameters[indices]
+        selected_parameters = self.parameter_particles[indices]
         self.state_means = self.state_means[indices].copy()
         self.state_covariances = self.state_covariances[indices].copy()
 
@@ -485,9 +543,6 @@ class SequentialBayesianPositionFilter:
             shrinkage * selected_parameters
             + (1.0 - shrinkage) * parameter_mean
             + rejuvenation_scale * parameter_noise
-        )
-        self.parameter_particles[:, _ROTATION_ANGLE_INDEX] = _wrap_angles(
-            self.parameter_particles[:, _ROTATION_ANGLE_INDEX]
         )
         self.weights = np.full(
             self.config.particle_count,
@@ -517,11 +572,15 @@ def build_stan_data(
         window,
         position_observations,
     )
-    time_history = np.asarray(
+    time_observed = np.asarray(
         position_observations.time_seconds,
         dtype=float,
     )
-    _validate_regular_prediction_times(window, time_history)
+    time_prediction = np.asarray(
+        window.time_seconds[window.prediction_slice],
+        dtype=float,
+    )
+    _validate_model_times(time_observed, time_prediction)
     x_history = np.asarray(
         position_observations.x_meters,
         dtype=float,
@@ -535,13 +594,18 @@ def build_stan_data(
 
     return {
         "N_history": window.observation_count,
+        "time_observed": time_observed,
         "x_observed": x_history,
         "y_observed": y_history,
         "N_prediction": window.prediction_count,
-        "log_displacement_scale_prior_scale": (
-            priors.log_displacement_scale_prior_scale
+        "time_prediction": time_prediction,
+        "position_model_reference_interval_seconds": (
+            POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
         ),
-        "rotation_angle_prior_scale": priors.rotation_angle_prior_scale,
+        "log_displacement_scale_rate_prior_scale": (
+            priors.log_displacement_scale_rate_prior_scale
+        ),
+        "rotation_rate_prior_scale": priors.rotation_rate_prior_scale,
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
         ),
@@ -718,40 +782,71 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     latent_jitter_scale = 0.02 * observation_noise_initial
     x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
     y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
+    time_observed = np.asarray(stan_data["time_observed"], dtype=float)
+    intervals = np.diff(time_observed)
     displacement = np.column_stack((np.diff(x_true), np.diff(y_true)))
-    previous = displacement[:-1]
-    current = displacement[1:]
-    denominator = float(np.sum(previous * previous))
-    if denominator <= 1e-12:
-        scale = 1.0
-        angle = 0.0
+    velocity = displacement / intervals[:, None]
+    previous_velocity = velocity[:-1]
+    current_velocity = velocity[1:]
+    current_intervals = intervals[1:]
+    denominator = np.sum(previous_velocity * previous_velocity, axis=1)
+    valid = denominator > 1e-12
+    if not np.any(valid):
+        log_scale_rate = 0.0
+        rotation_rate = 0.0
     else:
-        real_part = float(np.sum(previous * current) / denominator)
-        imaginary_part = float(
-            np.sum(previous[:, 0] * current[:, 1] - previous[:, 1] * current[:, 0])
-            / denominator
+        real_part = (
+            np.sum(previous_velocity * current_velocity, axis=1)[valid]
+            / (denominator[valid])
         )
-        scale = max(np.hypot(real_part, imaginary_part), 1e-6)
-        angle = float(np.arctan2(imaginary_part, real_part))
+        imaginary_part = (
+            previous_velocity[:, 0] * current_velocity[:, 1]
+            - previous_velocity[:, 1] * current_velocity[:, 0]
+        )[valid] / denominator[valid]
+        scale = np.maximum(np.hypot(real_part, imaginary_part), 1e-6)
+        log_scale_rate = float(np.median(np.log(scale) / current_intervals[valid]))
+        rotation_rate = float(
+            np.median(np.arctan2(imaginary_part, real_part) / current_intervals[valid])
+        )
 
-    cosine = np.cos(angle)
-    sine = np.sin(angle)
-    autoregressive_matrix = scale * np.asarray(
-        [[cosine, -sine], [sine, cosine]],
-        dtype=float,
+    displacement_transition = _displacement_transition_matrices(
+        np.full(len(current_intervals), log_scale_rate),
+        np.full(len(current_intervals), rotation_rate),
+        current_interval_seconds=current_intervals,
+        previous_interval_seconds=intervals[:-1],
     )
-    residual = current - previous @ autoregressive_matrix.T
+    expected_displacement = np.einsum(
+        "nij,nj->ni",
+        displacement_transition,
+        displacement[:-1],
+    )
+    residual = displacement[1:] - expected_displacement
+    reference_normalized_residual = (
+        residual
+        * np.sqrt(POSITION_MODEL_REFERENCE_INTERVAL_SECONDS / current_intervals)[
+            :, None
+        ]
+    )
     residual_scale = max(
-        float(np.sqrt(np.mean(residual**2))),
+        float(np.sqrt(np.mean(reference_normalized_residual**2))),
         0.5 / float(stan_data["sigma_motion_residual_prior_rate"]),
     )
-    angle_limit = np.pi - 1e-6
     return {
         "x_true": x_true,
         "y_true": y_true,
-        "log_displacement_scale": float(np.log(scale) + generator.normal(0.0, 1e-3)),
-        "rotation_angle": float(
-            np.clip(angle + generator.normal(0.0, 1e-3), -angle_limit, angle_limit)
+        "log_displacement_scale_rate": float(
+            log_scale_rate
+            + generator.normal(
+                0.0,
+                0.01 * stan_data["log_displacement_scale_rate_prior_scale"],
+            )
+        ),
+        "rotation_rate": float(
+            rotation_rate
+            + generator.normal(
+                0.0,
+                0.01 * stan_data["rotation_rate_prior_scale"],
+            )
         ),
         "sigma_position_observation": float(
             max(observation_noise_initial * np.exp(generator.normal(0.0, 1e-3)), 1e-6)
@@ -769,24 +864,25 @@ def _smooth_position_initials(observed: np.ndarray) -> np.ndarray:
     return initial
 
 
-def _validate_regular_prediction_times(window, time_history: np.ndarray) -> None:
-    """Require one common sampling interval for fitted and forecast steps."""
-    prediction_times = np.asarray(
-        window.time_seconds[window.prediction_slice],
-        dtype=float,
-    )
-    relevant_times = np.concatenate((time_history, prediction_times))
-    time_steps = np.diff(relevant_times)
-    if not np.all(np.isfinite(time_steps)) or np.any(time_steps <= 0):
-        raise ValueError("Position-model timestamps must be finite and increasing.")
-    if not np.allclose(
-        time_steps,
-        time_steps[0],
-        rtol=0.0,
-        atol=REGULAR_TIME_STEP_ATOL_SECONDS,
+def _validate_model_times(
+    time_observed: np.ndarray,
+    time_prediction: np.ndarray,
+) -> None:
+    """Require finite increasing history and future times without regularity."""
+    if (
+        time_observed.ndim != 1
+        or time_prediction.ndim != 1
+        or time_observed.size < MIN_OBSERVATION_COUNT
+        or time_prediction.size < 1
+        or not np.all(np.isfinite(time_observed))
+        or not np.all(np.isfinite(time_prediction))
+        or np.any(np.diff(time_observed) <= 0.0)
+        or time_prediction[0] <= time_observed[-1]
+        or np.any(np.diff(time_prediction) <= 0.0)
     ):
         raise ValueError(
-            "Bayesian latent-position model requires one regular sampling interval."
+            "Position-model timestamps must be finite and strictly increasing, "
+            "with predictions after all observations."
         )
 
 
@@ -801,49 +897,63 @@ def _two_sided_normal_scale(absolute_upper: float, tail_probability: float) -> f
     return float(absolute_upper / quantile)
 
 
-def _validate_sequential_positions(
+def _validate_sequential_observations(
+    time_seconds,
     x_observed,
     y_observed,
     *,
     minimum_count: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return matching finite one-dimensional arrays for online updates."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return matching finite time/position arrays for online updates."""
+    time_seconds = np.asarray(time_seconds, dtype=float)
     x_observed = np.asarray(x_observed, dtype=float)
     y_observed = np.asarray(y_observed, dtype=float)
     if (
-        x_observed.ndim != 1
+        time_seconds.ndim != 1
+        or x_observed.shape != time_seconds.shape
         or y_observed.shape != x_observed.shape
         or x_observed.size < minimum_count
+        or not np.all(np.isfinite(time_seconds))
         or not np.all(np.isfinite(x_observed))
         or not np.all(np.isfinite(y_observed))
+        or np.any(np.diff(time_seconds) <= 0.0)
     ):
         raise ValueError(
-            "Sequential x/y observations must be matching finite vectors with "
-            f"at least {minimum_count} values."
+            "Sequential time/x/y observations must be matching finite vectors "
+            f"with at least {minimum_count} values and increasing times."
         )
-    return x_observed, y_observed
+    return time_seconds, x_observed, y_observed
 
 
-def _sample_rotation_angles(
-    generator: np.random.Generator,
-    *,
-    scale: float,
-    size: int,
+def _validate_future_times(future_time_seconds, *, after: float) -> np.ndarray:
+    """Return finite increasing future times after the filter state."""
+    future_time_seconds = np.asarray(future_time_seconds, dtype=float)
+    if (
+        future_time_seconds.ndim != 1
+        or future_time_seconds.size < 1
+        or not np.all(np.isfinite(future_time_seconds))
+        or future_time_seconds[0] <= after
+        or np.any(np.diff(future_time_seconds) <= 0.0)
+    ):
+        raise ValueError(
+            "future_time_seconds must be finite, strictly increasing, and "
+            "follow the latest observation."
+        )
+    return future_time_seconds
+
+
+def _time_scaled_motion_matrices(
+    log_displacement_scale_rate: np.ndarray,
+    rotation_rate: np.ndarray,
+    interval_seconds,
 ) -> np.ndarray:
-    """Sample the bounded zero-centered normal rotation prior."""
-    values = generator.normal(0.0, scale, size)
-    invalid = np.abs(values) > np.pi
-    while np.any(invalid):
-        values[invalid] = generator.normal(0.0, scale, int(np.sum(invalid)))
-        invalid = np.abs(values) > np.pi
-    return values
-
-
-def _autoregressive_matrices(
-    displacement_scale: np.ndarray,
-    rotation_angle: np.ndarray,
-) -> np.ndarray:
-    """Return one rotation-scaling displacement matrix per particle."""
+    """Return exp(kappa*dt) R(omega*dt) for matching parameters."""
+    interval_seconds = np.broadcast_to(
+        np.asarray(interval_seconds, dtype=float),
+        np.shape(log_displacement_scale_rate),
+    )
+    displacement_scale = np.exp(log_displacement_scale_rate * interval_seconds)
+    rotation_angle = rotation_rate * interval_seconds
     cosine = np.cos(rotation_angle)
     sine = np.sin(rotation_angle)
     matrices = np.empty((len(displacement_scale), 2, 2), dtype=float)
@@ -854,21 +964,57 @@ def _autoregressive_matrices(
     return matrices
 
 
+def _displacement_transition_matrices(
+    log_displacement_scale_rate: np.ndarray,
+    rotation_rate: np.ndarray,
+    *,
+    current_interval_seconds,
+    previous_interval_seconds,
+) -> np.ndarray:
+    """Return irregular-time displacement transitions for all parameters."""
+    current_interval_seconds = np.broadcast_to(
+        np.asarray(current_interval_seconds, dtype=float),
+        np.shape(log_displacement_scale_rate),
+    )
+    previous_interval_seconds = np.broadcast_to(
+        np.asarray(previous_interval_seconds, dtype=float),
+        np.shape(log_displacement_scale_rate),
+    )
+    if np.any(current_interval_seconds <= 0.0) or np.any(
+        previous_interval_seconds <= 0.0
+    ):
+        raise ValueError("Position-model intervals must be positive.")
+    matrices = _time_scaled_motion_matrices(
+        log_displacement_scale_rate,
+        rotation_rate,
+        current_interval_seconds,
+    )
+    matrices *= (current_interval_seconds / previous_interval_seconds)[:, None, None]
+    return matrices
+
+
 def _sequential_transition_terms(
     parameter_particles: np.ndarray,
+    *,
+    current_interval_seconds: float,
+    previous_interval_seconds: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return state-transition matrices and covariances for all particles."""
     particle_count = len(parameter_particles)
-    autoregressive_matrix = _autoregressive_matrices(
-        np.exp(parameter_particles[:, _LOG_DISPLACEMENT_SCALE_INDEX]),
-        parameter_particles[:, _ROTATION_ANGLE_INDEX],
+    displacement_transition = _displacement_transition_matrices(
+        parameter_particles[:, _LOG_DISPLACEMENT_SCALE_RATE_INDEX],
+        parameter_particles[:, _ROTATION_RATE_INDEX],
+        current_interval_seconds=current_interval_seconds,
+        previous_interval_seconds=previous_interval_seconds,
     )
     transition = np.zeros((particle_count, _STATE_COUNT, _STATE_COUNT), dtype=float)
     transition[:, :2, :2] = np.eye(_POSITION_COUNT)
-    transition[:, :2, 2:] = autoregressive_matrix
-    transition[:, 2:, 2:] = autoregressive_matrix
+    transition[:, :2, 2:] = displacement_transition
+    transition[:, 2:, 2:] = displacement_transition
 
-    motion_variance = np.exp(2.0 * parameter_particles[:, _LOG_MOTION_NOISE_INDEX])
+    motion_variance = np.exp(2.0 * parameter_particles[:, _LOG_MOTION_NOISE_INDEX]) * (
+        current_interval_seconds / POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    )
     process_template = np.asarray(
         [
             [1.0, 0.0, 1.0, 0.0],
@@ -922,22 +1068,6 @@ def _regularized_cholesky(covariance: np.ndarray) -> np.ndarray:
     return np.linalg.cholesky(regularized)
 
 
-def _unwrap_parameter_particles(
-    parameter_particles: np.ndarray,
-    weights: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Unwrap particle angles around their circular weighted mean."""
-    angle = parameter_particles[:, _ROTATION_ANGLE_INDEX]
-    angle_mean = np.arctan2(
-        np.sum(weights * np.sin(angle)),
-        np.sum(weights * np.cos(angle)),
-    )
-    adjusted = parameter_particles.copy()
-    adjusted[:, _ROTATION_ANGLE_INDEX] = angle_mean + _wrap_angles(angle - angle_mean)
-    mean = np.sum(weights[:, None] * adjusted, axis=0)
-    return adjusted, mean
-
-
 def _systematic_resample(
     weights: np.ndarray,
     generator: np.random.Generator,
@@ -947,8 +1077,3 @@ def _systematic_resample(
     cumulative_weights = np.cumsum(weights)
     cumulative_weights[-1] = 1.0
     return np.searchsorted(cumulative_weights, positions, side="right")
-
-
-def _wrap_angles(values: np.ndarray) -> np.ndarray:
-    """Wrap radians to the closed-open interval [-pi, pi)."""
-    return (values + np.pi) % (2.0 * np.pi) - np.pi

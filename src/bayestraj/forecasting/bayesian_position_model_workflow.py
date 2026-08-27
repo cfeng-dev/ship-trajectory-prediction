@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
+
 import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.observations.io as observations_io
@@ -77,17 +79,21 @@ def run_bayesian_position_prediction(
                 ("Run ID", experiment.run_id),
                 ("Observed positions", window.observation_count),
                 ("Prediction positions", window.prediction_count),
-                ("Sampling interval", f"{_sampling_interval(window):g} s"),
+                ("Observation intervals", _time_interval_description(window)),
+                (
+                    "Motion reference interval",
+                    f"{position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS:g} s",
+                ),
                 ("Inference mode", inference_mode.upper()),
                 ("Inference method", inference_method.upper()),
                 ("Position-only input", "yes"),
                 (
-                    "Displacement-scale prior",
+                    "Log-scale-rate prior",
                     _displacement_scale_prior_description(priors),
                 ),
                 (
-                    "Rotation-angle prior",
-                    _rotation_angle_prior_description(priors),
+                    "Rotation-rate prior",
+                    _rotation_rate_prior_description(priors),
                 ),
                 (
                     "Injected position noise",
@@ -105,7 +111,8 @@ def run_bayesian_position_prediction(
                     _noise_prior_description(
                         priors.sigma_motion_residual_prior_upper_m,
                         priors.sigma_motion_residual_prior_tail_probability,
-                    ),
+                    )
+                    + " at the reference interval",
                 ),
             ]
         )
@@ -144,6 +151,7 @@ def run_bayesian_position_prediction(
             credible_interval=credible_interval,
         )
     )
+    _print_time_based_motion_posterior(fit)
     metrics.print_position_evaluation(
         evaluation,
         computation_time_seconds=computation_time_seconds,
@@ -179,10 +187,14 @@ def run_bayesian_position_prediction(
     }
 
 
-def _sampling_interval(window) -> float:
-    """Return the displacement-model interval for reporting."""
+def _time_interval_description(window) -> str:
+    """Describe the possibly irregular observed time intervals."""
     observed_times = window.time_seconds[window.observed_slice]
-    return float(observed_times[-1] - observed_times[-2])
+    intervals = np.diff(observed_times)
+    return (
+        f"min/median/max={np.min(intervals):g}/"
+        f"{np.median(intervals):g}/{np.max(intervals):g} s"
+    )
 
 
 def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
@@ -190,15 +202,53 @@ def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
     return f"Exponential; P(sigma > {upper_m:g} m)={tail_probability:g}"
 
 
+def _print_time_based_motion_posterior(fit) -> None:
+    """Print rate parameters and their reference-interval interpretation."""
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    scale_rate = np.median(
+        reporting.posterior_variable_samples(fit, "log_displacement_scale_rate")
+    )
+    rotation_rate = np.median(
+        reporting.posterior_variable_samples(fit, "rotation_rate")
+    )
+    scale_at_reference = np.median(
+        reporting.posterior_variable_samples(fit, "displacement_scale_at_reference")
+    )
+    rotation_at_reference_deg = np.rad2deg(
+        np.median(
+            reporting.posterior_variable_samples(fit, "rotation_angle_at_reference")
+        )
+    )
+    print("\nTime-based motion interpretation:")
+    print(
+        reporting.format_aligned_rows(
+            [
+                ("Motion scale rate", f"{scale_rate:.6g} 1/s"),
+                ("Rotation rate", f"{rotation_rate:.6g} rad/s"),
+                (f"Scale over {reference:g} s", f"{scale_at_reference:.6g}"),
+                (
+                    f"Rotation over {reference:g} s",
+                    f"{rotation_at_reference_deg:.6g} deg",
+                ),
+            ]
+        )
+    )
+
+
 def _displacement_scale_prior_description(priors) -> str:
-    """Describe the ship-independent displacement-scale prior."""
+    """Describe the ship-independent log-scale-rate prior."""
     central_probability = 1.0 - priors.displacement_scale_prior_tail_probability
     factor = priors.displacement_scale_prior_factor
-    return f"{central_probability:.0%} between {1.0 / factor:g}x and {factor:g}x"
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    return (
+        f"{central_probability:.0%} reference factor between "
+        f"{1.0 / factor:g}x and {factor:g}x over {reference:g} s"
+    )
 
 
-def _rotation_angle_prior_description(priors) -> str:
-    """Describe the ship-independent rotation-angle prior."""
+def _rotation_rate_prior_description(priors) -> str:
+    """Describe the ship-independent rotation-rate prior."""
     central_probability = 1.0 - priors.rotation_angle_prior_tail_probability
     upper_deg = priors.rotation_angle_prior_abs_upper_deg
-    return f"{central_probability:.0%} within +/-{upper_deg:g} deg per step"
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    return f"{central_probability:.0%} within +/-{upper_deg:g} deg over {reference:g} s"

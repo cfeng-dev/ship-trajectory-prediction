@@ -69,9 +69,10 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
 ):
     initialization_count = 0
 
-    def initialize(x_observed, y_observed, **kwargs):
+    def initialize(time_seconds, x_observed, y_observed, **kwargs):
         nonlocal initialization_count
         initialization_count += 1
+        assert np.array_equal(time_seconds, x_observed)
         return _FakeOnlineFilter(x_observed)
 
     monkeypatch.setattr(
@@ -91,6 +92,7 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
         online_filter = position_workflow._advance_online_filter(
             online_filter,
             specification=specification,
+            route_time_seconds=values,
             noisy_route_x=values,
             noisy_route_y=-values,
             priors=object(),
@@ -129,6 +131,7 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
         (
             position_model.SequentialBayesianPositionFilter.initialize(
                 np.arange(5, dtype=float),
+                np.arange(5, dtype=float),
                 np.zeros(5),
                 priors=position_model.BayesianPositionModelPriors(),
                 config=position_model.SequentialPositionFilterConfig(
@@ -136,7 +139,7 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
                     posterior_draw_count=8,
                 ),
                 seed=42,
-            ).forecast(3, seed=43),
+            ).forecast(np.arange(5, 8, dtype=float), seed=43),
             (
                 "x_model_prediction",
                 "y_model_prediction",

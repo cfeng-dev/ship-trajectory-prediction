@@ -111,9 +111,7 @@ def run_bayesian_position_evaluation(
         windows = windows[: options.max_windows]
 
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
-    sampling_interval_seconds = None
-    if online_mode:
-        sampling_interval_seconds = _validate_regular_route_times(trajectory_data)
+    route_time_seconds = _route_time_seconds(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
         position_noise_std_m=configured_experiment.position_noise_std_m,
@@ -130,12 +128,17 @@ def run_bayesian_position_evaluation(
         ("Prediction positions", configured_experiment.prediction_count),
         ("Forecast origins", len(windows)),
         (
-            "Displacement-scale prior",
+            "Log-scale-rate prior",
             _displacement_scale_prior_description(priors),
         ),
         (
-            "Rotation-angle prior",
-            _rotation_angle_prior_description(priors),
+            "Rotation-rate prior",
+            _rotation_rate_prior_description(priors),
+        ),
+        ("Route intervals", _time_interval_description(route_time_seconds)),
+        (
+            "Motion reference interval",
+            f"{position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS:g} s",
         ),
         (
             "Injected position noise",
@@ -153,7 +156,8 @@ def run_bayesian_position_evaluation(
             _noise_prior_description(
                 priors.sigma_motion_residual_prior_upper_m,
                 priors.sigma_motion_residual_prior_tail_probability,
-            ),
+            )
+            + " at the reference interval",
         ),
     ]
     if online_mode:
@@ -163,7 +167,6 @@ def run_bayesian_position_evaluation(
         )
         setup_rows.extend(
             [
-                ("Sampling interval", f"{sampling_interval_seconds:g} s"),
                 ("Particles", rbpf_config.particle_count),
                 ("Posterior draws", rbpf_config.posterior_draw_count),
                 (
@@ -214,6 +217,7 @@ def run_bayesian_position_evaluation(
             online_filter = _advance_online_filter(
                 online_filter,
                 specification=specification,
+                route_time_seconds=route_time_seconds,
                 noisy_route_x=noisy_route_x,
                 noisy_route_y=noisy_route_y,
                 priors=priors,
@@ -221,7 +225,12 @@ def run_bayesian_position_evaluation(
                 inference_seed=configured_experiment.inference_seed,
             )
             fit = online_filter.forecast(
-                specification.prediction_count,
+                route_time_seconds[
+                    specification.forecast_start_index : (
+                        specification.forecast_start_index
+                        + specification.prediction_count
+                    )
+                ],
                 seed=1_000_000 + window_seed,
             )
             converged = None
@@ -305,6 +314,7 @@ def run_bayesian_position_evaluation(
             f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
             f"runtime={window_runtime_seconds:.3f} s"
         )
+        _print_time_based_motion_posterior(fit)
         if online_filter is not None:
             print(
                 "  RBPF posterior: "
@@ -363,6 +373,7 @@ def _advance_online_filter(
     online_filter,
     *,
     specification,
+    route_time_seconds,
     noisy_route_x,
     noisy_route_y,
     priors,
@@ -373,6 +384,7 @@ def _advance_online_filter(
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
         return position_model.SequentialBayesianPositionFilter.initialize(
+            route_time_seconds[:update_stop_index],
             noisy_route_x[:update_stop_index],
             noisy_route_y[:update_stop_index],
             priors=priors,
@@ -386,6 +398,7 @@ def _advance_online_filter(
             "Online forecast origins must advance monotonically without reset."
         )
     online_filter.update_many(
+        route_time_seconds[update_start_index:update_stop_index],
         noisy_route_x[update_start_index:update_stop_index],
         noisy_route_y[update_start_index:update_stop_index],
     )
@@ -408,8 +421,8 @@ def _prepare_route_coordinates(trajectory_data):
     return route_x, route_y, longitude, latitude
 
 
-def _validate_regular_route_times(trajectory_data) -> float:
-    """Require one fixed sampling interval for online RBPF displacement updates."""
+def _route_time_seconds(trajectory_data) -> np.ndarray:
+    """Return finite increasing route times without imposing regular spacing."""
     timestamps = pd.to_datetime(trajectory_data["time"], utc=True)
     time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
     time_steps = np.diff(time_seconds)
@@ -417,17 +430,18 @@ def _validate_regular_route_times(trajectory_data) -> float:
         time_steps.size == 0
         or not np.all(np.isfinite(time_steps))
         or np.any(time_steps <= 0.0)
-        or not np.allclose(
-            time_steps,
-            time_steps[0],
-            rtol=0.0,
-            atol=position_model.REGULAR_TIME_STEP_ATOL_SECONDS,
-        )
     ):
-        raise ValueError(
-            "Online RBPF position filtering requires one regular sampling interval."
-        )
-    return float(time_steps[0])
+        raise ValueError("Position-model route times must be finite and increasing.")
+    return np.asarray(time_seconds, dtype=float)
+
+
+def _time_interval_description(time_seconds) -> str:
+    """Describe the possibly irregular route time intervals."""
+    intervals = np.diff(np.asarray(time_seconds, dtype=float))
+    return (
+        f"min/median/max={np.min(intervals):g}/"
+        f"{np.median(intervals):g}/{np.max(intervals):g} s"
+    )
 
 
 def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):
@@ -739,15 +753,45 @@ def _noise_prior_description(upper_m: float, tail_probability: float) -> str:
     return f"Exponential; P(sigma > {upper_m:g} m)={tail_probability:g}"
 
 
+def _print_time_based_motion_posterior(fit) -> None:
+    """Print concise rate and reference-interval posterior medians."""
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    scale_rate = np.median(
+        reporting.posterior_variable_samples(fit, "log_displacement_scale_rate")
+    )
+    rotation_rate = np.median(
+        reporting.posterior_variable_samples(fit, "rotation_rate")
+    )
+    scale_at_reference = np.median(
+        reporting.posterior_variable_samples(fit, "displacement_scale_at_reference")
+    )
+    rotation_at_reference_deg = np.rad2deg(
+        np.median(
+            reporting.posterior_variable_samples(fit, "rotation_angle_at_reference")
+        )
+    )
+    print(
+        "  Time-based motion: "
+        f"kappa={scale_rate:.6g} 1/s, omega={rotation_rate:.6g} rad/s, "
+        f"scale({reference:g} s)={scale_at_reference:.6g}, "
+        f"rotation({reference:g} s)={rotation_at_reference_deg:.6g} deg"
+    )
+
+
 def _displacement_scale_prior_description(priors) -> str:
-    """Describe the ship-independent displacement-scale prior."""
+    """Describe the ship-independent log-scale-rate prior."""
     central_probability = 1.0 - priors.displacement_scale_prior_tail_probability
     factor = priors.displacement_scale_prior_factor
-    return f"{central_probability:.0%} between {1.0 / factor:g}x and {factor:g}x"
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    return (
+        f"{central_probability:.0%} reference factor between "
+        f"{1.0 / factor:g}x and {factor:g}x over {reference:g} s"
+    )
 
 
-def _rotation_angle_prior_description(priors) -> str:
-    """Describe the ship-independent rotation-angle prior."""
+def _rotation_rate_prior_description(priors) -> str:
+    """Describe the ship-independent rotation-rate prior."""
     central_probability = 1.0 - priors.rotation_angle_prior_tail_probability
     upper_deg = priors.rotation_angle_prior_abs_upper_deg
-    return f"{central_probability:.0%} within +/-{upper_deg:g} deg per step"
+    reference = position_model.POSITION_MODEL_REFERENCE_INTERVAL_SECONDS
+    return f"{central_probability:.0%} within +/-{upper_deg:g} deg over {reference:g} s"
