@@ -31,7 +31,7 @@ def run_bayesian_ctrv_evaluation(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config,
     mcmc_config,
-    sequential_config,
+    rbpf_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -45,6 +45,7 @@ def run_bayesian_ctrv_evaluation(
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
         stride=options.stride,
+        inference_mode=options.inference_mode,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
         position_noise_std_m=options.position_noise_std_m,
@@ -62,7 +63,7 @@ def run_bayesian_ctrv_evaluation(
         priors=configured_priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        sequential_config=sequential_config,
+        rbpf_config=rbpf_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -81,7 +82,7 @@ def _run_evaluation(
     priors,
     vi_config,
     mcmc_config,
-    sequential_config,
+    rbpf_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -92,16 +93,18 @@ def _run_evaluation(
     show_time_labels,
 ):
     """Run one configured rolling evaluation."""
-    sequential_mode = experiment.window_mode == "sequential"
-    if not isinstance(sequential_config, bayesian_model.SequentialCTRVFilterConfig):
-        raise TypeError(
-            "sequential_config must be a SequentialCTRVFilterConfig instance."
-        )
-    if sequential_mode:
-        inference_method = "sequential"
+    online_mode = experiment.inference_mode == "online"
+    if online_mode and not isinstance(
+        rbpf_config,
+        bayesian_model.SequentialCTRVFilterConfig,
+    ):
+        raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
+    if online_mode:
+        inference_method = experiment.inference_method
         inference_config = {}
     else:
         inference_method, inference_config = inference.select_inference_config(
+            experiment.inference_mode,
             experiment.inference_method,
             vi_algorithm=vi_algorithm,
             require_converged=require_converged,
@@ -120,13 +123,21 @@ def _run_evaluation(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
-    windows = rolling_validation.build_rolling_window_specs(
-        len(trajectory_data),
-        initial_observation_count=experiment.observation_count,
-        prediction_count=experiment.prediction_count,
-        stride=experiment.stride,
-        window_mode="expanding" if sequential_mode else experiment.window_mode,
-    )
+    if online_mode:
+        windows = rolling_validation.build_online_forecast_specs(
+            len(trajectory_data),
+            initial_observation_count=experiment.observation_count,
+            prediction_count=experiment.prediction_count,
+            stride=experiment.stride,
+        )
+    else:
+        windows = rolling_validation.build_rolling_window_specs(
+            len(trajectory_data),
+            initial_observation_count=experiment.observation_count,
+            prediction_count=experiment.prediction_count,
+            stride=experiment.stride,
+            window_mode=experiment.window_mode,
+        )
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
             raise ValueError("max_windows must be a positive integer or None.")
@@ -143,16 +154,21 @@ def _run_evaluation(
         experiment.prediction_count if experiment.stride is None else experiment.stride
     )
     print("=" * 72)
-    print("Parametric Bayesian CTRV Rolling-Window Evaluation")
+    print("Parametric Bayesian CTRV Rolling Evaluation")
     print("=" * 72)
     print(f"Data file             : {data_file}")
     print(f"Run ID                : {experiment.run_id}")
-    print(f"Window mode           : {experiment.window_mode}")
-    print(f"Initial observations  : {experiment.observation_count}")
+    print("Model                 : Bayesian CTRV")
+    print(f"Inference mode        : {experiment.inference_mode.upper()}")
+    print(f"Inference method      : {inference_method.upper()}")
+    if online_mode:
+        print(f"Initial observations  : {experiment.observation_count}")
+    else:
+        print(f"Window mode           : {experiment.window_mode.upper()}")
+        print(f"Observations/window   : {experiment.observation_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
-    print(f"Rolling windows       : {len(windows)}")
-    print(f"Inference method      : {inference_method.upper()}")
+    print(f"Forecast origins      : {len(windows)}")
     noise_description = (
         f"{experiment.position_noise_std_m:g} m (seed={experiment.position_noise_seed})"
         if experiment.position_noise_std_m > 0
@@ -185,20 +201,19 @@ def _run_evaluation(
         f"{priors.sigma_position_observation_prior_tail_probability:g})"
     )
     print("Prior status          : ship-independent domain assumptions")
-    if sequential_mode:
-        print(f"Particles             : {sequential_config.particle_count}")
-        print(f"Posterior draws       : {sequential_config.posterior_draw_count}")
+    if online_mode:
+        print(f"Particles             : {rbpf_config.particle_count}")
+        print(f"Posterior draws       : {rbpf_config.posterior_draw_count}")
         print(
             "Resampling ESS        : "
-            f"{sequential_config.resample_ess_fraction:.0%} of particles"
+            f"{rbpf_config.resample_ess_fraction:.0%} of particles"
         )
         print(
-            "Parameter rejuvenation: Liu-West scale "
-            f"{sequential_config.rejuvenation_scale:g}"
+            f"Parameter rejuvenation: Liu-West scale {rbpf_config.rejuvenation_scale:g}"
         )
         print(
             "Dynamic-state interval: "
-            f"{sequential_config.process_reference_interval_seconds:g} s"
+            f"{rbpf_config.process_reference_interval_seconds:g} s"
         )
         print(
             "Speed-process prior   : Exponential("
@@ -218,7 +233,7 @@ def _run_evaluation(
 
     prediction_tables = []
     posterior_plot_groups = []
-    sequential_filter = None
+    online_filter = None
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
@@ -238,40 +253,26 @@ def _run_evaluation(
             noise_seed=experiment.position_noise_seed,
         )
         print(
-            f"\nWindow {number}/{len(windows)}: "
+            f"\n{'Forecast' if online_mode else 'Window'} {number}/{len(windows)}: "
             f"observations={specification.observation_count}, "
             f"predictions={specification.prediction_count}, seed={window_seed}"
         )
         runtime_started = time.perf_counter()
-        if sequential_mode:
-            if sequential_filter is None:
-                observed_stop_index = specification.forecast_start_index
-                sequential_filter = (
-                    bayesian_model.SequentialBayesianCTRVFilter.initialize(
-                        route_time_seconds[:observed_stop_index],
-                        noisy_route_x[:observed_stop_index],
-                        noisy_route_y[:observed_stop_index],
-                        priors=priors,
-                        config=sequential_config,
-                        seed=experiment.inference_seed,
-                    )
-                )
-            else:
-                update_start_index = sequential_filter.processed_observation_count
-                update_stop_index = specification.forecast_start_index
-                if update_start_index > update_stop_index:
-                    raise RuntimeError(
-                        "Sequential windows must advance monotonically without reset."
-                    )
-                sequential_filter.update_many(
-                    route_time_seconds[update_start_index:update_stop_index],
-                    noisy_route_x[update_start_index:update_stop_index],
-                    noisy_route_y[update_start_index:update_stop_index],
-                )
+        if online_mode:
+            online_filter = _advance_online_filter(
+                online_filter,
+                specification=specification,
+                route_time_seconds=route_time_seconds,
+                noisy_route_x=noisy_route_x,
+                noisy_route_y=noisy_route_y,
+                priors=priors,
+                rbpf_config=rbpf_config,
+                inference_seed=experiment.inference_seed,
+            )
             prediction_stop_index = (
                 specification.forecast_start_index + specification.prediction_count
             )
-            fit = sequential_filter.forecast(
+            fit = online_filter.forecast(
                 route_time_seconds[
                     specification.forecast_start_index : prediction_stop_index
                 ],
@@ -297,15 +298,15 @@ def _run_evaluation(
         else:
             converged = None
             mcmc_diagnostics_ok = None
-            latest_update_ess = sequential_filter.last_effective_sample_size
+            latest_update_ess = online_filter.last_effective_sample_size
             if latest_update_ess is None:
-                latest_update_ess = sequential_filter.effective_sample_size
+                latest_update_ess = online_filter.effective_sample_size
             inference_status = (
-                "sequential posterior "
-                f"processed={sequential_filter.processed_observation_count}, "
+                "RBPF posterior "
+                f"processed={online_filter.processed_observation_count}, "
                 f"latest-update ESS={latest_update_ess:.0f}/"
-                f"{sequential_config.particle_count}, "
-                f"resamples={sequential_filter.resample_count}"
+                f"{rbpf_config.particle_count}, "
+                f"resamples={online_filter.resample_count}"
             )
 
         evaluation = metrics.evaluate_position_predictions(
@@ -323,6 +324,7 @@ def _run_evaluation(
             route_y=route_y,
             longitude=longitude,
             latitude=latitude,
+            inference_mode=experiment.inference_mode,
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
@@ -378,6 +380,7 @@ def _run_evaluation(
         route_y,
         posterior_plot_groups,
         initial_observation_count=experiment.observation_count,
+        inference_mode=experiment.inference_mode,
         window_mode=experiment.window_mode,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         sample_seed=experiment.inference_seed,
@@ -393,6 +396,42 @@ def _run_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _advance_online_filter(
+    online_filter,
+    *,
+    specification,
+    route_time_seconds,
+    noisy_route_x,
+    noisy_route_y,
+    priors,
+    rbpf_config,
+    inference_seed,
+):
+    """Initialize once or update one persistent CTRV RBPF with new positions."""
+    update_stop_index = specification.forecast_start_index
+    if online_filter is None:
+        return bayesian_model.SequentialBayesianCTRVFilter.initialize(
+            route_time_seconds[:update_stop_index],
+            noisy_route_x[:update_stop_index],
+            noisy_route_y[:update_stop_index],
+            priors=priors,
+            config=rbpf_config,
+            seed=inference_seed,
+        )
+
+    update_start_index = online_filter.processed_observation_count
+    if update_start_index > update_stop_index:
+        raise RuntimeError(
+            "Online forecast origins must advance monotonically without reset."
+        )
+    online_filter.update_many(
+        route_time_seconds[update_start_index:update_stop_index],
+        noisy_route_x[update_start_index:update_stop_index],
+        noisy_route_y[update_start_index:update_stop_index],
+    )
+    return online_filter
 
 
 def _fit_window(
@@ -529,6 +568,7 @@ def _build_route_prediction_table(
     route_y,
     longitude,
     latitude,
+    inference_mode,
     inference_method,
     converged,
     mcmc_diagnostics_ok,
@@ -563,6 +603,7 @@ def _build_route_prediction_table(
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
+    table["inference_mode"] = inference_mode
     table["inference_method"] = inference_method
     table["model_variant"] = "bayesian"
     table["converged"] = converged
@@ -606,10 +647,10 @@ def _prepare_route_coordinates(trajectory_data):
 
 
 def _prepare_route_time_seconds(trajectory_data):
-    """Return finite increasing route timestamps relative to the first point."""
+    """Return increasing route times required for online RBPF updates."""
     timestamps = pd.to_datetime(trajectory_data["time"], utc=True, errors="coerce")
     if timestamps.isna().any():
-        raise ValueError("Trajectory timestamps must be valid for sequential updates.")
+        raise ValueError("Trajectory timestamps must be valid for online RBPF updates.")
     time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
     if (
         not np.all(np.isfinite(time_seconds))
@@ -695,8 +736,14 @@ def _print_summary(summary, *, credible_interval):
     print("\n" + "=" * 72)
     print("Complete rolling evaluation")
     print("=" * 72)
+    evaluation_count_label = (
+        "Forecast origins"
+        if summary.inference_mode == "online"
+        else "Evaluated windows"
+    )
     rows = [
-        ("Evaluated windows", str(summary.window_count)),
+        (evaluation_count_label, str(summary.window_count)),
+        ("Inference mode", summary.inference_mode.upper()),
         ("Inference method", summary.inference_method.upper()),
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),

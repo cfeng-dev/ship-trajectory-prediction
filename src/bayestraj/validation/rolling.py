@@ -6,6 +6,8 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+import bayestraj.forecasting.inference as inference
+
 WindowMode = Literal["sliding", "expanding"]
 
 
@@ -24,6 +26,7 @@ class RollingWindowSpec:
 class RollingPositionSummary:
     """Aggregate position metrics over multiple rolling forecast windows."""
 
+    inference_mode: str
     inference_method: str
     window_count: int
     forecast_count: int
@@ -185,6 +188,58 @@ def build_rolling_window_specs(
     return tuple(windows)
 
 
+def build_online_forecast_specs(
+    row_count: int,
+    *,
+    initial_observation_count: int,
+    prediction_count: int,
+    stride: int | None = None,
+) -> tuple[RollingWindowSpec, ...]:
+    """Return forecast origins for one persistent online posterior.
+
+    The growing observation counts describe how many route positions have
+    arrived at each forecast origin. They do not request repeated batch refits.
+    """
+    row_count = _positive_integer(row_count, name="row_count")
+    initial_observation_count = _positive_integer(
+        initial_observation_count,
+        name="initial_observation_count",
+    )
+    prediction_count = _positive_integer(
+        prediction_count,
+        name="prediction_count",
+    )
+    if stride is None:
+        stride = prediction_count
+    stride = _positive_integer(stride, name="stride")
+    if initial_observation_count >= row_count:
+        raise ValueError(
+            "row_count must exceed initial_observation_count so that at least "
+            "one future position can be predicted."
+        )
+    if stride > prediction_count:
+        raise ValueError(
+            "stride must be less than or equal to prediction_count to avoid "
+            "gaps in trajectory coverage."
+        )
+
+    return tuple(
+        RollingWindowSpec(
+            window_index=window_index,
+            forecast_start_index=forecast_start_index,
+            start_index=0,
+            observation_count=forecast_start_index,
+            prediction_count=min(
+                prediction_count,
+                row_count - forecast_start_index,
+            ),
+        )
+        for window_index, forecast_start_index in enumerate(
+            range(initial_observation_count, row_count, stride)
+        )
+    )
+
+
 def summarize_rolling_predictions(
     prediction_table: pd.DataFrame,
 ) -> RollingPositionSummary:
@@ -197,6 +252,7 @@ def summarize_rolling_predictions(
         "prediction_radius_m",
         "radial_covered",
         "mean_marginal_interval_width_m",
+        "inference_mode",
         "inference_method",
         "converged",
         "mcmc_diagnostics_ok",
@@ -243,14 +299,16 @@ def summarize_rolling_predictions(
         )
         .reset_index(drop=True)
     )
+    inference_modes = prediction_table["inference_mode"].dropna().unique()
     inference_methods = prediction_table["inference_method"].dropna().unique()
-    if len(inference_methods) != 1 or inference_methods[0] not in {
-        "vi",
-        "mcmc",
-        "sequential",
-    }:
+    if len(inference_modes) != 1:
+        raise ValueError("inference_mode must contain exactly one supported value.")
+    if len(inference_methods) != 1:
         raise ValueError("inference_method must contain exactly one supported value.")
-    inference_method = str(inference_methods[0])
+    inference_mode, inference_method = inference.normalize_inference_configuration(
+        str(inference_modes[0]),
+        str(inference_methods[0]),
+    )
     runtime_summary = summarize_window_runtimes(prediction_table)
     diagnostics_by_window = prediction_table.groupby("window_index")[
         [
@@ -277,6 +335,7 @@ def summarize_rolling_predictions(
         mcmc_diagnostics_pass_rate = None
 
     return RollingPositionSummary(
+        inference_mode=inference_mode,
         inference_method=inference_method,
         window_count=int(prediction_table["window_index"].nunique()),
         forecast_count=len(prediction_table),

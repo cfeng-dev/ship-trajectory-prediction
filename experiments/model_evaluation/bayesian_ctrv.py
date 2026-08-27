@@ -13,13 +13,13 @@ DATA_FILE = paths.data_path(
 
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=102,
-    window_mode="sequential",
     observation_count=5,
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=None,
-    inference_method="vi",
+    inference_mode="online",  # Choose "batch" or "online".
+    inference_method="rbpf",  # Batch: "vi"/"mcmc"; online: "rbpf".
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
@@ -39,7 +39,7 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
-SEQUENTIAL_CONFIG = bayesian_model.SequentialCTRVFilterConfig(
+RBPF_CONFIG = bayesian_model.SequentialCTRVFilterConfig(
     particle_count=4_000,
     posterior_draw_count=1_000,
     resample_ess_fraction=0.5,
@@ -70,7 +70,7 @@ def main(argv=None):
         priors=PRIORS,
         vi_config=VI_CONFIG,
         mcmc_config=MCMC_CONFIG,
-        sequential_config=SEQUENTIAL_CONFIG,
+        rbpf_config=RBPF_CONFIG,
         fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,

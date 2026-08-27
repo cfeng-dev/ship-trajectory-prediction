@@ -38,7 +38,15 @@ def _parse_bayesian_prediction_arguments(
     """Parse common Bayesian single-window options."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
+        "--inference-mode",
+        choices=("batch",),
+        default=experiment.inference_mode,
+        help="Single-window predictions use batch inference.",
+    )
+    parser.add_argument(
+        "--inference-method",
         "--inference",
+        dest="inference_method",
         choices=("vi", "mcmc"),
         default=experiment.inference_method,
     )

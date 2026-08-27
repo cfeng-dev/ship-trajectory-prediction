@@ -20,6 +20,7 @@ from bayestraj.validation.reporting import print_prediction_setup
 from bayestraj.validation.rolling import (
     RollingPositionSummary,
     RollingWindowSpec,
+    build_online_forecast_specs,
     build_rolling_window_specs,
     summarize_rolling_predictions,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "RollingPositionSummary",
     "RollingPosteriorPlotData",
     "RollingWindowSpec",
+    "build_online_forecast_specs",
     "build_rolling_window_specs",
     "evaluate_position_predictions",
     "format_position_evaluation",

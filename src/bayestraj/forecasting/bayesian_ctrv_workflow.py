@@ -25,6 +25,7 @@ def run_bayesian_ctrv_prediction(
     mcmc_config: Mapping[str, Any],
     fullrank_grad_samples: int,
     credible_interval: float,
+    inference_mode: str,
     inference_method: str,
     vi_algorithm: str,
     seed: int,
@@ -35,7 +36,12 @@ def run_bayesian_ctrv_prediction(
     show_time_labels: bool,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
+    inference_mode, inference_method = inference.normalize_inference_configuration(
+        inference_mode,
+        inference_method,
+    )
     inference_method, inference_config = inference.select_inference_config(
+        inference_mode,
         inference_method,
         vi_algorithm=vi_algorithm,
         require_converged=require_converged,
@@ -82,6 +88,7 @@ def run_bayesian_ctrv_prediction(
                     "sigma_position_observation"
                 ),
             ),
+            ("Inference mode", inference_mode.upper()),
             ("Inference method", inference_method.upper()),
             ("Inference seed", seed),
             (

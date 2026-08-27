@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
+import bayestraj.forecasting.inference as inference
 import bayestraj.validation.prediction_plotting as prediction_plotting
 
 
@@ -18,8 +19,20 @@ class ExperimentConfig:
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int
+    inference_mode: str
     inference_method: str
     inference_seed: int
+
+    def __post_init__(self) -> None:
+        """Require the batch inference supported by single-window fitting."""
+        inference_mode, inference_method = inference.normalize_inference_configuration(
+            self.inference_mode,
+            self.inference_method,
+        )
+        if inference_mode != "batch":
+            raise ValueError("Single-window prediction supports batch inference only.")
+        object.__setattr__(self, "inference_mode", inference_mode)
+        object.__setattr__(self, "inference_method", inference_method)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,24 +40,38 @@ class RollingExperimentConfig:
     """Configuration of one rolling latent-position model evaluation."""
 
     run_id: int
-    window_mode: str
     observation_count: int
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
+    inference_mode: str
     inference_method: str
     inference_seed: int
+    window_mode: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate inference selection and its batch-only window mode."""
+        inference_mode, inference_method, window_mode = (
+            inference.normalize_rolling_inference_configuration(
+                self.inference_mode,
+                self.inference_method,
+                self.window_mode,
+            )
+        )
+        object.__setattr__(self, "inference_mode", inference_mode)
+        object.__setattr__(self, "inference_method", inference_method)
+        object.__setattr__(self, "window_mode", window_mode)
 
 
 @dataclass(frozen=True, slots=True)
 class EvaluationOptions:
     """Runtime overrides for one rolling position-model evaluation."""
 
-    window_mode: str
     observation_count: int
     prediction_count: int
     stride: int | None
+    inference_mode: str
     inference_method: str
     vi_algorithm: str
     inference_seed: int
@@ -53,6 +80,20 @@ class EvaluationOptions:
     require_converged: bool
     max_windows: int | None
     plot_each_window: bool
+    window_mode: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate inference selection and its batch-only window mode."""
+        inference_mode, inference_method, window_mode = (
+            inference.normalize_rolling_inference_configuration(
+                self.inference_mode,
+                self.inference_method,
+                self.window_mode,
+            )
+        )
+        object.__setattr__(self, "inference_mode", inference_mode)
+        object.__setattr__(self, "inference_method", inference_method)
+        object.__setattr__(self, "window_mode", window_mode)
 
 
 def parse_prediction_arguments(
@@ -72,7 +113,15 @@ def parse_prediction_arguments(
         help="Use this many observed positions; at least 5 are required.",
     )
     parser.add_argument(
+        "--inference-mode",
+        choices=("batch",),
+        default=experiment.inference_mode,
+        help="Single-window predictions use batch inference.",
+    )
+    parser.add_argument(
+        "--inference-method",
         "--inference",
+        dest="inference_method",
         choices=("vi", "mcmc"),
         default=experiment.inference_method,
     )
@@ -119,8 +168,9 @@ def parse_evaluation_arguments(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
-        choices=("sliding", "expanding", "sequential"),
-        default=experiment.window_mode,
+        choices=inference.WINDOW_MODES,
+        default=None,
+        help="Batch-only evaluation history: fixed sliding or growing expanding.",
     )
     parser.add_argument(
         "--observations", type=int, default=experiment.observation_count
@@ -128,8 +178,18 @@ def parse_evaluation_arguments(
     parser.add_argument("--predictions", type=int, default=experiment.prediction_count)
     parser.add_argument("--stride", type=int, default=experiment.stride)
     parser.add_argument(
+        "--inference-mode",
+        choices=inference.INFERENCE_MODES,
+        default=experiment.inference_mode,
+    )
+    parser.add_argument(
+        "--inference-method",
         "--inference",
-        choices=("vi", "mcmc"),
+        dest="inference_method",
+        choices=(
+            *inference.BATCH_INFERENCE_METHODS,
+            *inference.ONLINE_INFERENCE_METHODS,
+        ),
         default=experiment.inference_method,
     )
     parser.add_argument(
@@ -160,17 +220,24 @@ def parse_evaluation_arguments(
         default=plot_each_window,
     )
     arguments = parser.parse_args(argv)
-    return EvaluationOptions(
-        window_mode=arguments.window_mode,
-        observation_count=arguments.observations,
-        prediction_count=arguments.predictions,
-        stride=arguments.stride,
-        inference_method=arguments.inference,
-        vi_algorithm=arguments.vi_algorithm,
-        inference_seed=arguments.seed,
-        position_noise_std_m=arguments.position_noise_std_m,
-        position_noise_seed=arguments.position_noise_seed,
-        require_converged=arguments.require_converged,
-        max_windows=arguments.max_windows,
-        plot_each_window=arguments.plot_each_window,
-    )
+    window_mode = arguments.window_mode
+    if arguments.inference_mode == "batch" and window_mode is None:
+        window_mode = experiment.window_mode
+    try:
+        return EvaluationOptions(
+            window_mode=window_mode,
+            observation_count=arguments.observations,
+            prediction_count=arguments.predictions,
+            stride=arguments.stride,
+            inference_mode=arguments.inference_mode,
+            inference_method=arguments.inference_method,
+            vi_algorithm=arguments.vi_algorithm,
+            inference_seed=arguments.seed,
+            position_noise_std_m=arguments.position_noise_std_m,
+            position_noise_seed=arguments.position_noise_seed,
+            require_converged=arguments.require_converged,
+            max_windows=arguments.max_windows,
+            plot_each_window=arguments.plot_each_window,
+        )
+    except ValueError as error:
+        parser.error(str(error))

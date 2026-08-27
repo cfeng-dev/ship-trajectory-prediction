@@ -28,7 +28,8 @@ def plot_bayesian_rolling_predictions(
     posterior_plot_groups,
     *,
     initial_observation_count,
-    window_mode,
+    inference_mode,
+    window_mode=None,
     sample_trajectories_per_forecast=(DEFAULT_SAMPLE_TRAJECTORIES_PER_FORECAST),
     sample_seed=42,
     observed_route_x=None,
@@ -40,7 +41,10 @@ def plot_bayesian_rolling_predictions(
     show_time_labels=False,
 ):
     """Plot rolling Bayesian paths and posterior-predictive uncertainty."""
-    window_mode_label = _window_mode_label(window_mode)
+    evaluation_mode_label = _bayesian_evaluation_mode_label(
+        inference_mode,
+        window_mode,
+    )
     posterior_plot_groups = tuple(posterior_plot_groups)
     if not posterior_plot_groups:
         raise ValueError("posterior_plot_groups must not be empty.")
@@ -69,7 +73,9 @@ def plot_bayesian_rolling_predictions(
     )
 
     title = (
-        f"{title_prefix} ({window_mode_label})" if title_prefix is not None else None
+        f"{title_prefix} ({evaluation_mode_label})"
+        if title_prefix is not None
+        else None
     )
     figure, axis = prediction_plotting.plot_trajectory_paths(
         observed_path=(
@@ -220,9 +226,17 @@ def _window_mode_label(window_mode):
         return {
             "sliding": "gleitendes Fenster",
             "expanding": "wachsendes Fenster",
-            "sequential": "sequenzielle Aktualisierung",
         }[window_mode]
     except (KeyError, TypeError) as error:
-        raise ValueError(
-            "window_mode must be 'sliding', 'expanding', or 'sequential'."
-        ) from error
+        raise ValueError("window_mode must be 'sliding' or 'expanding'.") from error
+
+
+def _bayesian_evaluation_mode_label(inference_mode, window_mode):
+    """Return a plot label without treating online inference as a window mode."""
+    if inference_mode == "online":
+        if window_mode is not None:
+            raise ValueError("Online inference does not use a window mode.")
+        return "Online-Inferenz mit RBPF"
+    if inference_mode == "batch":
+        return f"Batch-Inferenz, {_window_mode_label(window_mode)}"
+    raise ValueError("inference_mode must be 'batch' or 'online'.")

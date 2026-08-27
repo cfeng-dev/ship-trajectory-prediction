@@ -23,6 +23,7 @@ def run_bayesian_position_prediction(
     fullrank_grad_samples,
     credible_interval,
     observation_count,
+    inference_mode,
     inference_method,
     vi_algorithm,
     seed,
@@ -33,7 +34,12 @@ def run_bayesian_position_prediction(
     show_time_labels,
 ):
     """Fit and evaluate one latent-position measurement-error forecast."""
+    inference_mode, inference_method = inference.normalize_inference_configuration(
+        inference_mode,
+        inference_method,
+    )
     inference_method, inference_config = inference.select_inference_config(
+        inference_mode,
         inference_method,
         vi_algorithm=vi_algorithm,
         require_converged=require_converged,
@@ -72,6 +78,7 @@ def run_bayesian_position_prediction(
                 ("Observed positions", window.observation_count),
                 ("Prediction positions", window.prediction_count),
                 ("Sampling interval", f"{_sampling_interval(window):g} s"),
+                ("Inference mode", inference_mode.upper()),
                 ("Inference method", inference_method.upper()),
                 ("Position-only input", "yes"),
                 (

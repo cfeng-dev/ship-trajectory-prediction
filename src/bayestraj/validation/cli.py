@@ -7,6 +7,7 @@ from typing import Any
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.forecasting.deterministic_ctrv as deterministic_forecasting
+import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 
@@ -14,10 +15,10 @@ import bayestraj.models.bayesian_ctrv as bayesian_model
 class BayesianCTRVEvaluationOptions:
     """Runtime overrides for one parametric Bayesian CTRV evaluation."""
 
-    window_mode: str
     observation_count: int
     prediction_count: int
     stride: int | None
+    inference_mode: str
     inference_method: str
     vi_algorithm: str
     turn_rate_prior_abs_heading_change_deg: float
@@ -27,6 +28,20 @@ class BayesianCTRVEvaluationOptions:
     require_converged: bool
     max_windows: int | None
     plot_each_window: bool
+    window_mode: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate inference selection and its batch-only window mode."""
+        inference_mode, inference_method, window_mode = (
+            inference.normalize_rolling_inference_configuration(
+                self.inference_mode,
+                self.inference_method,
+                self.window_mode,
+            )
+        )
+        object.__setattr__(self, "inference_mode", inference_mode)
+        object.__setattr__(self, "inference_method", inference_method)
+        object.__setattr__(self, "window_mode", window_mode)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -57,12 +72,9 @@ def parse_bayesian_ctrv_evaluation_arguments(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--window-mode",
-        choices=("sliding", "expanding", "sequential"),
-        default=experiment.window_mode,
-        help=(
-            "Use fixed or growing refits, or update one persistent sequential "
-            "posterior without reusing observations."
-        ),
+        choices=inference.WINDOW_MODES,
+        default=None,
+        help="Batch-only evaluation history: fixed sliding or growing expanding.",
     )
     parser.add_argument(
         "--observations",
@@ -81,10 +93,21 @@ def parse_bayesian_ctrv_evaluation_arguments(
         help="Forecast-origin step; defaults to the prediction horizon.",
     )
     parser.add_argument(
+        "--inference-mode",
+        choices=inference.INFERENCE_MODES,
+        default=experiment.inference_mode,
+        help="Use independent batch fits or one persistent online posterior.",
+    )
+    parser.add_argument(
+        "--inference-method",
         "--inference",
-        choices=("vi", "mcmc"),
+        dest="inference_method",
+        choices=(
+            *inference.BATCH_INFERENCE_METHODS,
+            *inference.ONLINE_INFERENCE_METHODS,
+        ),
         default=experiment.inference_method,
-        help="Fast variational inference or reference MCMC for every window.",
+        help="Batch: VI/MCMC. Online: Rao-Blackwellized Particle Filter (RBPF).",
     )
     parser.add_argument(
         "--vi-algorithm",
@@ -132,23 +155,30 @@ def parse_bayesian_ctrv_evaluation_arguments(
         help="Show each fitted window and continue after its plot is closed.",
     )
     arguments = parser.parse_args(argv)
-    return BayesianCTRVEvaluationOptions(
-        window_mode=arguments.window_mode,
-        observation_count=arguments.observations,
-        prediction_count=arguments.predictions,
-        stride=arguments.stride,
-        inference_method=arguments.inference,
-        vi_algorithm=arguments.vi_algorithm,
-        turn_rate_prior_abs_heading_change_deg=(
-            arguments.turn_rate_prior_abs_heading_change_deg
-        ),
-        inference_seed=arguments.seed,
-        position_noise_std_m=arguments.position_noise_std_m,
-        position_noise_seed=arguments.position_noise_seed,
-        require_converged=arguments.require_converged,
-        max_windows=arguments.max_windows,
-        plot_each_window=arguments.plot_each_window,
-    )
+    window_mode = arguments.window_mode
+    if arguments.inference_mode == "batch" and window_mode is None:
+        window_mode = experiment.window_mode
+    try:
+        return BayesianCTRVEvaluationOptions(
+            window_mode=window_mode,
+            observation_count=arguments.observations,
+            prediction_count=arguments.predictions,
+            stride=arguments.stride,
+            inference_mode=arguments.inference_mode,
+            inference_method=arguments.inference_method,
+            vi_algorithm=arguments.vi_algorithm,
+            turn_rate_prior_abs_heading_change_deg=(
+                arguments.turn_rate_prior_abs_heading_change_deg
+            ),
+            inference_seed=arguments.seed,
+            position_noise_std_m=arguments.position_noise_std_m,
+            position_noise_seed=arguments.position_noise_seed,
+            require_converged=arguments.require_converged,
+            max_windows=arguments.max_windows,
+            plot_each_window=arguments.plot_each_window,
+        )
+    except ValueError as error:
+        parser.error(str(error))
 
 
 def parse_deterministic_ctrv_evaluation_arguments(

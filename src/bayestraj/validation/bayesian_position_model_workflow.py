@@ -37,7 +37,7 @@ def run_bayesian_position_evaluation(
     priors,
     vi_config,
     mcmc_config,
-    sequential_config,
+    rbpf_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -51,24 +51,26 @@ def run_bayesian_position_evaluation(
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
         stride=options.stride,
+        inference_mode=options.inference_mode,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
         position_noise_std_m=options.position_noise_std_m,
         position_noise_seed=options.position_noise_seed,
     )
-    sequential_mode = configured_experiment.window_mode == "sequential"
-    if not isinstance(
-        sequential_config,
+    online_mode = configured_experiment.inference_mode == "online"
+    if online_mode and not isinstance(
+        rbpf_config,
         position_model.SequentialPositionFilterConfig,
     ):
         raise TypeError(
-            "sequential_config must be a SequentialPositionFilterConfig instance."
+            "rbpf_config must be a SequentialPositionFilterConfig instance."
         )
-    if sequential_mode:
-        inference_method = "sequential"
+    if online_mode:
+        inference_method = configured_experiment.inference_method
         inference_config = {}
     else:
         inference_method, inference_config = inference.select_inference_config(
+            configured_experiment.inference_mode,
             configured_experiment.inference_method,
             vi_algorithm=options.vi_algorithm,
             require_converged=options.require_converged,
@@ -88,15 +90,21 @@ def run_bayesian_position_evaluation(
         raise ValueError(
             f"No trajectory rows found for run_id={configured_experiment.run_id}."
         )
-    windows = rolling.build_rolling_window_specs(
-        len(trajectory_data),
-        initial_observation_count=configured_experiment.observation_count,
-        prediction_count=configured_experiment.prediction_count,
-        stride=configured_experiment.stride,
-        window_mode=(
-            "expanding" if sequential_mode else configured_experiment.window_mode
-        ),
-    )
+    if online_mode:
+        windows = rolling.build_online_forecast_specs(
+            len(trajectory_data),
+            initial_observation_count=configured_experiment.observation_count,
+            prediction_count=configured_experiment.prediction_count,
+            stride=configured_experiment.stride,
+        )
+    else:
+        windows = rolling.build_rolling_window_specs(
+            len(trajectory_data),
+            initial_observation_count=configured_experiment.observation_count,
+            prediction_count=configured_experiment.prediction_count,
+            stride=configured_experiment.stride,
+            window_mode=configured_experiment.window_mode,
+        )
     if options.max_windows is not None:
         if isinstance(options.max_windows, bool) or options.max_windows < 1:
             raise ValueError("max_windows must be a positive integer or None.")
@@ -104,7 +112,7 @@ def run_bayesian_position_evaluation(
 
     route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
     sampling_interval_seconds = None
-    if sequential_mode:
+    if online_mode:
         sampling_interval_seconds = _validate_regular_route_times(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
@@ -117,11 +125,10 @@ def run_bayesian_position_evaluation(
             "Bayesian latent-position autoregressive measurement-error model",
         ),
         ("Run ID", configured_experiment.run_id),
-        ("Window mode", configured_experiment.window_mode),
-        ("Initial observations", configured_experiment.observation_count),
-        ("Prediction positions", configured_experiment.prediction_count),
-        ("Rolling windows", len(windows)),
+        ("Inference mode", configured_experiment.inference_mode.upper()),
         ("Inference method", inference_method.upper()),
+        ("Prediction positions", configured_experiment.prediction_count),
+        ("Forecast origins", len(windows)),
         (
             "Displacement-scale prior",
             _displacement_scale_prior_description(priors),
@@ -149,33 +156,42 @@ def run_bayesian_position_evaluation(
             ),
         ),
     ]
-    if sequential_mode:
+    if online_mode:
+        setup_rows.insert(
+            4,
+            ("Initial observations", configured_experiment.observation_count),
+        )
         setup_rows.extend(
             [
                 ("Sampling interval", f"{sampling_interval_seconds:g} s"),
-                ("Particles", sequential_config.particle_count),
-                ("Posterior draws", sequential_config.posterior_draw_count),
+                ("Particles", rbpf_config.particle_count),
+                ("Posterior draws", rbpf_config.posterior_draw_count),
                 (
                     "Resampling ESS",
-                    f"{sequential_config.resample_ess_fraction:.0%} of particles",
+                    f"{rbpf_config.resample_ess_fraction:.0%} of particles",
                 ),
                 (
                     "Parameter rejuvenation",
-                    f"Liu-West scale {sequential_config.rejuvenation_scale:g}",
+                    f"Liu-West scale {rbpf_config.rejuvenation_scale:g}",
                 ),
             ]
         )
+    else:
+        setup_rows[4:4] = [
+            ("Window mode", configured_experiment.window_mode.upper()),
+            ("Observations/window", configured_experiment.observation_count),
+        ]
     print(reporting.format_aligned_rows(setup_rows))
 
     prediction_tables = []
     posterior_groups = []
-    sequential_filter = None
+    online_filter = None
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
         window_seed = configured_experiment.inference_seed + specification.window_index
         print(
-            f"Window {number}/{len(windows)}: "
+            f"{'Forecast' if online_mode else 'Window'} {number}/{len(windows)}: "
             f"observations={specification.observation_count}, "
             f"predictions={specification.prediction_count}"
         )
@@ -194,29 +210,17 @@ def run_bayesian_position_evaluation(
             noise_seed=configured_experiment.position_noise_seed,
         )
         runtime_started = time.perf_counter()
-        if sequential_mode:
-            if sequential_filter is None:
-                sequential_filter = (
-                    position_model.SequentialBayesianPositionFilter.initialize(
-                        noisy_route_x[: specification.forecast_start_index],
-                        noisy_route_y[: specification.forecast_start_index],
-                        priors=priors,
-                        config=sequential_config,
-                        seed=configured_experiment.inference_seed,
-                    )
-                )
-            else:
-                update_start_index = sequential_filter.processed_observation_count
-                update_stop_index = specification.forecast_start_index
-                if update_start_index > update_stop_index:
-                    raise RuntimeError(
-                        "Sequential windows must advance monotonically without reset."
-                    )
-                sequential_filter.update_many(
-                    noisy_route_x[update_start_index:update_stop_index],
-                    noisy_route_y[update_start_index:update_stop_index],
-                )
-            fit = sequential_filter.forecast(
+        if online_mode:
+            online_filter = _advance_online_filter(
+                online_filter,
+                specification=specification,
+                noisy_route_x=noisy_route_x,
+                noisy_route_y=noisy_route_y,
+                priors=priors,
+                rbpf_config=rbpf_config,
+                inference_seed=configured_experiment.inference_seed,
+            )
+            fit = online_filter.forecast(
                 specification.prediction_count,
                 seed=1_000_000 + window_seed,
             )
@@ -271,6 +275,7 @@ def run_bayesian_position_evaluation(
             route_y=route_y,
             longitude=longitude,
             latitude=latitude,
+            inference_mode=configured_experiment.inference_mode,
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
@@ -300,13 +305,13 @@ def run_bayesian_position_evaluation(
             f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
             f"runtime={window_runtime_seconds:.3f} s"
         )
-        if sequential_filter is not None:
+        if online_filter is not None:
             print(
-                "  Sequential posterior: "
-                f"processed={sequential_filter.processed_observation_count}, "
-                f"ESS={sequential_filter.effective_sample_size:.0f}/"
-                f"{sequential_config.particle_count}, "
-                f"resamples={sequential_filter.resample_count}"
+                "  RBPF posterior: "
+                f"processed={online_filter.processed_observation_count}, "
+                f"ESS={online_filter.effective_sample_size:.0f}/"
+                f"{rbpf_config.particle_count}, "
+                f"resamples={online_filter.resample_count}"
             )
         if options.plot_each_window:
             figure, _ = prediction_plotting.plot_prediction(
@@ -340,7 +345,6 @@ def run_bayesian_position_evaluation(
         route_y,
         posterior_groups,
         initial_observation_count=configured_experiment.observation_count,
-        window_mode=configured_experiment.window_mode,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         sample_seed=configured_experiment.inference_seed,
         observed_route_x=route_x + route_noise_x,
@@ -353,6 +357,39 @@ def run_bayesian_position_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _advance_online_filter(
+    online_filter,
+    *,
+    specification,
+    noisy_route_x,
+    noisy_route_y,
+    priors,
+    rbpf_config,
+    inference_seed,
+):
+    """Initialize once or update one persistent position RBPF with new points."""
+    update_stop_index = specification.forecast_start_index
+    if online_filter is None:
+        return position_model.SequentialBayesianPositionFilter.initialize(
+            noisy_route_x[:update_stop_index],
+            noisy_route_y[:update_stop_index],
+            priors=priors,
+            config=rbpf_config,
+            seed=inference_seed,
+        )
+
+    update_start_index = online_filter.processed_observation_count
+    if update_start_index > update_stop_index:
+        raise RuntimeError(
+            "Online forecast origins must advance monotonically without reset."
+        )
+    online_filter.update_many(
+        noisy_route_x[update_start_index:update_stop_index],
+        noisy_route_y[update_start_index:update_stop_index],
+    )
+    return online_filter
 
 
 def _prepare_route_coordinates(trajectory_data):
@@ -372,7 +409,7 @@ def _prepare_route_coordinates(trajectory_data):
 
 
 def _validate_regular_route_times(trajectory_data) -> float:
-    """Require one fixed sampling interval for sequential displacement updates."""
+    """Require one fixed sampling interval for online RBPF displacement updates."""
     timestamps = pd.to_datetime(trajectory_data["time"], utc=True)
     time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
     time_steps = np.diff(time_seconds)
@@ -388,8 +425,7 @@ def _validate_regular_route_times(trajectory_data) -> float:
         )
     ):
         raise ValueError(
-            "Sequential Bayesian position filtering requires one regular "
-            "sampling interval."
+            "Online RBPF position filtering requires one regular sampling interval."
         )
     return float(time_steps[0])
 
@@ -448,6 +484,7 @@ def _build_route_prediction_table(
     route_y,
     longitude,
     latitude,
+    inference_mode,
     inference_method,
     converged,
     mcmc_diagnostics_ok,
@@ -483,6 +520,7 @@ def _build_route_prediction_table(
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
     table["prediction_count"] = specification.prediction_count
+    table["inference_mode"] = inference_mode
     table["inference_method"] = inference_method
     table["model_variant"] = "bayesian_position_model"
     table["converged"] = converged
@@ -583,7 +621,6 @@ def _plot_rolling_predictions(
     posterior_groups,
     *,
     initial_observation_count,
-    window_mode,
     sample_trajectories_per_forecast,
     sample_seed,
     observed_route_x,
@@ -664,8 +701,13 @@ def _plot_rolling_predictions(
 def _print_summary(summary, *, credible_interval):
     """Print aggregate rolling metrics for the position model."""
     interval_percent = 100 * credible_interval
+    evaluation_count_label = (
+        "Forecast origins" if summary.inference_mode == "online" else "Rolling windows"
+    )
     rows = [
-        ("Rolling windows", summary.window_count),
+        (evaluation_count_label, summary.window_count),
+        ("Inference mode", summary.inference_mode.upper()),
+        ("Inference method", summary.inference_method.upper()),
         ("Forecast positions", summary.forecast_count),
         ("ADE", f"{summary.ade_m:.2f} m"),
         ("FDE", f"{summary.fde_m:.2f} m"),
