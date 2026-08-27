@@ -97,11 +97,12 @@ model {
   x_observed ~ normal(x_true, sigma_position_observation);
   y_observed ~ normal(y_true, sigma_position_observation);
 
-  // Dynamic CTRV transition; position process noise remains per transition.
+  // Dynamic CTRV transition with diffusion-scaled process noise.
   for (n in 2:N_history) {
     real dt = time_observed[n] - time_observed[n - 1];
     real process_time_scale = sqrt(
         dt / process_reference_interval_seconds);
+    real position_process_scale = sigma_motion_process * process_time_scale;
     real speed_process_scale = sigma_speed_process * process_time_scale;
     real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
     vector[2] position = ctrv_position(
@@ -120,8 +121,8 @@ model {
             -speed_state[n] | speed_state[n - 1], speed_process_scale));
     turn_rate_state[n] ~ normal(
         turn_rate_state[n - 1], turn_rate_process_scale);
-    x_true[n] ~ normal(position[1], sigma_motion_process);
-    y_true[n] ~ normal(position[2], sigma_motion_process);
+    x_true[n] ~ normal(position[1], position_process_scale);
+    y_true[n] ~ normal(position[2], position_process_scale);
   }
 }
 
@@ -153,6 +154,7 @@ generated quantities {
     real dt = time_prediction[n] - time_previous;
     real process_time_scale = sqrt(
         dt / process_reference_interval_seconds);
+    real position_process_scale = sigma_motion_process * process_time_scale;
     real speed_proposal = normal_rng(
         speed_previous, sigma_speed_process * process_time_scale);
     vector[2] expected_position;
@@ -172,9 +174,9 @@ generated quantities {
 
     // A model prediction is a future latent state including process noise.
     x_prediction[n] = normal_rng(
-        expected_position[1], sigma_motion_process);
+        expected_position[1], position_process_scale);
     y_prediction[n] = normal_rng(
-        expected_position[2], sigma_motion_process);
+        expected_position[2], position_process_scale);
 
     // Future sensor observations additionally include inferred measurement noise.
     x_observation_prediction[n] = normal_rng(

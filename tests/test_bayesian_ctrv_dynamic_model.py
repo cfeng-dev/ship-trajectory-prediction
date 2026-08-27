@@ -93,7 +93,83 @@ def test_stan_model_contains_dynamic_speed_and_turn_rate_states():
     assert "sigma_turn_rate_process" in stan_source
     assert "process_reference_interval_seconds" in stan_source
     assert "gps_speed" not in stan_source
-    assert "sigma_motion_process * process_time_scale" not in stan_source
+    assert "sigma_motion_process * process_time_scale" in stan_source
+
+
+def test_position_process_standard_deviation_uses_sqrt_time_scaling():
+    motion_process = 5.0
+    reference_interval = ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
+
+    scales = motion_process * np.sqrt(
+        np.asarray([0.5, 1.0, 2.0]) * reference_interval / reference_interval
+    )
+
+    np.testing.assert_allclose(
+        scales,
+        motion_process * np.asarray([np.sqrt(0.5), 1.0, np.sqrt(2.0)]),
+    )
+    np.testing.assert_allclose(
+        scales**2 / motion_process**2,
+        np.asarray([0.5, 1.0, 2.0]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("dt_seconds", "expected_standard_deviation_m"),
+    ((2.5, 2.0), (10.0, 4.0), (40.0, 8.0)),
+)
+def test_irregular_intervals_have_expected_position_process_scale(
+    dt_seconds,
+    expected_standard_deviation_m,
+):
+    motion_process = 4.0
+
+    actual = motion_process * np.sqrt(
+        dt_seconds / ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
+    )
+
+    assert actual == pytest.approx(expected_standard_deviation_m)
+
+
+def test_stan_scales_history_and_forecast_position_process_noise_only():
+    stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
+    history_source, forecast_source = stan_source.split("generated quantities", 1)
+
+    assert (
+        "real position_process_scale = sigma_motion_process * process_time_scale;"
+        in history_source
+    )
+    assert "x_true[n] ~ normal(position[1], position_process_scale);" in history_source
+    assert "y_true[n] ~ normal(position[2], position_process_scale);" in history_source
+    assert (
+        "real position_process_scale = sigma_motion_process * process_time_scale;"
+        in forecast_source
+    )
+    assert "expected_position[1], position_process_scale" in forecast_source
+    assert "expected_position[2], position_process_scale" in forecast_source
+    assert "sigma_position_observation * process_time_scale" not in stan_source
+    assert "x_observed ~ normal(x_true, sigma_position_observation);" in stan_source
+    assert "y_observed ~ normal(y_true, sigma_position_observation);" in stan_source
+    assert "x_prediction[n], sigma_position_observation" in forecast_source
+    assert "y_prediction[n], sigma_position_observation" in forecast_source
+
+
+def test_rbpf_scales_position_process_covariance_and_forecast_draws():
+    update_source = inspect.getsource(ctrv_model.SequentialBayesianCTRVFilter.update)
+    forecast_source = inspect.getsource(
+        ctrv_model.SequentialBayesianCTRVFilter.forecast
+    )
+
+    assert "motion_process**2 * process_variance_scale" in update_source
+    assert "speed_process**2 * process_variance_scale" in update_source
+    assert "turn_rate_process**2 * process_variance_scale" in update_source
+    assert (
+        "position_process_scale = motion_process[:, None] * process_time_scale"
+        in forecast_source
+    )
+    assert "speed_process * process_time_scale" in forecast_source
+    assert "turn_rate_process * process_time_scale" in forecast_source
+    assert "observation_noise * process_time_scale" not in forecast_source
 
 
 def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():

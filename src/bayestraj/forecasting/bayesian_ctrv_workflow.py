@@ -118,10 +118,11 @@ def run_bayesian_ctrv_prediction(
                 ),
             ),
             (
-                "Motion-process prior",
+                "Position-process prior",
                 "Exponential("
                 f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
-                "P(sigma > "
+                "P(sigma at "
+                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s > "
                 f"{priors.sigma_motion_process_prior_upper_m:g} m)="
                 f"{priors.sigma_motion_process_prior_tail_probability:g})",
             ),
@@ -200,7 +201,10 @@ def run_bayesian_ctrv_prediction(
             f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate_at_origin')):.6f}",
         ),
         (
-            "Motion process [m]",
+            (
+                "Position-process SD at "
+                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s [m]"
+            ),
             f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_motion_process')):.3f}",
         ),
         (

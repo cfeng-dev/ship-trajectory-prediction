@@ -58,7 +58,11 @@ _NUMERICAL_VARIANCE_FLOOR = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Ship-independent priors for Bayesian CTRV state dynamics."""
+    """Ship-independent priors for Bayesian CTRV state dynamics.
+
+    ``sigma_motion_process`` is the position-process standard deviation
+    accumulated over ``PROCESS_REFERENCE_INTERVAL_SECONDS``.
+    """
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
@@ -121,7 +125,7 @@ class BayesianCTRVPriors:
 
     @property
     def sigma_motion_process_prior_rate(self) -> float:
-        """Return the process-noise exponential rate from its tail statement."""
+        """Return the reference-interval position-process prior rate."""
         return _exponential_rate_from_tail(
             self.sigma_motion_process_prior_upper_m,
             self.sigma_motion_process_prior_tail_probability,
@@ -406,8 +410,12 @@ class SequentialBayesianCTRVFilter:
             @ pre_transition_covariances
             @ np.swapaxes(transition_jacobians, 1, 2)
         )
-        predicted_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += motion_process**2
-        predicted_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] += motion_process**2
+        predicted_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += (
+            motion_process**2 * process_variance_scale
+        )
+        predicted_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] += (
+            motion_process**2 * process_variance_scale
+        )
         innovation_covariances = predicted_covariances[:, :2, :2].copy()
         innovation_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += (
             observation_noise**2
@@ -514,9 +522,10 @@ class SequentialBayesianCTRVFilter:
             )
             _normalize_ctrv_states(states)
             states = _ctrv_state_transition(states, dt)
+            position_process_scale = motion_process[:, None] * process_time_scale
             states[:, :2] += generator.normal(
                 0.0,
-                motion_process[:, None],
+                position_process_scale,
                 size=(draw_count, _POSITION_COUNT),
             )
             x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]

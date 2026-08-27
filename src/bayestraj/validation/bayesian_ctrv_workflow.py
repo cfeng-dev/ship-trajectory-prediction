@@ -187,9 +187,10 @@ def _run_evaluation(
         f"{priors.turn_rate_prior_tail_probability:g}"
     )
     print(
-        "Motion-process prior  : Exponential("
+        "Position-process prior: Exponential("
         f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
-        "P(sigma > "
+        "P(sigma at "
+        f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s > "
         f"{priors.sigma_motion_process_prior_upper_m:g} m)="
         f"{priors.sigma_motion_process_prior_tail_probability:g})"
     )
@@ -202,7 +203,7 @@ def _run_evaluation(
     )
     print("Prior status          : ship-independent domain assumptions")
     print(
-        "Dynamic-state interval: "
+        "Process reference interval: "
         f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s"
     )
     print(
@@ -770,7 +771,10 @@ def _print_parameter_summary(predictions):
             f"{windows['posterior_turn_rate_at_origin_median_rad_s'].abs().median():.6f} rad/s",
         ),
         (
-            "Median motion-process noise",
+            (
+                "Median position-process SD at "
+                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s"
+            ),
             f"{windows['posterior_sigma_motion_process_median_m'].median():.3f} m",
         ),
         (
