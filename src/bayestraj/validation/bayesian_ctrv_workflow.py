@@ -38,7 +38,7 @@ def run_bayesian_ctrv_evaluation(
     options: validation_cli.BayesianCTRVEvaluationOptions,
     show_time_labels=False,
 ):
-    """Evaluate constant-parameter Bayesian CTRV forecasts across one run."""
+    """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
     configured_experiment = dataclasses.replace(
         experiment,
         window_mode=options.window_mode,
@@ -195,6 +195,24 @@ def _run_evaluation(
         print(
             "Parameter rejuvenation: Liu-West scale "
             f"{sequential_config.rejuvenation_scale:g}"
+        )
+        print(
+            "Dynamic-state interval: "
+            f"{sequential_config.process_reference_interval_seconds:g} s"
+        )
+        print(
+            "Speed-process prior   : Exponential("
+            f"rate={priors.sigma_speed_process_prior_rate:.4f} s/m; "
+            "P(sigma_speed > "
+            f"{priors.sigma_speed_process_prior_upper_mps:g} m/s)="
+            f"{priors.sigma_speed_process_prior_tail_probability:g})"
+        )
+        print(
+            "Turn-process prior    : Exponential("
+            f"rate={priors.sigma_turn_rate_process_prior_rate:.4f} s/rad; "
+            "P(sigma_turn > "
+            f"{priors.sigma_turn_rate_process_prior_upper_deg_s:g} deg/s)="
+            f"{priors.sigma_turn_rate_process_prior_tail_probability:g})"
         )
     print(f"Plot each window      : {plot_each_window}")
 
@@ -409,15 +427,20 @@ def _fit_window(
 
 def _posterior_diagnostics(fit, window):
     """Return scalar parameter medians and forecast heading change."""
+    parameter_names = (
+        bayesian_model.SEQUENTIAL_PARAMETER_NAMES
+        if isinstance(fit, bayesian_model.SequentialCTRVFit)
+        else bayesian_model.PARAMETER_NAMES
+    )
     medians = {
         name: float(np.median(reporting.posterior_variable_samples(fit, name)))
-        for name in bayesian_model.PARAMETER_NAMES
+        for name in parameter_names
     }
     forecast_duration = float(
         window.time_seconds[window.prediction_slice][-1]
         - window.time_seconds[window.observation_count - 1]
     )
-    return {
+    diagnostics = {
         "posterior_speed_median_mps": medians["speed"],
         "posterior_heading_initial_median_rad": medians["heading_initial"],
         "posterior_turn_rate_median_rad_s": medians["turn_rate"],
@@ -427,6 +450,18 @@ def _posterior_diagnostics(fit, window):
         ],
         "forecast_heading_change_median_rad": medians["turn_rate"] * forecast_duration,
     }
+    if isinstance(fit, bayesian_model.SequentialCTRVFit):
+        diagnostics.update(
+            {
+                "posterior_sigma_speed_process_median_mps": medians[
+                    "sigma_speed_process"
+                ],
+                "posterior_sigma_turn_rate_process_median_rad_s": medians[
+                    "sigma_turn_rate_process"
+                ],
+            }
+        )
+    return diagnostics
 
 
 def _build_rolling_plot_data(
@@ -714,6 +749,19 @@ def _print_parameter_summary(predictions):
             f"{windows['posterior_sigma_position_observation_median_m'].median():.3f} m",
         ),
     ]
+    if "posterior_sigma_speed_process_median_mps" in windows:
+        rows.extend(
+            [
+                (
+                    "Median speed-process noise",
+                    f"{windows['posterior_sigma_speed_process_median_mps'].median():.3f} m/s",
+                ),
+                (
+                    "Median turn-rate-process noise",
+                    f"{windows['posterior_sigma_turn_rate_process_median_rad_s'].median():.6f} rad/s",
+                ),
+            ]
+        )
     print("\nParametric CTRV diagnostics:")
     print(reporting.format_aligned_rows(rows))
 

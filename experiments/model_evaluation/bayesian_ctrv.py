@@ -32,6 +32,10 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     sigma_motion_process_prior_tail_probability=0.05,
     sigma_position_observation_prior_upper_m=20.0,
     sigma_position_observation_prior_tail_probability=0.05,
+    sigma_speed_process_prior_upper_mps=5.0,
+    sigma_speed_process_prior_tail_probability=0.05,
+    sigma_turn_rate_process_prior_upper_deg_s=4.5,
+    sigma_turn_rate_process_prior_tail_probability=0.05,
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
@@ -40,6 +44,7 @@ SEQUENTIAL_CONFIG = bayesian_model.SequentialCTRVFilterConfig(
     posterior_draw_count=1_000,
     resample_ess_fraction=0.5,
     rejuvenation_scale=0.05,
+    process_reference_interval_seconds=10.0,
 )
 CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None

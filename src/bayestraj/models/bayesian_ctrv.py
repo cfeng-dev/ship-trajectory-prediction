@@ -36,20 +36,29 @@ PARAMETER_NAMES = (
     "sigma_motion_process",
     "sigma_position_observation",
 )
+SEQUENTIAL_PARAMETER_NAMES = PARAMETER_NAMES + (
+    "sigma_speed_process",
+    "sigma_turn_rate_process",
+)
 
-_LOG_SPEED_INDEX = 0
-_HEADING_INITIAL_INDEX = 1
-_TURN_RATE_INDEX = 2
-_LOG_MOTION_PROCESS_INDEX = 3
-_LOG_OBSERVATION_NOISE_INDEX = 4
-_SEQUENTIAL_PARAMETER_COUNT = 5
+_LOG_MOTION_PROCESS_INDEX = 0
+_LOG_OBSERVATION_NOISE_INDEX = 1
+_LOG_SPEED_PROCESS_INDEX = 2
+_LOG_TURN_RATE_PROCESS_INDEX = 3
+_SEQUENTIAL_PARAMETER_COUNT = 4
 _POSITION_COUNT = 2
+_STATE_X_INDEX = 0
+_STATE_Y_INDEX = 1
+_STATE_SPEED_INDEX = 2
+_STATE_HEADING_INDEX = 3
+_STATE_TURN_RATE_INDEX = 4
+_SEQUENTIAL_STATE_COUNT = 5
 _NUMERICAL_VARIANCE_FLOOR = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Ship-independent priors for constant CTRV motion and observation noise."""
+    """Ship-independent priors for batch CTRV and sequential state dynamics."""
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
@@ -60,6 +69,10 @@ class BayesianCTRVPriors:
     sigma_motion_process_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
+    sigma_speed_process_prior_upper_mps: float = 5.0
+    sigma_speed_process_prior_tail_probability: float = 0.05
+    sigma_turn_rate_process_prior_upper_deg_s: float = 4.5
+    sigma_turn_rate_process_prior_tail_probability: float = 0.05
 
     def __post_init__(self) -> None:
         """Validate and normalize all configured prior values."""
@@ -114,6 +127,23 @@ class BayesianCTRVPriors:
             self.sigma_motion_process_prior_tail_probability,
         )
 
+    @property
+    def sigma_speed_process_prior_rate(self) -> float:
+        """Return the speed-process exponential rate from its tail statement."""
+        return _exponential_rate_from_tail(
+            self.sigma_speed_process_prior_upper_mps,
+            self.sigma_speed_process_prior_tail_probability,
+        )
+
+    @property
+    def sigma_turn_rate_process_prior_rate(self) -> float:
+        """Return the turn-rate-process exponential rate in seconds per radian."""
+        upper_rad_s = np.deg2rad(self.sigma_turn_rate_process_prior_upper_deg_s)
+        return _exponential_rate_from_tail(
+            upper_rad_s,
+            self.sigma_turn_rate_process_prior_tail_probability,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class SequentialCTRVFilterConfig:
@@ -123,6 +153,7 @@ class SequentialCTRVFilterConfig:
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05
+    process_reference_interval_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         """Validate particle-filter sizes and probabilities."""
@@ -146,8 +177,19 @@ class SequentialCTRVFilterConfig:
         )
         if rejuvenation_scale >= 1.0:
             raise ValueError("rejuvenation_scale must be smaller than one.")
+        process_reference_interval_seconds = (
+            observation_support.validate_positive_finite(
+                "process_reference_interval_seconds",
+                self.process_reference_interval_seconds,
+            )
+        )
         object.__setattr__(self, "resample_ess_fraction", ess_fraction)
         object.__setattr__(self, "rejuvenation_scale", rejuvenation_scale)
+        object.__setattr__(
+            self,
+            "process_reference_interval_seconds",
+            process_reference_interval_seconds,
+        )
 
 
 class SequentialCTRVFit:
@@ -183,7 +225,7 @@ class SequentialBayesianCTRVFilter:
     parameter_particles: np.ndarray
     weights: np.ndarray
     state_means: np.ndarray
-    state_variances: np.ndarray
+    state_covariances: np.ndarray
     generator: np.random.Generator
     last_observation_time_seconds: float
     processed_observation_count: int
@@ -227,13 +269,12 @@ class SequentialBayesianCTRVFilter:
             np.abs(generator.normal(0.0, priors.speed_prior_scale, particle_count)),
             SPEED_INITIAL_LOWER_MPS,
         )
-        parameter_particles[:, _LOG_SPEED_INDEX] = np.log(speed)
-        parameter_particles[:, _HEADING_INITIAL_INDEX] = generator.uniform(
+        heading = generator.uniform(
             -np.pi,
             np.pi,
             particle_count,
         )
-        parameter_particles[:, _TURN_RATE_INDEX] = generator.normal(
+        turn_rate = generator.normal(
             0.0,
             priors.turn_rate_prior_scale,
             particle_count,
@@ -252,22 +293,55 @@ class SequentialBayesianCTRVFilter:
             ),
             1e-6,
         )
+        speed_process = np.maximum(
+            generator.exponential(
+                1.0 / priors.sigma_speed_process_prior_rate,
+                particle_count,
+            ),
+            1e-6,
+        )
+        turn_rate_process = np.maximum(
+            generator.exponential(
+                1.0 / priors.sigma_turn_rate_process_prior_rate,
+                particle_count,
+            ),
+            1e-9,
+        )
         parameter_particles[:, _LOG_MOTION_PROCESS_INDEX] = np.log(motion_process)
         parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX] = np.log(observation_noise)
-        state_means = np.broadcast_to(
-            np.asarray([x_observed[0], y_observed[0]], dtype=float),
-            (particle_count, _POSITION_COUNT),
-        ).copy()
-        state_variances = np.maximum(
-            observation_noise**2,
-            _NUMERICAL_VARIANCE_FLOOR,
+        parameter_particles[:, _LOG_SPEED_PROCESS_INDEX] = np.log(speed_process)
+        parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX] = np.log(turn_rate_process)
+        state_means = np.column_stack(
+            (
+                np.full(particle_count, x_observed[0], dtype=float),
+                np.full(particle_count, y_observed[0], dtype=float),
+                speed,
+                heading,
+                turn_rate,
+            )
+        )
+        state_covariances = np.zeros(
+            (particle_count, _SEQUENTIAL_STATE_COUNT, _SEQUENTIAL_STATE_COUNT),
+            dtype=float,
+        )
+        state_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] = observation_noise**2
+        state_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] = observation_noise**2
+        state_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] = speed_process**2
+        state_covariances[:, _STATE_HEADING_INDEX, _STATE_HEADING_INDEX] = (
+            turn_rate_process * config.process_reference_interval_seconds
+        ) ** 2
+        state_covariances[:, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX] = (
+            turn_rate_process**2
+        )
+        state_covariances += (
+            _NUMERICAL_VARIANCE_FLOOR * np.eye(_SEQUENTIAL_STATE_COUNT)[None]
         )
         online_filter = cls(
             config=config,
             parameter_particles=parameter_particles,
             weights=np.full(particle_count, 1.0 / particle_count, dtype=float),
             state_means=state_means,
-            state_variances=state_variances,
+            state_covariances=state_covariances,
             generator=generator,
             last_observation_time_seconds=float(time_seconds[0]),
             processed_observation_count=1,
@@ -325,29 +399,51 @@ class SequentialBayesianCTRVFilter:
             "y_observed",
             y_observed,
         )
-        speed, heading_initial, turn_rate, motion_process, observation_noise = (
+        motion_process, observation_noise, speed_process, turn_rate_process = (
             _sequential_parameter_values(self.parameter_particles)
         )
         dt = time_seconds - self.last_observation_time_seconds
-        predicted_means = _ctrv_particle_step(
-            self.state_means,
-            speed,
-            heading_initial,
-            turn_rate,
-            dt,
+        process_variance_scale = dt / self.config.process_reference_interval_seconds
+        pre_transition_covariances = self.state_covariances.copy()
+        pre_transition_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
+            speed_process**2 * process_variance_scale
         )
-        predicted_variances = self.state_variances + motion_process**2
-        innovation_variances = predicted_variances + observation_noise**2
+        pre_transition_covariances[
+            :, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX
+        ] += turn_rate_process**2 * process_variance_scale
+        transition_jacobians = _ctrv_transition_jacobians(self.state_means, dt)
+        predicted_means = _ctrv_state_transition(self.state_means, dt)
+        predicted_covariances = (
+            transition_jacobians
+            @ pre_transition_covariances
+            @ np.swapaxes(transition_jacobians, 1, 2)
+        )
+        predicted_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += motion_process**2
+        predicted_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] += motion_process**2
+        innovation_covariances = predicted_covariances[:, :2, :2].copy()
+        innovation_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += (
+            observation_noise**2
+        )
+        innovation_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] += (
+            observation_noise**2
+        )
+        innovation_inverses, log_determinants = _invert_two_by_two_matrices(
+            innovation_covariances
+        )
         innovations = np.column_stack(
             (
-                x_observed - predicted_means[:, 0],
-                y_observed - predicted_means[:, 1],
+                x_observed - predicted_means[:, _STATE_X_INDEX],
+                y_observed - predicted_means[:, _STATE_Y_INDEX],
             )
         )
-        log_likelihood = (
-            -np.log(2.0 * np.pi)
-            - np.log(innovation_variances)
-            - 0.5 * np.sum(innovations**2, axis=1) / innovation_variances
+        squared_distances = np.einsum(
+            "ni,nij,nj->n",
+            innovations,
+            innovation_inverses,
+            innovations,
+        )
+        log_likelihood = -np.log(2.0 * np.pi) - 0.5 * (
+            log_determinants + squared_distances
         )
         with np.errstate(divide="ignore"):
             log_weights = np.log(self.weights) + log_likelihood
@@ -357,15 +453,23 @@ class SequentialBayesianCTRVFilter:
         if not np.isfinite(weight_sum) or weight_sum <= 0.0:
             raise RuntimeError("Sequential CTRV particle weights collapsed.")
         self.weights = weights / weight_sum
-        kalman_gain = predicted_variances / innovation_variances
-        self.state_means = predicted_means + kalman_gain[:, None] * innovations
-        self.state_variances = np.maximum(
-            (1.0 - kalman_gain) * predicted_variances,
-            _NUMERICAL_VARIANCE_FLOOR,
+        state_observation_cross_covariance = predicted_covariances[:, :, :2]
+        kalman_gain = state_observation_cross_covariance @ innovation_inverses
+        self.state_means = predicted_means + np.einsum(
+            "nij,nj->ni",
+            kalman_gain,
+            innovations,
         )
-        self.parameter_particles[:, _HEADING_INITIAL_INDEX] = _wrap_angles(
-            heading_initial + turn_rate * dt
+        self.state_covariances = predicted_covariances - (
+            kalman_gain @ np.swapaxes(state_observation_cross_covariance, 1, 2)
         )
+        self.state_covariances = 0.5 * (
+            self.state_covariances + np.swapaxes(self.state_covariances, 1, 2)
+        )
+        self.state_covariances += (
+            _NUMERICAL_VARIANCE_FLOOR * np.eye(_SEQUENTIAL_STATE_COUNT)[None]
+        )
+        _normalize_ctrv_states(self.state_means, self.state_covariances)
         self.last_observation_time_seconds = time_seconds
         self.processed_observation_count += 1
         self.last_effective_sample_size = self.effective_sample_size
@@ -391,58 +495,68 @@ class SequentialBayesianCTRVFilter:
             p=self.weights,
         )
         parameters = self.parameter_particles[indices]
-        state = self.state_means[indices] + generator.normal(
-            0.0,
-            np.sqrt(self.state_variances[indices])[:, None],
-            size=(draw_count, _POSITION_COUNT),
+        states = _sample_gaussian_states(
+            self.state_means[indices],
+            self.state_covariances[indices],
+            generator,
         )
-        speed, heading_initial, turn_rate, motion_process, observation_noise = (
+        _normalize_ctrv_states(states)
+        motion_process, observation_noise, speed_process, turn_rate_process = (
             _sequential_parameter_values(parameters)
         )
+        speed_at_origin = states[:, _STATE_SPEED_INDEX].copy()
+        heading_at_origin = states[:, _STATE_HEADING_INDEX].copy()
+        turn_rate_at_origin = states[:, _STATE_TURN_RATE_INDEX].copy()
         prediction_count = future_time_seconds.size
         x_prediction = np.empty((draw_count, prediction_count), dtype=float)
         y_prediction = np.empty_like(x_prediction)
         x_observation_prediction = np.empty_like(x_prediction)
         y_observation_prediction = np.empty_like(x_prediction)
         current_time = self.last_observation_time_seconds
-        heading_current = heading_initial.copy()
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
-            expected_position = _ctrv_particle_step(
-                state,
-                speed,
-                heading_current,
-                turn_rate,
-                dt,
+            process_time_scale = np.sqrt(
+                dt / self.config.process_reference_interval_seconds
             )
-            state = expected_position + generator.normal(
+            states[:, _STATE_SPEED_INDEX] += generator.normal(
+                0.0,
+                speed_process * process_time_scale,
+            )
+            states[:, _STATE_TURN_RATE_INDEX] += generator.normal(
+                0.0,
+                turn_rate_process * process_time_scale,
+            )
+            _normalize_ctrv_states(states)
+            states = _ctrv_state_transition(states, dt)
+            states[:, :2] += generator.normal(
                 0.0,
                 motion_process[:, None],
-                size=expected_position.shape,
+                size=(draw_count, _POSITION_COUNT),
             )
-            x_prediction[:, prediction_index] = state[:, 0]
-            y_prediction[:, prediction_index] = state[:, 1]
+            x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]
+            y_prediction[:, prediction_index] = states[:, _STATE_Y_INDEX]
             observation_innovation = generator.normal(
                 0.0,
                 observation_noise[:, None],
                 size=(draw_count, _POSITION_COUNT),
             )
             x_observation_prediction[:, prediction_index] = (
-                state[:, 0] + observation_innovation[:, 0]
+                states[:, _STATE_X_INDEX] + observation_innovation[:, 0]
             )
             y_observation_prediction[:, prediction_index] = (
-                state[:, 1] + observation_innovation[:, 1]
+                states[:, _STATE_Y_INDEX] + observation_innovation[:, 1]
             )
-            heading_current = _wrap_angles(heading_current + turn_rate * dt)
             current_time = float(prediction_time)
 
         return SequentialCTRVFit(
             {
-                "speed": speed,
-                "heading_initial": heading_initial,
-                "turn_rate": turn_rate,
+                "speed": speed_at_origin,
+                "heading_initial": heading_at_origin,
+                "turn_rate": turn_rate_at_origin,
                 "sigma_motion_process": motion_process,
                 "sigma_position_observation": observation_noise,
+                "sigma_speed_process": speed_process,
+                "sigma_turn_rate_process": turn_rate_process,
                 "x_prediction": x_prediction,
                 "y_prediction": y_prediction,
                 "x_observation_prediction": x_observation_prediction,
@@ -452,7 +566,7 @@ class SequentialBayesianCTRVFilter:
 
     def _resample_and_rejuvenate(self) -> None:
         """Resample states and apply Liu-West-style parameter rejuvenation."""
-        adjusted_parameters, parameter_mean = _unwrap_sequential_parameters(
+        adjusted_parameters, parameter_mean = _sequential_parameter_moments(
             self.parameter_particles,
             self.weights,
         )
@@ -463,7 +577,7 @@ class SequentialBayesianCTRVFilter:
         indices = _systematic_resample(self.weights, self.generator)
         selected_parameters = adjusted_parameters[indices]
         self.state_means = self.state_means[indices].copy()
-        self.state_variances = self.state_variances[indices].copy()
+        self.state_covariances = self.state_covariances[indices].copy()
         rejuvenation_scale = self.config.rejuvenation_scale
         shrinkage = np.sqrt(1.0 - rejuvenation_scale**2)
         parameter_cholesky = _regularized_cholesky(parameter_covariance)
@@ -477,9 +591,6 @@ class SequentialBayesianCTRVFilter:
             shrinkage * selected_parameters
             + (1.0 - shrinkage) * parameter_mean
             + rejuvenation_scale * parameter_noise
-        )
-        self.parameter_particles[:, _HEADING_INITIAL_INDEX] = _wrap_angles(
-            self.parameter_particles[:, _HEADING_INITIAL_INDEX]
         )
         if not np.all(np.isfinite(self.parameter_particles)):
             raise RuntimeError("Sequential CTRV parameter rejuvenation became invalid.")
@@ -912,51 +1023,147 @@ def _validate_future_times(future_time_seconds, *, after: float) -> np.ndarray:
 
 
 def _sequential_parameter_values(parameter_particles: np.ndarray):
-    """Transform unconstrained particle columns to CTRV parameter arrays."""
+    """Transform unconstrained particles to positive process-scale arrays."""
     return (
-        np.exp(parameter_particles[:, _LOG_SPEED_INDEX]),
-        parameter_particles[:, _HEADING_INITIAL_INDEX],
-        parameter_particles[:, _TURN_RATE_INDEX],
         np.exp(parameter_particles[:, _LOG_MOTION_PROCESS_INDEX]),
         np.exp(parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX]),
+        np.exp(parameter_particles[:, _LOG_SPEED_PROCESS_INDEX]),
+        np.exp(parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX]),
     )
 
 
-def _ctrv_particle_step(
-    state_particles: np.ndarray,
+def _ctrv_displacements(
     speed: np.ndarray,
     heading: np.ndarray,
     turn_rate: np.ndarray,
     dt: float,
-) -> np.ndarray:
-    """Advance all particle positions with one stable vectorized CTRV step."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return stable vectorized CTRV x/y displacements."""
     half_turn = 0.5 * turn_rate * dt
     distance = speed * dt * np.sinc(half_turn / np.pi)
     midpoint_heading = heading + half_turn
-    return state_particles + np.column_stack(
-        (
-            distance * np.cos(midpoint_heading),
-            distance * np.sin(midpoint_heading),
-        )
+    return (
+        distance * np.cos(midpoint_heading),
+        distance * np.sin(midpoint_heading),
     )
 
 
-def _unwrap_sequential_parameters(
+def _ctrv_state_transition(states: np.ndarray, dt: float) -> np.ndarray:
+    """Advance position and heading while retaining speed and turn rate."""
+    transitioned = states.copy()
+    displacement_x, displacement_y = _ctrv_displacements(
+        states[:, _STATE_SPEED_INDEX],
+        states[:, _STATE_HEADING_INDEX],
+        states[:, _STATE_TURN_RATE_INDEX],
+        dt,
+    )
+    transitioned[:, _STATE_X_INDEX] += displacement_x
+    transitioned[:, _STATE_Y_INDEX] += displacement_y
+    transitioned[:, _STATE_HEADING_INDEX] = _wrap_angles(
+        states[:, _STATE_HEADING_INDEX] + states[:, _STATE_TURN_RATE_INDEX] * dt
+    )
+    return transitioned
+
+
+def _ctrv_transition_jacobians(states: np.ndarray, dt: float) -> np.ndarray:
+    """Return one local CTRV transition Jacobian for every state mean."""
+    particle_count = states.shape[0]
+    jacobians = np.broadcast_to(
+        np.eye(_SEQUENTIAL_STATE_COUNT),
+        (particle_count, _SEQUENTIAL_STATE_COUNT, _SEQUENTIAL_STATE_COUNT),
+    ).copy()
+    speed = states[:, _STATE_SPEED_INDEX]
+    heading = states[:, _STATE_HEADING_INDEX]
+    turn_rate = states[:, _STATE_TURN_RATE_INDEX]
+    half_turn = 0.5 * turn_rate * dt
+    distance_per_speed = dt * np.sinc(half_turn / np.pi)
+    midpoint_heading = heading + half_turn
+    cosine = np.cos(midpoint_heading)
+    sine = np.sin(midpoint_heading)
+    displacement_x = speed * distance_per_speed * cosine
+    displacement_y = speed * distance_per_speed * sine
+    jacobians[:, _STATE_X_INDEX, _STATE_SPEED_INDEX] = distance_per_speed * cosine
+    jacobians[:, _STATE_Y_INDEX, _STATE_SPEED_INDEX] = distance_per_speed * sine
+    jacobians[:, _STATE_X_INDEX, _STATE_HEADING_INDEX] = -displacement_y
+    jacobians[:, _STATE_Y_INDEX, _STATE_HEADING_INDEX] = displacement_x
+
+    difference_step = 1e-6
+    displacement_x_plus, displacement_y_plus = _ctrv_displacements(
+        speed,
+        heading,
+        turn_rate + difference_step,
+        dt,
+    )
+    displacement_x_minus, displacement_y_minus = _ctrv_displacements(
+        speed,
+        heading,
+        turn_rate - difference_step,
+        dt,
+    )
+    jacobians[:, _STATE_X_INDEX, _STATE_TURN_RATE_INDEX] = (
+        displacement_x_plus - displacement_x_minus
+    ) / (2.0 * difference_step)
+    jacobians[:, _STATE_Y_INDEX, _STATE_TURN_RATE_INDEX] = (
+        displacement_y_plus - displacement_y_minus
+    ) / (2.0 * difference_step)
+    jacobians[:, _STATE_HEADING_INDEX, _STATE_TURN_RATE_INDEX] = dt
+    return jacobians
+
+
+def _invert_two_by_two_matrices(
+    matrices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return stable inverses and log determinants for positive 2x2 matrices."""
+    determinant = (
+        matrices[:, 0, 0] * matrices[:, 1, 1] - matrices[:, 0, 1] * matrices[:, 1, 0]
+    )
+    determinant = np.maximum(determinant, _NUMERICAL_VARIANCE_FLOOR**2)
+    inverses = np.empty_like(matrices)
+    inverses[:, 0, 0] = matrices[:, 1, 1] / determinant
+    inverses[:, 0, 1] = -matrices[:, 0, 1] / determinant
+    inverses[:, 1, 0] = -matrices[:, 1, 0] / determinant
+    inverses[:, 1, 1] = matrices[:, 0, 0] / determinant
+    return inverses, np.log(determinant)
+
+
+def _sample_gaussian_states(
+    means: np.ndarray,
+    covariances: np.ndarray,
+    generator: np.random.Generator,
+) -> np.ndarray:
+    """Draw one state from each matching Gaussian distribution."""
+    samples = np.empty_like(means)
+    innovations = generator.normal(size=means.shape)
+    for index, (mean, covariance) in enumerate(zip(means, covariances, strict=True)):
+        samples[index] = mean + _regularized_cholesky(covariance) @ innovations[index]
+    return samples
+
+
+def _normalize_ctrv_states(
+    states: np.ndarray,
+    covariances: np.ndarray | None = None,
+) -> None:
+    """Represent negative speed as positive speed in the opposite direction."""
+    negative_speed = states[:, _STATE_SPEED_INDEX] < 0.0
+    states[negative_speed, _STATE_SPEED_INDEX] *= -1.0
+    states[negative_speed, _STATE_HEADING_INDEX] += np.pi
+    if covariances is not None and np.any(negative_speed):
+        covariances[negative_speed, _STATE_SPEED_INDEX, :] *= -1.0
+        covariances[negative_speed, :, _STATE_SPEED_INDEX] *= -1.0
+    states[:, _STATE_SPEED_INDEX] = np.maximum(
+        states[:, _STATE_SPEED_INDEX],
+        SPEED_INITIAL_LOWER_MPS,
+    )
+    states[:, _STATE_HEADING_INDEX] = _wrap_angles(states[:, _STATE_HEADING_INDEX])
+
+
+def _sequential_parameter_moments(
     parameter_particles: np.ndarray,
     weights: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Unwrap heading particles around their weighted circular mean."""
-    heading = parameter_particles[:, _HEADING_INITIAL_INDEX]
-    heading_mean = np.arctan2(
-        np.sum(weights * np.sin(heading)),
-        np.sum(weights * np.cos(heading)),
-    )
-    adjusted = parameter_particles.copy()
-    adjusted[:, _HEADING_INITIAL_INDEX] = heading_mean + _wrap_angles(
-        heading - heading_mean
-    )
-    mean = np.sum(weights[:, None] * adjusted, axis=0)
-    return adjusted, mean
+    """Return log-scale particles and their weighted mean."""
+    mean = np.sum(weights[:, None] * parameter_particles, axis=0)
+    return parameter_particles, mean
 
 
 def _systematic_resample(
