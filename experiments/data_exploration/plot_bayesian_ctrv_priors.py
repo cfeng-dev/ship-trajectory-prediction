@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from pathlib import Path
 from statistics import NormalDist
 
 import matplotlib.pyplot as plt
@@ -12,13 +11,10 @@ import numpy as np
 
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIRECTORY = PROJECT_ROOT / "artifacts" / "prior_plots"
 PRIORS = bayesian_model.BayesianCTRVPriors()
 
 DENSITY_POINT_COUNT = 1_000
 PLOT_TAIL_PROBABILITY = 1e-3
-PNG_DPI = 300
 INDIVIDUAL_FIGURE_SIZE = (8.0, 5.0)
 OVERVIEW_FIGURE_SIZE = (15.0, 8.5)
 CURVE_COLOR = "#24557A"
@@ -42,14 +38,8 @@ class PriorCurve:
 
 
 def main(argv=None):
-    """Print the configuration, save every prior figure, and optionally show it."""
+    """Print the configuration and show the configured prior figures."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=OUTPUT_DIRECTORY,
-        help="Directory receiving PNG and PDF figures.",
-    )
     parser.add_argument(
         "--no-overview",
         action="store_true",
@@ -67,15 +57,13 @@ def main(argv=None):
     figures = create_individual_figures(curves)
     if not arguments.no_overview:
         figures["prior_overview"] = create_overview_figure(curves)
-    saved_paths = save_figures(figures, arguments.output_dir)
-    print(f"\nSaved {len(saved_paths)} files to {arguments.output_dir.resolve()}")
 
     if arguments.no_show:
         for figure in figures.values():
             plt.close(figure)
     else:
         plt.show()
-    return saved_paths
+    return figures
 
 
 def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
@@ -167,7 +155,7 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
         PriorCurve(
             filename_stem="prior_initial_heading",
             title="Prior for initial heading",
-            x_label=r"$\psi_1$ [deg]",
+            x_label=r"$\theta_1$ [deg]",
             x_values=heading_x,
             density=heading_density,
             central_lower=-180.0,
@@ -216,20 +204,6 @@ def create_overview_figure(curves):
     return figure
 
 
-def save_figures(figures, output_directory):
-    """Save every figure as high-resolution PNG and vector PDF."""
-    output_directory = Path(output_directory).resolve()
-    output_directory.mkdir(parents=True, exist_ok=True)
-    saved_paths = []
-    for filename_stem, figure in figures.items():
-        png_path = output_directory / f"{filename_stem}.png"
-        pdf_path = output_directory / f"{filename_stem}.pdf"
-        figure.savefig(png_path, dpi=PNG_DPI, bbox_inches="tight")
-        figure.savefig(pdf_path, bbox_inches="tight")
-        saved_paths.extend((png_path, pdf_path))
-    return tuple(saved_paths)
-
-
 def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
     """Print configured assumptions separately from derived parameters."""
     turn_threshold_deg_s = (
@@ -250,7 +224,7 @@ def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
         f"{1.0 - priors.speed_prior_tail_probability:.1%}"
     )
     print(f"  derived scale: {priors.speed_prior_scale:.6g} m/s")
-    print("Initial heading psi_1:")
+    print("Initial heading theta_1:")
     print("  distribution: Uniform")
     print("  configured range: [-pi, pi] rad = [-180, 180] deg")
     print("  configured statement: all initial directions are equally plausible")

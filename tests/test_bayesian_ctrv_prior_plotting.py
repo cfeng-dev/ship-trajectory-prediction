@@ -83,16 +83,19 @@ def test_terminal_report_distinguishes_configured_and_derived_values(capsys):
     )
 
 
-def test_saves_each_individual_prior_and_optional_overview_as_png_and_pdf(tmp_path):
-    curves = prior_plotting.build_prior_curves(prior_plotting.PRIORS)
-    figures = prior_plotting.create_individual_figures(curves)
-    figures["prior_overview"] = prior_plotting.create_overview_figure(curves)
+def test_main_creates_individual_priors_and_overview_without_saving(monkeypatch):
+    monkeypatch.setattr(plt, "show", lambda: None)
 
-    saved_paths = prior_plotting.save_figures(figures, tmp_path)
+    figures = prior_plotting.main([])
     for figure in figures.values():
         plt.close(figure)
 
-    assert len(saved_paths) == 14
-    assert all(path.is_file() for path in saved_paths)
-    assert {path.suffix for path in saved_paths} == {".png", ".pdf"}
-    assert {path.parent for path in saved_paths} == {Path(tmp_path).resolve()}
+    assert set(figures) == {
+        "prior_initial_speed",
+        "prior_initial_heading",
+        "prior_initial_turn_rate",
+        "prior_position_observation_noise",
+        "prior_speed_process_noise",
+        "prior_turn_rate_process_noise",
+        "prior_overview",
+    }
