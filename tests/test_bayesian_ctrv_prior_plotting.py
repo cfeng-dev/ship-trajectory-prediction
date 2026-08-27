@@ -61,6 +61,8 @@ def test_prior_curves_use_configured_thresholds_and_derived_parameters():
     assert curves["prior_speed_process_noise"].density[0] == pytest.approx(
         priors.sigma_speed_process_prior_rate
     )
+    assert curves["prior_initial_heading"].title == "Prior: Anfangskurswinkel"
+    assert "Prior-Wahrscheinlichkeit" in curves["prior_initial_speed"].annotation
 
 
 def test_prior_curves_are_normalized_over_the_presentation_range():
@@ -83,12 +85,38 @@ def test_terminal_report_distinguishes_configured_and_derived_values(capsys):
     )
 
 
-def test_main_creates_individual_priors_and_overview_without_saving(monkeypatch):
-    monkeypatch.setattr(plt, "show", lambda: None)
+def test_header_option_controls_prior_annotation_boxes():
+    curves = prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+    without_annotations = prior_plotting.create_individual_figures(
+        curves,
+        show_annotations=False,
+    )
+    with_annotations = prior_plotting.create_individual_figures(
+        curves,
+        show_annotations=True,
+    )
+
+    assert all(not figure.axes[0].texts for figure in without_annotations.values())
+    assert all(len(figure.axes[0].texts) == 1 for figure in with_annotations.values())
+    assert (
+        "Prior-Wahrscheinlichkeit"
+        in with_annotations["prior_initial_speed"].axes[0].texts[0].get_text()
+    )
+    for figure in (*without_annotations.values(), *with_annotations.values()):
+        plt.close(figure)
+
+
+def test_main_shows_individual_priors_sequentially(monkeypatch):
+    open_figure_counts = []
+    blocking_options = []
+
+    def record_show(*, block):
+        open_figure_counts.append(len(plt.get_fignums()))
+        blocking_options.append(block)
+
+    monkeypatch.setattr(plt, "show", record_show)
 
     figures = prior_plotting.main([])
-    for figure in figures.values():
-        plt.close(figure)
 
     assert set(figures) == {
         "prior_initial_speed",
@@ -97,5 +125,7 @@ def test_main_creates_individual_priors_and_overview_without_saving(monkeypatch)
         "prior_position_observation_noise",
         "prior_speed_process_noise",
         "prior_turn_rate_process_noise",
-        "prior_overview",
     }
+    assert open_figure_counts == [1] * 6
+    assert blocking_options == [True] * 6
+    assert not plt.get_fignums()

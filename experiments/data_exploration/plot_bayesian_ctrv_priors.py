@@ -16,10 +16,10 @@ PRIORS = bayesian_model.BayesianCTRVPriors()
 DENSITY_POINT_COUNT = 1_000
 PLOT_TAIL_PROBABILITY = 1e-3
 INDIVIDUAL_FIGURE_SIZE = (8.0, 5.0)
-OVERVIEW_FIGURE_SIZE = (15.0, 8.5)
 CURVE_COLOR = "#24557A"
 CENTRAL_COLOR = "#4C956C"
 TAIL_COLOR = "#D17A22"
+SHOW_ANNOTATIONS = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,28 +41,25 @@ def main(argv=None):
     """Print the configuration and show the configured prior figures."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--no-overview",
-        action="store_true",
-        help="Skip the optional 2x3 overview figure.",
-    )
-    parser.add_argument(
         "--no-show",
         action="store_true",
-        help="Save figures without opening interactive windows.",
+        help="Create and close the figures without opening interactive windows.",
     )
     arguments = parser.parse_args(argv)
 
     print_prior_report(PRIORS)
     curves = build_prior_curves(PRIORS)
-    figures = create_individual_figures(curves)
-    if not arguments.no_overview:
-        figures["prior_overview"] = create_overview_figure(curves)
-
     if arguments.no_show:
+        figures = create_individual_figures(curves)
         for figure in figures.values():
             plt.close(figure)
     else:
-        plt.show()
+        figures = {}
+        for curve in curves:
+            figure = create_prior_figure(curve)
+            figures[curve.filename_stem] = figure
+            plt.show(block=True)
+            plt.close(figure)
     return figures
 
 
@@ -107,7 +104,7 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
 
     observation_curve = _exponential_curve(
         filename_stem="prior_position_observation_noise",
-        title="Prior for position observation noise",
+        title="Prior: Positionsmessrauschen",
         x_label=r"$\sigma_{\mathrm{obs}}$ [m]",
         rate=priors.sigma_position_observation_prior_rate,
         configured_upper=priors.sigma_position_observation_prior_upper_m,
@@ -116,7 +113,7 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
     )
     speed_process_curve = _exponential_curve(
         filename_stem="prior_speed_process_noise",
-        title="Prior for speed process noise",
+        title="Prior: Geschwindigkeits-Prozessrauschen",
         x_label=r"$\sigma_v$ [m/s]",
         rate=priors.sigma_speed_process_prior_rate,
         configured_upper=priors.sigma_speed_process_prior_upper_mps,
@@ -129,18 +126,18 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
     turn_process_rate_per_deg_s = 1.0 / turn_process_mean_deg_s
     turn_process_curve = _exponential_curve(
         filename_stem="prior_turn_rate_process_noise",
-        title="Prior for turn-rate process noise",
-        x_label=r"$\sigma_\omega$ [deg/s]",
+        title="Prior: Drehraten-Prozessrauschen",
+        x_label=r"$\sigma_\omega$ [$^\circ$/s]",
         rate=turn_process_rate_per_deg_s,
         configured_upper=priors.sigma_turn_rate_process_prior_upper_deg_s,
         tail_probability=priors.sigma_turn_rate_process_prior_tail_probability,
-        threshold_unit="deg/s",
+        threshold_unit="°/s",
     )
 
     return (
         PriorCurve(
             filename_stem="prior_initial_speed",
-            title="Prior for initial speed",
+            title="Prior: Anfangsgeschwindigkeit",
             x_label=r"$v_1$ [m/s]",
             x_values=speed_x,
             density=speed_density,
@@ -148,33 +145,34 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
             central_upper=priors.speed_prior_upper_mps,
             thresholds=(priors.speed_prior_upper_mps,),
             annotation=(
-                f"{speed_probability:.0%} prior probability below "
-                f"{priors.speed_prior_upper_mps:g} m/s"
+                f"{_format_percentage(speed_probability)} Prior-Wahrscheinlichkeit "
+                f"unter {_format_number(priors.speed_prior_upper_mps)} m/s"
             ),
         ),
         PriorCurve(
             filename_stem="prior_initial_heading",
-            title="Prior for initial heading",
-            x_label=r"$\theta_1$ [deg]",
+            title="Prior: Anfangskurswinkel",
+            x_label=r"$\theta_1$ [$^\circ$]",
             x_values=heading_x,
             density=heading_density,
             central_lower=-180.0,
             central_upper=180.0,
             thresholds=(),
-            annotation="All initial directions are equally plausible",
+            annotation="Alle Anfangsrichtungen sind gleich wahrscheinlich",
         ),
         PriorCurve(
             filename_stem="prior_initial_turn_rate",
-            title="Prior for initial turn rate",
-            x_label=r"$\omega_1$ [deg/s]",
+            title="Prior: initiale Drehrate",
+            x_label=r"$\omega_1$ [$^\circ$/s]",
             x_values=turn_rate_x,
             density=turn_rate_density,
             central_lower=-turn_rate_threshold_deg_s,
             central_upper=turn_rate_threshold_deg_s,
             thresholds=(-turn_rate_threshold_deg_s, turn_rate_threshold_deg_s),
             annotation=(
-                f"{1.0 - priors.turn_rate_prior_tail_probability:.0%} prior "
-                f"probability within +/-{turn_rate_threshold_deg_s:g} deg/s"
+                f"{_format_percentage(1.0 - priors.turn_rate_prior_tail_probability)} "
+                f"Prior-Wahrscheinlichkeit innerhalb "
+                f"±{_format_number(turn_rate_threshold_deg_s)} °/s"
             ),
         ),
         observation_curve,
@@ -183,24 +181,22 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
     )
 
 
-def create_individual_figures(curves):
+def create_individual_figures(curves, *, show_annotations=SHOW_ANNOTATIONS):
     """Create one thesis-ready figure for every prior."""
-    figures = {}
-    for curve in curves:
-        figure, axis = plt.subplots(figsize=INDIVIDUAL_FIGURE_SIZE)
-        _draw_prior(axis, curve)
-        figure.tight_layout()
-        figures[curve.filename_stem] = figure
-    return figures
+    return {
+        curve.filename_stem: create_prior_figure(
+            curve,
+            show_annotations=show_annotations,
+        )
+        for curve in curves
+    }
 
 
-def create_overview_figure(curves):
-    """Create the optional 2x3 prior overview for presentation slides."""
-    figure, axes = plt.subplots(2, 3, figsize=OVERVIEW_FIGURE_SIZE)
-    for axis, curve in zip(axes.flat, curves, strict=True):
-        _draw_prior(axis, curve, overview=True)
-    figure.suptitle("Bayesian CTRV prior distributions", fontsize=17)
-    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+def create_prior_figure(curve, *, show_annotations=SHOW_ANNOTATIONS):
+    """Create one thesis-ready figure for a prior."""
+    figure, axis = plt.subplots(figsize=INDIVIDUAL_FIGURE_SIZE)
+    _draw_prior(axis, curve, show_annotations=show_annotations)
+    figure.tight_layout()
     return figure
 
 
@@ -269,12 +265,22 @@ def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
     )
 
 
-def _draw_prior(axis, curve: PriorCurve, *, overview=False) -> None:
+def _draw_prior(
+    axis,
+    curve: PriorCurve,
+    *,
+    show_annotations=True,
+) -> None:
     """Draw one density with configured central and tail regions."""
     central = (curve.x_values >= curve.central_lower) & (
         curve.x_values <= curve.central_upper
     )
-    axis.plot(curve.x_values, curve.density, color=CURVE_COLOR, linewidth=2.2)
+    axis.plot(
+        curve.x_values,
+        curve.density,
+        color=CURVE_COLOR,
+        linewidth=2.2,
+    )
     axis.fill_between(
         curve.x_values,
         curve.density,
@@ -296,28 +302,29 @@ def _draw_prior(axis, curve: PriorCurve, *, overview=False) -> None:
             linestyle="--",
             linewidth=1.6,
         )
-    axis.set_title(curve.title, fontsize=13 if overview else 16)
-    axis.set_xlabel(curve.x_label, fontsize=11 if overview else 13)
-    axis.set_ylabel("Density", fontsize=11 if overview else 13)
+    axis.set_title(curve.title, fontsize=16)
+    axis.set_xlabel(curve.x_label, fontsize=13)
+    axis.set_ylabel("Dichte", fontsize=13)
     axis.grid(alpha=0.25, linewidth=0.8)
     axis.set_xlim(curve.x_values[0], curve.x_values[-1])
     axis.set_ylim(bottom=0.0)
-    axis.tick_params(labelsize=9 if overview else 11)
-    axis.text(
-        0.97,
-        0.92,
-        curve.annotation,
-        transform=axis.transAxes,
-        ha="right",
-        va="top",
-        fontsize=8.5 if overview else 11,
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "facecolor": "white",
-            "edgecolor": "0.75",
-            "alpha": 0.9,
-        },
-    )
+    axis.tick_params(labelsize=11)
+    if show_annotations:
+        axis.text(
+            0.97,
+            0.92,
+            curve.annotation,
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=11,
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": "white",
+                "edgecolor": "0.75",
+                "alpha": 0.9,
+            },
+        )
 
 
 def _exponential_curve(
@@ -346,8 +353,9 @@ def _exponential_curve(
         central_upper=configured_upper,
         thresholds=(configured_upper,),
         annotation=(
-            f"{1.0 - tail_probability:.0%} prior probability below "
-            f"{configured_upper:g} {threshold_unit}"
+            f"{_format_percentage(1.0 - tail_probability)} "
+            f"Prior-Wahrscheinlichkeit unter {_format_number(configured_upper)} "
+            f"{threshold_unit}"
         ),
     )
 
@@ -380,6 +388,16 @@ def _symmetric_normal_absolute_upper_quantile(scale, tail_probability):
 def _normal_density(values, scale):
     """Return the zero-centered Normal density for an array."""
     return np.exp(-0.5 * (values / scale) ** 2) / (scale * np.sqrt(2.0 * np.pi))
+
+
+def _format_percentage(probability):
+    """Return a whole percentage using German typographic spacing."""
+    return f"{100.0 * probability:.0f} %"
+
+
+def _format_number(value):
+    """Return a compact number with a German decimal separator."""
+    return f"{value:g}".replace(".", ",")
 
 
 if __name__ == "__main__":
