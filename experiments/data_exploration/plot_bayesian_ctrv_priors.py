@@ -1,0 +1,412 @@
+"""Plot and report the configured Bayesian CTRV prior distributions."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+from statistics import NormalDist
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+import bayestraj.models.bayesian_ctrv as bayesian_model
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT_DIRECTORY = PROJECT_ROOT / "artifacts" / "prior_plots"
+PRIORS = bayesian_model.BayesianCTRVPriors()
+
+DENSITY_POINT_COUNT = 1_000
+PLOT_TAIL_PROBABILITY = 1e-3
+PNG_DPI = 300
+INDIVIDUAL_FIGURE_SIZE = (8.0, 5.0)
+OVERVIEW_FIGURE_SIZE = (15.0, 8.5)
+CURVE_COLOR = "#24557A"
+CENTRAL_COLOR = "#4C956C"
+TAIL_COLOR = "#D17A22"
+
+
+@dataclass(frozen=True, slots=True)
+class PriorCurve:
+    """Plot-ready density and its interpretable configured region."""
+
+    filename_stem: str
+    title: str
+    x_label: str
+    x_values: np.ndarray
+    density: np.ndarray
+    central_lower: float
+    central_upper: float
+    thresholds: tuple[float, ...]
+    annotation: str
+
+
+def main(argv=None):
+    """Print the configuration, save every prior figure, and optionally show it."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIRECTORY,
+        help="Directory receiving PNG and PDF figures.",
+    )
+    parser.add_argument(
+        "--no-overview",
+        action="store_true",
+        help="Skip the optional 2x3 overview figure.",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Save figures without opening interactive windows.",
+    )
+    arguments = parser.parse_args(argv)
+
+    print_prior_report(PRIORS)
+    curves = build_prior_curves(PRIORS)
+    figures = create_individual_figures(curves)
+    if not arguments.no_overview:
+        figures["prior_overview"] = create_overview_figure(curves)
+    saved_paths = save_figures(figures, arguments.output_dir)
+    print(f"\nSaved {len(saved_paths)} files to {arguments.output_dir.resolve()}")
+
+    if arguments.no_show:
+        for figure in figures.values():
+            plt.close(figure)
+    else:
+        plt.show()
+    return saved_paths
+
+
+def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
+    """Return the six configured priors in presentation units."""
+    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance.")
+
+    speed_probability = 1.0 - priors.speed_prior_tail_probability
+    speed_x = np.linspace(
+        0.0,
+        _symmetric_normal_absolute_upper_quantile(
+            priors.speed_prior_scale,
+            PLOT_TAIL_PROBABILITY,
+        ),
+        DENSITY_POINT_COUNT,
+    )
+    speed_density = (
+        np.sqrt(2.0 / np.pi)
+        / priors.speed_prior_scale
+        * np.exp(-0.5 * (speed_x / priors.speed_prior_scale) ** 2)
+    )
+
+    heading_x = np.linspace(-180.0, 180.0, DENSITY_POINT_COUNT)
+    heading_density = np.full_like(heading_x, 1.0 / 360.0)
+
+    turn_rate_scale_deg_s = float(np.rad2deg(priors.turn_rate_prior_scale))
+    turn_rate_threshold_deg_s = (
+        priors.turn_rate_prior_abs_heading_change_deg
+        / priors.turn_rate_prior_reference_interval_seconds
+    )
+    turn_rate_limit = _symmetric_normal_absolute_upper_quantile(
+        turn_rate_scale_deg_s,
+        PLOT_TAIL_PROBABILITY,
+    )
+    turn_rate_x = np.linspace(
+        -turn_rate_limit,
+        turn_rate_limit,
+        DENSITY_POINT_COUNT,
+    )
+    turn_rate_density = _normal_density(turn_rate_x, turn_rate_scale_deg_s)
+
+    observation_curve = _exponential_curve(
+        filename_stem="prior_position_observation_noise",
+        title="Prior for position observation noise",
+        x_label=r"$\sigma_{\mathrm{obs}}$ [m]",
+        rate=priors.sigma_position_observation_prior_rate,
+        configured_upper=priors.sigma_position_observation_prior_upper_m,
+        tail_probability=priors.sigma_position_observation_prior_tail_probability,
+        threshold_unit="m",
+    )
+    speed_process_curve = _exponential_curve(
+        filename_stem="prior_speed_process_noise",
+        title="Prior for speed process noise",
+        x_label=r"$\sigma_v$ [m/s]",
+        rate=priors.sigma_speed_process_prior_rate,
+        configured_upper=priors.sigma_speed_process_prior_upper_mps,
+        tail_probability=priors.sigma_speed_process_prior_tail_probability,
+        threshold_unit="m/s",
+    )
+    turn_process_mean_deg_s = float(
+        np.rad2deg(1.0 / priors.sigma_turn_rate_process_prior_rate)
+    )
+    turn_process_rate_per_deg_s = 1.0 / turn_process_mean_deg_s
+    turn_process_curve = _exponential_curve(
+        filename_stem="prior_turn_rate_process_noise",
+        title="Prior for turn-rate process noise",
+        x_label=r"$\sigma_\omega$ [deg/s]",
+        rate=turn_process_rate_per_deg_s,
+        configured_upper=priors.sigma_turn_rate_process_prior_upper_deg_s,
+        tail_probability=priors.sigma_turn_rate_process_prior_tail_probability,
+        threshold_unit="deg/s",
+    )
+
+    return (
+        PriorCurve(
+            filename_stem="prior_initial_speed",
+            title="Prior for initial speed",
+            x_label=r"$v_1$ [m/s]",
+            x_values=speed_x,
+            density=speed_density,
+            central_lower=0.0,
+            central_upper=priors.speed_prior_upper_mps,
+            thresholds=(priors.speed_prior_upper_mps,),
+            annotation=(
+                f"{speed_probability:.0%} prior probability below "
+                f"{priors.speed_prior_upper_mps:g} m/s"
+            ),
+        ),
+        PriorCurve(
+            filename_stem="prior_initial_heading",
+            title="Prior for initial heading",
+            x_label=r"$\psi_1$ [deg]",
+            x_values=heading_x,
+            density=heading_density,
+            central_lower=-180.0,
+            central_upper=180.0,
+            thresholds=(),
+            annotation="All initial directions are equally plausible",
+        ),
+        PriorCurve(
+            filename_stem="prior_initial_turn_rate",
+            title="Prior for initial turn rate",
+            x_label=r"$\omega_1$ [deg/s]",
+            x_values=turn_rate_x,
+            density=turn_rate_density,
+            central_lower=-turn_rate_threshold_deg_s,
+            central_upper=turn_rate_threshold_deg_s,
+            thresholds=(-turn_rate_threshold_deg_s, turn_rate_threshold_deg_s),
+            annotation=(
+                f"{1.0 - priors.turn_rate_prior_tail_probability:.0%} prior "
+                f"probability within +/-{turn_rate_threshold_deg_s:g} deg/s"
+            ),
+        ),
+        observation_curve,
+        speed_process_curve,
+        turn_process_curve,
+    )
+
+
+def create_individual_figures(curves):
+    """Create one thesis-ready figure for every prior."""
+    figures = {}
+    for curve in curves:
+        figure, axis = plt.subplots(figsize=INDIVIDUAL_FIGURE_SIZE)
+        _draw_prior(axis, curve)
+        figure.tight_layout()
+        figures[curve.filename_stem] = figure
+    return figures
+
+
+def create_overview_figure(curves):
+    """Create the optional 2x3 prior overview for presentation slides."""
+    figure, axes = plt.subplots(2, 3, figsize=OVERVIEW_FIGURE_SIZE)
+    for axis, curve in zip(axes.flat, curves, strict=True):
+        _draw_prior(axis, curve, overview=True)
+    figure.suptitle("Bayesian CTRV prior distributions", fontsize=17)
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+    return figure
+
+
+def save_figures(figures, output_directory):
+    """Save every figure as high-resolution PNG and vector PDF."""
+    output_directory = Path(output_directory).resolve()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    saved_paths = []
+    for filename_stem, figure in figures.items():
+        png_path = output_directory / f"{filename_stem}.png"
+        pdf_path = output_directory / f"{filename_stem}.pdf"
+        figure.savefig(png_path, dpi=PNG_DPI, bbox_inches="tight")
+        figure.savefig(pdf_path, bbox_inches="tight")
+        saved_paths.extend((png_path, pdf_path))
+    return tuple(saved_paths)
+
+
+def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
+    """Print configured assumptions separately from derived parameters."""
+    turn_threshold_deg_s = (
+        priors.turn_rate_prior_abs_heading_change_deg
+        / priors.turn_rate_prior_reference_interval_seconds
+    )
+    turn_scale_deg_s = float(np.rad2deg(priors.turn_rate_prior_scale))
+    turn_process_mean_rad_s = 1.0 / priors.sigma_turn_rate_process_prior_rate
+    turn_process_mean_deg_s = float(np.rad2deg(turn_process_mean_rad_s))
+
+    print("Bayesian CTRV prior configuration")
+    print("---------------------------------")
+    print("Initial speed v_1:")
+    print("  distribution: Half-Normal")
+    print(
+        "  configured statement: "
+        f"P(v_1 < {priors.speed_prior_upper_mps:g} m/s) = "
+        f"{1.0 - priors.speed_prior_tail_probability:.1%}"
+    )
+    print(f"  derived scale: {priors.speed_prior_scale:.6g} m/s")
+    print("Initial heading psi_1:")
+    print("  distribution: Uniform")
+    print("  configured range: [-pi, pi] rad = [-180, 180] deg")
+    print("  configured statement: all initial directions are equally plausible")
+    print("Initial turn rate omega_1:")
+    print("  distribution: Normal")
+    print(
+        "  configured statement: "
+        f"P(|omega_1| < {turn_threshold_deg_s:g} deg/s) = "
+        f"{1.0 - priors.turn_rate_prior_tail_probability:.1%}"
+    )
+    print(
+        f"  derived scale: {priors.turn_rate_prior_scale:.6g} rad/s "
+        f"({turn_scale_deg_s:.6g} deg/s)"
+    )
+    _print_exponential_report(
+        label="Position observation noise sigma_obs",
+        upper=priors.sigma_position_observation_prior_upper_m,
+        unit="m",
+        tail_probability=priors.sigma_position_observation_prior_tail_probability,
+        rate=priors.sigma_position_observation_prior_rate,
+        rate_unit="1/m",
+    )
+    _print_exponential_report(
+        label="Speed process noise sigma_v",
+        upper=priors.sigma_speed_process_prior_upper_mps,
+        unit="m/s",
+        tail_probability=priors.sigma_speed_process_prior_tail_probability,
+        rate=priors.sigma_speed_process_prior_rate,
+        rate_unit="s/m",
+    )
+    print("Turn-rate process noise sigma_omega:")
+    print("  distribution: Exponential")
+    print(
+        "  configured statement: "
+        f"P(sigma_omega < {priors.sigma_turn_rate_process_prior_upper_deg_s:g} "
+        f"deg/s) = {1.0 - priors.sigma_turn_rate_process_prior_tail_probability:.1%}"
+    )
+    print(f"  derived rate: {priors.sigma_turn_rate_process_prior_rate:.6g} s/rad")
+    print(
+        f"  derived mean: {turn_process_mean_rad_s:.6g} rad/s "
+        f"({turn_process_mean_deg_s:.6g} deg/s)"
+    )
+
+
+def _draw_prior(axis, curve: PriorCurve, *, overview=False) -> None:
+    """Draw one density with configured central and tail regions."""
+    central = (curve.x_values >= curve.central_lower) & (
+        curve.x_values <= curve.central_upper
+    )
+    axis.plot(curve.x_values, curve.density, color=CURVE_COLOR, linewidth=2.2)
+    axis.fill_between(
+        curve.x_values,
+        curve.density,
+        where=central,
+        color=CENTRAL_COLOR,
+        alpha=0.20,
+    )
+    axis.fill_between(
+        curve.x_values,
+        curve.density,
+        where=~central,
+        color=TAIL_COLOR,
+        alpha=0.22,
+    )
+    for threshold in curve.thresholds:
+        axis.axvline(
+            threshold,
+            color=TAIL_COLOR,
+            linestyle="--",
+            linewidth=1.6,
+        )
+    axis.set_title(curve.title, fontsize=13 if overview else 16)
+    axis.set_xlabel(curve.x_label, fontsize=11 if overview else 13)
+    axis.set_ylabel("Density", fontsize=11 if overview else 13)
+    axis.grid(alpha=0.25, linewidth=0.8)
+    axis.set_xlim(curve.x_values[0], curve.x_values[-1])
+    axis.set_ylim(bottom=0.0)
+    axis.tick_params(labelsize=9 if overview else 11)
+    axis.text(
+        0.97,
+        0.92,
+        curve.annotation,
+        transform=axis.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5 if overview else 11,
+        bbox={
+            "boxstyle": "round,pad=0.35",
+            "facecolor": "white",
+            "edgecolor": "0.75",
+            "alpha": 0.9,
+        },
+    )
+
+
+def _exponential_curve(
+    *,
+    filename_stem,
+    title,
+    x_label,
+    rate,
+    configured_upper,
+    tail_probability,
+    threshold_unit,
+):
+    """Return one exponential density in its displayed units."""
+    x_values = np.linspace(
+        0.0,
+        -np.log(PLOT_TAIL_PROBABILITY) / rate,
+        DENSITY_POINT_COUNT,
+    )
+    return PriorCurve(
+        filename_stem=filename_stem,
+        title=title,
+        x_label=x_label,
+        x_values=x_values,
+        density=rate * np.exp(-rate * x_values),
+        central_lower=0.0,
+        central_upper=configured_upper,
+        thresholds=(configured_upper,),
+        annotation=(
+            f"{1.0 - tail_probability:.0%} prior probability below "
+            f"{configured_upper:g} {threshold_unit}"
+        ),
+    )
+
+
+def _print_exponential_report(
+    *,
+    label,
+    upper,
+    unit,
+    tail_probability,
+    rate,
+    rate_unit,
+):
+    """Print one configured exponential statement and its derived parameters."""
+    print(f"{label}:")
+    print("  distribution: Exponential")
+    print(
+        f"  configured statement: P({label.split()[-1]} < {upper:g} {unit}) = "
+        f"{1.0 - tail_probability:.1%}"
+    )
+    print(f"  derived rate: {rate:.6g} {rate_unit}")
+    print(f"  derived mean: {1.0 / rate:.6g} {unit}")
+
+
+def _symmetric_normal_absolute_upper_quantile(scale, tail_probability):
+    """Return an absolute Normal quantile from a two-sided tail probability."""
+    return scale * NormalDist().inv_cdf(1.0 - tail_probability / 2.0)
+
+
+def _normal_density(values, scale):
+    """Return the zero-centered Normal density for an array."""
+    return np.exp(-0.5 * (values / scale) ** 2) / (scale * np.sqrt(2.0 * np.pi))
+
+
+if __name__ == "__main__":
+    main()
