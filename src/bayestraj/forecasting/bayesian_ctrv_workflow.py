@@ -84,8 +84,9 @@ def run_bayesian_ctrv_prediction(
             (
                 "Model parameters",
                 (
-                    "speed, heading_initial, turn_rate, sigma_motion_process, "
-                    "sigma_position_observation"
+                    "dynamic speed/turn-rate states, heading, "
+                    "sigma_motion_process, sigma_position_observation, "
+                    "sigma_speed_process, sigma_turn_rate_process"
                 ),
             ),
             ("Inference mode", inference_mode.upper()),
@@ -132,6 +133,26 @@ def run_bayesian_ctrv_prediction(
                 f"{priors.sigma_position_observation_prior_upper_m:g} m)="
                 f"{priors.sigma_position_observation_prior_tail_probability:g})",
             ),
+            (
+                "Speed-process prior",
+                "Exponential("
+                f"rate={priors.sigma_speed_process_prior_rate:.4f} s/m; "
+                "P(sigma > "
+                f"{priors.sigma_speed_process_prior_upper_mps:g} m/s)="
+                f"{priors.sigma_speed_process_prior_tail_probability:g})",
+            ),
+            (
+                "Turn-process prior",
+                "Exponential("
+                f"rate={priors.sigma_turn_rate_process_prior_rate:.4f} s/rad; "
+                "P(sigma > "
+                f"{priors.sigma_turn_rate_process_prior_upper_deg_s:g} deg/s)="
+                f"{priors.sigma_turn_rate_process_prior_tail_probability:g})",
+            ),
+            (
+                "Process reference",
+                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s",
+            ),
             ("Forecast horizon", f"{forecast_horizon_seconds:g} s"),
             ("Plot coordinates", plot_coordinate_mode),
             ("Prior status", "ship-independent domain assumptions"),
@@ -167,16 +188,16 @@ def run_bayesian_ctrv_prediction(
     print(reporting.posterior_parameter_summary(fit, bayesian_model.PARAMETER_NAMES))
     parameter_rows = [
         (
-            "Speed [m/s]",
-            f"{np.median(reporting.posterior_variable_samples(fit, 'speed')):.3f}",
+            "Speed at origin [m/s]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'speed_at_origin')):.3f}",
         ),
         (
-            "Initial heading [rad]",
-            f"{np.median(reporting.posterior_variable_samples(fit, 'heading_initial')):.4f}",
+            "Heading at origin [rad]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'heading_at_origin')):.4f}",
         ),
         (
-            "Turn rate [rad/s]",
-            f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate')):.6f}",
+            "Turn rate at origin [rad/s]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate_at_origin')):.6f}",
         ),
         (
             "Motion process [m]",
@@ -185,6 +206,14 @@ def run_bayesian_ctrv_prediction(
         (
             "Observation noise [m]",
             f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_position_observation')):.3f}",
+        ),
+        (
+            "Speed process [m/s]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_speed_process')):.3f}",
+        ),
+        (
+            "Turn-rate process [rad/s]",
+            f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_turn_rate_process')):.6f}",
         ),
     ]
     print("\nPosterior parameter medians:")

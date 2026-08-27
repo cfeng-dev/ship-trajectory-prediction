@@ -23,23 +23,23 @@ STAN_FILE = model_paths.stan_path("models/bayesian_ctrv.stan")
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 MIN_OBSERVATION_COUNT = 3
-SPEED_INITIAL_LOWER_MPS = 0.001
+SPEED_STATE_LOWER_MPS = 0.001
+PROCESS_REFERENCE_INTERVAL_SECONDS = 10.0
 
 PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
 variational_converged = inference_support.variational_converged
 
 PARAMETER_NAMES = (
-    "speed",
-    "heading_initial",
-    "turn_rate",
+    "speed_at_origin",
+    "heading_at_origin",
+    "turn_rate_at_origin",
     "sigma_motion_process",
     "sigma_position_observation",
-)
-SEQUENTIAL_PARAMETER_NAMES = PARAMETER_NAMES + (
     "sigma_speed_process",
     "sigma_turn_rate_process",
 )
+SEQUENTIAL_PARAMETER_NAMES = PARAMETER_NAMES
 
 _LOG_MOTION_PROCESS_INDEX = 0
 _LOG_OBSERVATION_NOISE_INDEX = 1
@@ -58,7 +58,7 @@ _NUMERICAL_VARIANCE_FLOOR = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Ship-independent priors for batch CTRV and sequential state dynamics."""
+    """Ship-independent priors for Bayesian CTRV state dynamics."""
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
@@ -147,13 +147,12 @@ class BayesianCTRVPriors:
 
 @dataclass(frozen=True, slots=True)
 class SequentialCTRVFilterConfig:
-    """Numerical settings for online Bayesian CTRV particle filtering."""
+    """Numerical settings that are specific to online CTRV particle filtering."""
 
     particle_count: int = 4_000
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05
-    process_reference_interval_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         """Validate particle-filter sizes and probabilities."""
@@ -177,19 +176,8 @@ class SequentialCTRVFilterConfig:
         )
         if rejuvenation_scale >= 1.0:
             raise ValueError("rejuvenation_scale must be smaller than one.")
-        process_reference_interval_seconds = (
-            observation_support.validate_positive_finite(
-                "process_reference_interval_seconds",
-                self.process_reference_interval_seconds,
-            )
-        )
         object.__setattr__(self, "resample_ess_fraction", ess_fraction)
         object.__setattr__(self, "rejuvenation_scale", rejuvenation_scale)
-        object.__setattr__(
-            self,
-            "process_reference_interval_seconds",
-            process_reference_interval_seconds,
-        )
 
 
 class SequentialCTRVFit:
@@ -267,7 +255,7 @@ class SequentialBayesianCTRVFilter:
         )
         speed = np.maximum(
             np.abs(generator.normal(0.0, priors.speed_prior_scale, particle_count)),
-            SPEED_INITIAL_LOWER_MPS,
+            SPEED_STATE_LOWER_MPS,
         )
         heading = generator.uniform(
             -np.pi,
@@ -328,7 +316,7 @@ class SequentialBayesianCTRVFilter:
         state_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] = observation_noise**2
         state_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] = speed_process**2
         state_covariances[:, _STATE_HEADING_INDEX, _STATE_HEADING_INDEX] = (
-            turn_rate_process * config.process_reference_interval_seconds
+            turn_rate_process * PROCESS_REFERENCE_INTERVAL_SECONDS
         ) ** 2
         state_covariances[:, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX] = (
             turn_rate_process**2
@@ -403,7 +391,7 @@ class SequentialBayesianCTRVFilter:
             _sequential_parameter_values(self.parameter_particles)
         )
         dt = time_seconds - self.last_observation_time_seconds
-        process_variance_scale = dt / self.config.process_reference_interval_seconds
+        process_variance_scale = dt / PROCESS_REFERENCE_INTERVAL_SECONDS
         pre_transition_covariances = self.state_covariances.copy()
         pre_transition_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
             speed_process**2 * process_variance_scale
@@ -515,9 +503,7 @@ class SequentialBayesianCTRVFilter:
         current_time = self.last_observation_time_seconds
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
-            process_time_scale = np.sqrt(
-                dt / self.config.process_reference_interval_seconds
-            )
+            process_time_scale = np.sqrt(dt / PROCESS_REFERENCE_INTERVAL_SECONDS)
             states[:, _STATE_SPEED_INDEX] += generator.normal(
                 0.0,
                 speed_process * process_time_scale,
@@ -550,9 +536,9 @@ class SequentialBayesianCTRVFilter:
 
         return SequentialCTRVFit(
             {
-                "speed": speed_at_origin,
-                "heading_initial": heading_at_origin,
-                "turn_rate": turn_rate_at_origin,
+                "speed_at_origin": speed_at_origin,
+                "heading_at_origin": heading_at_origin,
+                "turn_rate_at_origin": turn_rate_at_origin,
                 "sigma_motion_process": motion_process,
                 "sigma_position_observation": observation_noise,
                 "sigma_speed_process": speed_process,
@@ -653,6 +639,12 @@ def build_stan_data(
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
         ),
+        "sigma_speed_process_prior_rate": priors.sigma_speed_process_prior_rate,
+        "sigma_turn_rate_process_prior_rate": (
+            priors.sigma_turn_rate_process_prior_rate
+        ),
+        "process_reference_interval_seconds": PROCESS_REFERENCE_INTERVAL_SECONDS,
+        "speed_state_lower_mps": SPEED_STATE_LOWER_MPS,
         "N_prediction": window.prediction_count,
         "time_prediction": time_prediction,
         "speed_prior_scale": priors.speed_prior_scale,
@@ -924,11 +916,9 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     return {
         "x_true": x_true,
         "y_true": y_true,
-        "speed": float(
-            max(
-                speed + generator.normal(0.0, speed_jitter),
-                SPEED_INITIAL_LOWER_MPS,
-            )
+        "speed_state": np.maximum(
+            speed + generator.normal(0.0, speed_jitter, x_true.size),
+            float(stan_data["speed_state_lower_mps"]),
         ),
         "heading_initial": float(
             np.clip(
@@ -937,11 +927,15 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
                 angle_limit,
             )
         ),
-        "turn_rate": float(turn_rate + generator.normal(0.0, turn_jitter)),
+        "turn_rate_state": turn_rate + generator.normal(0.0, turn_jitter, x_true.size),
         "sigma_motion_process": float(
             0.5 / stan_data["sigma_motion_process_prior_rate"]
         ),
         "sigma_position_observation": float(observation_noise_initial),
+        "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
+        "sigma_turn_rate_process": float(
+            0.5 / stan_data["sigma_turn_rate_process_prior_rate"]
+        ),
     }
 
 
@@ -1152,7 +1146,7 @@ def _normalize_ctrv_states(
         covariances[negative_speed, :, _STATE_SPEED_INDEX] *= -1.0
     states[:, _STATE_SPEED_INDEX] = np.maximum(
         states[:, _STATE_SPEED_INDEX],
-        SPEED_INITIAL_LOWER_MPS,
+        SPEED_STATE_LOWER_MPS,
     )
     states[:, _STATE_HEADING_INDEX] = _wrap_angles(states[:, _STATE_HEADING_INDEX])
 

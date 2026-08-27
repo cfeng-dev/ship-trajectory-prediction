@@ -118,7 +118,12 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
                 ),
                 seed=42,
             ).forecast(np.arange(5, 8, dtype=float), seed=43),
-            ("x_prediction", "y_prediction"),
+            (
+                "x_prediction",
+                "y_prediction",
+                "x_observation_prediction",
+                "y_observation_prediction",
+            ),
             (8, 3),
         ),
         (
@@ -132,7 +137,12 @@ def test_position_online_evaluation_initializes_once_and_updates_only_new_positi
                 ),
                 seed=42,
             ).forecast(3, seed=43),
-            ("x_model_prediction", "y_model_prediction"),
+            (
+                "x_model_prediction",
+                "y_model_prediction",
+                "x_observation_prediction",
+                "y_observation_prediction",
+            ),
             (8, 3),
         ),
     ),
@@ -145,6 +155,25 @@ def test_rbpf_forecasts_expose_shared_posterior_variable_interface(
     for variable_name in variable_names:
         samples = reporting.posterior_variable_samples(fit, variable_name)
         assert samples.shape == expected_shape
+        assert np.all(np.isfinite(samples))
+
+
+def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
+    fit = ctrv_model.SequentialBayesianCTRVFilter.initialize(
+        np.arange(5, dtype=float),
+        np.arange(5, dtype=float),
+        np.zeros(5),
+        priors=ctrv_model.BayesianCTRVPriors(),
+        config=ctrv_model.SequentialCTRVFilterConfig(
+            particle_count=32,
+            posterior_draw_count=8,
+        ),
+        seed=42,
+    ).forecast(np.arange(5, 8, dtype=float), seed=43)
+
+    for variable_name in ctrv_model.PARAMETER_NAMES:
+        samples = reporting.posterior_variable_samples(fit, variable_name)
+        assert samples.shape == (8,)
         assert np.all(np.isfinite(samples))
 
 
