@@ -112,12 +112,12 @@ model {
         heading_state[n - 1],
         turn_rate_state[n]);
 
-    // Stan uses a positive truncated additive speed transition. The online
-    // RBPF instead reflects negative proposals and rotates heading by pi.
-    target += normal_lpdf(
-        speed_state[n] | speed_state[n - 1], speed_process_scale)
-        - normal_lccdf(
-            speed_state_lower_mps | speed_state[n - 1], speed_process_scale);
+    // Reflect Gaussian speed proposals at the physical zero-speed boundary.
+    target += log_sum_exp(
+        normal_lpdf(
+            speed_state[n] | speed_state[n - 1], speed_process_scale),
+        normal_lpdf(
+            -speed_state[n] | speed_state[n - 1], speed_process_scale));
     turn_rate_state[n] ~ normal(
         turn_rate_state[n - 1], turn_rate_process_scale);
     x_true[n] ~ normal(position[1], sigma_motion_process);
@@ -155,25 +155,19 @@ generated quantities {
         dt / process_reference_interval_seconds);
     real speed_proposal = normal_rng(
         speed_previous, sigma_speed_process * process_time_scale);
-    real heading_for_transition = heading_previous;
     vector[2] expected_position;
     turn_rate_previous = normal_rng(
         turn_rate_previous, sigma_turn_rate_process * process_time_scale);
 
-    // Match the RBPF forecast boundary treatment for future speed proposals.
-    if (speed_proposal < 0) {
-      speed_previous = fmax(-speed_proposal, speed_state_lower_mps);
-      heading_for_transition = wrap_angle(heading_previous + pi());
-    } else {
-      speed_previous = fmax(speed_proposal, speed_state_lower_mps);
-    }
+    // Reflect at zero without changing the vessel's direction of travel.
+    speed_previous = fmax(abs(speed_proposal), speed_state_lower_mps);
 
     expected_position = ctrv_position(
         dt,
         x_previous,
         y_previous,
         speed_previous,
-        heading_for_transition,
+        heading_previous,
         turn_rate_previous);
 
     // A model prediction is a future latent state including process noise.
@@ -191,7 +185,7 @@ generated quantities {
     x_previous = x_prediction[n];
     y_previous = y_prediction[n];
     heading_previous = wrap_angle(
-        heading_for_transition + turn_rate_previous * dt);
+        heading_previous + turn_rate_previous * dt);
     time_previous = time_prediction[n];
   }
 }

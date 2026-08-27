@@ -23,7 +23,7 @@ STAN_FILE = model_paths.stan_path("models/bayesian_ctrv.stan")
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 MIN_OBSERVATION_COUNT = 3
-SPEED_STATE_LOWER_MPS = 0.001
+SPEED_STATE_LOWER_MPS = 0.0
 PROCESS_REFERENCE_INTERVAL_SECONDS = 10.0
 
 PositionObservations = observation_support.PositionObservations
@@ -1137,10 +1137,9 @@ def _normalize_ctrv_states(
     states: np.ndarray,
     covariances: np.ndarray | None = None,
 ) -> None:
-    """Represent negative speed as positive speed in the opposite direction."""
+    """Reflect negative speeds at zero without changing vessel heading."""
     negative_speed = states[:, _STATE_SPEED_INDEX] < 0.0
     states[negative_speed, _STATE_SPEED_INDEX] *= -1.0
-    states[negative_speed, _STATE_HEADING_INDEX] += np.pi
     if covariances is not None and np.any(negative_speed):
         covariances[negative_speed, _STATE_SPEED_INDEX, :] *= -1.0
         covariances[negative_speed, :, _STATE_SPEED_INDEX] *= -1.0

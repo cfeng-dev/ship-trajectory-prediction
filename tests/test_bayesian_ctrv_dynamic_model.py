@@ -68,6 +68,7 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     assert stan_data["process_reference_interval_seconds"] == pytest.approx(
         ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
     )
+    assert stan_data["speed_state_lower_mps"] == 0.0
     assert "gps_speed" not in stan_data
 
 
@@ -93,6 +94,69 @@ def test_stan_model_contains_dynamic_speed_and_turn_rate_states():
     assert "process_reference_interval_seconds" in stan_source
     assert "gps_speed" not in stan_source
     assert "sigma_motion_process * process_time_scale" not in stan_source
+
+
+def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():
+    stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
+
+    assert "target += log_sum_exp(" in stan_source
+    assert "-speed_state[n] | speed_state[n - 1]" in stan_source
+    assert "normal_lccdf" not in stan_source
+    assert "fmax(abs(speed_proposal), speed_state_lower_mps)" in stan_source
+    assert "heading_previous + pi()" not in stan_source
+    assert "heading_for_transition" not in stan_source
+
+
+@pytest.mark.parametrize(
+    ("proposal", "expected_speed"),
+    ((4.0, 4.0), (-2.0, 2.0)),
+)
+def test_rbpf_speed_reflection_preserves_heading(proposal, expected_speed):
+    heading = 0.4
+    states = np.asarray([[1.0, 2.0, proposal, heading, 0.01]])
+
+    ctrv_model._normalize_ctrv_states(states)
+
+    assert states[0, 2] == pytest.approx(expected_speed)
+    assert states[0, 3] == pytest.approx(heading)
+
+
+def test_rbpf_speed_reflection_transforms_covariance_without_rotating_heading():
+    states = np.asarray([[1.0, 2.0, -2.0, 0.4, 0.01]])
+    covariance = np.asarray(
+        [
+            [
+                [4.0, 0.2, 0.6, 0.1, 0.0],
+                [0.2, 3.0, -0.3, 0.0, 0.1],
+                [0.6, -0.3, 2.0, -0.2, 0.4],
+                [0.1, 0.0, -0.2, 1.0, 0.2],
+                [0.0, 0.1, 0.4, 0.2, 0.5],
+            ]
+        ]
+    )
+    reflection = np.diag([1.0, 1.0, -1.0, 1.0, 1.0])
+    expected_covariance = reflection @ covariance[0] @ reflection
+
+    ctrv_model._normalize_ctrv_states(states, covariance)
+
+    assert states[0, 2] == pytest.approx(2.0)
+    assert states[0, 3] == pytest.approx(0.4)
+    np.testing.assert_allclose(covariance[0], expected_covariance)
+
+
+@pytest.mark.parametrize(
+    ("mean", "scale"),
+    ((0.0, 1.0), (0.5, 2.0), (4.0, 0.75)),
+)
+def test_folded_normal_transition_density_integrates_to_one(mean, scale):
+    speed = np.linspace(0.0, mean + 12.0 * scale, 200_001)
+    normalization = scale * np.sqrt(2.0 * np.pi)
+    density = (
+        np.exp(-0.5 * ((speed - mean) / scale) ** 2)
+        + np.exp(-0.5 * ((-speed - mean) / scale) ** 2)
+    ) / normalization
+
+    assert np.trapezoid(density, speed) == pytest.approx(1.0, abs=1e-8)
 
 
 def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
