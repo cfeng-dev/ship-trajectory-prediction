@@ -169,6 +169,7 @@ def _run_evaluation(
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Forecast origins      : {len(windows)}")
+    print("Position transition   : conditional CTRV; no Cartesian process noise")
     noise_description = (
         f"{experiment.position_noise_std_m:g} m (seed={experiment.position_noise_seed})"
         if experiment.position_noise_std_m > 0
@@ -185,14 +186,6 @@ def _run_evaluation(
         f"{priors.turn_rate_prior_reference_interval_seconds:g} s| > "
         f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
         f"{priors.turn_rate_prior_tail_probability:g}"
-    )
-    print(
-        "Position-process prior: Exponential("
-        f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
-        "P(sigma at "
-        f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s > "
-        f"{priors.sigma_motion_process_prior_upper_m:g} m)="
-        f"{priors.sigma_motion_process_prior_tail_probability:g})"
     )
     print(
         "Observation-noise prior: Exponential("
@@ -475,7 +468,6 @@ def _posterior_diagnostics(fit):
         "posterior_speed_at_origin_median_mps": medians["speed_at_origin"],
         "posterior_heading_at_origin_median_rad": medians["heading_at_origin"],
         "posterior_turn_rate_at_origin_median_rad_s": medians["turn_rate_at_origin"],
-        "posterior_sigma_motion_process_median_m": medians["sigma_motion_process"],
         "posterior_sigma_position_observation_median_m": medians[
             "sigma_position_observation"
         ],
@@ -594,9 +586,6 @@ def _build_route_prediction_table(
     table["position_noise_std_m"] = position_noise_std_m
     table["position_observation_noise_std_m"] = diagnostics[
         "posterior_sigma_position_observation_median_m"
-    ]
-    table["position_motion_process_std_m"] = diagnostics[
-        "posterior_sigma_motion_process_median_m"
     ]
     table["position_noise_seed"] = position_noise_seed
     for name, value in diagnostics.items():
@@ -769,13 +758,6 @@ def _print_parameter_summary(predictions):
         (
             "Median absolute turn rate at origin",
             f"{windows['posterior_turn_rate_at_origin_median_rad_s'].abs().median():.6f} rad/s",
-        ),
-        (
-            (
-                "Median position-process SD at "
-                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s"
-            ),
-            f"{windows['posterior_sigma_motion_process_median_m'].median():.3f} m",
         ),
         (
             "Median observation noise",

@@ -1,4 +1,8 @@
-"""Parametric Bayesian CTRV model fitted with VI or MCMC."""
+"""Bayesian CTRV with stochastic kinematics and conditional positions.
+
+Position is deterministic conditional on latent speed, heading, and turn rate;
+there is no independent additive Cartesian position-process noise.
+"""
 
 from __future__ import annotations
 
@@ -30,22 +34,23 @@ PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
 variational_converged = inference_support.variational_converged
 
-PARAMETER_NAMES = (
-    "speed_at_origin",
-    "heading_at_origin",
-    "turn_rate_at_origin",
-    "sigma_motion_process",
+NOISE_PARAMETER_NAMES = (
     "sigma_position_observation",
     "sigma_speed_process",
     "sigma_turn_rate_process",
 )
+PARAMETER_NAMES = (
+    "speed_at_origin",
+    "heading_at_origin",
+    "turn_rate_at_origin",
+    *NOISE_PARAMETER_NAMES,
+)
 SEQUENTIAL_PARAMETER_NAMES = PARAMETER_NAMES
 
-_LOG_MOTION_PROCESS_INDEX = 0
-_LOG_OBSERVATION_NOISE_INDEX = 1
-_LOG_SPEED_PROCESS_INDEX = 2
-_LOG_TURN_RATE_PROCESS_INDEX = 3
-_SEQUENTIAL_PARAMETER_COUNT = 4
+_LOG_OBSERVATION_NOISE_INDEX = 0
+_LOG_SPEED_PROCESS_INDEX = 1
+_LOG_TURN_RATE_PROCESS_INDEX = 2
+_SEQUENTIAL_PARAMETER_COUNT = 3
 _POSITION_COUNT = 2
 _STATE_X_INDEX = 0
 _STATE_Y_INDEX = 1
@@ -58,19 +63,13 @@ _NUMERICAL_VARIANCE_FLOOR = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Ship-independent priors for Bayesian CTRV state dynamics.
-
-    ``sigma_motion_process`` is the position-process standard deviation
-    accumulated over ``PROCESS_REFERENCE_INTERVAL_SECONDS``.
-    """
+    """Ship-independent priors for Bayesian CTRV state dynamics."""
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
     turn_rate_prior_abs_heading_change_deg: float = 45.0
     turn_rate_prior_reference_interval_seconds: float = 10.0
     turn_rate_prior_tail_probability: float = 0.05
-    sigma_motion_process_prior_upper_m: float = 20.0
-    sigma_motion_process_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
     sigma_speed_process_prior_upper_mps: float = 5.0
@@ -121,14 +120,6 @@ class BayesianCTRVPriors:
         return _exponential_rate_from_tail(
             self.sigma_position_observation_prior_upper_m,
             self.sigma_position_observation_prior_tail_probability,
-        )
-
-    @property
-    def sigma_motion_process_prior_rate(self) -> float:
-        """Return the reference-interval position-process prior rate."""
-        return _exponential_rate_from_tail(
-            self.sigma_motion_process_prior_upper_m,
-            self.sigma_motion_process_prior_tail_probability,
         )
 
     @property
@@ -271,13 +262,6 @@ class SequentialBayesianCTRVFilter:
             priors.turn_rate_prior_scale,
             particle_count,
         )
-        motion_process = np.maximum(
-            generator.exponential(
-                1.0 / priors.sigma_motion_process_prior_rate,
-                particle_count,
-            ),
-            1e-6,
-        )
         observation_noise = np.maximum(
             generator.exponential(
                 1.0 / priors.sigma_position_observation_prior_rate,
@@ -299,7 +283,6 @@ class SequentialBayesianCTRVFilter:
             ),
             1e-9,
         )
-        parameter_particles[:, _LOG_MOTION_PROCESS_INDEX] = np.log(motion_process)
         parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX] = np.log(observation_noise)
         parameter_particles[:, _LOG_SPEED_PROCESS_INDEX] = np.log(speed_process)
         parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX] = np.log(turn_rate_process)
@@ -391,7 +374,7 @@ class SequentialBayesianCTRVFilter:
             "y_observed",
             y_observed,
         )
-        motion_process, observation_noise, speed_process, turn_rate_process = (
+        observation_noise, speed_process, turn_rate_process = (
             _sequential_parameter_values(self.parameter_particles)
         )
         dt = time_seconds - self.last_observation_time_seconds
@@ -409,12 +392,6 @@ class SequentialBayesianCTRVFilter:
             transition_jacobians
             @ pre_transition_covariances
             @ np.swapaxes(transition_jacobians, 1, 2)
-        )
-        predicted_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += (
-            motion_process**2 * process_variance_scale
-        )
-        predicted_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] += (
-            motion_process**2 * process_variance_scale
         )
         innovation_covariances = predicted_covariances[:, :2, :2].copy()
         innovation_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] += (
@@ -497,7 +474,7 @@ class SequentialBayesianCTRVFilter:
             generator,
         )
         _normalize_ctrv_states(states)
-        motion_process, observation_noise, speed_process, turn_rate_process = (
+        observation_noise, speed_process, turn_rate_process = (
             _sequential_parameter_values(parameters)
         )
         speed_at_origin = states[:, _STATE_SPEED_INDEX].copy()
@@ -522,12 +499,6 @@ class SequentialBayesianCTRVFilter:
             )
             _normalize_ctrv_states(states)
             states = _ctrv_state_transition(states, dt)
-            position_process_scale = motion_process[:, None] * process_time_scale
-            states[:, :2] += generator.normal(
-                0.0,
-                position_process_scale,
-                size=(draw_count, _POSITION_COUNT),
-            )
             x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]
             y_prediction[:, prediction_index] = states[:, _STATE_Y_INDEX]
             observation_innovation = generator.normal(
@@ -548,7 +519,6 @@ class SequentialBayesianCTRVFilter:
                 "speed_at_origin": speed_at_origin,
                 "heading_at_origin": heading_at_origin,
                 "turn_rate_at_origin": turn_rate_at_origin,
-                "sigma_motion_process": motion_process,
                 "sigma_position_observation": observation_noise,
                 "sigma_speed_process": speed_process,
                 "sigma_turn_rate_process": turn_rate_process,
@@ -644,7 +614,6 @@ def build_stan_data(
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
-        "sigma_motion_process_prior_rate": priors.sigma_motion_process_prior_rate,
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
         ),
@@ -923,8 +892,8 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     turn_jitter = 0.02 * float(stan_data["turn_rate_prior_scale"])
     angle_limit = np.pi - 1e-6
     return {
-        "x_true": x_true,
-        "y_true": y_true,
+        "x_initial": float(x_true[0]),
+        "y_initial": float(y_true[0]),
         "speed_state": np.maximum(
             speed + generator.normal(0.0, speed_jitter, x_true.size),
             float(stan_data["speed_state_lower_mps"]),
@@ -937,9 +906,6 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
             )
         ),
         "turn_rate_state": turn_rate + generator.normal(0.0, turn_jitter, x_true.size),
-        "sigma_motion_process": float(
-            0.5 / stan_data["sigma_motion_process_prior_rate"]
-        ),
         "sigma_position_observation": float(observation_noise_initial),
         "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
         "sigma_turn_rate_process": float(
@@ -1028,7 +994,6 @@ def _validate_future_times(future_time_seconds, *, after: float) -> np.ndarray:
 def _sequential_parameter_values(parameter_particles: np.ndarray):
     """Transform unconstrained particles to positive process-scale arrays."""
     return (
-        np.exp(parameter_particles[:, _LOG_MOTION_PROCESS_INDEX]),
         np.exp(parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX]),
         np.exp(parameter_particles[:, _LOG_SPEED_PROCESS_INDEX]),
         np.exp(parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX]),

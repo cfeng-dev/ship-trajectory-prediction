@@ -2,6 +2,7 @@
 
 import inspect
 import os
+from dataclasses import fields
 
 import numpy as np
 import pandas as pd
@@ -93,82 +94,69 @@ def test_stan_model_contains_dynamic_speed_and_turn_rate_states():
     assert "sigma_turn_rate_process" in stan_source
     assert "process_reference_interval_seconds" in stan_source
     assert "gps_speed" not in stan_source
-    assert "sigma_motion_process * process_time_scale" in stan_source
+    assert "sigma_motion_process" not in stan_source
+    assert "sigma_position_process" not in stan_source
 
 
-def test_position_process_standard_deviation_uses_sqrt_time_scaling():
-    motion_process = 5.0
-    reference_interval = ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
+def test_ctrv_priors_and_stan_data_have_no_cartesian_process_noise():
+    priors = ctrv_model.BayesianCTRVPriors()
+    prior_field_names = {field.name for field in fields(priors)}
+    stan_data = ctrv_model.build_stan_data(_dynamic_ctrv_window(), priors=priors)
 
-    scales = motion_process * np.sqrt(
-        np.asarray([0.5, 1.0, 2.0]) * reference_interval / reference_interval
+    assert not any("motion_process" in name for name in prior_field_names)
+    assert not any("position_process" in name for name in prior_field_names)
+    assert not any("motion_process" in name for name in stan_data)
+    assert not any("position_process" in name for name in stan_data)
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        ctrv_model.BayesianCTRVPriors(sigma_motion_process_prior_upper_m=20.0)
+
+
+def test_noise_parameter_names_contain_only_remaining_ctrv_scales():
+    assert ctrv_model.NOISE_PARAMETER_NAMES == (
+        "sigma_position_observation",
+        "sigma_speed_process",
+        "sigma_turn_rate_process",
     )
-
-    np.testing.assert_allclose(
-        scales,
-        motion_process * np.asarray([np.sqrt(0.5), 1.0, np.sqrt(2.0)]),
-    )
-    np.testing.assert_allclose(
-        scales**2 / motion_process**2,
-        np.asarray([0.5, 1.0, 2.0]),
-    )
+    assert "sigma_motion_process" not in ctrv_model.PARAMETER_NAMES
 
 
-@pytest.mark.parametrize(
-    ("dt_seconds", "expected_standard_deviation_m"),
-    ((2.5, 2.0), (10.0, 4.0), (40.0, 8.0)),
-)
-def test_irregular_intervals_have_expected_position_process_scale(
-    dt_seconds,
-    expected_standard_deviation_m,
-):
-    motion_process = 4.0
-
-    actual = motion_process * np.sqrt(
-        dt_seconds / ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
-    )
-
-    assert actual == pytest.approx(expected_standard_deviation_m)
-
-
-def test_stan_scales_history_and_forecast_position_process_noise_only():
+def test_stan_positions_are_conditional_transitions_with_no_cartesian_jitter():
     stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
     history_source, forecast_source = stan_source.split("generated quantities", 1)
 
-    assert (
-        "real position_process_scale = sigma_motion_process * process_time_scale;"
-        in history_source
-    )
-    assert "x_true[n] ~ normal(position[1], position_process_scale);" in history_source
-    assert "y_true[n] ~ normal(position[2], position_process_scale);" in history_source
-    assert (
-        "real position_process_scale = sigma_motion_process * process_time_scale;"
-        in forecast_source
-    )
-    assert "expected_position[1], position_process_scale" in forecast_source
-    assert "expected_position[2], position_process_scale" in forecast_source
+    assert "real x_initial;" in history_source
+    assert "real y_initial;" in history_source
+    assert "vector[N_history] x_state;" in history_source
+    assert "vector[N_history] y_state;" in history_source
+    assert "x_state[n] = position[1];" in history_source
+    assert "y_state[n] = position[2];" in history_source
+    assert "x_state[n] ~ normal" not in history_source
+    assert "y_state[n] ~ normal" not in history_source
+    assert "x_observed ~ normal(x_state, sigma_position_observation);" in history_source
+    assert "y_observed ~ normal(y_state, sigma_position_observation);" in history_source
+    assert "x_prediction[n] = expected_position[1];" in forecast_source
+    assert "y_prediction[n] = expected_position[2];" in forecast_source
+    assert "normal_rng(expected_position" not in forecast_source
     assert "sigma_position_observation * process_time_scale" not in stan_source
-    assert "x_observed ~ normal(x_true, sigma_position_observation);" in stan_source
-    assert "y_observed ~ normal(y_true, sigma_position_observation);" in stan_source
     assert "x_prediction[n], sigma_position_observation" in forecast_source
     assert "y_prediction[n], sigma_position_observation" in forecast_source
 
 
-def test_rbpf_scales_position_process_covariance_and_forecast_draws():
+def test_rbpf_propagates_kinematic_process_noise_without_cartesian_q():
     update_source = inspect.getsource(ctrv_model.SequentialBayesianCTRVFilter.update)
     forecast_source = inspect.getsource(
         ctrv_model.SequentialBayesianCTRVFilter.forecast
     )
 
-    assert "motion_process**2 * process_variance_scale" in update_source
     assert "speed_process**2 * process_variance_scale" in update_source
     assert "turn_rate_process**2 * process_variance_scale" in update_source
-    assert (
-        "position_process_scale = motion_process[:, None] * process_time_scale"
-        in forecast_source
-    )
+    assert "motion_process" not in update_source
+    assert "motion_process" not in forecast_source
+    assert "predicted_covariances[:, _STATE_X_INDEX" not in update_source
+    assert "predicted_covariances[:, _STATE_Y_INDEX" not in update_source
     assert "speed_process * process_time_scale" in forecast_source
     assert "turn_rate_process * process_time_scale" in forecast_source
+    assert "states[:, :2] +=" not in forecast_source
     assert "observation_noise * process_time_scale" not in forecast_source
 
 
@@ -242,6 +230,11 @@ def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
 
     assert initial_values["speed_state"].shape == (window.observation_count,)
     assert initial_values["turn_rate_state"].shape == (window.observation_count,)
+    assert np.isfinite(initial_values["x_initial"])
+    assert np.isfinite(initial_values["y_initial"])
+    assert "x_true" not in initial_values
+    assert "y_true" not in initial_values
+    assert "sigma_motion_process" not in initial_values
     assert np.all(initial_values["speed_state"] >= ctrv_model.SPEED_STATE_LOWER_MPS)
     assert initial_values["sigma_speed_process"] > 0
     assert initial_values["sigma_turn_rate_process"] > 0
@@ -270,6 +263,160 @@ def test_zero_motion_state_innovations_recover_constant_ctrv_transition():
     assert state[0, 1] == pytest.approx(expected_y)
     assert state[0, 2] == pytest.approx(speed)
     assert state[0, 4] == pytest.approx(turn_rate)
+
+
+def _controlled_online_filter(
+    *,
+    observation_noise,
+    speed_process,
+    turn_rate_process,
+    draw_count=2_000,
+):
+    particle_count = 128
+    parameter_values = np.log(
+        np.asarray([observation_noise, speed_process, turn_rate_process])
+    )
+    parameter_particles = np.broadcast_to(
+        parameter_values,
+        (particle_count, parameter_values.size),
+    ).copy()
+    state = np.asarray([0.0, 0.0, 4.0, 0.3, 0.01])
+    state_means = np.broadcast_to(state, (particle_count, state.size)).copy()
+    state_covariances = np.broadcast_to(
+        1e-12 * np.eye(state.size),
+        (particle_count, state.size, state.size),
+    ).copy()
+    return ctrv_model.SequentialBayesianCTRVFilter(
+        config=ctrv_model.SequentialCTRVFilterConfig(
+            particle_count=particle_count,
+            posterior_draw_count=draw_count,
+        ),
+        parameter_particles=parameter_particles,
+        weights=np.full(particle_count, 1.0 / particle_count),
+        state_means=state_means,
+        state_covariances=state_covariances,
+        generator=np.random.default_rng(42),
+        last_observation_time_seconds=0.0,
+        processed_observation_count=1,
+    )
+
+
+def test_rbpf_parameter_particles_contain_only_remaining_noise_scales():
+    online_filter = _controlled_online_filter(
+        observation_noise=1.0,
+        speed_process=0.5,
+        turn_rate_process=0.01,
+        draw_count=32,
+    )
+
+    assert online_filter.parameter_particles.shape == (128, 3)
+    assert (
+        len(
+            ctrv_model._sequential_parameter_values(
+                parameter_particles=online_filter.parameter_particles
+            )
+        )
+        == 3
+    )
+
+
+def test_synthetic_ctrv_forecast_tracks_motion_and_remains_probabilistic():
+    online_filter = _controlled_online_filter(
+        observation_noise=2.0,
+        speed_process=0.02,
+        turn_rate_process=0.0002,
+    )
+    future_times = np.asarray([10.0, 20.0, 30.0])
+    fit = online_filter.forecast(future_times, seed=43)
+    expected_state = np.asarray([[0.0, 0.0, 4.0, 0.3, 0.01]])
+    expected_positions = []
+    for _ in future_times:
+        expected_state = ctrv_model._ctrv_state_transition(expected_state, 10.0)
+        expected_positions.append(expected_state[0, :2].copy())
+    expected_positions = np.asarray(expected_positions)
+    latent_positions = np.stack(
+        (fit.stan_variable("x_prediction"), fit.stan_variable("y_prediction")),
+        axis=-1,
+    )
+
+    np.testing.assert_allclose(
+        np.median(latent_positions, axis=0),
+        expected_positions,
+        atol=0.5,
+    )
+    assert np.all(np.std(latent_positions, axis=0) > 0.0)
+
+
+def test_larger_speed_process_increases_longitudinal_uncertainty():
+    future_times = np.asarray([10.0, 20.0, 30.0])
+    low_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=1e-9,
+        turn_rate_process=1e-9,
+    ).forecast(future_times, seed=43)
+    high_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=1.0,
+        turn_rate_process=1e-9,
+    ).forecast(future_times, seed=43)
+    heading = 0.3
+
+    def longitudinal_samples(fit):
+        return fit.stan_variable("x_prediction")[:, -1] * np.cos(
+            heading
+        ) + fit.stan_variable("y_prediction")[:, -1] * np.sin(heading)
+
+    assert np.std(longitudinal_samples(high_fit)) > 10.0 * np.std(
+        longitudinal_samples(low_fit)
+    )
+
+
+def test_larger_turn_rate_process_increases_lateral_uncertainty():
+    future_times = np.asarray([10.0, 20.0, 30.0])
+    low_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=1e-9,
+        turn_rate_process=1e-9,
+    ).forecast(future_times, seed=43)
+    high_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=1e-9,
+        turn_rate_process=0.03,
+    ).forecast(future_times, seed=43)
+    heading = 0.3
+
+    def lateral_samples(fit):
+        return -fit.stan_variable("x_prediction")[:, -1] * np.sin(
+            heading
+        ) + fit.stan_variable("y_prediction")[:, -1] * np.cos(heading)
+
+    assert np.std(lateral_samples(high_fit)) > 10.0 * np.std(lateral_samples(low_fit))
+
+
+def test_observation_noise_widens_only_observation_predictions():
+    future_times = np.asarray([10.0])
+    low_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=0.1,
+        turn_rate_process=0.001,
+    ).forecast(future_times, seed=43)
+    high_fit = _controlled_online_filter(
+        observation_noise=10.0,
+        speed_process=0.1,
+        turn_rate_process=0.001,
+    ).forecast(future_times, seed=43)
+
+    np.testing.assert_allclose(
+        low_fit.stan_variable("x_prediction"),
+        high_fit.stan_variable("x_prediction"),
+    )
+    low_residual = low_fit.stan_variable(
+        "x_observation_prediction"
+    ) - low_fit.stan_variable("x_prediction")
+    high_residual = high_fit.stan_variable(
+        "x_observation_prediction"
+    ) - high_fit.stan_variable("x_prediction")
+    assert np.std(high_residual) > 50.0 * np.std(low_residual)
 
 
 def _assert_dynamic_batch_fit_interface(fit, *, prediction_count):

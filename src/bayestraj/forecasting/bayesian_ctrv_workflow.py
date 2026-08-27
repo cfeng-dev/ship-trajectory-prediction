@@ -85,9 +85,13 @@ def run_bayesian_ctrv_prediction(
                 "Model parameters",
                 (
                     "dynamic speed/turn-rate states, heading, "
-                    "sigma_motion_process, sigma_position_observation, "
-                    "sigma_speed_process, sigma_turn_rate_process"
+                    "sigma_position_observation, sigma_speed_process, "
+                    "sigma_turn_rate_process"
                 ),
+            ),
+            (
+                "Position transition",
+                "deterministic conditional on latent speed and turn rate",
             ),
             ("Inference mode", inference_mode.upper()),
             ("Inference method", inference_method.upper()),
@@ -116,15 +120,6 @@ def run_bayesian_ctrv_prediction(
                     f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
                     f"{priors.turn_rate_prior_tail_probability:g}"
                 ),
-            ),
-            (
-                "Position-process prior",
-                "Exponential("
-                f"rate={priors.sigma_motion_process_prior_rate:.4f} 1/m; "
-                "P(sigma at "
-                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s > "
-                f"{priors.sigma_motion_process_prior_upper_m:g} m)="
-                f"{priors.sigma_motion_process_prior_tail_probability:g})",
             ),
             (
                 "Observation-noise prior",
@@ -199,13 +194,6 @@ def run_bayesian_ctrv_prediction(
         (
             "Turn rate at origin [rad/s]",
             f"{np.median(reporting.posterior_variable_samples(fit, 'turn_rate_at_origin')):.6f}",
-        ),
-        (
-            (
-                "Position-process SD at "
-                f"{bayesian_model.PROCESS_REFERENCE_INTERVAL_SECONDS:g} s [m]"
-            ),
-            f"{np.median(reporting.posterior_variable_samples(fit, 'sigma_motion_process')):.3f}",
         ),
         (
             "Observation noise [m]",
