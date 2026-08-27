@@ -3,7 +3,9 @@
 from collections.abc import Mapping
 from typing import Any
 
+import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_inference as inference_support
+import bayestraj.models.bayesian_position_model as position_model
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 INFERENCE_MODES = ("batch", "online")
@@ -95,6 +97,18 @@ def create_default_mcmc_config() -> dict[str, Any]:
         "adapt_delta": 0.9,
         "max_treedepth": 10,
     }
+
+
+def create_default_ctrv_rbpf_config() -> ctrv_model.SequentialCTRVFilterConfig:
+    """Return independent default settings for the Bayesian CTRV RBPF."""
+    return ctrv_model.SequentialCTRVFilterConfig()
+
+
+def create_default_position_rbpf_config() -> (
+    position_model.SequentialPositionFilterConfig
+):
+    """Return independent default settings for the Bayesian position RBPF."""
+    return position_model.SequentialPositionFilterConfig()
 
 
 def select_inference_config(

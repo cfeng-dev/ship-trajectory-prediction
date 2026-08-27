@@ -39,13 +39,7 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
 )
 VI_CONFIG = inference.create_default_vi_config()
 MCMC_CONFIG = inference.create_default_mcmc_config()
-RBPF_CONFIG = bayesian_model.SequentialCTRVFilterConfig(
-    particle_count=4_000,
-    posterior_draw_count=1_000,
-    resample_ess_fraction=0.5,
-    rejuvenation_scale=0.05,
-    process_reference_interval_seconds=10.0,
-)
+RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
 CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
 PLOT_EACH_WINDOW = False

@@ -6,6 +6,7 @@ import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.forecasting.bayesian_position_model as position_config
 import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as ctrv_model
+import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.validation.cli as validation_cli
 
 ROLLING_CONFIG_TYPES = (
@@ -113,6 +114,17 @@ def test_cmdstan_configuration_rejects_online_rbpf():
             mcmc_config=inference.create_default_mcmc_config(),
             fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         )
+
+
+def test_default_rbpf_factories_return_model_specific_configs():
+    ctrv_rbpf_config = inference.create_default_ctrv_rbpf_config()
+    position_rbpf_config = inference.create_default_position_rbpf_config()
+
+    assert isinstance(ctrv_rbpf_config, ctrv_model.SequentialCTRVFilterConfig)
+    assert isinstance(
+        position_rbpf_config,
+        position_model.SequentialPositionFilterConfig,
+    )
 
 
 @pytest.mark.parametrize("config_type", SINGLE_CONFIG_TYPES)
