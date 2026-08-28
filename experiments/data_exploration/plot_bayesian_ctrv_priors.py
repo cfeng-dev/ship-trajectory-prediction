@@ -19,7 +19,7 @@ INDIVIDUAL_FIGURE_SIZE = (8.0, 5.0)
 CURVE_COLOR = "#24557A"
 CENTRAL_COLOR = "#4C956C"
 TAIL_COLOR = "#D17A22"
-SHOW_ANNOTATIONS = True
+SHOW_LEGEND = True  # False hides the legend in every prior plot.
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,9 +33,12 @@ class PriorCurve:
     density: np.ndarray
     central_lower: float
     central_upper: float
+    central_probability: float
     thresholds: tuple[float, ...]
-    annotation: str
     x_ticks: tuple[float, ...] = ()
+    x_limits: tuple[float, float] | None = None
+    central_legend_label: str | None = None
+    threshold_legend_label: str = "Konfigurierter Grenzwert"
 
 
 def main(argv=None):
@@ -110,7 +113,6 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
         rate=priors.sigma_position_observation_prior_rate,
         configured_upper=priors.sigma_position_observation_prior_upper_m,
         tail_probability=priors.sigma_position_observation_prior_tail_probability,
-        threshold_unit="m",
     )
     speed_process_curve = _exponential_curve(
         filename_stem="prior_speed_process_noise",
@@ -119,7 +121,6 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
         rate=priors.sigma_speed_process_prior_rate,
         configured_upper=priors.sigma_speed_process_prior_upper_mps,
         tail_probability=priors.sigma_speed_process_prior_tail_probability,
-        threshold_unit="m/s",
     )
     turn_process_mean_deg_s = float(
         np.rad2deg(1.0 / priors.sigma_turn_rate_process_prior_rate)
@@ -132,7 +133,6 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
         rate=turn_process_rate_per_deg_s,
         configured_upper=priors.sigma_turn_rate_process_prior_upper_deg_s,
         tail_probability=priors.sigma_turn_rate_process_prior_tail_probability,
-        threshold_unit="°/s",
     )
 
     return (
@@ -144,11 +144,8 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
             density=speed_density,
             central_lower=0.0,
             central_upper=priors.speed_prior_upper_mps,
+            central_probability=speed_probability,
             thresholds=(priors.speed_prior_upper_mps,),
-            annotation=(
-                f"{_format_percentage(speed_probability)} Prior-Wahrscheinlichkeit "
-                f"unter {_format_number(priors.speed_prior_upper_mps)} m/s"
-            ),
         ),
         PriorCurve(
             filename_stem="prior_initial_heading",
@@ -158,9 +155,12 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
             density=heading_density,
             central_lower=-180.0,
             central_upper=180.0,
-            thresholds=(),
-            annotation="Alle Anfangsrichtungen sind gleich wahrscheinlich",
-            x_ticks=(-180.0, -120.0, -60.0, 0.0, 60.0, 120.0, 180.0),
+            central_probability=1.0,
+            thresholds=(-180.0, 180.0),
+            x_ticks=(-270.0, -180.0, -90.0, 0.0, 90.0, 180.0, 270.0),
+            x_limits=(-270.0, 270.0),
+            central_legend_label="Gleichverteilte Anfangsrichtungen",
+            threshold_legend_label="Konfigurierter Winkelbereich",
         ),
         PriorCurve(
             filename_stem="prior_initial_turn_rate",
@@ -170,12 +170,8 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
             density=turn_rate_density,
             central_lower=-turn_rate_threshold_deg_s,
             central_upper=turn_rate_threshold_deg_s,
+            central_probability=1.0 - priors.turn_rate_prior_tail_probability,
             thresholds=(-turn_rate_threshold_deg_s, turn_rate_threshold_deg_s),
-            annotation=(
-                f"{_format_percentage(1.0 - priors.turn_rate_prior_tail_probability)} "
-                f"Prior-Wahrscheinlichkeit innerhalb "
-                f"±{_format_number(turn_rate_threshold_deg_s)} °/s"
-            ),
         ),
         observation_curve,
         speed_process_curve,
@@ -183,21 +179,21 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
     )
 
 
-def create_individual_figures(curves, *, show_annotations=SHOW_ANNOTATIONS):
+def create_individual_figures(curves, *, show_legend=SHOW_LEGEND):
     """Create one thesis-ready figure for every prior."""
     return {
         curve.filename_stem: create_prior_figure(
             curve,
-            show_annotations=show_annotations,
+            show_legend=show_legend,
         )
         for curve in curves
     }
 
 
-def create_prior_figure(curve, *, show_annotations=SHOW_ANNOTATIONS):
+def create_prior_figure(curve, *, show_legend=SHOW_LEGEND):
     """Create one thesis-ready figure for a prior."""
     figure, axis = plt.subplots(figsize=INDIVIDUAL_FIGURE_SIZE)
-    _draw_prior(axis, curve, show_annotations=show_annotations)
+    _draw_prior(axis, curve, show_legend=show_legend)
     figure.tight_layout()
     return figure
 
@@ -271,7 +267,7 @@ def _draw_prior(
     axis,
     curve: PriorCurve,
     *,
-    show_annotations=True,
+    show_legend=True,
 ) -> None:
     """Draw one density with configured central and tail regions."""
     central = (curve.x_values >= curve.central_lower) & (
@@ -282,6 +278,10 @@ def _draw_prior(
         curve.density,
         color=CURVE_COLOR,
         linewidth=2.2,
+        label="Prior-Dichte",
+    )
+    central_label = curve.central_legend_label or (
+        f"{_format_percentage(curve.central_probability)} innerhalb der Grenze"
     )
     axis.fill_between(
         curve.x_values,
@@ -289,27 +289,37 @@ def _draw_prior(
         where=central,
         color=CENTRAL_COLOR,
         alpha=0.20,
+        label=central_label,
     )
-    axis.fill_between(
-        curve.x_values,
-        curve.density,
-        where=~central,
-        color=TAIL_COLOR,
-        alpha=0.22,
-    )
-    for threshold in curve.thresholds:
+    if np.any(~central):
+        axis.fill_between(
+            curve.x_values,
+            curve.density,
+            where=~central,
+            color=TAIL_COLOR,
+            alpha=0.22,
+            label=(
+                f"{_format_percentage(1.0 - curve.central_probability)} "
+                "außerhalb der Grenze"
+            ),
+        )
+    for index, threshold in enumerate(curve.thresholds):
         axis.axvline(
             threshold,
             color=TAIL_COLOR,
             linestyle="--",
             linewidth=1.6,
+            label=curve.threshold_legend_label if index == 0 else "_nolegend_",
+            zorder=3,
         )
     axis.set_title(curve.title, fontsize=16)
     axis.set_xlabel(curve.x_label, fontsize=13)
     axis.set_ylabel("Dichte", fontsize=13)
     axis.grid(alpha=0.25, linewidth=0.8)
-    x_lower = curve.x_values[0]
-    x_upper = curve.x_values[-1]
+    x_lower, x_upper = curve.x_limits or (
+        curve.x_values[0],
+        curve.x_values[-1],
+    )
     axis.set_xlim(x_lower, x_upper)
     axis.set_ylim(bottom=0.0)
     base_ticks = curve.x_ticks or tuple(axis.get_xticks())
@@ -317,22 +327,8 @@ def _draw_prior(
     axis.set_xticks(sorted({*visible_ticks, *curve.thresholds}))
     axis.set_xlim(x_lower, x_upper)
     axis.tick_params(labelsize=11)
-    if show_annotations:
-        axis.text(
-            0.97,
-            0.92,
-            curve.annotation,
-            transform=axis.transAxes,
-            ha="right",
-            va="top",
-            fontsize=11,
-            bbox={
-                "boxstyle": "round,pad=0.35",
-                "facecolor": "white",
-                "edgecolor": "0.75",
-                "alpha": 0.9,
-            },
-        )
+    if show_legend:
+        axis.legend(loc="upper right", fontsize=10, framealpha=0.9)
 
 
 def _exponential_curve(
@@ -343,7 +339,6 @@ def _exponential_curve(
     rate,
     configured_upper,
     tail_probability,
-    threshold_unit,
 ):
     """Return one exponential density in its displayed units."""
     x_values = np.linspace(
@@ -359,12 +354,8 @@ def _exponential_curve(
         density=rate * np.exp(-rate * x_values),
         central_lower=0.0,
         central_upper=configured_upper,
+        central_probability=1.0 - tail_probability,
         thresholds=(configured_upper,),
-        annotation=(
-            f"{_format_percentage(1.0 - tail_probability)} "
-            f"Prior-Wahrscheinlichkeit unter {_format_number(configured_upper)} "
-            f"{threshold_unit}"
-        ),
     )
 
 
@@ -401,11 +392,6 @@ def _normal_density(values, scale):
 def _format_percentage(probability):
     """Return a whole percentage using German typographic spacing."""
     return f"{100.0 * probability:.0f} %"
-
-
-def _format_number(value):
-    """Return a compact number with a German decimal separator."""
-    return f"{value:g}".replace(".", ",")
 
 
 if __name__ == "__main__":

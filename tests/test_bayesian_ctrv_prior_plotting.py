@@ -63,7 +63,9 @@ def test_prior_curves_use_configured_thresholds_and_derived_parameters():
         priors.sigma_speed_process_prior_rate
     )
     assert curves["prior_initial_heading"].title == "Prior: Anfangskurswinkel"
-    assert "Prior-Wahrscheinlichkeit" in curves["prior_initial_speed"].annotation
+    assert curves["prior_initial_speed"].central_probability == pytest.approx(
+        1.0 - priors.speed_prior_tail_probability
+    )
 
 
 def test_prior_curves_are_normalized_over_the_presentation_range():
@@ -86,28 +88,65 @@ def test_terminal_report_distinguishes_configured_and_derived_values(capsys):
     )
 
 
-def test_header_option_controls_prior_annotation_boxes():
+def test_header_option_controls_prior_legends():
     curves = prior_plotting.build_prior_curves(prior_plotting.PRIORS)
-    without_annotations = prior_plotting.create_individual_figures(
+    without_legends = prior_plotting.create_individual_figures(
         curves,
-        show_annotations=False,
+        show_legend=False,
     )
-    with_annotations = prior_plotting.create_individual_figures(
+    with_legends = prior_plotting.create_individual_figures(
         curves,
-        show_annotations=True,
+        show_legend=True,
     )
 
-    assert all(not figure.axes[0].texts for figure in without_annotations.values())
-    assert all(len(figure.axes[0].texts) == 1 for figure in with_annotations.values())
-    assert (
-        "Prior-Wahrscheinlichkeit"
-        in with_annotations["prior_initial_speed"].axes[0].texts[0].get_text()
+    assert all(
+        figure.axes[0].get_legend() is None for figure in without_legends.values()
     )
-    for figure in (*without_annotations.values(), *with_annotations.values()):
+    assert all(figure.axes[0].get_legend() for figure in with_legends.values())
+    assert all(not figure.axes[0].texts for figure in with_legends.values())
+    speed_legend = with_legends["prior_initial_speed"].axes[0].get_legend()
+    assert [text.get_text() for text in speed_legend.get_texts()] == [
+        "Prior-Dichte",
+        "95 % innerhalb der Grenze",
+        "5 % außerhalb der Grenze",
+        "Konfigurierter Grenzwert",
+    ]
+    heading_legend = with_legends["prior_initial_heading"].axes[0].get_legend()
+    assert [text.get_text() for text in heading_legend.get_texts()] == [
+        "Prior-Dichte",
+        "Gleichverteilte Anfangsrichtungen",
+        "Konfigurierter Winkelbereich",
+    ]
+    for figure in (*without_legends.values(), *with_legends.values()):
         plt.close(figure)
 
 
-def test_initial_heading_plot_shows_complete_degree_range():
+def test_prior_legend_percentages_follow_changed_configuration():
+    changed_priors = replace(
+        prior_plotting.PRIORS,
+        speed_prior_tail_probability=0.10,
+    )
+    speed_curve = next(
+        curve
+        for curve in prior_plotting.build_prior_curves(changed_priors)
+        if curve.filename_stem == "prior_initial_speed"
+    )
+
+    figure = prior_plotting.create_prior_figure(speed_curve, show_legend=True)
+
+    try:
+        legend = figure.axes[0].get_legend()
+        assert [text.get_text() for text in legend.get_texts()] == [
+            "Prior-Dichte",
+            "90 % innerhalb der Grenze",
+            "10 % außerhalb der Grenze",
+            "Konfigurierter Grenzwert",
+        ]
+    finally:
+        plt.close(figure)
+
+
+def test_initial_heading_plot_shows_boundaries_inside_extended_degree_range():
     heading_curve = next(
         curve
         for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS)
@@ -117,13 +156,20 @@ def test_initial_heading_plot_shows_complete_degree_range():
     figure = prior_plotting.create_prior_figure(heading_curve)
 
     try:
-        assert figure.axes[0].get_xticks().tolist() == [
+        axis = figure.axes[0]
+        assert axis.get_xticks().tolist() == [
+            -270.0,
             -180.0,
-            -120.0,
-            -60.0,
+            -90.0,
             0.0,
-            60.0,
-            120.0,
+            90.0,
+            180.0,
+            270.0,
+        ]
+        assert axis.get_xlim() == pytest.approx((-270.0, 270.0))
+        assert axis.lines[0].get_xdata()[[0, -1]].tolist() == [-180.0, 180.0]
+        assert [line.get_xdata()[0] for line in axis.lines[1:]] == [
+            -180.0,
             180.0,
         ]
     finally:
@@ -137,7 +183,7 @@ def test_all_prior_thresholds_are_shown_as_x_axis_ticks():
         if curve.thresholds
     ]
 
-    assert len(threshold_curves) == 5
+    assert len(threshold_curves) == 6
     for curve in threshold_curves:
         figure = prior_plotting.create_prior_figure(curve)
         try:
