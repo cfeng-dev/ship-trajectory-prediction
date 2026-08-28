@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.backend_bases import KeyEvent
 
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
@@ -197,10 +198,13 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert navigator.observation_count == 0
         assert "N = 0" in navigator.axis.get_title()
         assert [line.get_label() for line in navigator.axis.lines] == ["Ausgangs-Prior"]
-        assert not navigator.previous_button.active
-        assert navigator.next_button.active
+        assert navigator.slider.val == pytest.approx(0.0)
+        assert navigator.slider.valstep == pytest.approx([0.0, 3.0, 5.0, 10.0, 20.0])
+        assert not hasattr(navigator, "previous_button")
+        assert not hasattr(navigator, "next_button")
 
-        navigator.show_next(None)
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
 
         assert navigator.observation_count == 3
         assert "N = 3" in navigator.axis.get_title()
@@ -208,24 +212,20 @@ def test_prior_posterior_figure_navigates_in_one_window():
             "Ausgangs-Prior",
             "Posterior-Dichte",
         ]
-        assert navigator.previous_button.active
-        assert navigator.next_button.active
 
-        for _ in range(3):
-            navigator.show_next(None)
-        navigator.show_next(None)
+        navigator.slider.set_val(20)
+        navigator.show_selected_observation_count(None)
 
         assert navigator.observation_count == 20
-        assert not navigator.next_button.active
-        assert navigator.previous_button.active
 
-        navigator.show_previous(None)
+        navigator.slider.set_val(10)
+        navigator.show_selected_observation_count(None)
         assert navigator.observation_count == 10
     finally:
         plt.close(figure)
 
 
-def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates():
+def test_sequential_navigator_loads_jump_point_by_point_and_reuses_updates():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
     spec = analysis.build_parameter_spec("current_speed", priors)
@@ -251,31 +251,73 @@ def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates()
     try:
         assert navigator.observation_count == 0
 
-        navigator.show_next(None)
-        assert navigator.observation_count == 1
-        assert navigator.axis.get_title().splitlines()[-1] == "N = 1"
+        navigator.slider.set_val(3)
+
+        assert navigator.observation_count == 0
+        assert loaded_counts == []
+
+        navigator.show_selected_observation_count(None)
+
+        assert navigator.observation_count == 3
+        assert loaded_counts == [1, 2, 3]
+        assert navigator.axis.get_title().splitlines()[-1] == "N = 3"
         assert "RBPF" not in navigator.axis.get_title()
         assert "ESS" not in navigator.axis.get_title()
         assert "Resamplings" not in navigator.axis.get_title()
 
-        navigator.show_next(None)
-        assert navigator.observation_count == 2
-
-        navigator.show_previous(None)
-        navigator.show_next(None)
-        assert navigator.observation_count == 2
-        assert loaded_counts == [1, 2]
-
-        navigator.show_next(None)
-        navigator.show_next(None)
-        assert navigator.observation_count == 3
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        assert navigator.observation_count == 1
         assert loaded_counts == [1, 2, 3]
-        assert not navigator.next_button.active
+
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        assert navigator.observation_count == 2
+        assert loaded_counts == [1, 2, 3]
     finally:
         plt.close(figure)
 
 
-def test_navigation_buttons_leave_visible_space_below_x_axis_label():
+def test_arrow_keys_move_slider_one_point_and_respect_boundaries():
+    analysis = _load_analysis_module()
+    priors = bayesian_model.BayesianCTRVPriors()
+    spec = analysis.build_parameter_spec("current_speed", priors)
+    updates = (
+        analysis.PosteriorUpdate(1, np.linspace(1.0, 2.0, 20)),
+        analysis.PosteriorUpdate(2, np.linspace(1.5, 2.5, 20)),
+    )
+    figure, navigator = analysis.create_prior_posterior_figure(
+        spec,
+        priors,
+        updates,
+    )
+
+    def press(key):
+        event = KeyEvent("key_press_event", figure.canvas, key=key)
+        figure.canvas.callbacks.process("key_press_event", event)
+
+    try:
+        press("left")
+        assert navigator.observation_count == 0
+        assert navigator.slider.val == pytest.approx(0.0)
+
+        press("right")
+        assert navigator.observation_count == 1
+        assert navigator.slider.val == pytest.approx(1.0)
+
+        press("right")
+        press("right")
+        assert navigator.observation_count == 2
+        assert navigator.slider.val == pytest.approx(2.0)
+
+        press("left")
+        assert navigator.observation_count == 1
+        assert navigator.slider.val == pytest.approx(1.0)
+    finally:
+        plt.close(figure)
+
+
+def test_navigation_slider_leaves_visible_space_below_x_axis_label():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
     spec = analysis.build_parameter_spec("current_speed", priors)
@@ -291,11 +333,8 @@ def test_navigation_buttons_leave_visible_space_below_x_axis_label():
         figure.canvas.draw()
         renderer = figure.canvas.get_renderer()
         label_bottom = navigator.axis.xaxis.label.get_window_extent(renderer).y0
-        button_top = max(
-            button.ax.get_window_extent(renderer).y1
-            for button in (navigator.previous_button, navigator.next_button)
-        )
-        gap_points = (label_bottom - button_top) * 72.0 / figure.dpi
+        slider_top = navigator.slider.ax.get_window_extent(renderer).y1
+        gap_points = (label_bottom - slider_top) * 72.0 / figure.dpi
 
         assert gap_points >= 12.0
     finally:
@@ -344,7 +383,8 @@ def test_legend_can_be_disabled_for_every_navigation_stage():
 
     try:
         assert navigator.axis.get_legend() is None
-        navigator.show_next(None)
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
         assert navigator.axis.get_legend() is None
     finally:
         plt.close(figure)
@@ -555,6 +595,8 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     assert "Inferenzmethode       : RBPF" in report
     assert "Beobachtungsstaende" in report
     assert "N=1 bis N=5" in report
+    assert "Schieberegler" in report
+    assert "Weiter-Klick" not in report
     assert "Posterior nach N=1" in report
     assert "ESS" in report
     assert "Resamplings" in report

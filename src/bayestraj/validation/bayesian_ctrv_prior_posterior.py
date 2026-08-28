@@ -7,7 +7,7 @@ from statistics import NormalDist
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.widgets import Button
+from matplotlib.widgets import Slider
 from scipy.stats import gaussian_kde
 
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -31,8 +31,6 @@ TITLE_PAD_POINTS = 12
 PRIOR_COLOR = "#6B7280"
 POSTERIOR_COLOR = "#24557A"
 POSTERIOR_FILL_COLOR = "#4C956C"
-ACTIVE_BUTTON_COLOR = "#E5E7EB"
-INACTIVE_BUTTON_COLOR = "#F3F4F6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +111,7 @@ class PosteriorSummary:
 
 
 class PriorPosteriorNavigator:
-    """Update one prior-posterior axis with previous and next buttons."""
+    """Select and display prior-posterior stages with one slider."""
 
     def __init__(
         self,
@@ -146,12 +144,25 @@ class PriorPosteriorNavigator:
         self.show_legend = show_legend
         self._stage_index = 0
 
-        previous_axis = figure.add_axes((0.31, 0.025, 0.16, 0.065))
-        next_axis = figure.add_axes((0.53, 0.025, 0.16, 0.065))
-        self.previous_button = Button(previous_axis, "Zurück")
-        self.next_button = Button(next_axis, "Weiter")
-        self.previous_button.on_clicked(self.show_previous)
-        self.next_button.on_clicked(self.show_next)
+        slider_axis = figure.add_axes((0.18, 0.055, 0.64, 0.045))
+        slider_steps = np.asarray((0, *self.observation_counts), dtype=float)
+        self.slider = Slider(
+            slider_axis,
+            "N",
+            0,
+            self.observation_counts[-1],
+            valinit=0,
+            valstep=slider_steps,
+            valfmt="%0.0f",
+        )
+        self._slider_release_connection = figure.canvas.mpl_connect(
+            "button_release_event",
+            self.show_selected_observation_count,
+        )
+        self._key_press_connection = figure.canvas.mpl_connect(
+            "key_press_event",
+            self.handle_key_press,
+        )
         self._draw()
 
     @property
@@ -161,34 +172,64 @@ class PriorPosteriorNavigator:
             return 0
         return self.observation_counts[self._stage_index - 1]
 
-    def show_previous(self, _event) -> None:
-        """Show the preceding observation prefix if one exists."""
-        if self._stage_index == 0:
+    def show_selected_observation_count(self, _event) -> None:
+        """Load and show the slider stage after the slider is released."""
+        observation_count = int(round(self.slider.val))
+        if observation_count == self.observation_count:
             return
-        self._stage_index -= 1
-        self._draw()
+        if observation_count == 0:
+            self._stage_index = 0
+            self._draw()
+            return
 
-    def show_next(self, _event) -> None:
-        """Show the following observation prefix if one exists."""
-        if self._stage_index == len(self.observation_counts):
-            return
-        observation_count = self.observation_counts[self._stage_index]
-        if observation_count not in self._updates_by_count:
-            update = self._update_loader(observation_count)
+        try:
+            selected_index = self.observation_counts.index(observation_count)
+        except ValueError as error:
+            raise ValueError(
+                "The slider selected an unavailable observation count."
+            ) from error
+
+        loaded_update = False
+        for missing_count in self.observation_counts[: selected_index + 1]:
+            if missing_count in self._updates_by_count:
+                continue
+            if self._update_loader is None:
+                raise RuntimeError("No update loader is available for this stage.")
+            update = self._update_loader(missing_count)
             if not isinstance(update, PosteriorUpdate):
                 raise TypeError("update_loader must return a PosteriorUpdate.")
-            if update.observation_count != observation_count:
+            if update.observation_count != missing_count:
                 raise ValueError(
                     "update_loader returned an unexpected observation count."
                 )
-            self._updates_by_count[observation_count] = update
+            self._updates_by_count[missing_count] = update
+            loaded_update = True
+
+        if loaded_update:
             self.x_values = _build_density_grid(
                 self.spec,
                 self.priors,
                 tuple(self._updates_by_count.values()),
             )
-        self._stage_index += 1
+        self._stage_index = selected_index + 1
         self._draw()
+
+    def handle_key_press(self, event) -> None:
+        """Move the selected posterior stage with the left or right arrow key."""
+        if event.key not in {"left", "right"}:
+            return
+        step = -1 if event.key == "left" else 1
+        stage_index = min(
+            max(self._stage_index + step, 0),
+            len(self.observation_counts),
+        )
+        if stage_index == self._stage_index:
+            return
+        observation_count = (
+            0 if stage_index == 0 else self.observation_counts[stage_index - 1]
+        )
+        self.slider.set_val(observation_count)
+        self.show_selected_observation_count(event)
 
     def _draw(self) -> None:
         self.axis.clear()
@@ -245,20 +286,7 @@ class PriorPosteriorNavigator:
         self.axis.tick_params(labelsize=11)
         if self.show_legend:
             self.axis.legend(loc="upper right", fontsize=10, framealpha=0.9)
-        self._update_button(self.previous_button, self._stage_index > 0)
-        self._update_button(
-            self.next_button,
-            self._stage_index < len(self.observation_counts),
-        )
         self.figure.canvas.draw_idle()
-
-    @staticmethod
-    def _update_button(button: Button, active: bool) -> None:
-        button.set_active(active)
-        button.ax.set_facecolor(
-            ACTIVE_BUTTON_COLOR if active else INACTIVE_BUTTON_COLOR
-        )
-        button.label.set_color("black" if active else "#9CA3AF")
 
 
 _PARAMETER_METADATA = {
@@ -643,7 +671,10 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         "Interpretation        : Jeder Schritt aktualisiert denselben "
         "sequentiellen Filter."
     )
-    print("Berechnung            : Pro Weiter-Klick genau ein neuer Trajektorienpunkt.")
+    print(
+        "Berechnung            : Zielwert am Schieberegler; fehlende Punkte "
+        "werden sequenziell verarbeitet."
+    )
     print(f"Partikel              : {rbpf_config.particle_count}")
     print(f"Posteriorziehungen    : {rbpf_config.posterior_draw_count}")
     print(f"Prior                 : {_describe_prior(spec, priors)}")
