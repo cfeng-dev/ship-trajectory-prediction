@@ -200,42 +200,101 @@ def create_prior_figure(curve, *, show_legend=SHOW_LEGEND):
 
 
 def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
-    """Print configured assumptions separately from derived parameters."""
+    """Print the configured assumptions and their mathematical derivations."""
+    speed_quantile = NormalDist().inv_cdf(
+        1.0 - priors.speed_prior_tail_probability / 2.0
+    )
     turn_threshold_deg_s = (
         priors.turn_rate_prior_abs_heading_change_deg
         / priors.turn_rate_prior_reference_interval_seconds
     )
+    turn_quantile = NormalDist().inv_cdf(
+        1.0 - priors.turn_rate_prior_tail_probability / 2.0
+    )
     turn_scale_deg_s = float(np.rad2deg(priors.turn_rate_prior_scale))
+    heading_density_rad = 1.0 / (2.0 * np.pi)
+    heading_density_deg = 1.0 / 360.0
     turn_process_mean_rad_s = 1.0 / priors.sigma_turn_rate_process_prior_rate
     turn_process_mean_deg_s = float(np.rad2deg(turn_process_mean_rad_s))
+    turn_process_upper_rad_s = float(
+        np.deg2rad(priors.sigma_turn_rate_process_prior_upper_deg_s)
+    )
 
-    print("Bayesian CTRV prior configuration")
-    print("---------------------------------")
-    print("Initial speed v_1:")
-    print("  distribution: Half-Normal")
+    print("Bayessche CTRV-Priorverteilungen")
+    print("================================")
+    print("Anfangsgeschwindigkeit v_1")
+    print("  Verteilung: v_1 ~ Halbnormal(s_v)")
+    print("  Konfiguriert:")
     print(
-        "  configured statement: "
-        f"P(v_1 < {priors.speed_prior_upper_mps:g} m/s) = "
-        f"{1.0 - priors.speed_prior_tail_probability:.1%}"
+        f"    P(v_1 > {priors.speed_prior_upper_mps:g} m/s) = "
+        f"{priors.speed_prior_tail_probability:g}"
     )
-    print(f"  derived scale: {priors.speed_prior_scale:.6g} m/s")
-    print("Initial heading theta_1:")
-    print("  distribution: Uniform")
-    print("  configured range: [-pi, pi] rad = [-180, 180] deg")
-    print("  configured statement: all initial directions are equally plausible")
-    print("Initial turn rate omega_1:")
-    print("  distribution: Normal")
+    print("  Berechnung:")
     print(
-        "  configured statement: "
-        f"P(|omega_1| < {turn_threshold_deg_s:g} deg/s) = "
-        f"{1.0 - priors.turn_rate_prior_tail_probability:.1%}"
+        f"    z = Phi^-1(1 - {priors.speed_prior_tail_probability:g} / 2) "
+        f"= {speed_quantile:.6g}"
     )
     print(
-        f"  derived scale: {priors.turn_rate_prior_scale:.6g} rad/s "
-        f"({turn_scale_deg_s:.6g} deg/s)"
+        f"    s_v = {priors.speed_prior_upper_mps:g} / "
+        f"Phi^-1(1 - {priors.speed_prior_tail_probability:g} / 2) "
+        f"= {priors.speed_prior_scale:.6g} m/s"
     )
+    print("  Ergebnis:")
+    print(f"    v_1 ~ Halbnormal(s_v = {priors.speed_prior_scale:.6g} m/s)")
+    print()
+
+    print("Anfangskurswinkel theta_1")
+    print("  Verteilung: theta_1 ~ Gleichverteilung(-pi, pi)")
+    print("  Konfiguriert:")
+    print("    theta_1 in [-pi, pi] rad = [-180, 180] deg")
+    print("  Berechnung:")
+    print(
+        "    p(theta_1) = 1 / (pi - (-pi)) "
+        f"= {heading_density_rad:.6g} 1/rad"
+    )
+    print(
+        "    p(theta_1) = 1 / (180 - (-180)) "
+        f"= {heading_density_deg:.6g} 1/deg"
+    )
+    print("  Ergebnis:")
+    print("    Alle Anfangsrichtungen sind gleich wahrscheinlich.")
+    print()
+
+    print("Initiale Drehrate omega_1")
+    print("  Verteilung: omega_1 ~ Normal(0, s_omega)")
+    print("  Konfiguriert:")
+    print(
+        f"    P(|omega_1| > {turn_threshold_deg_s:g} deg/s) = "
+        f"{priors.turn_rate_prior_tail_probability:g}"
+    )
+    print("  Berechnung:")
+    print(
+        f"    omega_max = {priors.turn_rate_prior_abs_heading_change_deg:g} deg / "
+        f"{priors.turn_rate_prior_reference_interval_seconds:g} s "
+        f"= {turn_threshold_deg_s:g} deg/s"
+    )
+    print(
+        f"    z = Phi^-1(1 - {priors.turn_rate_prior_tail_probability:g} / 2) "
+        f"= {turn_quantile:.6g}"
+    )
+    print(
+        f"    s_omega = {turn_threshold_deg_s:g} / "
+        f"Phi^-1(1 - {priors.turn_rate_prior_tail_probability:g} / 2) "
+        f"= {turn_scale_deg_s:.6g} deg/s"
+    )
+    print(
+        f"    s_omega = {turn_scale_deg_s:.6g} * pi / 180 "
+        f"= {priors.turn_rate_prior_scale:.6g} rad/s"
+    )
+    print("  Ergebnis:")
+    print(
+        f"    omega_1 ~ Normal(0, {priors.turn_rate_prior_scale:.6g} rad/s)"
+    )
+    print()
+
     _print_exponential_report(
-        label="Position observation noise sigma_obs",
+        label="Positionsmessrauschen",
+        symbol="sigma_obs",
         upper=priors.sigma_position_observation_prior_upper_m,
         unit="m",
         tail_probability=priors.sigma_position_observation_prior_tail_probability,
@@ -243,24 +302,45 @@ def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
         rate_unit="1/m",
     )
     _print_exponential_report(
-        label="Speed process noise sigma_v",
+        label="Geschwindigkeits-Prozessrauschen",
+        symbol="sigma_v",
         upper=priors.sigma_speed_process_prior_upper_mps,
         unit="m/s",
         tail_probability=priors.sigma_speed_process_prior_tail_probability,
         rate=priors.sigma_speed_process_prior_rate,
         rate_unit="s/m",
     )
-    print("Turn-rate process noise sigma_omega:")
-    print("  distribution: Exponential")
+    print("Drehraten-Prozessrauschen sigma_omega")
+    print("  Verteilung: sigma_omega ~ Exponential(lambda)")
+    print("  Konfiguriert:")
     print(
-        "  configured statement: "
-        f"P(sigma_omega < {priors.sigma_turn_rate_process_prior_upper_deg_s:g} "
-        f"deg/s) = {1.0 - priors.sigma_turn_rate_process_prior_tail_probability:.1%}"
+        f"    P(sigma_omega > "
+        f"{priors.sigma_turn_rate_process_prior_upper_deg_s:g} deg/s) = "
+        f"{priors.sigma_turn_rate_process_prior_tail_probability:g}"
     )
-    print(f"  derived rate: {priors.sigma_turn_rate_process_prior_rate:.6g} s/rad")
+    print("  Berechnung:")
+    print("    P(X > x) = exp(-lambda * x)")
     print(
-        f"  derived mean: {turn_process_mean_rad_s:.6g} rad/s "
+        f"    {priors.sigma_turn_rate_process_prior_upper_deg_s:g} deg/s "
+        f"* pi / 180 = {turn_process_upper_rad_s:.6g} rad/s"
+    )
+    print(
+        f"    exp(-lambda * {turn_process_upper_rad_s:.6g}) = "
+        f"{priors.sigma_turn_rate_process_prior_tail_probability:g}"
+    )
+    print(
+        f"    lambda = -ln({priors.sigma_turn_rate_process_prior_tail_probability:g}) "
+        f"/ {turn_process_upper_rad_s:.6g} = "
+        f"{priors.sigma_turn_rate_process_prior_rate:.6g} s/rad"
+    )
+    print(
+        f"    E[sigma_omega] = 1 / lambda = {turn_process_mean_rad_s:.6g} rad/s "
         f"({turn_process_mean_deg_s:.6g} deg/s)"
+    )
+    print("  Ergebnis:")
+    print(
+        "    sigma_omega ~ Exponential("
+        f"lambda = {priors.sigma_turn_rate_process_prior_rate:.6g} s/rad)"
     )
 
 
@@ -363,21 +443,33 @@ def _exponential_curve(
 def _print_exponential_report(
     *,
     label,
+    symbol,
     upper,
     unit,
     tail_probability,
     rate,
     rate_unit,
 ):
-    """Print one configured exponential statement and its derived parameters."""
-    print(f"{label}:")
-    print("  distribution: Exponential")
+    """Print one exponential prior and its derivation from a tail statement."""
+    print(f"{label} {symbol}")
+    print(f"  Verteilung: {symbol} ~ Exponential(lambda)")
+    print("  Konfiguriert:")
     print(
-        f"  configured statement: P({label.split()[-1]} < {upper:g} {unit}) = "
-        f"{1.0 - tail_probability:.1%}"
+        f"    P({symbol} > {upper:g} {unit}) = {tail_probability:g}"
     )
-    print(f"  derived rate: {rate:.6g} {rate_unit}")
-    print(f"  derived mean: {1.0 / rate:.6g} {unit}")
+    print("  Berechnung:")
+    print("    P(X > x) = exp(-lambda * x)")
+    print(f"    exp(-lambda * {upper:g}) = {tail_probability:g}")
+    print(
+        f"    lambda = -ln({tail_probability:g}) / {upper:g} "
+        f"= {rate:.6g} {rate_unit}"
+    )
+    print(
+        f"    E[{symbol}] = 1 / lambda = {1.0 / rate:.6g} {unit}"
+    )
+    print("  Ergebnis:")
+    print(f"    {symbol} ~ Exponential(lambda = {rate:.6g} {rate_unit})")
+    print()
 
 
 def _symmetric_normal_absolute_upper_quantile(scale, tail_probability):

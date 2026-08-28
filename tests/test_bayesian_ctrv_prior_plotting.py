@@ -74,18 +74,46 @@ def test_prior_curves_are_normalized_over_the_presentation_range():
         assert 0.998 < integral <= 1.001
 
 
-def test_terminal_report_distinguishes_configured_and_derived_values(capsys):
+def test_terminal_report_distinguishes_configuration_calculation_and_result(capsys):
     prior_plotting.print_prior_report(prior_plotting.PRIORS)
 
     report = capsys.readouterr().out
-    assert "configured statement" in report
-    assert "derived scale" in report
-    assert "derived rate" in report
+    assert "Konfiguriert:" in report
+    assert "Berechnung:" in report
+    assert "Ergebnis:" in report
     assert f"{prior_plotting.PRIORS.speed_prior_scale:.6g} m/s" in report
     assert (
         f"{prior_plotting.PRIORS.sigma_position_observation_prior_rate:.6g} 1/m"
         in report
     )
+
+
+def test_terminal_report_explains_all_prior_calculations_from_configuration(capsys):
+    changed_priors = replace(
+        prior_plotting.PRIORS,
+        speed_prior_upper_mps=24.0,
+        speed_prior_tail_probability=0.10,
+        turn_rate_prior_abs_heading_change_deg=65.0,
+        turn_rate_prior_reference_interval_seconds=10.0,
+        turn_rate_prior_tail_probability=0.10,
+        sigma_position_observation_prior_upper_m=12.5,
+        sigma_position_observation_prior_tail_probability=0.10,
+        sigma_speed_process_prior_upper_mps=6.0,
+        sigma_speed_process_prior_tail_probability=0.10,
+        sigma_turn_rate_process_prior_upper_deg_s=3.0,
+        sigma_turn_rate_process_prior_tail_probability=0.10,
+    )
+
+    prior_plotting.print_prior_report(changed_priors)
+
+    report = capsys.readouterr().out
+    assert report.count("Berechnung:") == 6
+    assert "s_v = 24 / Phi^-1(1 - 0.1 / 2)" in report
+    assert "p(theta_1) = 1 / (180 - (-180)) = 0.00277778 1/deg" in report
+    assert "omega_max = 65 deg / 10 s = 6.5 deg/s" in report
+    assert "lambda = -ln(0.1) / 12.5 = " in report
+    assert "lambda = -ln(0.1) / 6 = " in report
+    assert "3 deg/s * pi / 180 = " in report
 
 
 def test_header_option_controls_prior_legends():
