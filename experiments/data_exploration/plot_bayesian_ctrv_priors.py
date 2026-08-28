@@ -35,6 +35,7 @@ class PriorCurve:
     central_upper: float
     thresholds: tuple[float, ...]
     annotation: str
+    x_ticks: tuple[float, ...] = ()
 
 
 def main(argv=None):
@@ -159,6 +160,7 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
             central_upper=180.0,
             thresholds=(),
             annotation="Alle Anfangsrichtungen sind gleich wahrscheinlich",
+            x_ticks=(-180.0, -120.0, -60.0, 0.0, 60.0, 120.0, 180.0),
         ),
         PriorCurve(
             filename_stem="prior_initial_turn_rate",
@@ -306,8 +308,14 @@ def _draw_prior(
     axis.set_xlabel(curve.x_label, fontsize=13)
     axis.set_ylabel("Dichte", fontsize=13)
     axis.grid(alpha=0.25, linewidth=0.8)
-    axis.set_xlim(curve.x_values[0], curve.x_values[-1])
+    x_lower = curve.x_values[0]
+    x_upper = curve.x_values[-1]
+    axis.set_xlim(x_lower, x_upper)
     axis.set_ylim(bottom=0.0)
+    base_ticks = curve.x_ticks or tuple(axis.get_xticks())
+    visible_ticks = (tick for tick in base_ticks if x_lower <= tick <= x_upper)
+    axis.set_xticks(sorted({*visible_ticks, *curve.thresholds}))
+    axis.set_xlim(x_lower, x_upper)
     axis.tick_params(labelsize=11)
     if show_annotations:
         axis.text(

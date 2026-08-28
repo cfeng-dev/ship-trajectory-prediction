@@ -3,6 +3,7 @@
 import importlib.util
 import runpy
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -103,6 +104,71 @@ def test_header_option_controls_prior_annotation_boxes():
         in with_annotations["prior_initial_speed"].axes[0].texts[0].get_text()
     )
     for figure in (*without_annotations.values(), *with_annotations.values()):
+        plt.close(figure)
+
+
+def test_initial_heading_plot_shows_complete_degree_range():
+    heading_curve = next(
+        curve
+        for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+        if curve.filename_stem == "prior_initial_heading"
+    )
+
+    figure = prior_plotting.create_prior_figure(heading_curve)
+
+    try:
+        assert figure.axes[0].get_xticks().tolist() == [
+            -180.0,
+            -120.0,
+            -60.0,
+            0.0,
+            60.0,
+            120.0,
+            180.0,
+        ]
+    finally:
+        plt.close(figure)
+
+
+def test_all_prior_thresholds_are_shown_as_x_axis_ticks():
+    threshold_curves = [
+        curve
+        for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+        if curve.thresholds
+    ]
+
+    assert len(threshold_curves) == 5
+    for curve in threshold_curves:
+        figure = prior_plotting.create_prior_figure(curve)
+        try:
+            ticks = figure.axes[0].get_xticks()
+            assert all(
+                np.any(np.isclose(ticks, threshold)) for threshold in curve.thresholds
+            )
+        finally:
+            plt.close(figure)
+
+
+def test_changed_prior_threshold_is_used_without_fixed_tick_values():
+    changed_priors = replace(
+        prior_plotting.PRIORS,
+        turn_rate_prior_abs_heading_change_deg=65.0,
+    )
+    changed_curve = next(
+        curve
+        for curve in prior_plotting.build_prior_curves(changed_priors)
+        if curve.filename_stem == "prior_initial_turn_rate"
+    )
+
+    figure = prior_plotting.create_prior_figure(changed_curve)
+
+    try:
+        ticks = figure.axes[0].get_xticks()
+        assert np.any(np.isclose(ticks, -6.5))
+        assert np.any(np.isclose(ticks, 6.5))
+        assert not np.any(np.isclose(ticks, -4.5))
+        assert not np.any(np.isclose(ticks, 4.5))
+    finally:
         plt.close(figure)
 
 
