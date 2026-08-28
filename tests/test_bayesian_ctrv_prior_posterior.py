@@ -253,8 +253,10 @@ def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates()
 
         navigator.show_next(None)
         assert navigator.observation_count == 1
-        assert "RBPF" in navigator.axis.get_title()
-        assert "ESS = 80/100" in navigator.axis.get_title()
+        assert navigator.axis.get_title().splitlines()[-1] == "N = 1"
+        assert "RBPF" not in navigator.axis.get_title()
+        assert "ESS" not in navigator.axis.get_title()
+        assert "Resamplings" not in navigator.axis.get_title()
 
         navigator.show_next(None)
         assert navigator.observation_count == 2

@@ -229,16 +229,6 @@ class PriorPosteriorNavigator:
                 alpha=0.18,
             )
             status = f"N = {update.observation_count}"
-            if (
-                update.effective_sample_size is not None
-                and update.particle_count is not None
-            ):
-                status += (
-                    f" – RBPF, ESS = {update.effective_sample_size:.0f}/"
-                    f"{update.particle_count}"
-                )
-                if update.resample_count is not None:
-                    status += f", Resamplings = {update.resample_count}"
 
         self.axis.set_title(
             f"Prior-Posterior-Aktualisierung: {self.spec.title}\n{status}",
