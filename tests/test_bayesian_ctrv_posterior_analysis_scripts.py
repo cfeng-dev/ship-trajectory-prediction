@@ -8,9 +8,9 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PARAMETERS = {
-    "plot_initial_speed_prior_update.py": "initial_speed",
-    "plot_initial_heading_prior_update.py": "initial_heading",
-    "plot_initial_turn_rate_prior_update.py": "initial_turn_rate",
+    "plot_initial_speed_prior_update.py": "current_speed",
+    "plot_initial_heading_prior_update.py": "current_heading",
+    "plot_initial_turn_rate_prior_update.py": "current_turn_rate",
     "plot_position_noise_prior_update.py": "position_observation_noise",
     "plot_speed_process_noise_prior_update.py": "speed_process_noise",
     "plot_turn_rate_process_noise_prior_update.py": "turn_rate_process_noise",
@@ -62,5 +62,9 @@ def test_each_script_opens_only_its_configured_parameter(
     assert calls[0]["parameter_name"] == parameter_name
     assert calls[0]["show"] is False
     assert calls[0]["show_legend"] is True
-    assert calls[0]["inference_method"] in {"vi", "mcmc"}
+    assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
+    assert calls[0]["rbpf_seed"] == script.RBPF_SEED
+    assert "inference_method" not in calls[0]
+    assert "vi_config" not in calls[0]
+    assert "mcmc_config" not in calls[0]
     assert "observation_counts" not in calls[0]

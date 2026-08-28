@@ -180,6 +180,31 @@ def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
         assert np.all(np.isfinite(samples))
 
 
+def test_ctrv_rbpf_samples_current_posterior_without_advancing_filter():
+    online_filter = ctrv_model.SequentialBayesianCTRVFilter.initialize(
+        np.arange(5, dtype=float),
+        np.arange(5, dtype=float),
+        np.zeros(5),
+        priors=ctrv_model.BayesianCTRVPriors(),
+        config=ctrv_model.SequentialCTRVFilterConfig(
+            particle_count=32,
+            posterior_draw_count=8,
+        ),
+        seed=42,
+    )
+    state_before = online_filter.state_means.copy()
+    observation_count_before = online_filter.processed_observation_count
+
+    fit = online_filter.sample_current_posterior(seed=43)
+
+    for variable_name in ctrv_model.PARAMETER_NAMES:
+        samples = reporting.posterior_variable_samples(fit, variable_name)
+        assert samples.shape == (8,)
+        assert np.all(np.isfinite(samples))
+    assert online_filter.processed_observation_count == observation_count_before
+    assert online_filter.state_means == pytest.approx(state_before)
+
+
 def test_shared_rolling_summary_accepts_online_rbpf_predictions():
     predictions = pd.DataFrame(
         {

@@ -10,7 +10,6 @@ import numpy as np
 from matplotlib.widgets import Button
 from scipy.stats import gaussian_kde
 
-import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.observations.io as observations_io
@@ -18,9 +17,9 @@ import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 
 PARAMETER_NAMES = (
-    "initial_speed",
-    "initial_heading",
-    "initial_turn_rate",
+    "current_speed",
+    "current_heading",
+    "current_turn_rate",
     "position_observation_noise",
     "speed_process_noise",
     "turn_rate_process_noise",
@@ -38,7 +37,7 @@ INACTIVE_BUTTON_COLOR = "#F3F4F6"
 
 @dataclass(frozen=True, slots=True)
 class PriorPosteriorParameterSpec:
-    """Describe one prior and its matching Stan posterior variable."""
+    """Describe one prior and its matching posterior variable."""
 
     parameter_name: str
     posterior_variable: str
@@ -51,21 +50,55 @@ class PriorPosteriorParameterSpec:
 
 @dataclass(frozen=True, slots=True)
 class PosteriorUpdate:
-    """Posterior draws from one separate batch fit of an observation prefix."""
+    """Posterior draws and diagnostics after one sequential update."""
 
     observation_count: int
     samples: np.ndarray
+    effective_sample_size: float | None = None
+    particle_count: int | None = None
+    resample_count: int | None = None
 
     def __post_init__(self) -> None:
         if (
             isinstance(self.observation_count, bool)
             or not isinstance(self.observation_count, int)
-            or self.observation_count < 3
+            or self.observation_count < 1
         ):
-            raise ValueError("observation_count must be an integer of at least 3.")
+            raise ValueError("observation_count must be a positive integer.")
         samples = np.asarray(self.samples, dtype=float).copy()
         if samples.ndim != 1 or samples.size < 2 or not np.all(np.isfinite(samples)):
             raise ValueError("samples must be a finite vector with at least two draws.")
+        if self.particle_count is not None and (
+            isinstance(self.particle_count, bool)
+            or not isinstance(self.particle_count, int)
+            or self.particle_count < 1
+        ):
+            raise ValueError("particle_count must be a positive integer or None.")
+        if self.effective_sample_size is not None:
+            effective_sample_size = float(self.effective_sample_size)
+            if (
+                not np.isfinite(effective_sample_size)
+                or effective_sample_size <= 0.0
+                or (
+                    self.particle_count is not None
+                    and effective_sample_size > self.particle_count
+                )
+            ):
+                raise ValueError(
+                    "effective_sample_size must be positive and no larger than "
+                    "particle_count."
+                )
+            object.__setattr__(
+                self,
+                "effective_sample_size",
+                effective_sample_size,
+            )
+        if self.resample_count is not None and (
+            isinstance(self.resample_count, bool)
+            or not isinstance(self.resample_count, int)
+            or self.resample_count < 0
+        ):
+            raise ValueError("resample_count must be a non-negative integer or None.")
         samples.setflags(write=False)
         object.__setattr__(self, "samples", samples)
 
@@ -170,11 +203,11 @@ class PriorPosteriorNavigator:
             color=PRIOR_COLOR,
             linestyle="--",
             linewidth=2.0,
-            label="Prior-Dichte",
+            label="Ausgangs-Prior",
         )
 
         if self._stage_index == 0:
-            status = "N = 0 – Prior ohne Beobachtungen"
+            status = "N = 0 – Ausgangs-Prior ohne Beobachtungen"
         else:
             update = self._updates_by_count[self.observation_count]
             posterior_density = evaluate_posterior_density(
@@ -195,7 +228,17 @@ class PriorPosteriorNavigator:
                 color=POSTERIOR_FILL_COLOR,
                 alpha=0.18,
             )
-            status = f"N = {update.observation_count} – separate Batch-Anpassung"
+            status = f"N = {update.observation_count}"
+            if (
+                update.effective_sample_size is not None
+                and update.particle_count is not None
+            ):
+                status += (
+                    f" – RBPF, ESS = {update.effective_sample_size:.0f}/"
+                    f"{update.particle_count}"
+                )
+                if update.resample_count is not None:
+                    status += f", Resamplings = {update.resample_count}"
 
         self.axis.set_title(
             f"Prior-Posterior-Aktualisierung: {self.spec.title}\n{status}",
@@ -229,28 +272,28 @@ class PriorPosteriorNavigator:
 
 
 _PARAMETER_METADATA = {
-    "initial_speed": (
-        "speed_state",
-        0,
+    "current_speed": (
+        "speed_at_origin",
+        None,
         "m/s",
-        "Anfangsgeschwindigkeit",
-        r"$v_1$ [m/s]",
+        "Aktuelle Geschwindigkeit",
+        r"$v_N$ [m/s]",
         "positive",
     ),
-    "initial_heading": (
-        "heading_initial",
+    "current_heading": (
+        "heading_at_origin",
         None,
         "°",
-        "Anfangskurswinkel",
-        r"$\theta_1$ [$^\circ$]",
+        "Aktueller Kurswinkel",
+        r"$\theta_N$ [$^\circ$]",
         "circular",
     ),
-    "initial_turn_rate": (
-        "turn_rate_state",
-        0,
+    "current_turn_rate": (
+        "turn_rate_at_origin",
+        None,
         "°/s",
-        "Initiale Drehrate",
-        r"$\omega_1$ [$^\circ$/s]",
+        "Aktuelle Drehrate",
+        r"$\omega_N$ [$^\circ$/s]",
         "real",
     ),
     "position_observation_noise": (
@@ -299,7 +342,7 @@ def extract_posterior_samples(
     fit,
     spec: PriorPosteriorParameterSpec,
 ) -> np.ndarray:
-    """Extract one parameter from a VI/MCMC fit in presentation units."""
+    """Extract one parameter through the shared fit interface in display units."""
     values = reporting.posterior_variable_samples(fit, spec.posterior_variable)
     if spec.state_index is not None:
         if values.ndim != 2 or values.shape[1] <= spec.state_index:
@@ -315,8 +358,8 @@ def extract_posterior_samples(
         )
 
     if spec.parameter_name in {
-        "initial_heading",
-        "initial_turn_rate",
+        "current_heading",
+        "current_turn_rate",
         "turn_rate_process_noise",
     }:
         values = np.rad2deg(values)
@@ -335,13 +378,13 @@ def evaluate_prior_density(
 ) -> np.ndarray:
     """Evaluate one configured prior density in presentation units."""
     x_values = np.asarray(x_values, dtype=float)
-    if spec.parameter_name == "initial_speed":
+    if spec.parameter_name == "current_speed":
         scale = priors.speed_prior_scale
         density = np.sqrt(2.0 / np.pi) / scale * np.exp(-0.5 * (x_values / scale) ** 2)
         return np.where(x_values >= 0.0, density, 0.0)
-    if spec.parameter_name == "initial_heading":
+    if spec.parameter_name == "current_heading":
         return np.where(np.abs(x_values) <= 180.0, 1.0 / 360.0, 0.0)
-    if spec.parameter_name == "initial_turn_rate":
+    if spec.parameter_name == "current_turn_rate":
         scale = float(np.rad2deg(priors.turn_rate_prior_scale))
         return np.exp(-0.5 * (x_values / scale) ** 2) / (scale * np.sqrt(2.0 * np.pi))
 
@@ -427,20 +470,13 @@ def create_sequential_prior_posterior_figure(
     if (
         isinstance(maximum_observation_count, bool)
         or not isinstance(maximum_observation_count, int)
-        or maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT
+        or maximum_observation_count < 1
     ):
-        raise ValueError(
-            "maximum_observation_count must allow at least three observations."
-        )
+        raise ValueError("maximum_observation_count must be a positive integer.")
     if not callable(update_loader):
         raise TypeError("update_loader must be callable.")
 
-    observation_counts = tuple(
-        range(
-            bayesian_model.MIN_OBSERVATION_COUNT,
-            maximum_observation_count + 1,
-        )
-    )
+    observation_counts = tuple(range(1, maximum_observation_count + 1))
     x_values = _build_density_grid(spec, priors, ())
     figure, axis = plt.subplots(figsize=(8.0, 5.4))
     figure.subplots_adjust(bottom=0.24, top=0.82)
@@ -458,7 +494,7 @@ def create_sequential_prior_posterior_figure(
     return figure, navigator
 
 
-def create_prior_posterior_update_loader(
+def create_rbpf_posterior_update_loader(
     trajectory_data,
     *,
     parameter_name,
@@ -466,118 +502,105 @@ def create_prior_posterior_update_loader(
     position_noise_std_m,
     position_noise_seed,
     priors,
-    inference_method,
-    inference_config,
-    inference_seed,
-    fit_model=None,
+    rbpf_config,
+    rbpf_seed,
+    initialize_filter=None,
 ):
-    """Create a cached-input loader for consecutive Bayesian batch fits."""
+    """Create one persistent RBPF and expose its consecutive posterior states."""
     if (
         isinstance(start_index, bool)
         or not isinstance(start_index, int)
         or start_index < 0
     ):
         raise ValueError("start_index must be a non-negative integer.")
-    maximum_observation_count = len(trajectory_data) - start_index - 1
-    if maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT:
+    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance.")
+    if not isinstance(rbpf_config, bayesian_model.SequentialCTRVFilterConfig):
+        raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
+    position_noise_std_m = observation_support.validate_non_negative_finite(
+        "position_noise_std_m",
+        position_noise_std_m,
+    )
+    position_noise_seed = observation_support.validate_non_negative_integer(
+        "position_noise_seed",
+        position_noise_seed,
+    )
+    rbpf_seed = observation_support.validate_non_negative_integer(
+        "rbpf_seed",
+        rbpf_seed,
+    )
+    maximum_observation_count = len(trajectory_data) - start_index
+    if maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
         raise ValueError(
-            "The selected trajectory must provide at least three observations "
-            "and one prediction point."
+            "The selected trajectory must provide at least four consecutive positions."
         )
 
-    _, inference_method = inference.normalize_inference_configuration(
-        "batch",
-        inference_method,
-    )
     spec = build_parameter_spec(parameter_name, priors)
-    if fit_model is None:
-        fit_model = bayesian_model.fit_bayesian_ctrv_model
-
-    maximum_window = observation_window.prepare_trajectory_window(
+    complete_window = observation_window.prepare_trajectory_window(
         trajectory_data,
-        observation_count=maximum_observation_count,
+        observation_count=maximum_observation_count - 1,
         prediction_count=1,
         start_index=start_index,
     )
-    maximum_observations = observation_support.simulate_position_observations(
-        maximum_window,
-        position_noise_std_m=position_noise_std_m,
-        seed=position_noise_seed,
+    time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
+    x_observed = np.asarray(complete_window.x_meters, dtype=float).copy()
+    y_observed = np.asarray(complete_window.y_meters, dtype=float).copy()
+    if position_noise_std_m > 0.0:
+        noise_generator = np.random.default_rng(position_noise_seed)
+        x_observed += noise_generator.normal(
+            0.0,
+            position_noise_std_m,
+            maximum_observation_count,
+        )
+        y_observed += noise_generator.normal(
+            0.0,
+            position_noise_std_m,
+            maximum_observation_count,
+        )
+
+    if initialize_filter is None:
+        initialize_filter = bayesian_model.SequentialBayesianCTRVFilter.initialize
+    if not callable(initialize_filter):
+        raise TypeError("initialize_filter must be callable.")
+    print("Initialisiere RBPF mit N = 1 ...")
+    online_filter = initialize_filter(
+        time_seconds[:1],
+        x_observed[:1],
+        y_observed[:1],
+        priors=priors,
+        config=rbpf_config,
+        seed=rbpf_seed,
     )
 
     def load_update(observation_count):
         if (
             isinstance(observation_count, bool)
             or not isinstance(observation_count, int)
-            or not bayesian_model.MIN_OBSERVATION_COUNT
-            <= observation_count
-            <= maximum_observation_count
+            or not 1 <= observation_count <= maximum_observation_count
         ):
             raise ValueError(
                 "observation_count must be within the available trajectory prefix."
             )
-
-        print(f"Berechne separaten Batch-Posterior fuer N = {observation_count} ...")
-        window = observation_window.prepare_trajectory_window(
-            trajectory_data,
-            observation_count=observation_count,
-            prediction_count=1,
-            start_index=start_index,
-        )
-        observations = observation_support.PositionObservations(
-            time_seconds=maximum_observations.time_seconds[:observation_count],
-            x_meters=maximum_observations.x_meters[:observation_count],
-            y_meters=maximum_observations.y_meters[:observation_count],
-            position_noise_std_m=position_noise_std_m,
-            noise_seed=position_noise_seed,
-        )
-        fit = fit_model(
-            window,
-            priors=priors,
-            position_observations=observations,
-            inference_method=inference_method,
-            seed=inference_seed,
-            **dict(inference_config),
-        )
+        if observation_count < online_filter.processed_observation_count:
+            raise ValueError("The RBPF update loader cannot move backward.")
+        while online_filter.processed_observation_count < observation_count:
+            index = online_filter.processed_observation_count
+            print(f"Aktualisiere RBPF mit Messpunkt N = {index + 1} ...")
+            online_filter.update(
+                time_seconds[index],
+                x_observed[index],
+                y_observed[index],
+            )
+        fit = online_filter.sample_current_posterior(seed=rbpf_seed)
         return PosteriorUpdate(
-            observation_count,
-            extract_posterior_samples(fit, spec),
+            observation_count=observation_count,
+            samples=extract_posterior_samples(fit, spec),
+            effective_sample_size=online_filter.effective_sample_size,
+            particle_count=rbpf_config.particle_count,
+            resample_count=online_filter.resample_count,
         )
 
     return spec, maximum_observation_count, load_update
-
-
-def fit_prior_posterior_updates(
-    trajectory_data,
-    *,
-    parameter_name,
-    observation_counts,
-    start_index,
-    position_noise_std_m,
-    position_noise_seed,
-    priors,
-    inference_method,
-    inference_config,
-    inference_seed,
-    fit_model=None,
-):
-    """Fit one Bayesian CTRV parameter to consistent observation prefixes."""
-    counts = _validate_observation_counts(observation_counts)
-    spec, maximum_observation_count, load_update = create_prior_posterior_update_loader(
-        trajectory_data,
-        parameter_name=parameter_name,
-        start_index=start_index,
-        position_noise_std_m=position_noise_std_m,
-        position_noise_seed=position_noise_seed,
-        priors=priors,
-        inference_method=inference_method,
-        inference_config=inference_config,
-        inference_seed=inference_seed,
-        fit_model=fit_model,
-    )
-    if counts[-1] > maximum_observation_count:
-        raise ValueError("observation_counts exceed the available trajectory prefix.")
-    return spec, tuple(load_update(count) for count in counts)
 
 
 def run_bayesian_ctrv_prior_posterior_analysis(
@@ -589,20 +612,13 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     position_noise_std_m,
     position_noise_seed,
     priors,
-    inference_method,
-    vi_config,
-    mcmc_config,
-    inference_seed,
+    rbpf_config,
+    rbpf_seed,
     credible_interval,
     show_legend,
     show=True,
 ):
-    """Run and display one standalone Bayesian CTRV prior update analysis."""
-    _, normalized_method = inference.normalize_inference_configuration(
-        "batch",
-        inference_method,
-    )
-    inference_config = dict(vi_config if normalized_method == "vi" else mcmc_config)
+    """Run one interactive Bayesian CTRV RBPF update analysis."""
     credible_interval = _validate_credible_interval(credible_interval)
     trajectory_data = (
         observations_io.read_ship_data(data_file, run_id=run_id)
@@ -612,16 +628,15 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={run_id}.")
 
-    spec, maximum_observation_count, load_update = create_prior_posterior_update_loader(
+    spec, maximum_observation_count, load_update = create_rbpf_posterior_update_loader(
         trajectory_data,
         parameter_name=parameter_name,
         start_index=start_index,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=position_noise_seed,
         priors=priors,
-        inference_method=normalized_method,
-        inference_config=inference_config,
-        inference_seed=inference_seed,
+        rbpf_config=rbpf_config,
+        rbpf_seed=rbpf_seed,
     )
     print("=" * 72)
     print("Bayessche CTRV Prior-Posterior-Aktualisierung")
@@ -629,17 +644,18 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     print(f"Parameter             : {spec.title}")
     print(f"Run ID                : {run_id}")
     print(f"Startindex            : {start_index}")
-    print(f"Inferenzmethode       : {normalized_method.upper()}")
+    print("Inferenzmethode       : RBPF")
     print(
         "Beobachtungsstaende  : Prior, "
-        f"N={bayesian_model.MIN_OBSERVATION_COUNT} bis "
-        f"N={maximum_observation_count} (Schrittweite 1)"
+        f"N=1 bis N={maximum_observation_count} (Schrittweite 1)"
     )
     print(
-        "Interpretation        : Jeder Posterior stammt aus einer separaten "
-        "Batch-Anpassung."
+        "Interpretation        : Jeder Schritt aktualisiert denselben "
+        "sequentiellen Filter."
     )
-    print("Berechnung            : Beim ersten Aufruf eines Punktes, danach Cache.")
+    print("Berechnung            : Pro Weiter-Klick genau ein neuer Trajektorienpunkt.")
+    print(f"Partikel              : {rbpf_config.particle_count}")
+    print(f"Posteriorziehungen    : {rbpf_config.posterior_draw_count}")
     print(f"Prior                 : {_describe_prior(spec, priors)}")
 
     def load_and_report_update(observation_count):
@@ -651,12 +667,22 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         )
         percentage = 100.0 * credible_interval
         center_label = "Kreismittel" if spec.support == "circular" else "Median"
+        display_unit = _terminal_display_unit(spec)
         print(f"\nPosterior nach N={update.observation_count}:")
-        print(f"  {center_label}: {summary.center:.3f} {spec.display_unit}")
+        print(f"  {center_label}: {summary.center:.3f} {display_unit}")
         print(
             f"  {percentage:g} %-Intervall: "
-            f"[{summary.lower:.3f}, {summary.upper:.3f}] {spec.display_unit}"
+            f"[{summary.lower:.3f}, {summary.upper:.3f}] {display_unit}"
         )
+        if (
+            update.effective_sample_size is not None
+            and update.particle_count is not None
+        ):
+            print(
+                f"  ESS: {update.effective_sample_size:.1f} / {update.particle_count}"
+            )
+        if update.resample_count is not None:
+            print(f"  Resamplings: {update.resample_count}")
         return update
 
     figure, navigator = create_sequential_prior_posterior_figure(
@@ -703,11 +729,11 @@ def _build_density_grid(spec, priors, updates):
     if spec.support == "circular":
         return np.linspace(-270.0, 270.0, DENSITY_POINT_COUNT)
 
-    if spec.parameter_name == "initial_speed":
+    if spec.parameter_name == "current_speed":
         prior_upper = priors.speed_prior_scale * NormalDist().inv_cdf(
             1.0 - PLOT_TAIL_PROBABILITY / 2.0
         )
-    elif spec.parameter_name == "initial_turn_rate":
+    elif spec.parameter_name == "current_turn_rate":
         scale = float(np.rad2deg(priors.turn_rate_prior_scale))
         prior_upper = scale * NormalDist().inv_cdf(1.0 - PLOT_TAIL_PROBABILITY / 2.0)
     else:
@@ -731,20 +757,6 @@ def _build_density_grid(spec, priors, updates):
     return np.linspace(lower, upper, DENSITY_POINT_COUNT)
 
 
-def _validate_observation_counts(observation_counts):
-    counts = tuple(observation_counts)
-    if not counts or any(
-        isinstance(count, bool) or not isinstance(count, int) or count < 3
-        for count in counts
-    ):
-        raise ValueError(
-            "observation_counts must contain integers greater than or equal to 3."
-        )
-    if counts != tuple(sorted(set(counts))):
-        raise ValueError("observation_counts must be strictly increasing.")
-    return counts
-
-
 def _validate_credible_interval(credible_interval):
     try:
         credible_interval = float(credible_interval)
@@ -757,10 +769,10 @@ def _validate_credible_interval(credible_interval):
 
 def _describe_prior(spec, priors):
     descriptions = {
-        "initial_speed": (f"Halbnormal(Skala={priors.speed_prior_scale:.4g} m/s)"),
-        "initial_heading": "Gleichverteilung(-180°, 180°)",
-        "initial_turn_rate": (
-            f"Normal(0, {np.rad2deg(priors.turn_rate_prior_scale):.4g} °/s)"
+        "current_speed": (f"Halbnormal(Skala={priors.speed_prior_scale:.4g} m/s)"),
+        "current_heading": "Gleichverteilung(-180 Grad, 180 Grad)",
+        "current_turn_rate": (
+            f"Normal(0, {np.rad2deg(priors.turn_rate_prior_scale):.4g} Grad/s)"
         ),
         "position_observation_noise": (
             f"Exponential(Rate={priors.sigma_position_observation_prior_rate:.4g} 1/m)"
@@ -773,6 +785,13 @@ def _describe_prior(spec, priors):
         ),
     }
     return descriptions[spec.parameter_name]
+
+
+def _terminal_display_unit(spec):
+    return {
+        "°": "Grad",
+        "°/s": "Grad/s",
+    }.get(spec.display_unit, spec.display_unit)
 
 
 def _kernel_density(samples, x_values):

@@ -452,6 +452,37 @@ class SequentialBayesianCTRVFilter:
         ):
             self._resample_and_rejuvenate()
 
+    def sample_current_posterior(self, *, seed: int) -> SequentialCTRVFit:
+        """Draw the current CTRV state and parameters without forecasting."""
+        seed = observation_support.validate_non_negative_integer("seed", seed)
+        generator = np.random.default_rng(seed)
+        indices = generator.choice(
+            self.config.particle_count,
+            size=self.config.posterior_draw_count,
+            replace=True,
+            p=self.weights,
+        )
+        parameters = self.parameter_particles[indices]
+        states = _sample_gaussian_states(
+            self.state_means[indices],
+            self.state_covariances[indices],
+            generator,
+        )
+        _normalize_ctrv_states(states)
+        observation_noise, speed_process, turn_rate_process = (
+            _sequential_parameter_values(parameters)
+        )
+        return SequentialCTRVFit(
+            {
+                "speed_at_origin": states[:, _STATE_SPEED_INDEX],
+                "heading_at_origin": states[:, _STATE_HEADING_INDEX],
+                "turn_rate_at_origin": states[:, _STATE_TURN_RATE_INDEX],
+                "sigma_position_observation": observation_noise,
+                "sigma_speed_process": speed_process,
+                "sigma_turn_rate_process": turn_rate_process,
+            }
+        )
+
     def forecast(self, future_time_seconds, *, seed: int) -> SequentialCTRVFit:
         """Draw future latent and observed trajectories from the posterior."""
         future_time_seconds = _validate_future_times(

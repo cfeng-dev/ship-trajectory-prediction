@@ -26,9 +26,9 @@ def test_parameter_specs_map_all_six_priors_to_posterior_variables():
     priors = bayesian_model.BayesianCTRVPriors()
 
     expected = {
-        "initial_speed": ("speed_state", 0, "m/s"),
-        "initial_heading": ("heading_initial", None, "°"),
-        "initial_turn_rate": ("turn_rate_state", 0, "°/s"),
+        "current_speed": ("speed_at_origin", None, "m/s"),
+        "current_heading": ("heading_at_origin", None, "°"),
+        "current_turn_rate": ("turn_rate_at_origin", None, "°/s"),
         "position_observation_noise": (
             "sigma_position_observation",
             None,
@@ -64,21 +64,21 @@ class _FakeFit:
     ("parameter_name", "variable_name", "values", "expected"),
     [
         (
-            "initial_speed",
-            "speed_state",
-            [[1.0, 9.0], [3.0, 8.0]],
+            "current_speed",
+            "speed_at_origin",
+            [1.0, 3.0],
             [1.0, 3.0],
         ),
         (
-            "initial_heading",
-            "heading_initial",
+            "current_heading",
+            "heading_at_origin",
             [0.0, np.pi / 2.0],
             [0.0, 90.0],
         ),
         (
-            "initial_turn_rate",
-            "turn_rate_state",
-            [[0.0, 1.0], [np.pi / 180.0, 2.0]],
+            "current_turn_rate",
+            "turn_rate_at_origin",
+            [0.0, np.pi / 180.0],
             [0.0, 1.0],
         ),
         (
@@ -101,7 +101,7 @@ class _FakeFit:
         ),
     ],
 )
-def test_extract_posterior_samples_selects_initial_state_and_display_units(
+def test_extract_posterior_samples_selects_current_state_and_display_units(
     parameter_name,
     variable_name,
     values,
@@ -123,9 +123,9 @@ def test_prior_densities_follow_the_configured_distributions_and_units():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
 
-    speed = analysis.build_parameter_spec("initial_speed", priors)
-    heading = analysis.build_parameter_spec("initial_heading", priors)
-    turn_rate = analysis.build_parameter_spec("initial_turn_rate", priors)
+    speed = analysis.build_parameter_spec("current_speed", priors)
+    heading = analysis.build_parameter_spec("current_heading", priors)
+    turn_rate = analysis.build_parameter_spec("current_turn_rate", priors)
     position_noise = analysis.build_parameter_spec(
         "position_observation_noise",
         priors,
@@ -165,10 +165,20 @@ def test_prior_densities_follow_the_configured_distributions_and_units():
     )[0] == pytest.approx(priors.sigma_turn_rate_process_prior_rate * np.pi / 180.0)
 
 
+def test_terminal_prior_descriptions_are_ascii_safe():
+    analysis = _load_analysis_module()
+    priors = bayesian_model.BayesianCTRVPriors()
+
+    for parameter_name in analysis.PARAMETER_NAMES:
+        spec = analysis.build_parameter_spec(parameter_name, priors)
+        analysis._describe_prior(spec, priors).encode("ascii")
+        analysis._terminal_display_unit(spec).encode("ascii")
+
+
 def test_prior_posterior_figure_navigates_in_one_window():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_speed", priors)
+    spec = analysis.build_parameter_spec("current_speed", priors)
     updates = (
         analysis.PosteriorUpdate(3, np.linspace(2.0, 8.0, 100)),
         analysis.PosteriorUpdate(5, np.linspace(3.0, 7.0, 100)),
@@ -186,7 +196,7 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert len(plt.get_fignums()) == 1
         assert navigator.observation_count == 0
         assert "N = 0" in navigator.axis.get_title()
-        assert [line.get_label() for line in navigator.axis.lines] == ["Prior-Dichte"]
+        assert [line.get_label() for line in navigator.axis.lines] == ["Ausgangs-Prior"]
         assert not navigator.previous_button.active
         assert navigator.next_button.active
 
@@ -195,7 +205,7 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert navigator.observation_count == 3
         assert "N = 3" in navigator.axis.get_title()
         assert [line.get_label() for line in navigator.axis.lines] == [
-            "Prior-Dichte",
+            "Ausgangs-Prior",
             "Posterior-Dichte",
         ]
         assert navigator.previous_button.active
@@ -218,7 +228,7 @@ def test_prior_posterior_figure_navigates_in_one_window():
 def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_speed", priors)
+    spec = analysis.build_parameter_spec("current_speed", priors)
     loaded_counts = []
 
     def load_update(observation_count):
@@ -226,33 +236,38 @@ def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates()
         return analysis.PosteriorUpdate(
             observation_count,
             np.linspace(1.0, 2.0, 20),
+            effective_sample_size=80.0,
+            particle_count=100,
+            resample_count=2,
         )
 
     figure, navigator = analysis.create_sequential_prior_posterior_figure(
         spec,
         priors,
         load_update,
-        maximum_observation_count=5,
+        maximum_observation_count=3,
     )
 
     try:
         assert navigator.observation_count == 0
 
         navigator.show_next(None)
-        assert navigator.observation_count == 3
+        assert navigator.observation_count == 1
+        assert "RBPF" in navigator.axis.get_title()
+        assert "ESS = 80/100" in navigator.axis.get_title()
 
         navigator.show_next(None)
-        assert navigator.observation_count == 4
+        assert navigator.observation_count == 2
 
         navigator.show_previous(None)
         navigator.show_next(None)
-        assert navigator.observation_count == 4
-        assert loaded_counts == [3, 4]
+        assert navigator.observation_count == 2
+        assert loaded_counts == [1, 2]
 
         navigator.show_next(None)
         navigator.show_next(None)
-        assert navigator.observation_count == 5
-        assert loaded_counts == [3, 4, 5]
+        assert navigator.observation_count == 3
+        assert loaded_counts == [1, 2, 3]
         assert not navigator.next_button.active
     finally:
         plt.close(figure)
@@ -261,7 +276,7 @@ def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates()
 def test_navigation_buttons_leave_visible_space_below_x_axis_label():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_speed", priors)
+    spec = analysis.build_parameter_spec("current_speed", priors)
     updates = (analysis.PosteriorUpdate(3, np.linspace(2.0, 8.0, 100)),)
 
     figure, navigator = analysis.create_prior_posterior_figure(
@@ -285,10 +300,10 @@ def test_navigation_buttons_leave_visible_space_below_x_axis_label():
         plt.close(figure)
 
 
-def test_initial_heading_figure_keeps_prior_boundaries_in_extended_axis():
+def test_current_heading_figure_keeps_prior_boundaries_in_extended_axis():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_heading", priors)
+    spec = analysis.build_parameter_spec("current_heading", priors)
     updates = (analysis.PosteriorUpdate(3, np.linspace(-20.0, 20.0, 100)),)
 
     figure, navigator = analysis.create_prior_posterior_figure(
@@ -315,7 +330,7 @@ def test_initial_heading_figure_keeps_prior_boundaries_in_extended_axis():
 def test_legend_can_be_disabled_for_every_navigation_stage():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_speed", priors)
+    spec = analysis.build_parameter_spec("current_speed", priors)
     updates = (analysis.PosteriorUpdate(3, np.linspace(1.0, 2.0, 20)),)
 
     figure, navigator = analysis.create_prior_posterior_figure(
@@ -336,7 +351,7 @@ def test_legend_can_be_disabled_for_every_navigation_stage():
 def test_heading_summary_uses_circular_center_and_interval():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    spec = analysis.build_parameter_spec("initial_heading", priors)
+    spec = analysis.build_parameter_spec("current_heading", priors)
     update = analysis.PosteriorUpdate(
         5,
         np.array([178.0, 179.0, -179.0, -178.0]),
@@ -352,130 +367,87 @@ def test_heading_summary_uses_circular_center_and_interval():
     assert summary.upper - summary.lower < 10.0
 
 
-def test_update_loader_reaches_last_available_trajectory_prefix_one_point_at_a_time():
+def test_rbpf_update_loader_initializes_once_and_processes_one_new_point():
     analysis = _load_analysis_module()
     trajectory_data = pd.DataFrame(
         {
             "time": pd.date_range(
                 "2026-01-01",
-                periods=7,
+                periods=4,
                 freq="10s",
                 tz="UTC",
             ),
             "run_id": 102,
-            "gps_latitude": 54.0 + np.arange(7) * 1e-5,
-            "gps_longitude": 10.0 + np.arange(7) * 2e-5,
-            "gps_speed": np.full(7, 18.0),
+            "gps_latitude": 54.0 + np.arange(4) * 1e-5,
+            "gps_longitude": 10.0 + np.arange(4) * 2e-5,
+            "gps_speed": np.full(4, 18.0),
         }
     )
-    captured = []
+    initializations = []
+    updated_times = []
 
-    def fake_fit(window, **options):
-        captured.append((window, options["position_observations"]))
-        draws = np.tile(
-            np.linspace(1.0, 2.0, window.observation_count),
-            (20, 1),
+    class FakeFilter:
+        def __init__(self, config):
+            self.config = config
+            self.processed_observation_count = 1
+            self.resample_count = 1
+            self.effective_sample_size = 24.0
+
+        def update(self, time_seconds, _x_observed, _y_observed):
+            updated_times.append(time_seconds)
+            self.processed_observation_count += 1
+
+        def sample_current_posterior(self, *, seed):
+            assert seed == 42
+            return _FakeFit(
+                {
+                    "heading_at_origin": np.asarray([0.0, np.pi / 2.0]),
+                }
+            )
+
+    rbpf_config = bayesian_model.SequentialCTRVFilterConfig(
+        particle_count=32,
+        posterior_draw_count=2,
+    )
+
+    def initialize_filter(
+        time_seconds,
+        x_observed,
+        y_observed,
+        *,
+        priors,
+        config,
+        seed,
+    ):
+        initializations.append(
+            (time_seconds.copy(), x_observed.copy(), y_observed.copy(), priors, seed)
         )
-        return _FakeFit({"speed_state": draws})
+        return FakeFilter(config)
 
-    spec, maximum_count, load_update = analysis.create_prior_posterior_update_loader(
+    spec, maximum_count, load_update = analysis.create_rbpf_posterior_update_loader(
         trajectory_data,
-        parameter_name="initial_speed",
-        start_index=1,
-        position_noise_std_m=5.0,
+        parameter_name="current_heading",
+        start_index=0,
+        position_noise_std_m=0.0,
         position_noise_seed=2026,
         priors=bayesian_model.BayesianCTRVPriors(),
-        inference_method="vi",
-        inference_config={"draws": 20, "require_converged": False},
-        inference_seed=42,
-        fit_model=fake_fit,
+        rbpf_config=rbpf_config,
+        rbpf_seed=42,
+        initialize_filter=initialize_filter,
     )
 
-    updates = tuple(load_update(count) for count in range(3, maximum_count + 1))
+    updates = tuple(load_update(count) for count in (1, 2, 3))
 
-    assert spec.parameter_name == "initial_speed"
-    assert maximum_count == 5
-    assert tuple(update.observation_count for update in updates) == (3, 4, 5)
-    assert [window.observation_count for window, _ in captured] == [3, 4, 5]
-    assert all(
-        window.timestamps[0] == trajectory_data["time"].iloc[1]
-        for window, _ in captured
-    )
-    longest_observations = captured[-1][1]
-    for window, observations in captured:
-        count = window.observation_count
-        assert observations.x_meters == pytest.approx(
-            longest_observations.x_meters[:count]
-        )
-        assert observations.y_meters == pytest.approx(
-            longest_observations.y_meters[:count]
-        )
-
-
-def test_prefix_updates_refit_consistent_noisy_observation_prefixes(capsys):
-    analysis = _load_analysis_module()
-    trajectory_data = pd.DataFrame(
-        {
-            "time": pd.date_range(
-                "2026-01-01",
-                periods=22,
-                freq="10s",
-                tz="UTC",
-            ),
-            "run_id": 102,
-            "gps_latitude": 54.0 + np.arange(22) * 1e-5,
-            "gps_longitude": 10.0 + np.arange(22) * 2e-5,
-            "gps_speed": np.full(22, 18.0),
-        }
-    )
-    captured = []
-
-    def fake_fit(window, **options):
-        observations = options["position_observations"]
-        captured.append((window, observations, options))
-        draws = np.tile(
-            np.linspace(1.0, 2.0, window.observation_count),
-            (20, 1),
-        )
-        return _FakeFit({"speed_state": draws})
-
-    priors = bayesian_model.BayesianCTRVPriors()
-    spec, updates = analysis.fit_prior_posterior_updates(
-        trajectory_data,
-        parameter_name="initial_speed",
-        observation_counts=(3, 5, 10, 20),
-        start_index=1,
-        position_noise_std_m=5.0,
-        position_noise_seed=2026,
-        priors=priors,
-        inference_method="vi",
-        inference_config={"draws": 20, "require_converged": False},
-        inference_seed=42,
-        fit_model=fake_fit,
-    )
-
-    assert spec.parameter_name == "initial_speed"
-    assert tuple(update.observation_count for update in updates) == (3, 5, 10, 20)
-    assert [item[0].observation_count for item in captured] == [3, 5, 10, 20]
-    assert all(
-        item[0].timestamps[0] == trajectory_data["time"].iloc[1] for item in captured
-    )
-    longest_observations = captured[-1][1]
-    for window, observations, options in captured:
-        count = window.observation_count
-        assert observations.time_seconds == pytest.approx(
-            longest_observations.time_seconds[:count]
-        )
-        assert observations.x_meters == pytest.approx(
-            longest_observations.x_meters[:count]
-        )
-        assert observations.y_meters == pytest.approx(
-            longest_observations.y_meters[:count]
-        )
-        assert options["inference_method"] == "vi"
-        assert options["seed"] == 42
-        assert options["priors"] is priors
-    capsys.readouterr().out.encode("cp950")
+    assert spec.parameter_name == "current_heading"
+    assert maximum_count == 4
+    assert len(initializations) == 1
+    assert initializations[0][0] == pytest.approx([0.0])
+    assert updated_times == pytest.approx([10.0, 20.0])
+    assert tuple(update.observation_count for update in updates) == (1, 2, 3)
+    assert updates[-1].samples == pytest.approx([0.0, 90.0])
+    assert updates[-1].effective_sample_size == pytest.approx(24.0)
+    assert updates[-1].particle_count == 32
+    assert updates[-1].resample_count == 1
 
 
 def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
@@ -483,9 +455,21 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
 ):
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
+    rbpf_config = bayesian_model.SequentialCTRVFilterConfig(
+        particle_count=100,
+        posterior_draw_count=20,
+    )
     trajectory_data = pd.DataFrame({"time": ["2026-01-01"], "run_id": [102]})
-    spec = analysis.build_parameter_spec("initial_speed", priors)
-    updates = (analysis.PosteriorUpdate(3, np.linspace(1.0, 2.0, 20)),)
+    spec = analysis.build_parameter_spec("current_speed", priors)
+    updates = (
+        analysis.PosteriorUpdate(
+            1,
+            np.linspace(1.0, 2.0, 20),
+            effective_sample_size=80.0,
+            particle_count=100,
+            resample_count=1,
+        ),
+    )
     figure = object()
     navigator = object()
     captured = {}
@@ -520,13 +504,13 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
             maximum_observation_count,
             show_legend,
         )
-        update_loader(3)
+        update_loader(1)
         return figure, navigator
 
     monkeypatch.setattr(analysis.observations_io, "read_ship_data", fake_read)
     monkeypatch.setattr(
         analysis,
-        "create_prior_posterior_update_loader",
+        "create_rbpf_posterior_update_loader",
         fake_create_loader,
     )
     monkeypatch.setattr(
@@ -543,15 +527,13 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
         result = analysis.run_bayesian_ctrv_prior_posterior_analysis(
             data_file="trajectory.csv",
             run_id=102,
-            parameter_name="initial_speed",
+            parameter_name="current_speed",
             start_index=0,
             position_noise_std_m=5.0,
             position_noise_seed=2026,
             priors=priors,
-            inference_method="vi",
-            vi_config={"draws": 100},
-            mcmc_config={"chains": 4},
-            inference_seed=42,
+            rbpf_config=rbpf_config,
+            rbpf_seed=42,
             credible_interval=0.9,
             show_legend=True,
             show=True,
@@ -562,12 +544,16 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     assert result == (figure, navigator)
     assert captured["read"] == ("trajectory.csv", 102)
     assert captured["loader"][0].equals(trajectory_data)
-    assert captured["loader"][1]["inference_config"] == {"draws": 100}
+    assert captured["loader"][1]["rbpf_config"] is rbpf_config
+    assert captured["loader"][1]["rbpf_seed"] == 42
     assert captured["figure"] == (spec, priors, 5, True)
-    assert loaded_counts == [3]
+    assert loaded_counts == [1]
     assert shown == [True]
     assert closed == [figure]
+    assert "Inferenzmethode       : RBPF" in report
     assert "Beobachtungsstaende" in report
-    assert "N=3 bis N=5" in report
-    assert "Posterior nach N=3" in report
+    assert "N=1 bis N=5" in report
+    assert "Posterior nach N=1" in report
+    assert "ESS" in report
+    assert "Resamplings" in report
     assert "90 %-Intervall" in report

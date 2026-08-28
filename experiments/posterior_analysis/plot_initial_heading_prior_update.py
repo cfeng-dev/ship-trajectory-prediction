@@ -1,4 +1,4 @@
-"""Show how observations update the Bayesian CTRV initial-heading prior."""
+"""Show how observations update the Bayesian CTRV current-heading posterior."""
 
 import argparse
 
@@ -14,18 +14,16 @@ RUN_ID = 102
 START_INDEX = 0
 POSITION_NOISE_STD_M = 5.0
 POSITION_NOISE_SEED = 2026
-INFERENCE_METHOD = "vi"  # Choose "vi" or "mcmc".
-INFERENCE_SEED = 42
+RBPF_SEED = 42
 CREDIBLE_INTERVAL = 0.90
 SHOW_LEGEND = True
 PRIORS = bayesian_model.BayesianCTRVPriors()
-VI_CONFIG = inference.create_default_vi_config()
-MCMC_CONFIG = inference.create_default_mcmc_config()
-PARAMETER_NAME = "initial_heading"
+RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
+PARAMETER_NAME = "current_heading"
 
 
 def main(argv=None):
-    """Fit consecutive prefixes on demand and show one interactive plot."""
+    """Update one RBPF point by point and show one interactive plot."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-show", action="store_true")
     arguments = parser.parse_args(argv)
@@ -37,10 +35,8 @@ def main(argv=None):
         position_noise_std_m=POSITION_NOISE_STD_M,
         position_noise_seed=POSITION_NOISE_SEED,
         priors=PRIORS,
-        inference_method=INFERENCE_METHOD,
-        vi_config=VI_CONFIG,
-        mcmc_config=MCMC_CONFIG,
-        inference_seed=INFERENCE_SEED,
+        rbpf_config=RBPF_CONFIG,
+        rbpf_seed=RBPF_SEED,
         credible_interval=CREDIBLE_INTERVAL,
         show_legend=SHOW_LEGEND,
         show=not arguments.no_show,
