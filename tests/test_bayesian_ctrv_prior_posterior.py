@@ -215,6 +215,49 @@ def test_prior_posterior_figure_navigates_in_one_window():
         plt.close(figure)
 
 
+def test_sequential_navigator_loads_one_new_point_per_click_and_reuses_updates():
+    analysis = _load_analysis_module()
+    priors = bayesian_model.BayesianCTRVPriors()
+    spec = analysis.build_parameter_spec("initial_speed", priors)
+    loaded_counts = []
+
+    def load_update(observation_count):
+        loaded_counts.append(observation_count)
+        return analysis.PosteriorUpdate(
+            observation_count,
+            np.linspace(1.0, 2.0, 20),
+        )
+
+    figure, navigator = analysis.create_sequential_prior_posterior_figure(
+        spec,
+        priors,
+        load_update,
+        maximum_observation_count=5,
+    )
+
+    try:
+        assert navigator.observation_count == 0
+
+        navigator.show_next(None)
+        assert navigator.observation_count == 3
+
+        navigator.show_next(None)
+        assert navigator.observation_count == 4
+
+        navigator.show_previous(None)
+        navigator.show_next(None)
+        assert navigator.observation_count == 4
+        assert loaded_counts == [3, 4]
+
+        navigator.show_next(None)
+        navigator.show_next(None)
+        assert navigator.observation_count == 5
+        assert loaded_counts == [3, 4, 5]
+        assert not navigator.next_button.active
+    finally:
+        plt.close(figure)
+
+
 def test_navigation_buttons_leave_visible_space_below_x_axis_label():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
@@ -309,6 +352,66 @@ def test_heading_summary_uses_circular_center_and_interval():
     assert summary.upper - summary.lower < 10.0
 
 
+def test_update_loader_reaches_last_available_trajectory_prefix_one_point_at_a_time():
+    analysis = _load_analysis_module()
+    trajectory_data = pd.DataFrame(
+        {
+            "time": pd.date_range(
+                "2026-01-01",
+                periods=7,
+                freq="10s",
+                tz="UTC",
+            ),
+            "run_id": 102,
+            "gps_latitude": 54.0 + np.arange(7) * 1e-5,
+            "gps_longitude": 10.0 + np.arange(7) * 2e-5,
+            "gps_speed": np.full(7, 18.0),
+        }
+    )
+    captured = []
+
+    def fake_fit(window, **options):
+        captured.append((window, options["position_observations"]))
+        draws = np.tile(
+            np.linspace(1.0, 2.0, window.observation_count),
+            (20, 1),
+        )
+        return _FakeFit({"speed_state": draws})
+
+    spec, maximum_count, load_update = analysis.create_prior_posterior_update_loader(
+        trajectory_data,
+        parameter_name="initial_speed",
+        start_index=1,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        inference_method="vi",
+        inference_config={"draws": 20, "require_converged": False},
+        inference_seed=42,
+        fit_model=fake_fit,
+    )
+
+    updates = tuple(load_update(count) for count in range(3, maximum_count + 1))
+
+    assert spec.parameter_name == "initial_speed"
+    assert maximum_count == 5
+    assert tuple(update.observation_count for update in updates) == (3, 4, 5)
+    assert [window.observation_count for window, _ in captured] == [3, 4, 5]
+    assert all(
+        window.timestamps[0] == trajectory_data["time"].iloc[1]
+        for window, _ in captured
+    )
+    longest_observations = captured[-1][1]
+    for window, observations in captured:
+        count = window.observation_count
+        assert observations.x_meters == pytest.approx(
+            longest_observations.x_meters[:count]
+        )
+        assert observations.y_meters == pytest.approx(
+            longest_observations.y_meters[:count]
+        )
+
+
 def test_prefix_updates_refit_consistent_noisy_observation_prefixes(capsys):
     analysis = _load_analysis_module()
     trajectory_data = pd.DataFrame(
@@ -386,6 +489,7 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     figure = object()
     navigator = object()
     captured = {}
+    loaded_counts = []
     shown = []
     closed = []
 
@@ -393,16 +497,42 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
         captured["read"] = (data_file, run_id)
         return trajectory_data
 
-    def fake_fit(data, **options):
-        captured["fit"] = (data, options)
-        return spec, updates
+    def fake_create_loader(data, **options):
+        captured["loader"] = (data, options)
+
+        def load_update(observation_count):
+            loaded_counts.append(observation_count)
+            return updates[0]
+
+        return spec, 5, load_update
+
+    def fake_create_figure(
+        received_spec,
+        received_priors,
+        update_loader,
+        *,
+        maximum_observation_count,
+        show_legend,
+    ):
+        captured["figure"] = (
+            received_spec,
+            received_priors,
+            maximum_observation_count,
+            show_legend,
+        )
+        update_loader(3)
+        return figure, navigator
 
     monkeypatch.setattr(analysis.observations_io, "read_ship_data", fake_read)
-    monkeypatch.setattr(analysis, "fit_prior_posterior_updates", fake_fit)
     monkeypatch.setattr(
         analysis,
-        "create_prior_posterior_figure",
-        lambda *_args, **_kwargs: (figure, navigator),
+        "create_prior_posterior_update_loader",
+        fake_create_loader,
+    )
+    monkeypatch.setattr(
+        analysis,
+        "create_sequential_prior_posterior_figure",
+        fake_create_figure,
     )
     monkeypatch.setattr(analysis.plt, "show", lambda *, block: shown.append(block))
     monkeypatch.setattr(analysis.plt, "close", closed.append)
@@ -414,7 +544,6 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
             data_file="trajectory.csv",
             run_id=102,
             parameter_name="initial_speed",
-            observation_counts=(3, 5, 10, 20),
             start_index=0,
             position_noise_std_m=5.0,
             position_noise_seed=2026,
@@ -432,10 +561,13 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
 
     assert result == (figure, navigator)
     assert captured["read"] == ("trajectory.csv", 102)
-    assert captured["fit"][0].equals(trajectory_data)
-    assert captured["fit"][1]["inference_config"] == {"draws": 100}
+    assert captured["loader"][0].equals(trajectory_data)
+    assert captured["loader"][1]["inference_config"] == {"draws": 100}
+    assert captured["figure"] == (spec, priors, 5, True)
+    assert loaded_counts == [3]
     assert shown == [True]
     assert closed == [figure]
     assert "Beobachtungsstaende" in report
+    assert "N=3 bis N=5" in report
     assert "Posterior nach N=3" in report
     assert "90 %-Intervall" in report

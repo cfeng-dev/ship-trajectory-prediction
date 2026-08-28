@@ -55,7 +55,6 @@ def test_each_script_opens_only_its_configured_parameter(
 
     assert result is sentinel
     assert script.PARAMETER_NAME == parameter_name
-    assert script.OBSERVATION_COUNTS == (3, 5, 10, 20)
     assert script.START_INDEX == 0
     assert script.CREDIBLE_INTERVAL == pytest.approx(0.9)
     assert script.SHOW_LEGEND is True
@@ -64,3 +63,4 @@ def test_each_script_opens_only_its_configured_parameter(
     assert calls[0]["show"] is False
     assert calls[0]["show_legend"] is True
     assert calls[0]["inference_method"] in {"vi", "mcmc"}
+    assert "observation_counts" not in calls[0]

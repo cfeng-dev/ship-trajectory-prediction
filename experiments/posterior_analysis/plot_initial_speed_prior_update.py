@@ -12,7 +12,6 @@ DATA_FILE = paths.data_path(
 )
 RUN_ID = 102
 START_INDEX = 0
-OBSERVATION_COUNTS = (3, 5, 10, 20)
 POSITION_NOISE_STD_M = 5.0
 POSITION_NOISE_SEED = 2026
 INFERENCE_METHOD = "vi"  # Choose "vi" or "mcmc".
@@ -26,7 +25,7 @@ PARAMETER_NAME = "initial_speed"
 
 
 def main(argv=None):
-    """Fit the configured prefixes and show one interactive plot."""
+    """Fit consecutive prefixes on demand and show one interactive plot."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-show", action="store_true")
     arguments = parser.parse_args(argv)
@@ -34,7 +33,6 @@ def main(argv=None):
         data_file=DATA_FILE,
         run_id=RUN_ID,
         parameter_name=PARAMETER_NAME,
-        observation_counts=OBSERVATION_COUNTS,
         start_index=START_INDEX,
         position_noise_std_m=POSITION_NOISE_STD_M,
         position_noise_seed=POSITION_NOISE_SEED,

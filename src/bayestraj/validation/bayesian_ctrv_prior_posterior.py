@@ -92,12 +92,23 @@ class PriorPosteriorNavigator:
         x_values,
         *,
         show_legend,
+        observation_counts=None,
+        update_loader=None,
     ):
         self.figure = figure
         self.axis = axis
         self.spec = spec
         self.priors = priors
         self.updates = tuple(updates)
+        self.observation_counts = (
+            tuple(update.observation_count for update in self.updates)
+            if observation_counts is None
+            else tuple(observation_counts)
+        )
+        self._updates_by_count = {
+            update.observation_count: update for update in self.updates
+        }
+        self._update_loader = update_loader
         self.x_values = x_values
         self.show_legend = show_legend
         self._stage_index = 0
@@ -115,7 +126,7 @@ class PriorPosteriorNavigator:
         """Return zero for the prior stage or the current fitted prefix size."""
         if self._stage_index == 0:
             return 0
-        return self.updates[self._stage_index - 1].observation_count
+        return self.observation_counts[self._stage_index - 1]
 
     def show_previous(self, _event) -> None:
         """Show the preceding observation prefix if one exists."""
@@ -126,8 +137,23 @@ class PriorPosteriorNavigator:
 
     def show_next(self, _event) -> None:
         """Show the following observation prefix if one exists."""
-        if self._stage_index == len(self.updates):
+        if self._stage_index == len(self.observation_counts):
             return
+        observation_count = self.observation_counts[self._stage_index]
+        if observation_count not in self._updates_by_count:
+            update = self._update_loader(observation_count)
+            if not isinstance(update, PosteriorUpdate):
+                raise TypeError("update_loader must return a PosteriorUpdate.")
+            if update.observation_count != observation_count:
+                raise ValueError(
+                    "update_loader returned an unexpected observation count."
+                )
+            self._updates_by_count[observation_count] = update
+            self.x_values = _build_density_grid(
+                self.spec,
+                self.priors,
+                tuple(self._updates_by_count.values()),
+            )
         self._stage_index += 1
         self._draw()
 
@@ -150,7 +176,7 @@ class PriorPosteriorNavigator:
         if self._stage_index == 0:
             status = "N = 0 – Prior ohne Beobachtungen"
         else:
-            update = self.updates[self._stage_index - 1]
+            update = self._updates_by_count[self.observation_count]
             posterior_density = evaluate_posterior_density(
                 self.spec,
                 update.samples,
@@ -189,7 +215,7 @@ class PriorPosteriorNavigator:
         self._update_button(self.previous_button, self._stage_index > 0)
         self._update_button(
             self.next_button,
-            self._stage_index < len(self.updates),
+            self._stage_index < len(self.observation_counts),
         )
         self.figure.canvas.draw_idle()
 
@@ -389,6 +415,138 @@ def create_prior_posterior_figure(
     return figure, navigator
 
 
+def create_sequential_prior_posterior_figure(
+    spec: PriorPosteriorParameterSpec,
+    priors: bayesian_model.BayesianCTRVPriors,
+    update_loader,
+    *,
+    maximum_observation_count,
+    show_legend=True,
+):
+    """Create a navigator that loads consecutive posterior prefixes on demand."""
+    if (
+        isinstance(maximum_observation_count, bool)
+        or not isinstance(maximum_observation_count, int)
+        or maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT
+    ):
+        raise ValueError(
+            "maximum_observation_count must allow at least three observations."
+        )
+    if not callable(update_loader):
+        raise TypeError("update_loader must be callable.")
+
+    observation_counts = tuple(
+        range(
+            bayesian_model.MIN_OBSERVATION_COUNT,
+            maximum_observation_count + 1,
+        )
+    )
+    x_values = _build_density_grid(spec, priors, ())
+    figure, axis = plt.subplots(figsize=(8.0, 5.4))
+    figure.subplots_adjust(bottom=0.24, top=0.82)
+    navigator = PriorPosteriorNavigator(
+        figure,
+        axis,
+        spec,
+        priors,
+        (),
+        x_values,
+        show_legend=show_legend,
+        observation_counts=observation_counts,
+        update_loader=update_loader,
+    )
+    return figure, navigator
+
+
+def create_prior_posterior_update_loader(
+    trajectory_data,
+    *,
+    parameter_name,
+    start_index,
+    position_noise_std_m,
+    position_noise_seed,
+    priors,
+    inference_method,
+    inference_config,
+    inference_seed,
+    fit_model=None,
+):
+    """Create a cached-input loader for consecutive Bayesian batch fits."""
+    if (
+        isinstance(start_index, bool)
+        or not isinstance(start_index, int)
+        or start_index < 0
+    ):
+        raise ValueError("start_index must be a non-negative integer.")
+    maximum_observation_count = len(trajectory_data) - start_index - 1
+    if maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT:
+        raise ValueError(
+            "The selected trajectory must provide at least three observations "
+            "and one prediction point."
+        )
+
+    _, inference_method = inference.normalize_inference_configuration(
+        "batch",
+        inference_method,
+    )
+    spec = build_parameter_spec(parameter_name, priors)
+    if fit_model is None:
+        fit_model = bayesian_model.fit_bayesian_ctrv_model
+
+    maximum_window = observation_window.prepare_trajectory_window(
+        trajectory_data,
+        observation_count=maximum_observation_count,
+        prediction_count=1,
+        start_index=start_index,
+    )
+    maximum_observations = observation_support.simulate_position_observations(
+        maximum_window,
+        position_noise_std_m=position_noise_std_m,
+        seed=position_noise_seed,
+    )
+
+    def load_update(observation_count):
+        if (
+            isinstance(observation_count, bool)
+            or not isinstance(observation_count, int)
+            or not bayesian_model.MIN_OBSERVATION_COUNT
+            <= observation_count
+            <= maximum_observation_count
+        ):
+            raise ValueError(
+                "observation_count must be within the available trajectory prefix."
+            )
+
+        print(f"Berechne separaten Batch-Posterior fuer N = {observation_count} ...")
+        window = observation_window.prepare_trajectory_window(
+            trajectory_data,
+            observation_count=observation_count,
+            prediction_count=1,
+            start_index=start_index,
+        )
+        observations = observation_support.PositionObservations(
+            time_seconds=maximum_observations.time_seconds[:observation_count],
+            x_meters=maximum_observations.x_meters[:observation_count],
+            y_meters=maximum_observations.y_meters[:observation_count],
+            position_noise_std_m=position_noise_std_m,
+            noise_seed=position_noise_seed,
+        )
+        fit = fit_model(
+            window,
+            priors=priors,
+            position_observations=observations,
+            inference_method=inference_method,
+            seed=inference_seed,
+            **dict(inference_config),
+        )
+        return PosteriorUpdate(
+            observation_count,
+            extract_posterior_samples(fit, spec),
+        )
+
+    return spec, maximum_observation_count, load_update
+
+
 def fit_prior_posterior_updates(
     trajectory_data,
     *,
@@ -405,57 +563,21 @@ def fit_prior_posterior_updates(
 ):
     """Fit one Bayesian CTRV parameter to consistent observation prefixes."""
     counts = _validate_observation_counts(observation_counts)
-    _, inference_method = inference.normalize_inference_configuration(
-        "batch",
-        inference_method,
-    )
-    spec = build_parameter_spec(parameter_name, priors)
-    if fit_model is None:
-        fit_model = bayesian_model.fit_bayesian_ctrv_model
-
-    maximum_window = observation_window.prepare_trajectory_window(
+    spec, maximum_observation_count, load_update = create_prior_posterior_update_loader(
         trajectory_data,
-        observation_count=counts[-1],
-        prediction_count=1,
+        parameter_name=parameter_name,
         start_index=start_index,
-    )
-    maximum_observations = observation_support.simulate_position_observations(
-        maximum_window,
         position_noise_std_m=position_noise_std_m,
-        seed=position_noise_seed,
+        position_noise_seed=position_noise_seed,
+        priors=priors,
+        inference_method=inference_method,
+        inference_config=inference_config,
+        inference_seed=inference_seed,
+        fit_model=fit_model,
     )
-
-    updates = []
-    for count in counts:
-        print(f"Berechne separaten Batch-Posterior fuer N = {count} ...")
-        window = observation_window.prepare_trajectory_window(
-            trajectory_data,
-            observation_count=count,
-            prediction_count=1,
-            start_index=start_index,
-        )
-        observations = observation_support.PositionObservations(
-            time_seconds=maximum_observations.time_seconds[:count],
-            x_meters=maximum_observations.x_meters[:count],
-            y_meters=maximum_observations.y_meters[:count],
-            position_noise_std_m=position_noise_std_m,
-            noise_seed=position_noise_seed,
-        )
-        fit = fit_model(
-            window,
-            priors=priors,
-            position_observations=observations,
-            inference_method=inference_method,
-            seed=inference_seed,
-            **dict(inference_config),
-        )
-        updates.append(
-            PosteriorUpdate(
-                count,
-                extract_posterior_samples(fit, spec),
-            )
-        )
-    return spec, tuple(updates)
+    if counts[-1] > maximum_observation_count:
+        raise ValueError("observation_counts exceed the available trajectory prefix.")
+    return spec, tuple(load_update(count) for count in counts)
 
 
 def run_bayesian_ctrv_prior_posterior_analysis(
@@ -463,7 +585,6 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     data_file,
     run_id,
     parameter_name,
-    observation_counts,
     start_index,
     position_noise_std_m,
     position_noise_seed,
@@ -482,7 +603,6 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         inference_method,
     )
     inference_config = dict(vi_config if normalized_method == "vi" else mcmc_config)
-    observation_counts = _validate_observation_counts(observation_counts)
     credible_interval = _validate_credible_interval(credible_interval)
     trajectory_data = (
         observations_io.read_ship_data(data_file, run_id=run_id)
@@ -492,27 +612,9 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={run_id}.")
 
-    parameter_spec = build_parameter_spec(parameter_name, priors)
-    print("=" * 72)
-    print("Bayessche CTRV Prior-Posterior-Aktualisierung")
-    print("=" * 72)
-    print(f"Parameter             : {parameter_spec.title}")
-    print(f"Run ID                : {run_id}")
-    print(f"Startindex            : {start_index}")
-    print(f"Inferenzmethode       : {normalized_method.upper()}")
-    print(
-        "Beobachtungsstaende  : Prior, "
-        + ", ".join(f"N={count}" for count in observation_counts)
-    )
-    print(
-        "Interpretation        : Jeder Posterior stammt aus einer separaten "
-        "Batch-Anpassung."
-    )
-
-    spec, updates = fit_prior_posterior_updates(
+    spec, maximum_observation_count, load_update = create_prior_posterior_update_loader(
         trajectory_data,
         parameter_name=parameter_name,
-        observation_counts=observation_counts,
         start_index=start_index,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=position_noise_seed,
@@ -521,8 +623,27 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         inference_config=inference_config,
         inference_seed=inference_seed,
     )
+    print("=" * 72)
+    print("Bayessche CTRV Prior-Posterior-Aktualisierung")
+    print("=" * 72)
+    print(f"Parameter             : {spec.title}")
+    print(f"Run ID                : {run_id}")
+    print(f"Startindex            : {start_index}")
+    print(f"Inferenzmethode       : {normalized_method.upper()}")
+    print(
+        "Beobachtungsstaende  : Prior, "
+        f"N={bayesian_model.MIN_OBSERVATION_COUNT} bis "
+        f"N={maximum_observation_count} (Schrittweite 1)"
+    )
+    print(
+        "Interpretation        : Jeder Posterior stammt aus einer separaten "
+        "Batch-Anpassung."
+    )
+    print("Berechnung            : Beim ersten Aufruf eines Punktes, danach Cache.")
     print(f"Prior                 : {_describe_prior(spec, priors)}")
-    for update in updates:
+
+    def load_and_report_update(observation_count):
+        update = load_update(observation_count)
         summary = summarize_posterior_update(
             spec,
             update,
@@ -536,11 +657,13 @@ def run_bayesian_ctrv_prior_posterior_analysis(
             f"  {percentage:g} %-Intervall: "
             f"[{summary.lower:.3f}, {summary.upper:.3f}] {spec.display_unit}"
         )
+        return update
 
-    figure, navigator = create_prior_posterior_figure(
+    figure, navigator = create_sequential_prior_posterior_figure(
         spec,
         priors,
-        updates,
+        load_and_report_update,
+        maximum_observation_count=maximum_observation_count,
         show_legend=show_legend,
     )
     if show:
@@ -580,7 +703,6 @@ def _build_density_grid(spec, priors, updates):
     if spec.support == "circular":
         return np.linspace(-270.0, 270.0, DENSITY_POINT_COUNT)
 
-    posterior_values = np.concatenate([update.samples for update in updates])
     if spec.parameter_name == "initial_speed":
         prior_upper = priors.speed_prior_scale * NormalDist().inv_cdf(
             1.0 - PLOT_TAIL_PROBABILITY / 2.0
@@ -600,7 +722,10 @@ def _build_density_grid(spec, priors, updates):
         }
         prior_upper = -np.log(PLOT_TAIL_PROBABILITY) / rates[spec.parameter_name]
 
-    posterior_upper = float(np.quantile(np.abs(posterior_values), 0.995)) * 1.1
+    posterior_upper = 0.0
+    if updates:
+        posterior_values = np.concatenate([update.samples for update in updates])
+        posterior_upper = float(np.quantile(np.abs(posterior_values), 0.995)) * 1.1
     upper = max(float(prior_upper), posterior_upper, np.finfo(float).eps)
     lower = -upper if spec.support == "real" else 0.0
     return np.linspace(lower, upper, DENSITY_POINT_COUNT)
