@@ -146,6 +146,25 @@ def test_prior_legend_percentages_follow_changed_configuration():
         plt.close(figure)
 
 
+def test_all_prior_titles_have_visible_spacing_from_axes():
+    figures = prior_plotting.create_individual_figures(
+        prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+    )
+
+    try:
+        for figure in figures.values():
+            figure.canvas.draw()
+            axis = figure.axes[0]
+            renderer = figure.canvas.get_renderer()
+            title_bounds = axis.title.get_window_extent(renderer)
+            axis_bounds = axis.get_window_extent(renderer)
+            gap_points = (title_bounds.y0 - axis_bounds.y1) * 72.0 / figure.dpi
+            assert gap_points >= 8.0
+    finally:
+        for figure in figures.values():
+            plt.close(figure)
+
+
 def test_initial_heading_plot_shows_boundaries_inside_extended_degree_range():
     heading_curve = next(
         curve

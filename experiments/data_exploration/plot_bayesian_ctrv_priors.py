@@ -16,6 +16,7 @@ PRIORS = bayesian_model.BayesianCTRVPriors()
 DENSITY_POINT_COUNT = 1_000
 PLOT_TAIL_PROBABILITY = 1e-3
 INDIVIDUAL_FIGURE_SIZE = (8.0, 5.0)
+TITLE_PAD_POINTS = 12
 CURVE_COLOR = "#24557A"
 CENTRAL_COLOR = "#4C956C"
 TAIL_COLOR = "#D17A22"
@@ -312,7 +313,7 @@ def _draw_prior(
             label=curve.threshold_legend_label if index == 0 else "_nolegend_",
             zorder=3,
         )
-    axis.set_title(curve.title, fontsize=16)
+    axis.set_title(curve.title, fontsize=16, pad=TITLE_PAD_POINTS)
     axis.set_xlabel(curve.x_label, fontsize=13)
     axis.set_ylabel("Dichte", fontsize=13)
     axis.grid(alpha=0.25, linewidth=0.8)
