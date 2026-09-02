@@ -37,6 +37,7 @@ class BayesianCTRVEvaluationOptions:
                 self.inference_mode,
                 self.inference_method,
                 self.window_mode,
+                online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
             )
         )
         object.__setattr__(self, "inference_mode", inference_mode)
@@ -104,10 +105,10 @@ def parse_bayesian_ctrv_evaluation_arguments(
         dest="inference_method",
         choices=(
             *inference.BATCH_INFERENCE_METHODS,
-            *inference.ONLINE_INFERENCE_METHODS,
+            *inference.CTRV_ONLINE_INFERENCE_METHODS,
         ),
         default=experiment.inference_method,
-        help="Batch: VI/MCMC. Online: Rao-Blackwellized Particle Filter (RBPF).",
+        help="Batch: VI/MCMC. Online: RBPF or full-state bootstrap SMC.",
     )
     parser.add_argument(
         "--vi-algorithm",

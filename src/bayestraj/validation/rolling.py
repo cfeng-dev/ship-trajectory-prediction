@@ -242,8 +242,12 @@ def build_online_forecast_specs(
 
 def summarize_rolling_predictions(
     prediction_table: pd.DataFrame,
+    *,
+    online_inference_methods: tuple[str, ...] | None = None,
 ) -> RollingPositionSummary:
     """Aggregate accuracy, uncertainty, and convergence over rolling windows."""
+    if online_inference_methods is None:
+        online_inference_methods = inference.ONLINE_INFERENCE_METHODS
     required_columns = {
         "window_index",
         "horizon_step",
@@ -308,6 +312,7 @@ def summarize_rolling_predictions(
     inference_mode, inference_method = inference.normalize_inference_configuration(
         str(inference_modes[0]),
         str(inference_methods[0]),
+        online_inference_methods=online_inference_methods,
     )
     runtime_summary = summarize_window_runtimes(prediction_table)
     diagnostics_by_window = prediction_table.groupby("window_index")[

@@ -6,17 +6,21 @@ from typing import Any
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_inference as inference_support
 import bayestraj.models.bayesian_position_model as position_model
+import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
 ONLINE_INFERENCE_METHODS = ("rbpf",)
+CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc")
 WINDOW_MODES = ("sliding", "expanding")
 
 
 def normalize_inference_configuration(
     inference_mode: str,
     inference_method: str,
+    *,
+    online_inference_methods: tuple[str, ...] = ONLINE_INFERENCE_METHODS,
 ) -> tuple[str, str]:
     """Validate and normalize one inference-mode/method combination."""
     if not isinstance(inference_mode, str):
@@ -31,7 +35,7 @@ def normalize_inference_configuration(
     allowed_methods = (
         BATCH_INFERENCE_METHODS
         if normalized_mode == "batch"
-        else ONLINE_INFERENCE_METHODS
+        else online_inference_methods
     )
     if normalized_method not in allowed_methods:
         allowed = " or ".join(f"'{method}'" for method in allowed_methods)
@@ -46,11 +50,14 @@ def normalize_rolling_inference_configuration(
     inference_mode: str,
     inference_method: str,
     window_mode: str | None,
+    *,
+    online_inference_methods: tuple[str, ...] = ONLINE_INFERENCE_METHODS,
 ) -> tuple[str, str, str | None]:
     """Validate inference selection and batch-only evaluation window mode."""
     normalized_mode, normalized_method = normalize_inference_configuration(
         inference_mode,
         inference_method,
+        online_inference_methods=online_inference_methods,
     )
     if normalized_mode == "online":
         if window_mode is not None:
@@ -102,6 +109,11 @@ def create_default_mcmc_config() -> dict[str, Any]:
 def create_default_ctrv_rbpf_config() -> ctrv_model.SequentialCTRVFilterConfig:
     """Return independent default settings for the Bayesian CTRV RBPF."""
     return ctrv_model.SequentialCTRVFilterConfig()
+
+
+def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:
+    """Return independent default settings for Bayesian CTRV bootstrap SMC."""
+    return smc_model.SequentialMonteCarloCTRVConfig()
 
 
 def create_default_position_rbpf_config() -> (

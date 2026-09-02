@@ -4,18 +4,16 @@ import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.forecasting.bayesian_position_model as position_config
+import bayestraj.forecasting.cli as forecasting_cli
 import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_position_model as position_model
+import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.validation.cli as validation_cli
 
 ROLLING_CONFIG_TYPES = (
     ctrv_config.RollingExperimentConfig,
     position_config.RollingExperimentConfig,
-)
-SINGLE_CONFIG_TYPES = (
-    ctrv_config.ExperimentConfig,
-    position_config.ExperimentConfig,
 )
 
 
@@ -76,6 +74,29 @@ def test_online_rbpf_is_valid_without_a_window_mode(config_type):
     assert config.window_mode is None
 
 
+def test_ctrv_online_smc_is_valid_without_a_window_mode():
+    config = _rolling_config(
+        ctrv_config.RollingExperimentConfig,
+        inference_mode="online",
+        inference_method="smc",
+        window_mode=None,
+    )
+
+    assert config.inference_mode == "online"
+    assert config.inference_method == "smc"
+    assert config.window_mode is None
+
+
+def test_position_online_smc_is_rejected():
+    with pytest.raises(ValueError, match="Online inference requires"):
+        _rolling_config(
+            position_config.RollingExperimentConfig,
+            inference_mode="online",
+            inference_method="smc",
+            window_mode=None,
+        )
+
+
 @pytest.mark.parametrize("config_type", ROLLING_CONFIG_TYPES)
 @pytest.mark.parametrize(
     ("inference_mode", "inference_method", "window_mode", "message"),
@@ -127,10 +148,52 @@ def test_default_rbpf_factories_return_model_specific_configs():
     )
 
 
-@pytest.mark.parametrize("config_type", SINGLE_CONFIG_TYPES)
-def test_single_window_predictions_require_batch_inference(config_type):
+def test_default_ctrv_smc_factory_returns_an_independent_config():
+    first_config = inference.create_default_ctrv_smc_config()
+    second_config = inference.create_default_ctrv_smc_config()
+
+    assert isinstance(first_config, smc_model.SequentialMonteCarloCTRVConfig)
+    assert first_config == second_config
+    assert first_config is not second_config
+
+
+def test_single_window_ctrv_accepts_online_smc():
+    config = ctrv_config.ExperimentConfig(
+        run_id=102,
+        start_index=0,
+        observation_count=5,
+        prediction_count=3,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        inference_mode="online",
+        inference_method="smc",
+        inference_seed=42,
+    )
+
+    assert config.inference_mode == "online"
+    assert config.inference_method == "smc"
+
+
+def test_single_window_ctrv_accepts_online_rbpf():
+    config = ctrv_config.ExperimentConfig(
+        run_id=102,
+        start_index=0,
+        observation_count=5,
+        prediction_count=3,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        inference_mode="online",
+        inference_method="rbpf",
+        inference_seed=42,
+    )
+
+    assert config.inference_mode == "online"
+    assert config.inference_method == "rbpf"
+
+
+def test_single_window_position_prediction_requires_batch_inference():
     with pytest.raises(ValueError, match="batch inference only"):
-        config_type(
+        position_config.ExperimentConfig(
             run_id=102,
             start_index=0,
             observation_count=5,
@@ -141,6 +204,32 @@ def test_single_window_predictions_require_batch_inference(config_type):
             inference_method="rbpf",
             inference_seed=42,
         )
+
+
+@pytest.mark.parametrize("online_method", ("rbpf", "smc"))
+def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
+    experiment = ctrv_config.ExperimentConfig(
+        run_id=102,
+        start_index=0,
+        observation_count=5,
+        prediction_count=3,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        inference_mode="batch",
+        inference_method="vi",
+        inference_seed=42,
+    )
+
+    arguments = forecasting_cli.parse_bayesian_ctrv_prediction_arguments(
+        description=None,
+        experiment=experiment,
+        vi_config=inference.create_default_vi_config(),
+        plot_coordinate_mode="m",
+        argv=["--inference-mode", "online", "--inference-method", online_method],
+    )
+
+    assert arguments.inference_mode == "online"
+    assert arguments.inference_method == online_method
 
 
 def test_ctrv_cli_exposes_online_rbpf_without_a_window_mode():
@@ -163,6 +252,29 @@ def test_ctrv_cli_exposes_online_rbpf_without_a_window_mode():
 
     assert options.inference_mode == "online"
     assert options.inference_method == "rbpf"
+    assert options.window_mode is None
+
+
+def test_ctrv_cli_exposes_online_smc_without_a_window_mode():
+    experiment = _rolling_config(
+        ctrv_config.RollingExperimentConfig,
+        inference_mode="online",
+        inference_method="smc",
+        window_mode=None,
+    )
+
+    options = validation_cli.parse_bayesian_ctrv_evaluation_arguments(
+        description=None,
+        experiment=experiment,
+        priors=ctrv_model.BayesianCTRVPriors(),
+        vi_config=inference.create_default_vi_config(),
+        max_windows=None,
+        plot_each_window=False,
+        argv=[],
+    )
+
+    assert options.inference_mode == "online"
+    assert options.inference_method == "smc"
     assert options.window_mode is None
 
 

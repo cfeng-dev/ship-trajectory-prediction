@@ -6,6 +6,7 @@ from typing import Any
 
 import bayestraj.forecasting.bayesian_ctrv as bayesian_forecasting
 import bayestraj.forecasting.deterministic_ctrv as deterministic_forecasting
+import bayestraj.forecasting.inference as inference
 import bayestraj.validation.prediction_plotting as prediction_plotting
 
 
@@ -39,16 +40,20 @@ def _parse_bayesian_prediction_arguments(
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--inference-mode",
-        choices=("batch",),
+        choices=inference.INFERENCE_MODES,
         default=experiment.inference_mode,
-        help="Single-window predictions use batch inference.",
+        help="Use one batch fit or sequentially filter one observation window.",
     )
     parser.add_argument(
         "--inference-method",
         "--inference",
         dest="inference_method",
-        choices=("vi", "mcmc"),
+        choices=(
+            *inference.BATCH_INFERENCE_METHODS,
+            *inference.CTRV_ONLINE_INFERENCE_METHODS,
+        ),
         default=experiment.inference_method,
+        help="Batch: VI/MCMC. Online: RBPF or full-state bootstrap SMC.",
     )
     parser.add_argument(
         "--vi-algorithm",

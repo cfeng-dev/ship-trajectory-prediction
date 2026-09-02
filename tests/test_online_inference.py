@@ -1,13 +1,18 @@
-"""Tests for persistent online RBPF evaluation state."""
+"""Tests for persistent online particle-filter evaluation state."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.forecasting.bayesian_ctrv as ctrv_forecasting
+import bayestraj.forecasting.bayesian_ctrv_workflow as single_ctrv_workflow
+import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_position_model as position_model
+import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.validation.bayesian_ctrv_workflow as ctrv_workflow
 import bayestraj.validation.bayesian_position_model_workflow as position_workflow
+import bayestraj.validation.plotting as plotting
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
 
@@ -21,6 +26,90 @@ class _FakeOnlineFilter:
         new_values = np.asarray(value_arrays[-2])
         self.processed_values.extend(new_values.tolist())
         self.processed_observation_count += len(new_values)
+
+
+@pytest.mark.parametrize("inference_method", ("rbpf", "smc"))
+def test_single_window_ctrv_prediction_runs_selected_particle_filter(
+    monkeypatch,
+    capsys,
+    inference_method,
+):
+    row_count = 8
+    trajectory = pd.DataFrame(
+        {
+            "time": pd.date_range(
+                "2026-01-01",
+                periods=row_count,
+                freq="10s",
+                tz="UTC",
+            ),
+            "run_id": np.full(row_count, 102),
+            "gps_latitude": 53.0 + np.arange(row_count) * 0.00001,
+            "gps_longitude": 10.0 + np.arange(row_count) * 0.00002,
+            "gps_speed": np.full(row_count, 3.6),
+        }
+    )
+    monkeypatch.setattr(
+        single_ctrv_workflow.observations_io,
+        "read_ship_data",
+        lambda *args, **kwargs: trajectory,
+    )
+    monkeypatch.setattr(
+        single_ctrv_workflow.prediction_plotting,
+        "plot_prediction",
+        lambda *args, **kwargs: None,
+    )
+    experiment = ctrv_forecasting.ExperimentConfig(
+        run_id=102,
+        start_index=0,
+        observation_count=5,
+        prediction_count=3,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_mode="online",
+        inference_method=inference_method,
+        inference_seed=42,
+    )
+
+    result = single_ctrv_workflow.run_bayesian_ctrv_prediction(
+        data_file="unused.csv",
+        experiment=experiment,
+        priors=ctrv_model.BayesianCTRVPriors(),
+        vi_config=inference.create_default_vi_config(),
+        mcmc_config=inference.create_default_mcmc_config(),
+        rbpf_config=ctrv_model.SequentialCTRVFilterConfig(
+            particle_count=128,
+            posterior_draw_count=16,
+        ),
+        smc_config=smc_model.SequentialMonteCarloCTRVConfig(
+            particle_count=128,
+            posterior_draw_count=16,
+        ),
+        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        credible_interval=0.9,
+        inference_mode="online",
+        inference_method=inference_method,
+        vi_algorithm="meanfield",
+        seed=42,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        require_converged=False,
+        plot_coordinate_mode="m",
+        show_time_labels=False,
+    )
+
+    fit = result["fit"]
+    assert isinstance(fit, ctrv_model.SequentialCTRVFit)
+    assert fit.stan_variable("x_prediction").shape == (16, 3)
+    assert fit.stan_variable("y_prediction").shape == (16, 3)
+    assert result["converged"] is None
+    assert f"{inference_method.upper()} diagnostics:" in capsys.readouterr().out
+
+
+def test_online_rolling_plot_label_is_method_neutral():
+    assert plotting._bayesian_evaluation_mode_label("online", None) == (
+        "Online-Inferenz"
+    )
 
 
 def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
@@ -62,6 +151,37 @@ def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
     assert initialization_count == 1
     assert online_filter.processed_values == values[:11].tolist()
     assert len(set(online_filter.processed_values)) == 11
+
+
+def test_ctrv_online_evaluation_dispatches_to_full_state_smc():
+    values = np.arange(8, dtype=float)
+    specification = rolling.build_online_forecast_specs(
+        len(values),
+        initial_observation_count=5,
+        prediction_count=3,
+        stride=2,
+    )[0]
+
+    online_filter = ctrv_workflow._advance_online_filter(
+        None,
+        specification=specification,
+        route_time_seconds=values,
+        noisy_route_x=values,
+        noisy_route_y=np.zeros_like(values),
+        priors=ctrv_model.BayesianCTRVPriors(),
+        rbpf_config=object(),
+        smc_config=smc_model.SequentialMonteCarloCTRVConfig(
+            particle_count=64,
+            posterior_draw_count=8,
+        ),
+        inference_method="smc",
+        inference_seed=42,
+    )
+
+    assert isinstance(online_filter, smc_model.SequentialMonteCarloCTRVFilter)
+    assert (
+        online_filter.processed_observation_count == specification.forecast_start_index
+    )
 
 
 def test_position_online_evaluation_initializes_once_and_updates_only_new_positions(
@@ -227,5 +347,34 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
 
     assert summary.inference_mode == "online"
     assert summary.inference_method == "rbpf"
+    assert summary.vi_convergence_rate is None
+    assert summary.mcmc_diagnostics_pass_rate is None
+
+
+def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
+    predictions = pd.DataFrame(
+        {
+            "window_index": [0, 0],
+            "horizon_step": [1, 2],
+            "horizon_seconds": [1.0, 2.0],
+            "position_error_m": [1.0, 2.0],
+            "prediction_radius_m": [3.0, 4.0],
+            "radial_covered": [True, False],
+            "mean_marginal_interval_width_m": [5.0, 6.0],
+            "inference_mode": ["online", "online"],
+            "inference_method": ["smc", "smc"],
+            "converged": [None, None],
+            "mcmc_diagnostics_ok": [None, None],
+            "window_runtime_seconds": [0.1, 0.1],
+        }
+    )
+
+    summary = rolling.summarize_rolling_predictions(
+        predictions,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+    )
+
+    assert summary.inference_mode == "online"
+    assert summary.inference_method == "smc"
     assert summary.vi_convergence_rate is None
     assert summary.mcmc_diagnostics_pass_rate is None

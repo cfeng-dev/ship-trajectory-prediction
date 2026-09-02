@@ -11,6 +11,7 @@ import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.models.bayesian_observations as observation_support
+import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
@@ -32,6 +33,7 @@ def run_bayesian_ctrv_evaluation(
     vi_config,
     mcmc_config,
     rbpf_config,
+    smc_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -64,6 +66,7 @@ def run_bayesian_ctrv_evaluation(
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         rbpf_config=rbpf_config,
+        smc_config=smc_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -83,6 +86,7 @@ def _run_evaluation(
     vi_config,
     mcmc_config,
     rbpf_config,
+    smc_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -94,15 +98,29 @@ def _run_evaluation(
 ):
     """Run one configured rolling evaluation."""
     online_mode = experiment.inference_mode == "online"
-    if online_mode and not isinstance(
-        rbpf_config,
-        bayesian_model.SequentialCTRVFilterConfig,
-    ):
-        raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
     if online_mode:
         inference_method = experiment.inference_method
         inference_config = {}
+        if inference_method == "rbpf":
+            if not isinstance(
+                rbpf_config,
+                bayesian_model.SequentialCTRVFilterConfig,
+            ):
+                raise TypeError(
+                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
+                )
+            particle_filter_config = rbpf_config
+        elif inference_method == "smc":
+            if not isinstance(
+                smc_config,
+                smc_model.SequentialMonteCarloCTRVConfig,
+            ):
+                raise TypeError(
+                    "smc_config must be a SequentialMonteCarloCTRVConfig instance."
+                )
+            particle_filter_config = smc_config
     else:
+        particle_filter_config = None
         inference_method, inference_config = inference.select_inference_config(
             experiment.inference_mode,
             experiment.inference_method,
@@ -214,14 +232,15 @@ def _run_evaluation(
         f"{priors.sigma_turn_rate_process_prior_tail_probability:g})"
     )
     if online_mode:
-        print(f"Particles             : {rbpf_config.particle_count}")
-        print(f"Posterior draws       : {rbpf_config.posterior_draw_count}")
+        print(f"Particles             : {particle_filter_config.particle_count}")
+        print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
         print(
             "Resampling ESS        : "
-            f"{rbpf_config.resample_ess_fraction:.0%} of particles"
+            f"{particle_filter_config.resample_ess_fraction:.0%} of particles"
         )
         print(
-            f"Parameter rejuvenation: Liu-West scale {rbpf_config.rejuvenation_scale:g}"
+            "Parameter rejuvenation: Liu-West scale "
+            f"{particle_filter_config.rejuvenation_scale:g}"
         )
     print(f"Plot each window      : {plot_each_window}")
 
@@ -261,6 +280,8 @@ def _run_evaluation(
                 noisy_route_y=noisy_route_y,
                 priors=priors,
                 rbpf_config=rbpf_config,
+                smc_config=smc_config,
+                inference_method=inference_method,
                 inference_seed=experiment.inference_seed,
             )
             prediction_stop_index = (
@@ -296,10 +317,10 @@ def _run_evaluation(
             if latest_update_ess is None:
                 latest_update_ess = online_filter.effective_sample_size
             inference_status = (
-                "RBPF posterior "
+                f"{inference_method.upper()} posterior "
                 f"processed={online_filter.processed_observation_count}, "
                 f"latest-update ESS={latest_update_ess:.0f}/"
-                f"{rbpf_config.particle_count}, "
+                f"{particle_filter_config.particle_count}, "
                 f"resamples={online_filter.resample_count}"
             )
 
@@ -366,7 +387,10 @@ def _run_evaluation(
             plt.close(figure)
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
-    summary = rolling_validation.summarize_rolling_predictions(predictions)
+    summary = rolling_validation.summarize_rolling_predictions(
+        predictions,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+    )
     _print_summary(summary, credible_interval=credible_interval)
     _print_parameter_summary(predictions)
     plotting.plot_bayesian_rolling_predictions(
@@ -402,16 +426,28 @@ def _advance_online_filter(
     priors,
     rbpf_config,
     inference_seed,
+    smc_config=None,
+    inference_method="rbpf",
 ):
-    """Initialize once or update one persistent CTRV RBPF with new positions."""
+    """Initialize once or update one persistent CTRV particle filter."""
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
-        return bayesian_model.SequentialBayesianCTRVFilter.initialize(
+        if inference_method == "rbpf":
+            filter_type = bayesian_model.SequentialBayesianCTRVFilter
+            filter_config = rbpf_config
+        elif inference_method == "smc":
+            filter_type = smc_model.SequentialMonteCarloCTRVFilter
+            filter_config = smc_config
+        else:
+            raise ValueError(
+                f"Unsupported online inference method: {inference_method!r}."
+            )
+        return filter_type.initialize(
             route_time_seconds[:update_stop_index],
             noisy_route_x[:update_stop_index],
             noisy_route_y[:update_stop_index],
             priors=priors,
-            config=rbpf_config,
+            config=filter_config,
             seed=inference_seed,
         )
 

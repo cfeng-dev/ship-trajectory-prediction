@@ -20,13 +20,12 @@ class ExperimentConfig:
     inference_seed: int
 
     def __post_init__(self) -> None:
-        """Require the batch inference supported by single-window fitting."""
+        """Validate batch inference or full-state online SMC."""
         inference_mode, inference_method = inference.normalize_inference_configuration(
             self.inference_mode,
             self.inference_method,
+            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
-        if inference_mode != "batch":
-            raise ValueError("Single-window prediction supports batch inference only.")
         object.__setattr__(self, "inference_mode", inference_mode)
         object.__setattr__(self, "inference_method", inference_method)
 
@@ -53,6 +52,7 @@ class RollingExperimentConfig:
                 self.inference_mode,
                 self.inference_method,
                 self.window_mode,
+                online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
             )
         )
         object.__setattr__(self, "inference_mode", inference_mode)

@@ -236,7 +236,7 @@ def _bayesian_evaluation_mode_label(inference_mode, window_mode):
     if inference_mode == "online":
         if window_mode is not None:
             raise ValueError("Online inference does not use a window mode.")
-        return "Online-Inferenz mit RBPF"
+        return "Online-Inferenz"
     if inference_mode == "batch":
         return f"Batch-Inferenz, {_window_mode_label(window_mode)}"
     raise ValueError("inference_mode must be 'batch' or 'online'.")

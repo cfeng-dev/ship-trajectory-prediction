@@ -9,6 +9,7 @@ import numpy as np
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.forecasting.inference as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.metrics as metrics
@@ -23,6 +24,8 @@ def run_bayesian_ctrv_prediction(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config: Mapping[str, Any],
     mcmc_config: Mapping[str, Any],
+    rbpf_config: bayesian_model.SequentialCTRVFilterConfig,
+    smc_config: smc_model.SequentialMonteCarloCTRVConfig,
     fullrank_grad_samples: int,
     credible_interval: float,
     inference_mode: str,
@@ -39,16 +42,35 @@ def run_bayesian_ctrv_prediction(
     inference_mode, inference_method = inference.normalize_inference_configuration(
         inference_mode,
         inference_method,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
     )
-    inference_method, inference_config = inference.select_inference_config(
-        inference_mode,
-        inference_method,
-        vi_algorithm=vi_algorithm,
-        require_converged=require_converged,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        fullrank_grad_samples=fullrank_grad_samples,
-    )
+    online_mode = inference_mode == "online"
+    if online_mode:
+        if inference_method == "rbpf":
+            if not isinstance(rbpf_config, bayesian_model.SequentialCTRVFilterConfig):
+                raise TypeError(
+                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
+                )
+            filter_type = bayesian_model.SequentialBayesianCTRVFilter
+            particle_filter_config = rbpf_config
+        else:
+            if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
+                raise TypeError(
+                    "smc_config must be a SequentialMonteCarloCTRVConfig instance."
+                )
+            filter_type = smc_model.SequentialMonteCarloCTRVFilter
+            particle_filter_config = smc_config
+        inference_config = {}
+    else:
+        inference_method, inference_config = inference.select_inference_config(
+            inference_mode,
+            inference_method,
+            vi_algorithm=vi_algorithm,
+            require_converged=require_converged,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+        )
     plot_coordinate_mode = prediction_plotting.normalize_plot_coordinate_mode(
         plot_coordinate_mode
     )
@@ -156,14 +178,29 @@ def run_bayesian_ctrv_prediction(
     )
 
     computation_started = time.perf_counter()
-    fit = bayesian_model.fit_bayesian_ctrv_model(
-        window,
-        priors=priors,
-        position_observations=position_observations,
-        inference_method=inference_method,
-        seed=seed,
-        **inference_config,
-    )
+    online_filter = None
+    if online_mode:
+        online_filter = filter_type.initialize(
+            position_observations.time_seconds,
+            position_observations.x_meters,
+            position_observations.y_meters,
+            priors=priors,
+            config=particle_filter_config,
+            seed=seed,
+        )
+        fit = online_filter.forecast(
+            stan_data["time_prediction"],
+            seed=1_000_000 + seed,
+        )
+    else:
+        fit = bayesian_model.fit_bayesian_ctrv_model(
+            window,
+            priors=priors,
+            position_observations=position_observations,
+            inference_method=inference_method,
+            seed=seed,
+            **inference_config,
+        )
     evaluation = metrics.evaluate_position_predictions(
         fit,
         window,
@@ -175,10 +212,32 @@ def run_bayesian_ctrv_prediction(
     if inference_method == "vi":
         converged = bayesian_model.variational_converged(fit)
         reporting.print_variational_diagnostics(fit, converged=converged)
-    else:
+    elif inference_method == "mcmc":
         converged = None
         print("\nMCMC diagnostics:")
         print(fit.diagnose())
+    else:
+        converged = None
+        latest_update_ess = online_filter.last_effective_sample_size
+        if latest_update_ess is None:
+            latest_update_ess = online_filter.effective_sample_size
+        print(f"\n{inference_method.upper()} diagnostics:")
+        print(
+            reporting.format_aligned_rows(
+                [
+                    (
+                        "Processed observations",
+                        online_filter.processed_observation_count,
+                    ),
+                    (
+                        "Latest-update ESS",
+                        f"{latest_update_ess:.0f}/"
+                        f"{particle_filter_config.particle_count}",
+                    ),
+                    ("Resamples", online_filter.resample_count),
+                ]
+            )
+        )
 
     print("\nPosterior parameter summary:")
     print(reporting.posterior_parameter_summary(fit, bayesian_model.PARAMETER_NAMES))
