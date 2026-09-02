@@ -15,18 +15,15 @@ class ExperimentConfig:
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int
-    inference_mode: str
     inference_method: str
     inference_seed: int
 
     def __post_init__(self) -> None:
-        """Validate batch inference or full-state online SMC."""
-        inference_mode, inference_method = inference.normalize_inference_configuration(
-            self.inference_mode,
+        """Validate batch inference or a full-state online particle filter."""
+        _, inference_method = inference.normalize_inference_method(
             self.inference_method,
             online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
-        object.__setattr__(self, "inference_mode", inference_mode)
         object.__setattr__(self, "inference_method", inference_method)
 
 
@@ -40,21 +37,16 @@ class RollingExperimentConfig:
     position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
-    inference_mode: str
     inference_method: str
     inference_seed: int
     window_mode: str | None = None
 
     def __post_init__(self) -> None:
         """Validate inference selection and its batch-only window mode."""
-        inference_mode, inference_method, window_mode = (
-            inference.normalize_rolling_inference_configuration(
-                self.inference_mode,
-                self.inference_method,
-                self.window_mode,
-                online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
-            )
+        _, inference_method, window_mode = inference.normalize_rolling_inference_method(
+            self.inference_method,
+            self.window_mode,
+            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
-        object.__setattr__(self, "inference_mode", inference_mode)
         object.__setattr__(self, "inference_method", inference_method)
         object.__setattr__(self, "window_mode", window_mode)

@@ -39,12 +39,6 @@ def _parse_bayesian_prediction_arguments(
     """Parse common Bayesian single-window options."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--inference-mode",
-        choices=inference.INFERENCE_MODES,
-        default=experiment.inference_mode,
-        help="Use one batch fit or sequentially filter one observation window.",
-    )
-    parser.add_argument(
         "--inference-method",
         "--inference",
         dest="inference_method",
@@ -53,7 +47,7 @@ def _parse_bayesian_prediction_arguments(
             *inference.CTRV_ONLINE_INFERENCE_METHODS,
         ),
         default=experiment.inference_method,
-        help="Batch: VI/MCMC. Online: RBPF or full-state bootstrap SMC.",
+        help="VI/MCMC use batch inference; RBPF/SMC use online inference.",
     )
     parser.add_argument(
         "--vi-algorithm",

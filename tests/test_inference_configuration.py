@@ -1,4 +1,4 @@
-"""Tests for explicit batch/online inference configuration."""
+"""Tests for method-based batch and online inference configuration."""
 
 import pytest
 
@@ -11,13 +11,24 @@ import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.validation.cli as validation_cli
 
-ROLLING_CONFIG_TYPES = (
-    ctrv_config.RollingExperimentConfig,
-    position_config.RollingExperimentConfig,
-)
+
+def _ctrv_rolling_config(**overrides):
+    values = {
+        "run_id": 102,
+        "observation_count": 5,
+        "prediction_count": 3,
+        "position_noise_std_m": 5.0,
+        "position_noise_seed": 2026,
+        "stride": None,
+        "inference_method": "vi",
+        "inference_seed": 42,
+        "window_mode": "sliding",
+    }
+    values.update(overrides)
+    return ctrv_config.RollingExperimentConfig(**values)
 
 
-def _rolling_config(config_type, **overrides):
+def _position_rolling_config(**overrides):
     values = {
         "run_id": 102,
         "observation_count": 5,
@@ -31,10 +42,12 @@ def _rolling_config(config_type, **overrides):
         "window_mode": "sliding",
     }
     values.update(overrides)
-    return config_type(**values)
+    return position_config.RollingExperimentConfig(**values)
 
 
-@pytest.mark.parametrize("config_type", ROLLING_CONFIG_TYPES)
+@pytest.mark.parametrize(
+    "config_factory", (_ctrv_rolling_config, _position_rolling_config)
+)
 @pytest.mark.parametrize(
     ("inference_method", "window_mode"),
     (
@@ -45,59 +58,64 @@ def _rolling_config(config_type, **overrides):
     ),
 )
 def test_batch_inference_combinations_are_valid(
-    config_type,
+    config_factory,
     inference_method,
     window_mode,
 ):
-    config = _rolling_config(
-        config_type,
+    config = config_factory(
         inference_method=inference_method,
         window_mode=window_mode,
     )
 
-    assert config.inference_mode == "batch"
     assert config.inference_method == inference_method
     assert config.window_mode == window_mode
+    if config_factory is _ctrv_rolling_config:
+        assert not hasattr(config, "inference_mode")
+    else:
+        assert config.inference_mode == "batch"
 
 
-@pytest.mark.parametrize("config_type", ROLLING_CONFIG_TYPES)
-def test_online_rbpf_is_valid_without_a_window_mode(config_type):
-    config = _rolling_config(
-        config_type,
-        inference_mode="online",
-        inference_method="rbpf",
-        window_mode=None,
-    )
+@pytest.mark.parametrize(
+    "config_factory", (_ctrv_rolling_config, _position_rolling_config)
+)
+def test_online_rbpf_is_valid_without_a_window_mode(config_factory):
+    overrides = {
+        "inference_mode": "online",
+        "inference_method": "rbpf",
+        "window_mode": None,
+    }
+    if config_factory is _ctrv_rolling_config:
+        overrides.pop("inference_mode")
+    config = config_factory(**overrides)
 
-    assert config.inference_mode == "online"
     assert config.inference_method == "rbpf"
     assert config.window_mode is None
+    if config_factory is _ctrv_rolling_config:
+        assert not hasattr(config, "inference_mode")
+    else:
+        assert config.inference_mode == "online"
 
 
 def test_ctrv_online_smc_is_valid_without_a_window_mode():
-    config = _rolling_config(
-        ctrv_config.RollingExperimentConfig,
-        inference_mode="online",
+    config = _ctrv_rolling_config(
         inference_method="smc",
         window_mode=None,
     )
 
-    assert config.inference_mode == "online"
     assert config.inference_method == "smc"
     assert config.window_mode is None
+    assert not hasattr(config, "inference_mode")
 
 
 def test_position_online_smc_is_rejected():
     with pytest.raises(ValueError, match="Online inference requires"):
-        _rolling_config(
-            position_config.RollingExperimentConfig,
+        _position_rolling_config(
             inference_mode="online",
             inference_method="smc",
             window_mode=None,
         )
 
 
-@pytest.mark.parametrize("config_type", ROLLING_CONFIG_TYPES)
 @pytest.mark.parametrize(
     ("inference_mode", "inference_method", "window_mode", "message"),
     (
@@ -109,16 +127,34 @@ def test_position_online_smc_is_rejected():
     ),
 )
 def test_invalid_inference_combinations_fail_early(
-    config_type,
     inference_mode,
     inference_method,
     window_mode,
     message,
 ):
     with pytest.raises(ValueError, match=message):
-        _rolling_config(
-            config_type,
+        _position_rolling_config(
             inference_mode=inference_mode,
+            inference_method=inference_method,
+            window_mode=window_mode,
+        )
+
+
+@pytest.mark.parametrize(
+    ("inference_method", "window_mode", "message"),
+    (
+        ("vi", None, "Batch inference requires window_mode"),
+        ("rbpf", "sliding", "does not use window_mode"),
+        ("unsupported", None, "inference_method must be one of"),
+    ),
+)
+def test_invalid_ctrv_inference_combinations_fail_early(
+    inference_method,
+    window_mode,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        _ctrv_rolling_config(
             inference_method=inference_method,
             window_mode=window_mode,
         )
@@ -157,7 +193,8 @@ def test_default_ctrv_smc_factory_returns_an_independent_config():
     assert first_config is not second_config
 
 
-def test_single_window_ctrv_accepts_online_smc():
+@pytest.mark.parametrize("inference_method", ("vi", "mcmc", "rbpf", "smc"))
+def test_single_window_ctrv_derives_mode_from_inference_method(inference_method):
     config = ctrv_config.ExperimentConfig(
         run_id=102,
         start_index=0,
@@ -165,30 +202,42 @@ def test_single_window_ctrv_accepts_online_smc():
         prediction_count=3,
         position_noise_std_m=5.0,
         position_noise_seed=2026,
-        inference_mode="online",
-        inference_method="smc",
+        inference_method=inference_method,
         inference_seed=42,
     )
 
-    assert config.inference_mode == "online"
-    assert config.inference_method == "smc"
+    assert config.inference_method == inference_method
+    assert not hasattr(config, "inference_mode")
 
 
-def test_single_window_ctrv_accepts_online_rbpf():
-    config = ctrv_config.ExperimentConfig(
+@pytest.mark.parametrize(
+    ("inference_method", "window_mode"),
+    (
+        ("vi", "sliding"),
+        ("mcmc", "expanding"),
+        ("rbpf", None),
+        ("smc", None),
+    ),
+)
+def test_rolling_ctrv_derives_mode_from_inference_method(
+    inference_method,
+    window_mode,
+):
+    config = ctrv_config.RollingExperimentConfig(
         run_id=102,
-        start_index=0,
         observation_count=5,
         prediction_count=3,
         position_noise_std_m=5.0,
         position_noise_seed=2026,
-        inference_mode="online",
-        inference_method="rbpf",
+        stride=None,
+        inference_method=inference_method,
         inference_seed=42,
+        window_mode=window_mode,
     )
 
-    assert config.inference_mode == "online"
-    assert config.inference_method == "rbpf"
+    assert config.inference_method == inference_method
+    assert config.window_mode == window_mode
+    assert not hasattr(config, "inference_mode")
 
 
 def test_single_window_position_prediction_requires_batch_inference():
@@ -215,7 +264,6 @@ def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
         prediction_count=3,
         position_noise_std_m=5.0,
         position_noise_seed=2026,
-        inference_mode="batch",
         inference_method="vi",
         inference_seed=42,
     )
@@ -225,17 +273,15 @@ def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
         experiment=experiment,
         vi_config=inference.create_default_vi_config(),
         plot_coordinate_mode="m",
-        argv=["--inference-mode", "online", "--inference-method", online_method],
+        argv=["--inference-method", online_method],
     )
 
-    assert arguments.inference_mode == "online"
+    assert not hasattr(arguments, "inference_mode")
     assert arguments.inference_method == online_method
 
 
 def test_ctrv_cli_exposes_online_rbpf_without_a_window_mode():
-    experiment = _rolling_config(
-        ctrv_config.RollingExperimentConfig,
-        inference_mode="online",
+    experiment = _ctrv_rolling_config(
         inference_method="rbpf",
         window_mode=None,
     )
@@ -250,15 +296,13 @@ def test_ctrv_cli_exposes_online_rbpf_without_a_window_mode():
         argv=[],
     )
 
-    assert options.inference_mode == "online"
+    assert not hasattr(options, "inference_mode")
     assert options.inference_method == "rbpf"
     assert options.window_mode is None
 
 
 def test_ctrv_cli_exposes_online_smc_without_a_window_mode():
-    experiment = _rolling_config(
-        ctrv_config.RollingExperimentConfig,
-        inference_mode="online",
+    experiment = _ctrv_rolling_config(
         inference_method="smc",
         window_mode=None,
     )
@@ -273,14 +317,13 @@ def test_ctrv_cli_exposes_online_smc_without_a_window_mode():
         argv=[],
     )
 
-    assert options.inference_mode == "online"
+    assert not hasattr(options, "inference_mode")
     assert options.inference_method == "smc"
     assert options.window_mode is None
 
 
 def test_position_cli_can_select_batch_mcmc_with_an_expanding_window():
-    experiment = _rolling_config(
-        position_config.RollingExperimentConfig,
+    experiment = _position_rolling_config(
         inference_mode="online",
         inference_method="rbpf",
         window_mode=None,
@@ -315,12 +358,17 @@ def test_position_cli_can_select_batch_mcmc_with_an_expanding_window():
     ),
 )
 def test_cli_rejects_sequential_as_a_window_mode(config_type, model_family):
-    experiment = _rolling_config(
-        config_type,
-        inference_mode="online",
-        inference_method="rbpf",
-        window_mode=None,
-    )
+    if model_family == "ctrv":
+        experiment = _ctrv_rolling_config(
+            inference_method="rbpf",
+            window_mode=None,
+        )
+    else:
+        experiment = _position_rolling_config(
+            inference_mode="online",
+            inference_method="rbpf",
+            window_mode=None,
+        )
 
     with pytest.raises(SystemExit):
         if model_family == "ctrv":

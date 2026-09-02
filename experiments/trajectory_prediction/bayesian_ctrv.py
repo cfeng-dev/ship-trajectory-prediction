@@ -18,8 +18,7 @@ EXPERIMENT = config.ExperimentConfig(
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
-    inference_mode="online",  # Choose "batch" or "online".
-    inference_method="rbpf",  # Batch: "vi"/"mcmc"; online: "rbpf"/"smc".
+    inference_method="rbpf",  # "vi"/"mcmc" are batch; "rbpf"/"smc" are online.
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
@@ -63,7 +62,6 @@ def main(argv=None):
         smc_config=SMC_CONFIG,
         fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
-        inference_mode=arguments.inference_mode,
         inference_method=arguments.inference_method,
         vi_algorithm=arguments.vi_algorithm,
         seed=arguments.seed,

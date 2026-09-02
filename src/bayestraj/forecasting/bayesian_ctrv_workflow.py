@@ -28,7 +28,6 @@ def run_bayesian_ctrv_prediction(
     smc_config: smc_model.SequentialMonteCarloCTRVConfig,
     fullrank_grad_samples: int,
     credible_interval: float,
-    inference_mode: str,
     inference_method: str,
     vi_algorithm: str,
     seed: int,
@@ -39,8 +38,7 @@ def run_bayesian_ctrv_prediction(
     show_time_labels: bool,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
-    inference_mode, inference_method = inference.normalize_inference_configuration(
-        inference_mode,
+    inference_mode, inference_method = inference.normalize_inference_method(
         inference_method,
         online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
     )

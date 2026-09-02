@@ -66,7 +66,6 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         prediction_count=3,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
-        inference_mode="online",
         inference_method=inference_method,
         inference_seed=42,
     )
@@ -87,7 +86,6 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         ),
         fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=0.9,
-        inference_mode="online",
         inference_method=inference_method,
         vi_algorithm="meanfield",
         seed=42,

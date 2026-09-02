@@ -18,7 +18,6 @@ class BayesianCTRVEvaluationOptions:
     observation_count: int
     prediction_count: int
     stride: int | None
-    inference_mode: str
     inference_method: str
     vi_algorithm: str
     turn_rate_prior_abs_heading_change_deg: float
@@ -32,15 +31,11 @@ class BayesianCTRVEvaluationOptions:
 
     def __post_init__(self) -> None:
         """Validate inference selection and its batch-only window mode."""
-        inference_mode, inference_method, window_mode = (
-            inference.normalize_rolling_inference_configuration(
-                self.inference_mode,
-                self.inference_method,
-                self.window_mode,
-                online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
-            )
+        _, inference_method, window_mode = inference.normalize_rolling_inference_method(
+            self.inference_method,
+            self.window_mode,
+            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
-        object.__setattr__(self, "inference_mode", inference_mode)
         object.__setattr__(self, "inference_method", inference_method)
         object.__setattr__(self, "window_mode", window_mode)
 
@@ -94,12 +89,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
         help="Forecast-origin step; defaults to the prediction horizon.",
     )
     parser.add_argument(
-        "--inference-mode",
-        choices=inference.INFERENCE_MODES,
-        default=experiment.inference_mode,
-        help="Use independent batch fits or one persistent online posterior.",
-    )
-    parser.add_argument(
         "--inference-method",
         "--inference",
         dest="inference_method",
@@ -108,7 +97,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
             *inference.CTRV_ONLINE_INFERENCE_METHODS,
         ),
         default=experiment.inference_method,
-        help="Batch: VI/MCMC. Online: RBPF or full-state bootstrap SMC.",
+        help="VI/MCMC use batch inference; RBPF/SMC use online inference.",
     )
     parser.add_argument(
         "--vi-algorithm",
@@ -157,7 +146,11 @@ def parse_bayesian_ctrv_evaluation_arguments(
     )
     arguments = parser.parse_args(argv)
     window_mode = arguments.window_mode
-    if arguments.inference_mode == "batch" and window_mode is None:
+    inference_mode, _ = inference.normalize_inference_method(
+        arguments.inference_method,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+    )
+    if inference_mode == "batch" and window_mode is None:
         window_mode = experiment.window_mode
     try:
         return BayesianCTRVEvaluationOptions(
@@ -165,7 +158,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
             observation_count=arguments.observations,
             prediction_count=arguments.predictions,
             stride=arguments.stride,
-            inference_mode=arguments.inference_mode,
             inference_method=arguments.inference_method,
             vi_algorithm=arguments.vi_algorithm,
             turn_rate_prior_abs_heading_change_deg=(

@@ -18,8 +18,7 @@ EXPERIMENT = config.RollingExperimentConfig(
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=None,
-    inference_mode="online",  # Choose "batch" or "online".
-    inference_method="rbpf",  # Batch: "vi"/"mcmc"; online: "rbpf"/"smc".
+    inference_method="rbpf",  # "vi"/"mcmc" are batch; "rbpf"/"smc" are online.
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

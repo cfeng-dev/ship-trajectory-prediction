@@ -47,7 +47,6 @@ def run_bayesian_ctrv_evaluation(
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
         stride=options.stride,
-        inference_mode=options.inference_mode,
         inference_method=options.inference_method,
         inference_seed=options.inference_seed,
         position_noise_std_m=options.position_noise_std_m,
@@ -97,9 +96,15 @@ def _run_evaluation(
     show_time_labels,
 ):
     """Run one configured rolling evaluation."""
-    online_mode = experiment.inference_mode == "online"
+    inference_mode, inference_method, window_mode = (
+        inference.normalize_rolling_inference_method(
+            experiment.inference_method,
+            experiment.window_mode,
+            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+        )
+    )
+    online_mode = inference_mode == "online"
     if online_mode:
-        inference_method = experiment.inference_method
         inference_config = {}
         if inference_method == "rbpf":
             if not isinstance(
@@ -122,8 +127,8 @@ def _run_evaluation(
     else:
         particle_filter_config = None
         inference_method, inference_config = inference.select_inference_config(
-            experiment.inference_mode,
-            experiment.inference_method,
+            inference_mode,
+            inference_method,
             vi_algorithm=vi_algorithm,
             require_converged=require_converged,
             vi_config=vi_config,
@@ -154,7 +159,7 @@ def _run_evaluation(
             initial_observation_count=experiment.observation_count,
             prediction_count=experiment.prediction_count,
             stride=experiment.stride,
-            window_mode=experiment.window_mode,
+            window_mode=window_mode,
         )
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
@@ -177,12 +182,12 @@ def _run_evaluation(
     print(f"Data file             : {data_file}")
     print(f"Run ID                : {experiment.run_id}")
     print("Model                 : Bayesian CTRV")
-    print(f"Inference mode        : {experiment.inference_mode.upper()}")
+    print(f"Inference mode        : {inference_mode.upper()}")
     print(f"Inference method      : {inference_method.upper()}")
     if online_mode:
         print(f"Initial observations  : {experiment.observation_count}")
     else:
-        print(f"Window mode           : {experiment.window_mode.upper()}")
+        print(f"Window mode           : {window_mode.upper()}")
         print(f"Observations/window   : {experiment.observation_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
@@ -339,7 +344,7 @@ def _run_evaluation(
             route_y=route_y,
             longitude=longitude,
             latitude=latitude,
-            inference_mode=experiment.inference_mode,
+            inference_mode=inference_mode,
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
@@ -398,8 +403,8 @@ def _run_evaluation(
         route_y,
         posterior_plot_groups,
         initial_observation_count=experiment.observation_count,
-        inference_mode=experiment.inference_mode,
-        window_mode=experiment.window_mode,
+        inference_mode=inference_mode,
+        window_mode=window_mode,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         sample_seed=experiment.inference_seed,
         observed_route_x=route_x + route_noise_x,
