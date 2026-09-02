@@ -11,6 +11,9 @@ DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
+# Rolling inference:
+# - Batch: "vi_sliding", "vi_expanding", "mcmc_sliding", or "mcmc_expanding".
+# - Online: "rbpf" or "smc".
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=102,
     observation_count=5,
@@ -18,7 +21,7 @@ EXPERIMENT = config.RollingExperimentConfig(
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=None,
-    inference_method="rbpf",  # "vi"/"mcmc" are batch; "rbpf"/"smc" are online.
+    inference_method="rbpf",
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

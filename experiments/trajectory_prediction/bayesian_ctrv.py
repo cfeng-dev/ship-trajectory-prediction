@@ -11,6 +11,9 @@ DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
 
+# Single-window inference:
+# - Batch: "vi" or "mcmc".
+# - Online: "rbpf" or "smc".
 EXPERIMENT = config.ExperimentConfig(
     run_id=102,
     start_index=0,
@@ -18,7 +21,7 @@ EXPERIMENT = config.ExperimentConfig(
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
-    inference_method="rbpf",  # "vi"/"mcmc" are batch; "rbpf"/"smc" are online.
+    inference_method="rbpf",
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

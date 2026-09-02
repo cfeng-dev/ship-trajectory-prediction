@@ -376,3 +376,34 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
     assert summary.inference_method == "smc"
     assert summary.vi_convergence_rate is None
     assert summary.mcmc_diagnostics_pass_rate is None
+
+
+def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
+    summary = rolling.RollingPositionSummary(
+        inference_mode="online",
+        inference_method="rbpf",
+        window_count=119,
+        forecast_count=357,
+        ade_m=20.60,
+        fde_m=30.79,
+        mean_window_runtime_seconds=0.079,
+        median_window_runtime_seconds=0.077,
+        total_computation_time_seconds=9.350,
+        radial_coverage=0.955,
+        mean_prediction_radius_m=0.0,
+        mean_marginal_interval_width_m=0.0,
+        vi_convergence_rate=None,
+        mcmc_diagnostics_pass_rate=None,
+        per_horizon_table=pd.DataFrame(),
+    )
+
+    ctrv_workflow._print_summary(summary, credible_interval=0.9)
+
+    output_lines = capsys.readouterr().out.splitlines()
+    fde_line = next(
+        index
+        for index, line in enumerate(output_lines)
+        if line.startswith("Mean maximum-horizon FDE")
+    )
+    assert output_lines[fde_line + 1].startswith("Joint 2D 90% coverage")
+    assert output_lines[fde_line + 2].startswith("Mean window runtime")

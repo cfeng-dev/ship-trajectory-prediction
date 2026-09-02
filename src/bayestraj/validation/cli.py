@@ -27,17 +27,18 @@ class BayesianCTRVEvaluationOptions:
     require_converged: bool
     max_windows: int | None
     plot_each_window: bool
-    window_mode: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate inference selection and its batch-only window mode."""
-        _, inference_method, window_mode = inference.normalize_rolling_inference_method(
-            self.inference_method,
-            self.window_mode,
-            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+        """Validate the combined rolling inference selection."""
+        _, inference_method, window_mode = (
+            inference.normalize_ctrv_rolling_inference_method(self.inference_method)
         )
-        object.__setattr__(self, "inference_method", inference_method)
-        object.__setattr__(self, "window_mode", window_mode)
+        normalized_selection = (
+            inference_method
+            if window_mode is None
+            else f"{inference_method}_{window_mode}"
+        )
+        object.__setattr__(self, "inference_method", normalized_selection)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -67,12 +68,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
     """Parse options for one parametric Bayesian CTRV rolling evaluation."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--window-mode",
-        choices=inference.WINDOW_MODES,
-        default=None,
-        help="Batch-only evaluation history: fixed sliding or growing expanding.",
-    )
-    parser.add_argument(
         "--observations",
         type=int,
         default=experiment.observation_count,
@@ -92,12 +87,9 @@ def parse_bayesian_ctrv_evaluation_arguments(
         "--inference-method",
         "--inference",
         dest="inference_method",
-        choices=(
-            *inference.BATCH_INFERENCE_METHODS,
-            *inference.CTRV_ONLINE_INFERENCE_METHODS,
-        ),
+        choices=inference.CTRV_ROLLING_INFERENCE_METHODS,
         default=experiment.inference_method,
-        help="VI/MCMC use batch inference; RBPF/SMC use online inference.",
+        help="Choose windowed VI/MCMC or online RBPF/SMC inference.",
     )
     parser.add_argument(
         "--vi-algorithm",
@@ -145,16 +137,8 @@ def parse_bayesian_ctrv_evaluation_arguments(
         help="Show each fitted window and continue after its plot is closed.",
     )
     arguments = parser.parse_args(argv)
-    window_mode = arguments.window_mode
-    inference_mode, _ = inference.normalize_inference_method(
-        arguments.inference_method,
-        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
-    )
-    if inference_mode == "batch" and window_mode is None:
-        window_mode = experiment.window_mode
     try:
         return BayesianCTRVEvaluationOptions(
-            window_mode=window_mode,
             observation_count=arguments.observations,
             prediction_count=arguments.predictions,
             stride=arguments.stride,

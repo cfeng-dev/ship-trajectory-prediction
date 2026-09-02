@@ -43,7 +43,6 @@ def run_bayesian_ctrv_evaluation(
     """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
     configured_experiment = dataclasses.replace(
         experiment,
-        window_mode=options.window_mode,
         observation_count=options.observation_count,
         prediction_count=options.prediction_count,
         stride=options.stride,
@@ -97,11 +96,7 @@ def _run_evaluation(
 ):
     """Run one configured rolling evaluation."""
     inference_mode, inference_method, window_mode = (
-        inference.normalize_rolling_inference_method(
-            experiment.inference_method,
-            experiment.window_mode,
-            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
-        )
+        inference.normalize_ctrv_rolling_inference_method(experiment.inference_method)
     )
     online_mode = inference_mode == "online"
     if online_mode:
@@ -761,6 +756,10 @@ def _print_summary(summary, *, credible_interval):
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+        (
+            f"Joint 2D {100 * credible_interval:g}% coverage",
+            f"{summary.radial_coverage:.1%}",
+        ),
         ("Mean window runtime", f"{summary.mean_window_runtime_seconds:.3f} s"),
         ("Median window runtime", f"{summary.median_window_runtime_seconds:.3f} s"),
         (
@@ -768,10 +767,6 @@ def _print_summary(summary, *, credible_interval):
             rolling_validation.format_computation_time(
                 summary.total_computation_time_seconds
             ),
-        ),
-        (
-            f"Joint 2D {100 * credible_interval:g}% coverage",
-            f"{summary.radial_coverage:.1%}",
         ),
     ]
     if summary.vi_convergence_rate is not None:

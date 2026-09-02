@@ -14,6 +14,16 @@ BATCH_INFERENCE_METHODS = ("vi", "mcmc")
 ONLINE_INFERENCE_METHODS = ("rbpf",)
 CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc")
 WINDOW_MODES = ("sliding", "expanding")
+_CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
+    "vi_sliding": ("vi", "sliding"),
+    "vi_expanding": ("vi", "expanding"),
+    "mcmc_sliding": ("mcmc", "sliding"),
+    "mcmc_expanding": ("mcmc", "expanding"),
+}
+CTRV_ROLLING_INFERENCE_METHODS = (
+    *_CTRV_ROLLING_BATCH_INFERENCE_METHODS,
+    *CTRV_ONLINE_INFERENCE_METHODS,
+)
 
 
 def normalize_inference_method(
@@ -94,6 +104,26 @@ def normalize_rolling_inference_method(
             "Batch inference requires window_mode to be 'sliding' or 'expanding'."
         )
     return normalized_mode, normalized_method, normalized_window_mode
+
+
+def normalize_ctrv_rolling_inference_method(
+    inference_method: str,
+) -> tuple[str, str, str | None]:
+    """Split one CTRV rolling selection into mode, method, and window mode."""
+    if not isinstance(inference_method, str):
+        raise ValueError("rolling inference_method must be a supported value.")
+
+    normalized_selection = inference_method.strip().lower()
+    if normalized_selection in CTRV_ONLINE_INFERENCE_METHODS:
+        return "online", normalized_selection, None
+    if normalized_selection in _CTRV_ROLLING_BATCH_INFERENCE_METHODS:
+        method, window_mode = _CTRV_ROLLING_BATCH_INFERENCE_METHODS[
+            normalized_selection
+        ]
+        return "batch", method, window_mode
+
+    allowed = ", ".join(f"'{method}'" for method in CTRV_ROLLING_INFERENCE_METHODS)
+    raise ValueError(f"rolling inference_method must be one of {allowed}.")
 
 
 def normalize_rolling_inference_configuration(

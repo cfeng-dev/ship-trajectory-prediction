@@ -39,14 +39,15 @@ class RollingExperimentConfig:
     stride: int | None
     inference_method: str
     inference_seed: int
-    window_mode: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate inference selection and its batch-only window mode."""
-        _, inference_method, window_mode = inference.normalize_rolling_inference_method(
-            self.inference_method,
-            self.window_mode,
-            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+        """Validate the combined rolling inference selection."""
+        _, inference_method, window_mode = (
+            inference.normalize_ctrv_rolling_inference_method(self.inference_method)
         )
-        object.__setattr__(self, "inference_method", inference_method)
-        object.__setattr__(self, "window_mode", window_mode)
+        normalized_selection = (
+            inference_method
+            if window_mode is None
+            else f"{inference_method}_{window_mode}"
+        )
+        object.__setattr__(self, "inference_method", normalized_selection)
