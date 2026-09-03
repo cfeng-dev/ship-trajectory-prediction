@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
 
-import bayestraj.models.deterministic_ctrv as deterministic_model
+import bayestraj.models.ctrv as deterministic_model
 import bayestraj.observations.window as observation_window
 
 MINIMUM_MOVEMENT_METERS = 1e-6

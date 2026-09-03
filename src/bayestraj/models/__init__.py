@@ -5,7 +5,7 @@ from bayestraj.models.bayesian_ctrv import (
     compile_bayesian_ctrv_model,
     fit_bayesian_ctrv_model,
 )
-from bayestraj.models.deterministic_ctrv import (
+from bayestraj.models.ctrv import (
     CTRVState,
     ctrv_step,
     predict_ctrv,

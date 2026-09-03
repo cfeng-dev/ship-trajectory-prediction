@@ -21,7 +21,7 @@ import bayestraj.models.paths as model_paths
 import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
-from bayestraj.models.ctrv_dynamics import (
+from bayestraj.models.ctrv import (
     PROCESS_REFERENCE_INTERVAL_SECONDS,
     SPEED_STATE_LOWER_MPS,
 )

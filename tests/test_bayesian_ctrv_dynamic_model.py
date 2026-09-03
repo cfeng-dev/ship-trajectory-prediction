@@ -10,7 +10,7 @@ import pytest
 
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.ctrv_dynamics as ctrv_dynamics
+import bayestraj.models.ctrv as ctrv_dynamics
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 

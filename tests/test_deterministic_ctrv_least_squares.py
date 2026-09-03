@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import bayestraj.forecasting.deterministic_ctrv as forecasting
-import bayestraj.models.deterministic_ctrv as deterministic_model
+import bayestraj.models.ctrv as deterministic_model
 import bayestraj.observations.window as observation_window
 
 
