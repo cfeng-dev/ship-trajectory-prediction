@@ -2,7 +2,7 @@
 
 from cmdstanpy import CmdStanModel
 
-from bayestraj.models.paths import stan_path
+from bayestraj.stan import stan_path
 
 # Path to the Stan model
 STAN_FILE = stan_path("examples/bernoulli.stan")

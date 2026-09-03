@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-STAN_ROOT = Path(__file__).resolve().parents[2] / "stan"
+STAN_ROOT = Path(__file__).resolve().parents[1] / "stan"
 
 
 def stan_path(relative_path):

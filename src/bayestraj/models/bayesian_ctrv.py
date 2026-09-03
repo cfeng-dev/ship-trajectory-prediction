@@ -17,16 +17,16 @@ import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
 import bayestraj.inference.cmdstan as inference_support
-import bayestraj.models.paths as model_paths
 import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
+import bayestraj.stan as stan_resources
 import bayestraj.validation.reporting as reporting
 from bayestraj.models.ctrv import (
     PROCESS_REFERENCE_INTERVAL_SECONDS,
     SPEED_STATE_LOWER_MPS,
 )
 
-STAN_FILE = model_paths.stan_path("models/bayesian_ctrv.stan")
+STAN_FILE = stan_resources.stan_path("models/bayesian_ctrv.stan")
 
 DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
 DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
