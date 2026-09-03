@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from bayestraj.models.bayesian_observations import (
+from bayestraj.observations.position import (
     validate_positive_finite,
 )
 

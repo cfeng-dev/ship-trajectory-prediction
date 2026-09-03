@@ -8,8 +8,8 @@ import numpy as np
 
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.models.ctrv_dynamics as ctrv_dynamics
+import bayestraj.observations.position as observation_support
 
 PROCESS_REFERENCE_INTERVAL_SECONDS = ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
 SPEED_STATE_LOWER_MPS = ctrv_dynamics.SPEED_STATE_LOWER_MPS

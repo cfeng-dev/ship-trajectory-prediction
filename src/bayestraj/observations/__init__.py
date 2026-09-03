@@ -13,6 +13,11 @@ from bayestraj.observations.io import (
     resample_trajectory_data,
 )
 from bayestraj.observations.paths import DATA_ROOT, data_path
+from bayestraj.observations.position import (
+    PositionObservations,
+    resolve_position_observations,
+    simulate_position_observations,
+)
 from bayestraj.observations.window import (
     DEFAULT_GPS_SPEED_UNIT,
     DEFAULT_MAX_TIME_GAP_SECONDS,
@@ -24,6 +29,8 @@ __all__ = [
     "DEFAULT_GPS_SPEED_UNIT",
     "DEFAULT_MAX_TIME_GAP_SECONDS",
     "DATA_ROOT",
+    "PositionObservations",
+    "TrajectoryWindowData",
     "calculate_gps_distances",
     "calculate_signed_curvature_from_gps",
     "calculate_signed_turn_rate_from_gps",
@@ -33,6 +40,7 @@ __all__ = [
     "local_to_gps_coordinates",
     "prepare_trajectory_window",
     "read_ship_data",
+    "resolve_position_observations",
     "resample_trajectory_data",
-    "TrajectoryWindowData",
+    "simulate_position_observations",
 ]

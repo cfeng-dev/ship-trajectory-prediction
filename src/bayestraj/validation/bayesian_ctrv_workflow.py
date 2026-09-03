@@ -12,9 +12,9 @@ import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
+import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
 import bayestraj.validation.metrics as metrics

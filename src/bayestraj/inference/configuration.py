@@ -3,9 +3,9 @@
 from collections.abc import Mapping
 from typing import Any
 
+import bayestraj.inference.cmdstan as inference_support
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
-import bayestraj.models.bayesian_inference as inference_support
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
 INFERENCE_MODES = ("batch", "online")

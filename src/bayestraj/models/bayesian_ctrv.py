@@ -16,9 +16,9 @@ import numpy as np
 import pandas as pd
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-import bayestraj.models.bayesian_inference as inference_support
-import bayestraj.models.bayesian_observations as observation_support
+import bayestraj.inference.cmdstan as inference_support
 import bayestraj.models.paths as model_paths
+import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 from bayestraj.models.ctrv_dynamics import (

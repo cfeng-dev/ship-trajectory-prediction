@@ -12,8 +12,8 @@ from scipy.stats import gaussian_kde
 
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.observations.io as observations_io
+import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 

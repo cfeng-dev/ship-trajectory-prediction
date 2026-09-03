@@ -8,8 +8,8 @@ import numpy as np
 
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.models.ctrv_dynamics as ctrv_dynamics
+import bayestraj.observations.position as observation_support
 
 _STATE_COUNT = ctrv_dynamics.STATE_COUNT
 _PARAMETER_COUNT = 3

@@ -1,4 +1,4 @@
-"""Shared position-observation data for Bayesian trajectory models."""
+"""Position-observation data shared by Bayesian trajectory models."""
 
 from __future__ import annotations
 
