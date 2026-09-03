@@ -8,7 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as ctrv_model
+import bayestraj.models.ctrv_dynamics as ctrv_dynamics
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 
@@ -74,11 +76,9 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
 
 
 def test_batch_and_online_code_use_one_process_reference_interval():
-    rbpf_config = ctrv_model.SequentialCTRVFilterConfig()
-    update_source = inspect.getsource(ctrv_model.SequentialBayesianCTRVFilter.update)
-    forecast_source = inspect.getsource(
-        ctrv_model.SequentialBayesianCTRVFilter.forecast
-    )
+    rbpf_config = rbpf.SequentialCTRVFilterConfig()
+    update_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.update)
+    forecast_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.forecast)
 
     assert not hasattr(rbpf_config, "process_reference_interval_seconds")
     assert "PROCESS_REFERENCE_INTERVAL_SECONDS" in update_source
@@ -143,10 +143,8 @@ def test_stan_positions_are_conditional_transitions_with_no_cartesian_jitter():
 
 
 def test_rbpf_propagates_kinematic_process_noise_without_cartesian_q():
-    update_source = inspect.getsource(ctrv_model.SequentialBayesianCTRVFilter.update)
-    forecast_source = inspect.getsource(
-        ctrv_model.SequentialBayesianCTRVFilter.forecast
-    )
+    update_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.update)
+    forecast_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.forecast)
 
     assert "speed_process**2 * process_variance_scale" in update_source
     assert "turn_rate_process**2 * process_variance_scale" in update_source
@@ -179,7 +177,7 @@ def test_rbpf_speed_reflection_preserves_heading(proposal, expected_speed):
     heading = 0.4
     states = np.asarray([[1.0, 2.0, proposal, heading, 0.01]])
 
-    ctrv_model._normalize_ctrv_states(states)
+    ctrv_dynamics.normalize_states(states)
 
     assert states[0, 2] == pytest.approx(expected_speed)
     assert states[0, 3] == pytest.approx(heading)
@@ -201,7 +199,7 @@ def test_rbpf_speed_reflection_transforms_covariance_without_rotating_heading():
     reflection = np.diag([1.0, 1.0, -1.0, 1.0, 1.0])
     expected_covariance = reflection @ covariance[0] @ reflection
 
-    ctrv_model._normalize_ctrv_states(states, covariance)
+    ctrv_dynamics.normalize_states(states, covariance)
 
     assert states[0, 2] == pytest.approx(2.0)
     assert states[0, 3] == pytest.approx(0.4)
@@ -248,7 +246,7 @@ def test_zero_motion_state_innovations_recover_constant_ctrv_transition():
     total_time = 0.0
 
     for time_step in (2.0, 3.0, 5.0):
-        state = ctrv_model._ctrv_state_transition(state, time_step)
+        state = ctrv_dynamics.transition_states(state, time_step)
         total_time += time_step
 
     expected_x = (
@@ -286,8 +284,8 @@ def _controlled_online_filter(
         1e-12 * np.eye(state.size),
         (particle_count, state.size, state.size),
     ).copy()
-    return ctrv_model.SequentialBayesianCTRVFilter(
-        config=ctrv_model.SequentialCTRVFilterConfig(
+    return rbpf.SequentialBayesianCTRVFilter(
+        config=rbpf.SequentialCTRVFilterConfig(
             particle_count=particle_count,
             posterior_draw_count=draw_count,
         ),
@@ -312,7 +310,7 @@ def test_rbpf_parameter_particles_contain_only_remaining_noise_scales():
     assert online_filter.parameter_particles.shape == (128, 3)
     assert (
         len(
-            ctrv_model._sequential_parameter_values(
+            rbpf._sequential_parameter_values(
                 parameter_particles=online_filter.parameter_particles
             )
         )
@@ -331,7 +329,7 @@ def test_synthetic_ctrv_forecast_tracks_motion_and_remains_probabilistic():
     expected_state = np.asarray([[0.0, 0.0, 4.0, 0.3, 0.01]])
     expected_positions = []
     for _ in future_times:
-        expected_state = ctrv_model._ctrv_state_transition(expected_state, 10.0)
+        expected_state = ctrv_dynamics.transition_states(expected_state, 10.0)
         expected_positions.append(expected_state[0, :2].copy())
     expected_positions = np.asarray(expected_positions)
     latent_positions = np.stack(

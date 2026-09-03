@@ -8,10 +8,11 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.models.bayesian_observations as observation_support
-import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
@@ -104,7 +105,7 @@ def _run_evaluation(
         if inference_method == "rbpf":
             if not isinstance(
                 rbpf_config,
-                bayesian_model.SequentialCTRVFilterConfig,
+                rbpf_model.SequentialCTRVFilterConfig,
             ):
                 raise TypeError(
                     "rbpf_config must be a SequentialCTRVFilterConfig instance."
@@ -433,7 +434,7 @@ def _advance_online_filter(
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
         if inference_method == "rbpf":
-            filter_type = bayesian_model.SequentialBayesianCTRVFilter
+            filter_type = rbpf_model.SequentialBayesianCTRVFilter
             filter_config = rbpf_config
         elif inference_method == "smc":
             filter_type = smc_model.SequentialMonteCarloCTRVFilter

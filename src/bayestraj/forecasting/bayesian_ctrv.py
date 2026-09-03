@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
 
 
 @dataclass(frozen=True, slots=True)

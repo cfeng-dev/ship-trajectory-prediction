@@ -6,7 +6,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
 
 WindowMode = Literal["sliding", "expanding"]
 

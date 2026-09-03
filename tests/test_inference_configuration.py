@@ -4,9 +4,10 @@ import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.forecasting.cli as forecasting_cli
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.validation.cli as validation_cli
 
 
@@ -170,7 +171,7 @@ def test_cmdstan_configuration_rejects_online_rbpf():
 def test_default_ctrv_rbpf_factory_returns_ctrv_config():
     ctrv_rbpf_config = inference.create_default_ctrv_rbpf_config()
 
-    assert isinstance(ctrv_rbpf_config, ctrv_model.SequentialCTRVFilterConfig)
+    assert isinstance(ctrv_rbpf_config, rbpf_model.SequentialCTRVFilterConfig)
 
 
 def test_default_ctrv_smc_factory_returns_an_independent_config():

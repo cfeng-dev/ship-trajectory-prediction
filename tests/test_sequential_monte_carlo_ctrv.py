@@ -5,8 +5,8 @@ import copy
 import numpy as np
 import pytest
 
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.sequential_monte_carlo_ctrv as smc
 
 
 def test_smc_config_has_comparable_particle_filter_defaults():

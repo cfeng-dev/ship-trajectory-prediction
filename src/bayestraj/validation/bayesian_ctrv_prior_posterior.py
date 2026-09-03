@@ -10,6 +10,7 @@ import numpy as np
 from matplotlib.widgets import Slider
 from scipy.stats import gaussian_kde
 
+import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.models.bayesian_observations as observation_support
 import bayestraj.observations.io as observations_io
@@ -533,7 +534,7 @@ def create_rbpf_posterior_update_loader(
         raise ValueError("start_index must be a non-negative integer.")
     if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance.")
-    if not isinstance(rbpf_config, bayesian_model.SequentialCTRVFilterConfig):
+    if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
         raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
     position_noise_std_m = observation_support.validate_non_negative_finite(
         "position_noise_std_m",
@@ -577,7 +578,7 @@ def create_rbpf_posterior_update_loader(
         )
 
     if initialize_filter is None:
-        initialize_filter = bayesian_model.SequentialBayesianCTRVFilter.initialize
+        initialize_filter = rbpf.SequentialBayesianCTRVFilter.initialize
     if not callable(initialize_filter):
         raise TypeError("initialize_filter must be callable.")
     print("Initialisiere RBPF mit N = 1 ...")

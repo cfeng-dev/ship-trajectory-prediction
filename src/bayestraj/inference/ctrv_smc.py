@@ -6,17 +6,19 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_observations as observation_support
+import bayestraj.models.ctrv_dynamics as ctrv_dynamics
 
-_STATE_COUNT = 5
+_STATE_COUNT = ctrv_dynamics.STATE_COUNT
 _PARAMETER_COUNT = 3
 _MINIMUM_SCALE = 1e-9
-_STATE_X_INDEX = 0
-_STATE_Y_INDEX = 1
-_STATE_SPEED_INDEX = 2
-_STATE_HEADING_INDEX = 3
-_STATE_TURN_RATE_INDEX = 4
+_STATE_X_INDEX = ctrv_dynamics.STATE_X_INDEX
+_STATE_Y_INDEX = ctrv_dynamics.STATE_Y_INDEX
+_STATE_SPEED_INDEX = ctrv_dynamics.STATE_SPEED_INDEX
+_STATE_HEADING_INDEX = ctrv_dynamics.STATE_HEADING_INDEX
+_STATE_TURN_RATE_INDEX = ctrv_dynamics.STATE_TURN_RATE_INDEX
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +90,7 @@ class SequentialMonteCarloCTRVFilter:
             raise TypeError("config must be a SequentialMonteCarloCTRVConfig instance.")
         seed = observation_support.validate_non_negative_integer("seed", seed)
         time_seconds, x_observed, y_observed = (
-            ctrv_model._validate_sequential_observations(
+            particle_utils.validate_sequential_observations(
                 time_seconds,
                 x_observed,
                 y_observed,
@@ -126,7 +128,7 @@ class SequentialMonteCarloCTRVFilter:
         state_particles[:, 1] = generator.normal(y_observed[0], observation_noise)
         state_particles[:, 2] = np.maximum(
             np.abs(generator.normal(0.0, priors.speed_prior_scale, particle_count)),
-            ctrv_model.SPEED_STATE_LOWER_MPS,
+            ctrv_dynamics.SPEED_STATE_LOWER_MPS,
         )
         state_particles[:, 3] = generator.uniform(-np.pi, np.pi, particle_count)
         state_particles[:, 4] = generator.normal(
@@ -153,12 +155,12 @@ class SequentialMonteCarloCTRVFilter:
     @property
     def effective_sample_size(self) -> float:
         """Return the current particle-weight effective sample size."""
-        return float(1.0 / np.sum(self.weights**2))
+        return particle_utils.effective_sample_size(self.weights)
 
     def update_many(self, time_seconds, x_observed, y_observed) -> None:
         """Update the posterior with matching new positions exactly once."""
         time_seconds, x_observed, y_observed = (
-            ctrv_model._validate_sequential_observations(
+            particle_utils.validate_sequential_observations(
                 time_seconds,
                 x_observed,
                 y_observed,
@@ -202,7 +204,9 @@ class SequentialMonteCarloCTRVFilter:
             self.parameter_particles
         )
         dt = time_seconds - self.last_observation_time_seconds
-        process_time_scale = np.sqrt(dt / ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS)
+        process_time_scale = np.sqrt(
+            dt / ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
+        )
         proposed_states = self.state_particles.copy()
         proposed_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
             0.0,
@@ -212,8 +216,8 @@ class SequentialMonteCarloCTRVFilter:
             0.0,
             turn_rate_process * process_time_scale,
         )
-        ctrv_model._normalize_ctrv_states(proposed_states)
-        proposed_states = ctrv_model._ctrv_state_transition(proposed_states, dt)
+        ctrv_dynamics.normalize_states(proposed_states)
+        proposed_states = ctrv_dynamics.transition_states(proposed_states, dt)
         squared_position_error = (x_observed - proposed_states[:, 0]) ** 2 + (
             y_observed - proposed_states[:, 1]
         ) ** 2
@@ -253,7 +257,11 @@ class SequentialMonteCarloCTRVFilter:
         if resampled:
             self.resample_count += 1
 
-    def sample_current_posterior(self, *, seed: int) -> ctrv_model.SequentialCTRVFit:
+    def sample_current_posterior(
+        self,
+        *,
+        seed: int,
+    ) -> particle_utils.SequentialCTRVFit:
         """Draw the current state and parameters without advancing the filter."""
         seed = observation_support.validate_non_negative_integer("seed", seed)
         generator = np.random.default_rng(seed)
@@ -267,7 +275,7 @@ class SequentialMonteCarloCTRVFilter:
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles[indices]
         )
-        return ctrv_model.SequentialCTRVFit(
+        return particle_utils.SequentialCTRVFit(
             {
                 "speed_at_origin": states[:, _STATE_SPEED_INDEX],
                 "heading_at_origin": states[:, _STATE_HEADING_INDEX],
@@ -283,9 +291,9 @@ class SequentialMonteCarloCTRVFilter:
         future_time_seconds,
         *,
         seed: int,
-    ) -> ctrv_model.SequentialCTRVFit:
+    ) -> particle_utils.SequentialCTRVFit:
         """Draw future CTRV trajectories from the weighted SMC posterior."""
-        future_time_seconds = ctrv_model._validate_future_times(
+        future_time_seconds = particle_utils.validate_future_times(
             future_time_seconds,
             after=self.last_observation_time_seconds,
         )
@@ -314,7 +322,7 @@ class SequentialMonteCarloCTRVFilter:
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
             process_time_scale = np.sqrt(
-                dt / ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
+                dt / ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
             )
             states[:, _STATE_SPEED_INDEX] += generator.normal(
                 0.0,
@@ -324,8 +332,8 @@ class SequentialMonteCarloCTRVFilter:
                 0.0,
                 turn_rate_process * process_time_scale,
             )
-            ctrv_model._normalize_ctrv_states(states)
-            states = ctrv_model._ctrv_state_transition(states, dt)
+            ctrv_dynamics.normalize_states(states)
+            states = ctrv_dynamics.transition_states(states, dt)
             x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]
             y_prediction[:, prediction_index] = states[:, _STATE_Y_INDEX]
             observation_innovation = generator.normal(
@@ -341,7 +349,7 @@ class SequentialMonteCarloCTRVFilter:
             )
             current_time = float(prediction_time)
 
-        return ctrv_model.SequentialCTRVFit(
+        return particle_utils.SequentialCTRVFit(
             {
                 "speed_at_origin": speed_at_origin,
                 "heading_at_origin": heading_at_origin,
@@ -366,14 +374,14 @@ class SequentialMonteCarloCTRVFilter:
         parameter_mean = np.sum(weights[:, None] * parameter_particles, axis=0)
         centered_parameters = parameter_particles - parameter_mean
         parameter_covariance = (centered_parameters.T * weights) @ centered_parameters
-        indices = ctrv_model._systematic_resample(weights, self.generator)
+        indices = particle_utils.systematic_resample(weights, self.generator)
         selected_states = state_particles[indices].copy()
         selected_parameters = parameter_particles[indices]
         rejuvenation_scale = self.config.rejuvenation_scale
         shrinkage = np.sqrt(1.0 - rejuvenation_scale**2)
         parameter_noise = (
             self.generator.normal(size=(self.config.particle_count, _PARAMETER_COUNT))
-            @ ctrv_model._regularized_cholesky(parameter_covariance).T
+            @ particle_utils.regularized_cholesky(parameter_covariance).T
         )
         rejuvenated_parameters = (
             shrinkage * selected_parameters

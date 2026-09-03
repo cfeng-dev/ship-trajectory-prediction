@@ -6,9 +6,11 @@ import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_forecasting
 import bayestraj.forecasting.bayesian_ctrv_workflow as single_ctrv_workflow
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_smc as smc_model
+import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
-import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.validation.bayesian_ctrv_workflow as ctrv_workflow
 import bayestraj.validation.plotting as plotting
 import bayestraj.validation.reporting as reporting
@@ -74,7 +76,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         priors=ctrv_model.BayesianCTRVPriors(),
         vi_config=inference.create_default_vi_config(),
         mcmc_config=inference.create_default_mcmc_config(),
-        rbpf_config=ctrv_model.SequentialCTRVFilterConfig(
+        rbpf_config=rbpf_model.SequentialCTRVFilterConfig(
             particle_count=128,
             posterior_draw_count=16,
         ),
@@ -95,7 +97,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     )
 
     fit = result["fit"]
-    assert isinstance(fit, ctrv_model.SequentialCTRVFit)
+    assert isinstance(fit, particle_utils.SequentialCTRVFit)
     assert fit.stan_variable("x_prediction").shape == (16, 3)
     assert fit.stan_variable("y_prediction").shape == (16, 3)
     assert result["converged"] is None
@@ -120,7 +122,7 @@ def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
         return _FakeOnlineFilter(x_observed)
 
     monkeypatch.setattr(
-        ctrv_model.SequentialBayesianCTRVFilter,
+        rbpf_model.SequentialBayesianCTRVFilter,
         "initialize",
         staticmethod(initialize),
     )
@@ -181,12 +183,12 @@ def test_ctrv_online_evaluation_dispatches_to_full_state_smc():
 
 
 def test_ctrv_rbpf_forecast_exposes_shared_posterior_variable_interface():
-    fit = ctrv_model.SequentialBayesianCTRVFilter.initialize(
+    fit = rbpf_model.SequentialBayesianCTRVFilter.initialize(
         np.arange(5, dtype=float),
         np.arange(5, dtype=float),
         np.zeros(5),
         priors=ctrv_model.BayesianCTRVPriors(),
-        config=ctrv_model.SequentialCTRVFilterConfig(
+        config=rbpf_model.SequentialCTRVFilterConfig(
             particle_count=32,
             posterior_draw_count=8,
         ),
@@ -206,12 +208,12 @@ def test_ctrv_rbpf_forecast_exposes_shared_posterior_variable_interface():
 
 
 def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
-    fit = ctrv_model.SequentialBayesianCTRVFilter.initialize(
+    fit = rbpf_model.SequentialBayesianCTRVFilter.initialize(
         np.arange(5, dtype=float),
         np.arange(5, dtype=float),
         np.zeros(5),
         priors=ctrv_model.BayesianCTRVPriors(),
-        config=ctrv_model.SequentialCTRVFilterConfig(
+        config=rbpf_model.SequentialCTRVFilterConfig(
             particle_count=32,
             posterior_draw_count=8,
         ),
@@ -225,12 +227,12 @@ def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
 
 
 def test_ctrv_rbpf_samples_current_posterior_without_advancing_filter():
-    online_filter = ctrv_model.SequentialBayesianCTRVFilter.initialize(
+    online_filter = rbpf_model.SequentialBayesianCTRVFilter.initialize(
         np.arange(5, dtype=float),
         np.arange(5, dtype=float),
         np.zeros(5),
         priors=ctrv_model.BayesianCTRVPriors(),
-        config=ctrv_model.SequentialCTRVFilterConfig(
+        config=rbpf_model.SequentialCTRVFilterConfig(
             particle_count=32,
             posterior_draw_count=8,
         ),

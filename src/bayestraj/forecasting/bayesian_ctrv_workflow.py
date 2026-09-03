@@ -7,9 +7,10 @@ from typing import Any
 import numpy as np
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.metrics as metrics
@@ -24,7 +25,7 @@ def run_bayesian_ctrv_prediction(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config: Mapping[str, Any],
     mcmc_config: Mapping[str, Any],
-    rbpf_config: bayesian_model.SequentialCTRVFilterConfig,
+    rbpf_config: rbpf_model.SequentialCTRVFilterConfig,
     smc_config: smc_model.SequentialMonteCarloCTRVConfig,
     fullrank_grad_samples: int,
     credible_interval: float,
@@ -45,11 +46,11 @@ def run_bayesian_ctrv_prediction(
     online_mode = inference_mode == "online"
     if online_mode:
         if inference_method == "rbpf":
-            if not isinstance(rbpf_config, bayesian_model.SequentialCTRVFilterConfig):
+            if not isinstance(rbpf_config, rbpf_model.SequentialCTRVFilterConfig):
                 raise TypeError(
                     "rbpf_config must be a SequentialCTRVFilterConfig instance."
                 )
-            filter_type = bayesian_model.SequentialBayesianCTRVFilter
+            filter_type = rbpf_model.SequentialBayesianCTRVFilter
             particle_filter_config = rbpf_config
         else:
             if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):

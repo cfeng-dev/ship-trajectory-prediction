@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from matplotlib.backend_bases import KeyEvent
 
+import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 
@@ -447,7 +448,7 @@ def test_rbpf_update_loader_initializes_once_and_processes_one_new_point():
                 }
             )
 
-    rbpf_config = bayesian_model.SequentialCTRVFilterConfig(
+    rbpf_config = rbpf.SequentialCTRVFilterConfig(
         particle_count=32,
         posterior_draw_count=2,
     )
@@ -497,7 +498,7 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
 ):
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    rbpf_config = bayesian_model.SequentialCTRVFilterConfig(
+    rbpf_config = rbpf.SequentialCTRVFilterConfig(
         particle_count=100,
         posterior_draw_count=20,
     )

@@ -2,7 +2,7 @@
 
 import argparse
 
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.paths as paths
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior

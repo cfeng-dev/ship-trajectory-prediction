@@ -7,7 +7,7 @@ from typing import Any
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.forecasting.deterministic_ctrv as deterministic_forecasting
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 

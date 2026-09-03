@@ -3,7 +3,7 @@
 import bayestraj.forecasting.bayesian_ctrv as config
 import bayestraj.forecasting.bayesian_ctrv_workflow as workflow
 import bayestraj.forecasting.cli as cli
-import bayestraj.forecasting.inference as inference
+import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.paths as paths
 
