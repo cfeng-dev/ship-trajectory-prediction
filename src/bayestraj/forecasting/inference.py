@@ -5,7 +5,6 @@ from typing import Any
 
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.bayesian_inference as inference_support
-import bayestraj.models.bayesian_position_model as position_model
 import bayestraj.models.sequential_monte_carlo_ctrv as smc_model
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 10
@@ -194,13 +193,6 @@ def create_default_ctrv_rbpf_config() -> ctrv_model.SequentialCTRVFilterConfig:
 def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:
     """Return independent default settings for Bayesian CTRV bootstrap SMC."""
     return smc_model.SequentialMonteCarloCTRVConfig()
-
-
-def create_default_position_rbpf_config() -> (
-    position_model.SequentialPositionFilterConfig
-):
-    """Return independent default settings for the Bayesian position RBPF."""
-    return position_model.SequentialPositionFilterConfig()
 
 
 def select_inference_config(

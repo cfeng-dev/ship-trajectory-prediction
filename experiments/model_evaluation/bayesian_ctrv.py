@@ -21,7 +21,7 @@ EXPERIMENT = config.RollingExperimentConfig(
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=None,
-    inference_method="rbpf",
+    inference_method="smc",
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
