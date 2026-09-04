@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.stan as stan_resources
@@ -62,15 +63,15 @@ class BayesianCTRVPriors:
             name = prior_field.name
             value = getattr(self, name)
             if name.endswith("_tail_probability"):
-                value = observation_support.validate_finite_scalar(name, value)
+                value = numeric_validation.validate_finite_scalar(name, value)
                 if not 0.0 < value < 1.0:
                     raise ValueError(f"{name} must be strictly between zero and one.")
             elif name == "turn_rate_prior_abs_heading_change_deg":
-                value = observation_support.validate_positive_finite(name, value)
+                value = numeric_validation.validate_positive_finite(name, value)
                 if value > 180.0:
                     raise ValueError(f"{name} must not exceed 180 degrees.")
             else:
-                value = observation_support.validate_positive_finite(name, value)
+                value = numeric_validation.validate_positive_finite(name, value)
             object.__setattr__(self, name, float(value))
 
     @property
@@ -158,8 +159,8 @@ def build_stan_data(
         dtype=float,
     )
     _validate_time_arrays(time_observed, time_prediction)
-    observation_support.validate_finite_vector("x_observed", x_observed)
-    observation_support.validate_finite_vector("y_observed", y_observed)
+    numeric_validation.validate_finite_vector("x_observed", x_observed)
+    numeric_validation.validate_finite_vector("y_observed", y_observed)
 
     return {
         "N_history": window.observation_count,
@@ -228,8 +229,8 @@ def estimate_constant_motion_from_positions(
 
 def _validate_time_arrays(time_observed, time_prediction) -> None:
     """Validate selected history and future timestamps."""
-    observation_support.validate_finite_vector("time_observed", time_observed)
-    observation_support.validate_finite_vector("time_prediction", time_prediction)
+    numeric_validation.validate_finite_vector("time_observed", time_observed)
+    numeric_validation.validate_finite_vector("time_prediction", time_prediction)
     if np.any(np.diff(time_observed) <= 0):
         raise ValueError("Observed timestamps must be strictly increasing.")
     if time_prediction[0] <= time_observed[-1] or np.any(np.diff(time_prediction) <= 0):

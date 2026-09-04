@@ -12,8 +12,8 @@ from scipy.stats import gaussian_kde
 
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
-import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
 
@@ -536,15 +536,15 @@ def create_rbpf_posterior_update_loader(
         raise TypeError("priors must be a BayesianCTRVPriors instance.")
     if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
         raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
-    position_noise_std_m = observation_support.validate_non_negative_finite(
+    position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         position_noise_std_m,
     )
-    position_noise_seed = observation_support.validate_non_negative_integer(
+    position_noise_seed = numeric_validation.validate_non_negative_integer(
         "position_noise_seed",
         position_noise_seed,
     )
-    rbpf_seed = observation_support.validate_non_negative_integer(
+    rbpf_seed = numeric_validation.validate_non_negative_integer(
         "rbpf_seed",
         rbpf_seed,
     )

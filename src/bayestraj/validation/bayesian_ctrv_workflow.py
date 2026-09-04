@@ -14,9 +14,9 @@ import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
-import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
 import bayestraj.validation.metrics as metrics
@@ -676,11 +676,11 @@ def _prepare_route_time_seconds(trajectory_data):
 
 def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):
     """Generate one reproducible perturbation for every route position."""
-    position_noise_std_m = observation_support.validate_non_negative_finite(
+    position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         position_noise_std_m,
     )
-    seed = observation_support.validate_non_negative_integer(
+    seed = numeric_validation.validate_non_negative_integer(
         "position_noise_seed",
         seed,
     )

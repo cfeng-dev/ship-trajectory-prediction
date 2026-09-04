@@ -9,7 +9,7 @@ import numpy as np
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.ctrv as ctrv_dynamics
-import bayestraj.observations.position as observation_support
+import bayestraj.numeric_validation as numeric_validation
 
 PROCESS_REFERENCE_INTERVAL_SECONDS = ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
 SPEED_STATE_LOWER_MPS = ctrv_dynamics.SPEED_STATE_LOWER_MPS
@@ -47,13 +47,13 @@ class SequentialCTRVFilterConfig:
                 raise ValueError(f"{name} must be at least two.")
             object.__setattr__(self, name, int(value))
 
-        ess_fraction = observation_support.validate_positive_finite(
+        ess_fraction = numeric_validation.validate_positive_finite(
             "resample_ess_fraction",
             self.resample_ess_fraction,
         )
         if ess_fraction > 1.0:
             raise ValueError("resample_ess_fraction must not exceed one.")
-        rejuvenation_scale = observation_support.validate_non_negative_finite(
+        rejuvenation_scale = numeric_validation.validate_non_negative_finite(
             "rejuvenation_scale",
             self.rejuvenation_scale,
         )
@@ -98,7 +98,7 @@ class SequentialBayesianCTRVFilter:
             raise TypeError(
                 "config must be a SequentialCTRVFilterConfig instance or None."
             )
-        seed = observation_support.validate_non_negative_integer("seed", seed)
+        seed = numeric_validation.validate_non_negative_integer("seed", seed)
         time_seconds, x_observed, y_observed = (
             particle_utils.validate_sequential_observations(
                 time_seconds,
@@ -227,17 +227,17 @@ class SequentialBayesianCTRVFilter:
         y_observed: float,
     ) -> None:
         """Propagate particles and condition them on one new position."""
-        time_seconds = observation_support.validate_finite_scalar(
+        time_seconds = numeric_validation.validate_finite_scalar(
             "time_seconds",
             time_seconds,
         )
         if time_seconds <= self.last_observation_time_seconds:
             raise ValueError("time_seconds must follow the previous observation.")
-        x_observed = observation_support.validate_finite_scalar(
+        x_observed = numeric_validation.validate_finite_scalar(
             "x_observed",
             x_observed,
         )
-        y_observed = observation_support.validate_finite_scalar(
+        y_observed = numeric_validation.validate_finite_scalar(
             "y_observed",
             y_observed,
         )
@@ -328,7 +328,7 @@ class SequentialBayesianCTRVFilter:
         seed: int,
     ) -> particle_utils.SequentialCTRVFit:
         """Draw the current CTRV state and parameters without forecasting."""
-        seed = observation_support.validate_non_negative_integer("seed", seed)
+        seed = numeric_validation.validate_non_negative_integer("seed", seed)
         generator = np.random.default_rng(seed)
         indices = generator.choice(
             self.config.particle_count,
@@ -368,7 +368,7 @@ class SequentialBayesianCTRVFilter:
             future_time_seconds,
             after=self.last_observation_time_seconds,
         )
-        seed = observation_support.validate_non_negative_integer("seed", seed)
+        seed = numeric_validation.validate_non_negative_integer("seed", seed)
         generator = np.random.default_rng(seed)
         draw_count = self.config.posterior_draw_count
         indices = generator.choice(

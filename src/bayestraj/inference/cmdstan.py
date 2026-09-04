@@ -9,9 +9,7 @@ from typing import Any
 import numpy as np
 from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-from bayestraj.observations.position import (
-    validate_positive_finite,
-)
+import bayestraj.numeric_validation as numeric_validation
 
 DEFAULT_MEANFIELD_GRAD_SAMPLES = 2
 DEFAULT_VI_ADAPT_ITER = 100
@@ -46,7 +44,7 @@ def validate_variational_arguments(**arguments: Any) -> None:
         if value <= 0:
             raise ValueError(f"{name} must be a positive integer.")
     for name in ("eta", "tol_rel_obj"):
-        validate_positive_finite(name, arguments[name])
+        numeric_validation.validate_positive_finite(name, arguments[name])
     for name in ("require_converged", "show_console"):
         if not isinstance(arguments[name], bool):
             raise ValueError(f"{name} must be a boolean.")

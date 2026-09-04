@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.window as observation_window
 
 
@@ -27,11 +28,14 @@ class PositionObservations:
         validate_matching_position_time_arrays(time_seconds, x_meters, y_meters)
         if np.any(np.diff(time_seconds) <= 0):
             raise ValueError("time_seconds must be strictly increasing.")
-        position_noise_std_m = validate_non_negative_finite(
+        position_noise_std_m = numeric_validation.validate_non_negative_finite(
             "position_noise_std_m",
             self.position_noise_std_m,
         )
-        noise_seed = validate_non_negative_integer("noise_seed", self.noise_seed)
+        noise_seed = numeric_validation.validate_non_negative_integer(
+            "noise_seed",
+            self.noise_seed,
+        )
         for values in (time_seconds, x_meters, y_meters):
             values.setflags(write=False)
         object.__setattr__(self, "time_seconds", time_seconds)
@@ -52,11 +56,11 @@ def simulate_position_observations(
     seed: int = 2026,
 ) -> PositionObservations:
     """Create reproducible full-window position observations."""
-    position_noise_std_m = validate_non_negative_finite(
+    position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         position_noise_std_m,
     )
-    seed = validate_non_negative_integer("seed", seed)
+    seed = numeric_validation.validate_non_negative_integer("seed", seed)
     if window.observation_count < 2:
         raise ValueError("window must contain at least two observed positions.")
 
@@ -115,7 +119,7 @@ def validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) -> 
         ("x_meters", x_meters),
         ("y_meters", y_meters),
     ):
-        validate_finite_vector(name, values)
+        numeric_validation.validate_finite_vector(name, values)
     if (
         time_seconds.size < 2
         or x_meters.shape != time_seconds.shape
@@ -125,52 +129,3 @@ def validate_matching_position_time_arrays(time_seconds, x_meters, y_meters) -> 
             "time_seconds, x_meters, and y_meters must be matching vectors "
             "with at least two values."
         )
-
-
-def validate_finite_vector(name: str, values) -> None:
-    """Validate one non-empty, one-dimensional, finite array."""
-    values = np.asarray(values)
-    if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
-        raise ValueError(f"{name} must be a non-empty finite vector.")
-
-
-def validate_non_negative_integer(name: str, value: int) -> int:
-    """Validate and return a non-negative integer."""
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError(f"{name} must be a non-negative integer.")
-    if value < 0:
-        raise ValueError(f"{name} must be a non-negative integer.")
-    return int(value)
-
-
-def validate_non_negative_finite(name: str, value: float) -> float:
-    """Validate and return a non-negative finite scalar."""
-    try:
-        numeric_value = float(value)
-    except (TypeError, ValueError, OverflowError) as error:
-        raise ValueError(f"{name} must be a non-negative finite value.") from error
-    if not np.isfinite(numeric_value) or numeric_value < 0:
-        raise ValueError(f"{name} must be a non-negative finite value.")
-    return numeric_value
-
-
-def validate_finite_scalar(name: str, value: float) -> float:
-    """Validate and return a signed finite scalar."""
-    try:
-        numeric_value = float(value)
-    except (TypeError, ValueError, OverflowError) as error:
-        raise ValueError(f"{name} must be a finite value.") from error
-    if not np.isfinite(numeric_value):
-        raise ValueError(f"{name} must be a finite value.")
-    return numeric_value
-
-
-def validate_positive_finite(name: str, value: float) -> float:
-    """Validate and return a positive finite scalar."""
-    try:
-        numeric_value = float(value)
-    except (TypeError, ValueError, OverflowError) as error:
-        raise ValueError(f"{name} must be a positive finite value.") from error
-    if not np.isfinite(numeric_value) or numeric_value <= 0:
-        raise ValueError(f"{name} must be a positive finite value.")
-    return numeric_value
