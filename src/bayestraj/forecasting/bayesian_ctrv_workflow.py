@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
+import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
@@ -209,7 +210,7 @@ def run_bayesian_ctrv_prediction(
     computation_time_seconds = time.perf_counter() - computation_started
 
     if inference_method == "vi":
-        converged = bayesian_model.variational_converged(fit)
+        converged = cmdstan_inference.variational_converged(fit)
         reporting.print_variational_diagnostics(fit, converged=converged)
     elif inference_method == "mcmc":
         converged = None

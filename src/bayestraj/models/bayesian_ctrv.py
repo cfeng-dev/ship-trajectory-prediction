@@ -34,7 +34,6 @@ MIN_OBSERVATION_COUNT = 3
 
 PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations
-variational_converged = inference_support.variational_converged
 
 NOISE_PARAMETER_NAMES = (
     "sigma_position_observation",
@@ -241,7 +240,9 @@ def fit_bayesian_ctrv_model(
     if inference_method == "vi":
         if mcmc_options:
             raise ValueError("mcmc_options can only be used with MCMC inference.")
-        inference_support.validate_variational_arguments(
+        return inference_support.run_variational_inference(
+            model,
+            stan_data,
             algorithm=algorithm,
             iter=iter,
             grad_samples=grad_samples,
@@ -251,99 +252,36 @@ def fit_bayesian_ctrv_model(
             tol_rel_obj=tol_rel_obj,
             eval_elbo=eval_elbo,
             draws=draws,
-            seed=seed,
-            require_converged=require_converged,
-            show_console=show_console,
-        )
-        options = dict(variational_options or {})
-        inference_support.reject_conflicting_options(
-            "variational_options",
-            options,
-            {
-                "data",
-                "seed",
-                "inits",
-                "algorithm",
-                "iter",
-                "grad_samples",
-                "elbo_samples",
-                "eta",
-                "adapt_iter",
-                "tol_rel_obj",
-                "eval_elbo",
-                "draws",
-                "require_converged",
-                "show_console",
-            },
-        )
-        if inits is None:
-            inits = _default_initial_values(stan_data, seed=seed)
-        return model.variational(
-            data=stan_data,
             seed=seed,
             inits=inits,
-            algorithm=algorithm,
-            iter=iter,
-            grad_samples=grad_samples,
-            elbo_samples=elbo_samples,
-            eta=eta,
-            adapt_iter=adapt_iter,
-            tol_rel_obj=tol_rel_obj,
-            eval_elbo=eval_elbo,
-            draws=draws,
+            default_inits_factory=lambda: _default_initial_values(
+                stan_data,
+                seed=seed,
+            ),
             require_converged=require_converged,
             show_console=show_console,
-            **options,
+            options=variational_options,
         )
 
     if variational_options:
         raise ValueError("variational_options can only be used with VI inference.")
-    if parallel_chains is None:
-        parallel_chains = chains
-    inference_support.validate_mcmc_arguments(
+    return inference_support.run_mcmc_inference(
+        model,
+        stan_data,
         chains=chains,
         parallel_chains=parallel_chains,
         iter_warmup=iter_warmup,
         iter_sampling=iter_sampling,
         adapt_delta=adapt_delta,
         max_treedepth=max_treedepth,
-        seed=seed,
-        show_console=show_console,
-    )
-    options = dict(mcmc_options or {})
-    inference_support.reject_conflicting_options(
-        "mcmc_options",
-        options,
-        {
-            "data",
-            "seed",
-            "inits",
-            "chains",
-            "parallel_chains",
-            "iter_warmup",
-            "iter_sampling",
-            "adapt_delta",
-            "max_treedepth",
-            "show_console",
-        },
-    )
-    if inits is None:
-        inits = [
-            _default_initial_values(stan_data, seed=seed + chain_index)
-            for chain_index in range(chains)
-        ]
-    return model.sample(
-        data=stan_data,
         seed=seed,
         inits=inits,
-        chains=chains,
-        parallel_chains=parallel_chains,
-        iter_warmup=iter_warmup,
-        iter_sampling=iter_sampling,
-        adapt_delta=adapt_delta,
-        max_treedepth=max_treedepth,
+        default_inits_factory=lambda: [
+            _default_initial_values(stan_data, seed=seed + chain_index)
+            for chain_index in range(chains)
+        ],
         show_console=show_console,
-        **options,
+        options=mcmc_options,
     )
 
 

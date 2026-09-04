@@ -4,6 +4,7 @@ import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.forecasting.cli as forecasting_cli
+import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
@@ -166,6 +167,78 @@ def test_cmdstan_configuration_rejects_online_rbpf():
             mcmc_config=inference.create_default_mcmc_config(),
             fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
         )
+
+
+def test_variational_runner_uses_default_initials_and_forwards_options():
+    class RecordingModel:
+        def variational(self, **arguments):
+            self.arguments = arguments
+            return "variational-fit"
+
+    model = RecordingModel()
+    default_initials = {"speed_at_origin": 4.0}
+
+    fit = cmdstan_inference.run_variational_inference(
+        model,
+        {"N": 3},
+        algorithm="meanfield",
+        iter=200,
+        grad_samples=2,
+        elbo_samples=10,
+        eta=1.0,
+        adapt_iter=20,
+        tol_rel_obj=0.01,
+        eval_elbo=10,
+        draws=50,
+        seed=42,
+        inits=None,
+        default_inits_factory=lambda: default_initials,
+        require_converged=False,
+        show_console=False,
+        options={"refresh": 0},
+    )
+
+    assert fit == "variational-fit"
+    assert model.arguments["data"] == {"N": 3}
+    assert model.arguments["inits"] is default_initials
+    assert model.arguments["algorithm"] == "meanfield"
+    assert model.arguments["draws"] == 50
+    assert model.arguments["refresh"] == 0
+
+
+def test_mcmc_runner_uses_explicit_initials_and_defaults_parallel_chains():
+    class RecordingModel:
+        def sample(self, **arguments):
+            self.arguments = arguments
+            return "mcmc-fit"
+
+    model = RecordingModel()
+    explicit_initials = [{"speed_at_origin": 4.0}]
+
+    fit = cmdstan_inference.run_mcmc_inference(
+        model,
+        {"N": 3},
+        chains=1,
+        parallel_chains=None,
+        iter_warmup=100,
+        iter_sampling=50,
+        adapt_delta=0.9,
+        max_treedepth=10,
+        seed=42,
+        inits=explicit_initials,
+        default_inits_factory=lambda: pytest.fail(
+            "default initials must not replace explicit initials"
+        ),
+        show_console=False,
+        options={"refresh": 0},
+    )
+
+    assert fit == "mcmc-fit"
+    assert model.arguments["data"] == {"N": 3}
+    assert model.arguments["inits"] is explicit_initials
+    assert model.arguments["chains"] == 1
+    assert model.arguments["parallel_chains"] == 1
+    assert model.arguments["refresh"] == 0
 
 
 def test_default_ctrv_rbpf_factory_returns_ctrv_config():

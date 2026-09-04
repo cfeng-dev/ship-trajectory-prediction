@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
+import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
@@ -304,7 +305,7 @@ def _run_evaluation(
                 initial_seed=window_seed,
             )
         if inference_method == "vi":
-            converged = bayesian_model.variational_converged(fit)
+            converged = cmdstan_inference.variational_converged(fit)
             mcmc_diagnostics_ok = None
             inference_status = f"VI converged={converged}"
         elif inference_method == "mcmc":

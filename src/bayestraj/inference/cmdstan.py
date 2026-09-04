@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
 from bayestraj.observations.position import (
     validate_positive_finite,
@@ -88,6 +89,146 @@ def reject_conflicting_options(
     if conflicting:
         names = ", ".join(sorted(conflicting))
         raise ValueError(f"{option_name} must not override: {names}.")
+
+
+def run_variational_inference(
+    model: CmdStanModel,
+    data: Mapping[str, Any],
+    *,
+    algorithm: str,
+    iter: int,
+    grad_samples: int,
+    elbo_samples: int,
+    eta: float,
+    adapt_iter: int,
+    tol_rel_obj: float,
+    eval_elbo: int,
+    draws: int,
+    seed: int,
+    inits: Any,
+    default_inits_factory: Callable[[], Any] | None,
+    require_converged: bool,
+    show_console: bool,
+    options: Mapping[str, Any] | None = None,
+) -> CmdStanVB:
+    """Validate and run CmdStan variational inference."""
+    validate_variational_arguments(
+        algorithm=algorithm,
+        iter=iter,
+        grad_samples=grad_samples,
+        elbo_samples=elbo_samples,
+        eta=eta,
+        adapt_iter=adapt_iter,
+        tol_rel_obj=tol_rel_obj,
+        eval_elbo=eval_elbo,
+        draws=draws,
+        seed=seed,
+        require_converged=require_converged,
+        show_console=show_console,
+    )
+    selected_options = dict(options or {})
+    reject_conflicting_options(
+        "variational_options",
+        selected_options,
+        {
+            "data",
+            "seed",
+            "inits",
+            "algorithm",
+            "iter",
+            "grad_samples",
+            "elbo_samples",
+            "eta",
+            "adapt_iter",
+            "tol_rel_obj",
+            "eval_elbo",
+            "draws",
+            "require_converged",
+            "show_console",
+        },
+    )
+    if inits is None and default_inits_factory is not None:
+        inits = default_inits_factory()
+    return model.variational(
+        data=data,
+        seed=seed,
+        inits=inits,
+        algorithm=algorithm,
+        iter=iter,
+        grad_samples=grad_samples,
+        elbo_samples=elbo_samples,
+        eta=eta,
+        adapt_iter=adapt_iter,
+        tol_rel_obj=tol_rel_obj,
+        eval_elbo=eval_elbo,
+        draws=draws,
+        require_converged=require_converged,
+        show_console=show_console,
+        **selected_options,
+    )
+
+
+def run_mcmc_inference(
+    model: CmdStanModel,
+    data: Mapping[str, Any],
+    *,
+    chains: int,
+    parallel_chains: int | None,
+    iter_warmup: int,
+    iter_sampling: int,
+    adapt_delta: float,
+    max_treedepth: int,
+    seed: int,
+    inits: Any,
+    default_inits_factory: Callable[[], Any] | None,
+    show_console: bool,
+    options: Mapping[str, Any] | None = None,
+) -> CmdStanMCMC:
+    """Validate and run CmdStan Markov chain Monte Carlo inference."""
+    if parallel_chains is None:
+        parallel_chains = chains
+    validate_mcmc_arguments(
+        chains=chains,
+        parallel_chains=parallel_chains,
+        iter_warmup=iter_warmup,
+        iter_sampling=iter_sampling,
+        adapt_delta=adapt_delta,
+        max_treedepth=max_treedepth,
+        seed=seed,
+        show_console=show_console,
+    )
+    selected_options = dict(options or {})
+    reject_conflicting_options(
+        "mcmc_options",
+        selected_options,
+        {
+            "data",
+            "seed",
+            "inits",
+            "chains",
+            "parallel_chains",
+            "iter_warmup",
+            "iter_sampling",
+            "adapt_delta",
+            "max_treedepth",
+            "show_console",
+        },
+    )
+    if inits is None and default_inits_factory is not None:
+        inits = default_inits_factory()
+    return model.sample(
+        data=data,
+        seed=seed,
+        inits=inits,
+        chains=chains,
+        parallel_chains=parallel_chains,
+        iter_warmup=iter_warmup,
+        iter_sampling=iter_sampling,
+        adapt_delta=adapt_delta,
+        max_treedepth=max_treedepth,
+        show_console=show_console,
+        **selected_options,
+    )
 
 
 def variational_converged(fit: Any) -> bool:
