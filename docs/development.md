@@ -23,33 +23,36 @@ Commit `pyproject.toml` and `uv.lock` together.
 
 ## Command-Line Tools
 
-The ship simulator is an auxiliary data-generation tool located under
-`tools/ship_simulator`. Installing the project creates its command:
+Synchronize the project environment before running the tools:
+
+```bash
+uv sync --locked
+```
+
+### 1. Ship Simulator
+
+Use the interactive simulator to generate synthetic ship-trajectory CSV files
+when recorded trajectory data are unavailable. Run it from the project root:
 
 ```bash
 uv run ship-simulator
 ```
 
-This command starts the interactive ship trajectory simulator.
+### 2. Trajectory Data Checker
 
-Alternatively, start the simulator as a Python module from the project root:
-
-```bash
-uv run python -m ship_simulator
-```
-
-Validate and summarize a recorded or simulated trajectory CSV without changing
-the file:
+Run the checker from the project root. It verifies that a CSV follows the
+project's trajectory-data format and basic quality requirements before it is
+used by the models.
 
 ```bash
-uv run trajectory-data-check data/simulated/example_simulated_trajectory.csv
+uv run trajectory-data-check path/to/trajectory.csv
 ```
 
-The checker validates the shared schema, timestamps, coordinate and speed
-values, per-run sampling intervals, and reports GPS-derived movement statistics.
-Pass `--all-runs` to print every run summary for files containing many runs.
+Only the first ten runs are shown by default. Show all runs with:
 
-The project environment must be synchronized first with `uv sync --locked`.
+```bash
+uv run trajectory-data-check path/to/trajectory.csv --all-runs
+```
 
 ## Code Quality and Tests
 
