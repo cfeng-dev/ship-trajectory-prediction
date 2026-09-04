@@ -134,6 +134,7 @@ class PosteriorDashboardNavigator:
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
+        self._trajectory_has_been_drawn = False
         self._specs_by_name = {
             name: prior_posterior.build_parameter_spec(name, priors)
             for name in PARAMETER_NAMES
@@ -268,6 +269,9 @@ class PosteriorDashboardNavigator:
 
     def _draw_trajectory(self) -> None:
         axis = self.trajectory_axis
+        view_limits = None
+        if self._trajectory_has_been_drawn:
+            view_limits = (axis.get_xlim(), axis.get_ylim())
         axis.clear()
         axis.plot(
             self.trajectory.reference_x,
@@ -304,6 +308,10 @@ class PosteriorDashboardNavigator:
         axis.grid(alpha=0.25, linewidth=0.8)
         axis.tick_params(labelsize=10)
         axis.set_aspect("equal", adjustable="datalim")
+        if view_limits is not None:
+            axis.set_xlim(view_limits[0])
+            axis.set_ylim(view_limits[1])
+        self._trajectory_has_been_drawn = True
         if self.show_legend:
             axis.legend(loc="best", fontsize=9, framealpha=0.9)
 

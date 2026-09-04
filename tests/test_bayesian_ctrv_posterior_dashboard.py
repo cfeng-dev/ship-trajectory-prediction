@@ -319,3 +319,44 @@ def test_dashboard_script_runs_the_shared_analysis_without_showing():
     assert calls[0]["rbpf_seed"] == 42
     assert calls[0]["show_legend"] is True
     assert calls[0]["show"] is False
+
+
+def test_dashboard_keeps_manual_trajectory_zoom_when_posterior_stage_changes():
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 2.0, 3.0],
+        reference_y=[0.0, 1.0, 1.5, 1.8],
+        observed_x=[0.0, 1.0, 2.0, 3.0],
+        observed_y=[0.0, 1.0, 1.5, 1.8],
+    )
+
+    def load_update(observation_count):
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=4,
+    )
+
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        navigator.trajectory_axis.set_xlim(0.5, 2.5)
+        navigator.trajectory_axis.set_ylim(0.4, 1.6)
+        figure.canvas.draw()
+        zoomed_xlim = navigator.trajectory_axis.get_xlim()
+        zoomed_ylim = navigator.trajectory_axis.get_ylim()
+
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
+        figure.canvas.draw()
+
+        assert navigator.trajectory_axis.get_xlim() == pytest.approx(zoomed_xlim)
+        assert navigator.trajectory_axis.get_ylim() == pytest.approx(zoomed_ylim)
+    finally:
+        plt.close(figure)
