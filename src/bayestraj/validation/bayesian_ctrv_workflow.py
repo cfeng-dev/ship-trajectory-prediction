@@ -10,6 +10,7 @@ import pandas as pd
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -479,7 +480,7 @@ def _fit_window(
     seed = initial_seed
     for attempt in range(VI_EXECUTION_RETRIES + 1):
         try:
-            fit = bayesian_model.fit_bayesian_ctrv_model(
+            fit = batch_inference.fit_bayesian_ctrv_model(
                 window,
                 priors=priors,
                 position_observations=position_observations,

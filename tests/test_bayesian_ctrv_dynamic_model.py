@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.ctrv as ctrv_dynamics
@@ -224,7 +225,7 @@ def test_folded_normal_transition_density_integrates_to_one(mean, scale):
 def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
     window = _dynamic_ctrv_window()
     stan_data = ctrv_model.build_stan_data(window)
-    initial_values = ctrv_model._default_initial_values(stan_data, seed=42)
+    initial_values = batch_inference._default_initial_values(stan_data, seed=42)
 
     assert initial_values["speed_state"].shape == (window.observation_count,)
     assert initial_values["turn_rate_state"].shape == (window.observation_count,)
@@ -433,7 +434,7 @@ def _assert_dynamic_batch_fit_interface(fit, *, prediction_count):
 )
 def test_dynamic_batch_ctrv_vi_integration():
     window = _dynamic_ctrv_window()
-    fit = ctrv_model.fit_bayesian_ctrv_model(
+    fit = batch_inference.fit_bayesian_ctrv_model(
         window,
         inference_method="vi",
         iter=3_000,
@@ -454,7 +455,7 @@ def test_dynamic_batch_ctrv_vi_integration():
 )
 def test_dynamic_batch_ctrv_mcmc_integration():
     window = _dynamic_ctrv_window()
-    fit = ctrv_model.fit_bayesian_ctrv_model(
+    fit = batch_inference.fit_bayesian_ctrv_model(
         window,
         inference_method="mcmc",
         chains=1,

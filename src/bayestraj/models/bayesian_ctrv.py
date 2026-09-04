@@ -6,21 +6,15 @@ there is no independent additive Cartesian position-process noise.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
-from pathlib import Path
 from statistics import NormalDist
 from typing import Any
 
 import numpy as np
-import pandas as pd
-from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 
-import bayestraj.inference.cmdstan as inference_support
 import bayestraj.observations.position as observation_support
 import bayestraj.observations.window as observation_window
 import bayestraj.stan as stan_resources
-import bayestraj.validation.reporting as reporting
 from bayestraj.models.ctrv import (
     PROCESS_REFERENCE_INTERVAL_SECONDS,
     SPEED_STATE_LOWER_MPS,
@@ -28,8 +22,6 @@ from bayestraj.models.ctrv import (
 
 STAN_FILE = stan_resources.stan_path("models/bayesian_ctrv.stan")
 
-DEFAULT_MEANFIELD_GRAD_SAMPLES = inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES
-DEFAULT_VI_ADAPT_ITER = inference_support.DEFAULT_VI_ADAPT_ITER
 MIN_OBSERVATION_COUNT = 3
 
 PositionObservations = observation_support.PositionObservations
@@ -190,143 +182,6 @@ def build_stan_data(
     }
 
 
-def compile_bayesian_ctrv_model(
-    stan_file: str | Path = STAN_FILE,
-) -> CmdStanModel:
-    """Compile and return the parametric Bayesian CTRV model."""
-    stan_path = Path(stan_file)
-    if not stan_path.is_file():
-        raise FileNotFoundError(f"Stan model not found: {stan_path}")
-    return CmdStanModel(stan_file=str(stan_path))
-
-
-def fit_bayesian_ctrv_model(
-    window: observation_window.TrajectoryWindowData,
-    *,
-    priors: BayesianCTRVPriors | None = None,
-    position_observations: PositionObservations | None = None,
-    inference_method: str = "vi",
-    algorithm: str = "meanfield",
-    iter: int = 20_000,
-    grad_samples: int = DEFAULT_MEANFIELD_GRAD_SAMPLES,
-    elbo_samples: int = 100,
-    eta: float = 1.0,
-    adapt_iter: int = DEFAULT_VI_ADAPT_ITER,
-    tol_rel_obj: float = 0.01,
-    eval_elbo: int = 100,
-    draws: int = 1_000,
-    chains: int = 4,
-    parallel_chains: int | None = None,
-    iter_warmup: int = 1_000,
-    iter_sampling: int = 1_000,
-    adapt_delta: float = 0.9,
-    max_treedepth: int = 10,
-    seed: int = 42,
-    inits: Mapping[str, Any] | Sequence[Mapping[str, Any]] | str | float | None = None,
-    require_converged: bool = True,
-    show_console: bool = False,
-    variational_options: Mapping[str, Any] | None = None,
-    mcmc_options: Mapping[str, Any] | None = None,
-) -> CmdStanVB | CmdStanMCMC:
-    """Fit the latent-state CTRV model with VI or MCMC."""
-    inference_method = inference_support.normalize_inference_method(inference_method)
-    stan_data = build_stan_data(
-        window,
-        priors=priors,
-        position_observations=position_observations,
-    )
-    model = compile_bayesian_ctrv_model()
-
-    if inference_method == "vi":
-        if mcmc_options:
-            raise ValueError("mcmc_options can only be used with MCMC inference.")
-        return inference_support.run_variational_inference(
-            model,
-            stan_data,
-            algorithm=algorithm,
-            iter=iter,
-            grad_samples=grad_samples,
-            elbo_samples=elbo_samples,
-            eta=eta,
-            adapt_iter=adapt_iter,
-            tol_rel_obj=tol_rel_obj,
-            eval_elbo=eval_elbo,
-            draws=draws,
-            seed=seed,
-            inits=inits,
-            default_inits_factory=lambda: _default_initial_values(
-                stan_data,
-                seed=seed,
-            ),
-            require_converged=require_converged,
-            show_console=show_console,
-            options=variational_options,
-        )
-
-    if variational_options:
-        raise ValueError("variational_options can only be used with VI inference.")
-    return inference_support.run_mcmc_inference(
-        model,
-        stan_data,
-        chains=chains,
-        parallel_chains=parallel_chains,
-        iter_warmup=iter_warmup,
-        iter_sampling=iter_sampling,
-        adapt_delta=adapt_delta,
-        max_treedepth=max_treedepth,
-        seed=seed,
-        inits=inits,
-        default_inits_factory=lambda: [
-            _default_initial_values(stan_data, seed=seed + chain_index)
-            for chain_index in range(chains)
-        ],
-        show_console=show_console,
-        options=mcmc_options,
-    )
-
-
-def summarize_predictions(
-    fit: Any,
-    window: observation_window.TrajectoryWindowData,
-    credible_interval: float = 0.9,
-    *,
-    prediction_variables: Mapping[str, str] | None = None,
-) -> pd.DataFrame:
-    """Summarize future model positions and sensor observations."""
-    if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
-        raise ValueError("credible_interval must be between 0 and 1.")
-    if prediction_variables is None:
-        prediction_variables = {
-            "x": "x_prediction",
-            "y": "y_prediction",
-            "x_observation": "x_observation_prediction",
-            "y_observation": "y_observation_prediction",
-        }
-    lower_probability = (1 - credible_interval) / 2
-    upper_probability = 1 - lower_probability
-    prediction = window.prediction_slice
-    table_data: dict[str, Any] = {
-        "time": window.timestamps[prediction],
-        "t": window.time_seconds[prediction],
-        "x_actual": window.x_meters[prediction],
-        "y_actual": window.y_meters[prediction],
-    }
-    for prefix, variable_name in prediction_variables.items():
-        samples = _prediction_samples(fit, variable_name, window.prediction_count)
-        table_data[f"{prefix}_median"] = np.median(samples, axis=0)
-        table_data[f"{prefix}_lower"] = np.quantile(
-            samples,
-            lower_probability,
-            axis=0,
-        )
-        table_data[f"{prefix}_upper"] = np.quantile(
-            samples,
-            upper_probability,
-            axis=0,
-        )
-    return pd.DataFrame(table_data)
-
-
 def estimate_constant_motion_from_positions(
     time_seconds,
     x_meters,
@@ -371,48 +226,6 @@ def estimate_constant_motion_from_positions(
     return speed, heading_initial, float(turn_rate)
 
 
-def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
-    """Create seeded latent-state initials from the position history."""
-    generator = np.random.default_rng(seed)
-    x_true = _smooth_position_initials(stan_data["x_observed"])
-    y_true = _smooth_position_initials(stan_data["y_observed"])
-    observation_noise_initial = 1.0 / float(
-        stan_data["sigma_position_observation_prior_rate"]
-    )
-    latent_jitter_scale = 0.02 * observation_noise_initial
-    x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
-    y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
-    speed, heading_initial, turn_rate = estimate_constant_motion_from_positions(
-        stan_data["time_observed"],
-        x_true,
-        y_true,
-    )
-    speed_jitter = 0.02 * float(stan_data["speed_prior_scale"])
-    turn_jitter = 0.02 * float(stan_data["turn_rate_prior_scale"])
-    angle_limit = np.pi - 1e-6
-    return {
-        "x_initial": float(x_true[0]),
-        "y_initial": float(y_true[0]),
-        "speed_state": np.maximum(
-            speed + generator.normal(0.0, speed_jitter, x_true.size),
-            float(stan_data["speed_state_lower_mps"]),
-        ),
-        "heading_initial": float(
-            np.clip(
-                heading_initial + generator.normal(0.0, 0.01),
-                -angle_limit,
-                angle_limit,
-            )
-        ),
-        "turn_rate_state": turn_rate + generator.normal(0.0, turn_jitter, x_true.size),
-        "sigma_position_observation": float(observation_noise_initial),
-        "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
-        "sigma_turn_rate_process": float(
-            0.5 / stan_data["sigma_turn_rate_process_prior_rate"]
-        ),
-    }
-
-
 def _validate_time_arrays(time_observed, time_prediction) -> None:
     """Validate selected history and future timestamps."""
     observation_support.validate_finite_vector("time_observed", time_observed)
@@ -435,25 +248,3 @@ def _two_sided_normal_scale(absolute_upper: float, tail_probability: float) -> f
 def _exponential_rate_from_tail(upper: float, tail_probability: float) -> float:
     """Return an exponential rate from one upper-tail probability statement."""
     return float(-np.log(tail_probability) / upper)
-
-
-def _smooth_position_initials(observed) -> np.ndarray:
-    """Return a lightly smoothed position history for latent-state initials."""
-    observed = np.asarray(observed, dtype=float)
-    initial = observed.copy()
-    initial[1:-1] = 0.25 * observed[:-2] + 0.5 * observed[1:-1] + 0.25 * observed[2:]
-    return initial
-
-
-def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):
-    """Extract one finite posterior prediction matrix."""
-    samples = reporting.posterior_variable_samples(fit, variable_name)
-    if samples.ndim != 2 or samples.shape[1] != prediction_count:
-        raise ValueError(
-            f"Posterior variable {variable_name!r} has an unexpected shape."
-        )
-    if samples.shape[0] == 0 or not np.all(np.isfinite(samples)):
-        raise ValueError(
-            f"Posterior variable {variable_name!r} must contain finite draws."
-        )
-    return samples

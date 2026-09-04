@@ -1,9 +1,13 @@
 """Console reporting helpers for trajectory forecast validation."""
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+
+import bayestraj.observations.window as observation_window
 
 MIN_SEPARATOR_WIDTH = 72
 
@@ -86,6 +90,48 @@ def posterior_variable_samples(fit, variable_name):
     else:
         values = fit.stan_variable(variable_name)
     return np.asarray(values, dtype=float)
+
+
+def summarize_predictions(
+    fit: Any,
+    window: observation_window.TrajectoryWindowData,
+    credible_interval: float = 0.9,
+    *,
+    prediction_variables: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """Summarize future model positions and sensor observations."""
+    if not np.isfinite(credible_interval) or not 0 < credible_interval < 1:
+        raise ValueError("credible_interval must be between 0 and 1.")
+    if prediction_variables is None:
+        prediction_variables = {
+            "x": "x_prediction",
+            "y": "y_prediction",
+            "x_observation": "x_observation_prediction",
+            "y_observation": "y_observation_prediction",
+        }
+    lower_probability = (1 - credible_interval) / 2
+    upper_probability = 1 - lower_probability
+    prediction = window.prediction_slice
+    table_data: dict[str, Any] = {
+        "time": window.timestamps[prediction],
+        "t": window.time_seconds[prediction],
+        "x_actual": window.x_meters[prediction],
+        "y_actual": window.y_meters[prediction],
+    }
+    for prefix, variable_name in prediction_variables.items():
+        samples = _prediction_samples(fit, variable_name, window.prediction_count)
+        table_data[f"{prefix}_median"] = np.median(samples, axis=0)
+        table_data[f"{prefix}_lower"] = np.quantile(
+            samples,
+            lower_probability,
+            axis=0,
+        )
+        table_data[f"{prefix}_upper"] = np.quantile(
+            samples,
+            upper_probability,
+            axis=0,
+        )
+    return pd.DataFrame(table_data)
 
 
 def posterior_parameter_summary(fit, variable_names, credible_interval=0.9):
@@ -206,3 +252,17 @@ def print_prediction_setup(
     print(title)
     print(separator)
     print(format_aligned_rows(rows))
+
+
+def _prediction_samples(fit: Any, variable_name: str, prediction_count: int):
+    """Extract one finite posterior prediction matrix."""
+    samples = posterior_variable_samples(fit, variable_name)
+    if samples.ndim != 2 or samples.shape[1] != prediction_count:
+        raise ValueError(
+            f"Posterior variable {variable_name!r} has an unexpected shape."
+        )
+    if samples.shape[0] == 0 or not np.all(np.isfinite(samples)):
+        raise ValueError(
+            f"Posterior variable {variable_name!r} must contain finite draws."
+        )
+    return samples
