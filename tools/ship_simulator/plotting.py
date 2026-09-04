@@ -1,4 +1,4 @@
-"""Plotting utilities for the interactive ship trajectory GUI."""
+"""Plotting utilities for the standalone ship trajectory GUI."""
 
 import tkinter as tk
 

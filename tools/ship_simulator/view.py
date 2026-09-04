@@ -1,4 +1,4 @@
-"""Main-window presentation for the interactive ship trajectory GUI."""
+"""Main-window presentation for the standalone ship trajectory GUI."""
 
 import tkinter as tk
 

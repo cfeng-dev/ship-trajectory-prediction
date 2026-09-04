@@ -1,4 +1,4 @@
-"""Interactive GUI for steering, controlling, and exporting a 2D simulation."""
+"""Standalone GUI for steering, controlling, and exporting a 2D simulation."""
 
 from datetime import datetime, timezone
 

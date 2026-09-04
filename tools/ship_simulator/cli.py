@@ -1,4 +1,4 @@
-"""Start the interactive 2D ship trajectory simulation GUI."""
+"""Start the standalone 2D ship trajectory simulation GUI."""
 
 from . import gui
 

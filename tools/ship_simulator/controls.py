@@ -1,4 +1,4 @@
-"""Tkinter controls for the interactive ship trajectory GUI."""
+"""Tkinter controls for the standalone ship trajectory GUI."""
 
 import tkinter as tk
 

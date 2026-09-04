@@ -1,4 +1,4 @@
-"""Default output locations owned by the standalone simulation package."""
+"""Default output locations owned by the standalone simulator tool."""
 
 from pathlib import Path
 

@@ -1,4 +1,4 @@
-"""Dialog workflows for the interactive ship trajectory GUI."""
+"""Dialog workflows for the standalone ship trajectory GUI."""
 
 import tkinter as tk
 from pathlib import Path

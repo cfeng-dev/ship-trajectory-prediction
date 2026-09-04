@@ -1,4 +1,4 @@
-"""DataFrame creation and CSV export for simulated trajectory data."""
+"""DataFrame creation and CSV export for the standalone simulator tool."""
 
 from dataclasses import dataclass
 from pathlib import Path

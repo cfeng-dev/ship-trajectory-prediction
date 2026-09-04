@@ -1,4 +1,4 @@
-"""Configuration values for the interactive ship trajectory GUI."""
+"""Configuration values for the standalone ship trajectory GUI."""
 
 from dataclasses import dataclass, field
 

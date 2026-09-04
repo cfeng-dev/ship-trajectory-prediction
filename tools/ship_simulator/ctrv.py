@@ -1,4 +1,4 @@
-"""Minimal CTRV transition owned by the standalone simulation package."""
+"""Minimal CTRV transition owned by the standalone simulator tool."""
 
 from dataclasses import dataclass
 from math import cos, isfinite, sin

@@ -1,4 +1,4 @@
-"""Synthetic noisy CTRV trajectories for Bayesian model validation."""
+"""Generate synthetic noisy CTRV trajectories with the simulator tool."""
 
 from __future__ import annotations
 

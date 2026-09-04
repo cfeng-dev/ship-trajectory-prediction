@@ -1,1 +1,0 @@
-"""Interactive ship trajectory simulation."""

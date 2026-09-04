@@ -1,4 +1,4 @@
-"""Coordinate conversion owned by the standalone simulation package."""
+"""Coordinate conversion owned by the standalone simulator tool."""
 
 import numpy as np
 

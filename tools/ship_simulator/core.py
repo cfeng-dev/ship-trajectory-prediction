@@ -1,4 +1,4 @@
-"""Trajectory models and a step-based 2D ship simulator."""
+"""Trajectory models for the standalone step-based 2D ship simulator."""
 
 import numpy as np
 

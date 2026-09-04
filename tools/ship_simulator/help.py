@@ -1,4 +1,4 @@
-"""Help window for the interactive ship trajectory GUI."""
+"""Help window for the standalone ship trajectory GUI."""
 
 import tkinter as tk
 from collections.abc import Callable
