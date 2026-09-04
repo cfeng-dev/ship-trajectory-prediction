@@ -1,9 +1,9 @@
-"""Tests for the standalone trajectory data checker."""
+"""Tests for the standalone trajectory checker."""
 
 import pandas as pd
 import pytest
-from trajectory_data_check import cli
-from trajectory_data_check.checker import check_trajectory_data
+from trajectory_checker import cli
+from trajectory_checker.checker import check_trajectory_data
 
 
 def _trajectory_data(**overrides):

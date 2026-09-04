@@ -1,4 +1,4 @@
-"""Run the trajectory data checker as a Python module."""
+"""Run the trajectory checker as a Python module."""
 
 from .cli import main
 

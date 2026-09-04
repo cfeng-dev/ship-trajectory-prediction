@@ -45,13 +45,13 @@ project's trajectory-data format and basic quality requirements before it is
 used by the models.
 
 ```bash
-uv run trajectory-data-check path/to/trajectory.csv
+uv run trajectory_checker path/to/trajectory.csv
 ```
 
 Only the first ten runs are shown by default. Show all runs with:
 
 ```bash
-uv run trajectory-data-check path/to/trajectory.csv --all-runs
+uv run trajectory_checker path/to/trajectory.csv --all-runs
 ```
 
 ## Code Quality and Tests

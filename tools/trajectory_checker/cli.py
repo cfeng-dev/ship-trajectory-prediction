@@ -1,4 +1,4 @@
-"""Command-line interface for trajectory CSV validation."""
+"""Command-line interface for the trajectory checker."""
 
 import argparse
 import math
@@ -36,7 +36,7 @@ def print_report(
     show_all_runs: bool = False,
 ) -> None:
     """Print a readable validation result and compact per-run summaries."""
-    print("Trajectory data check")
+    print("Trajectory checker")
     print("=" * 60)
     print(f"File                  : {report.source}")
     print(f"Rows                  : {report.row_count}")

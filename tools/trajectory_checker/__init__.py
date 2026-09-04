@@ -1,4 +1,4 @@
-"""Validate and summarize trajectory CSV data."""
+"""Check and summarize trajectory CSV data."""
 
 from .checker import (
     REQUIRED_TRAJECTORY_COLUMNS,

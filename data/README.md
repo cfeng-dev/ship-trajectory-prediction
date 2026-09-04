@@ -22,7 +22,7 @@ uv run ship-simulator
 Validate a trajectory file and print per-run sampling and movement statistics:
 
 ```bash
-uv run trajectory-data-check data/simulated/example_simulated_trajectory.csv
+uv run trajectory_checker data/simulated/example_simulated_trajectory.csv
 ```
 
 Plot the included example dataset from the project root:

@@ -1,4 +1,4 @@
-"""Validation and summary calculations for trajectory CSV data."""
+"""Validation and summary calculations used by the trajectory checker."""
 
 from dataclasses import dataclass
 from pathlib import Path
