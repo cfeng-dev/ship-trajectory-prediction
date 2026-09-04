@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from matplotlib.backend_bases import KeyEvent
+from matplotlib.backend_bases import FigureCanvasBase, KeyEvent, MouseEvent
 
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -51,6 +51,27 @@ class _FakeFit:
 
     def stan_variable(self, variable_name, **_kwargs):
         return self._variables[variable_name]
+
+
+class _FakeTimer:
+    def __init__(self, interval):
+        self.interval = interval
+        self.callbacks = []
+        self.start_count = 0
+        self.stop_count = 0
+
+    def add_callback(self, callback, *args, **kwargs):
+        self.callbacks.append((callback, args, kwargs))
+
+    def start(self):
+        self.start_count += 1
+
+    def stop(self):
+        self.stop_count += 1
+
+    def fire(self):
+        for callback, args, kwargs in tuple(self.callbacks):
+            callback(*args, **kwargs)
 
 
 def _dashboard_samples(offset=0.0):
@@ -317,6 +338,7 @@ def test_dashboard_script_runs_the_shared_analysis_without_showing():
     assert calls[0]["priors"] is script.PRIORS
     assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
     assert calls[0]["rbpf_seed"] == 42
+    assert calls[0]["playback_interval_ms"] == 1_000
     assert calls[0]["show_legend"] is True
     assert calls[0]["show"] is False
 
@@ -358,5 +380,259 @@ def test_dashboard_keeps_manual_trajectory_zoom_when_posterior_stage_changes():
 
         assert navigator.trajectory_axis.get_xlim() == pytest.approx(zoomed_xlim)
         assert navigator.trajectory_axis.get_ylim() == pytest.approx(zoomed_ylim)
+    finally:
+        plt.close(figure)
+
+
+def test_dashboard_playback_advances_stops_and_restarts(monkeypatch):
+    dashboard = _load_dashboard_module()
+    fake_timer = _FakeTimer(interval=750)
+    monkeypatch.setattr(
+        FigureCanvasBase,
+        "new_timer",
+        lambda _canvas, *, interval, callbacks=None: fake_timer,
+    )
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0],
+        reference_y=[0.0, 1.0],
+        observed_x=[0.0, 1.0],
+        observed_y=[0.0, 1.0],
+    )
+    loaded_counts = []
+
+    def load_update(observation_count):
+        loaded_counts.append(observation_count)
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=2,
+        playback_interval_ms=750,
+    )
+
+    try:
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Start"
+        assert fake_timer.interval == 750
+
+        navigator.toggle_playback(None)
+        assert navigator.is_playing is True
+        assert navigator.playback_button.label.get_text() == "Pause"
+        assert fake_timer.start_count == 1
+
+        fake_timer.fire()
+        assert navigator.observation_count == 1
+        assert loaded_counts == [1]
+        assert navigator.is_playing is True
+
+        fake_timer.fire()
+        assert navigator.observation_count == 2
+        assert loaded_counts == [1, 2]
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Neu starten"
+        assert fake_timer.stop_count == 1
+
+        navigator.toggle_playback(None)
+        assert navigator.observation_count == 0
+        assert navigator.is_playing is True
+        assert navigator.playback_button.label.get_text() == "Pause"
+        assert fake_timer.start_count == 2
+
+        navigator.toggle_playback(None)
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Start"
+        assert fake_timer.stop_count == 2
+    finally:
+        plt.close(figure)
+
+
+@pytest.mark.parametrize("space_key", [" ", "space"])
+def test_dashboard_space_key_toggles_and_restarts_playback(monkeypatch, space_key):
+    dashboard = _load_dashboard_module()
+    fake_timer = _FakeTimer(interval=1_000)
+    monkeypatch.setattr(
+        FigureCanvasBase,
+        "new_timer",
+        lambda _canvas, *, interval, callbacks=None: fake_timer,
+    )
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0],
+        reference_y=[0.0, 1.0],
+        observed_x=[0.0, 1.0],
+        observed_y=[0.0, 1.0],
+    )
+
+    def load_update(observation_count):
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=1,
+    )
+
+    def press_space():
+        event = KeyEvent("key_press_event", figure.canvas, key=space_key)
+        figure.canvas.callbacks.process("key_press_event", event)
+
+    try:
+        press_space()
+        assert navigator.is_playing is True
+        assert navigator.playback_button.label.get_text() == "Pause"
+        assert fake_timer.start_count == 1
+
+        fake_timer.fire()
+        assert navigator.observation_count == 1
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Neu starten"
+
+        press_space()
+        assert navigator.observation_count == 0
+        assert navigator.is_playing is True
+        assert navigator.playback_button.label.get_text() == "Pause"
+        assert fake_timer.start_count == 2
+
+        press_space()
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Start"
+        assert fake_timer.stop_count == 2
+    finally:
+        plt.close(figure)
+
+
+def test_manual_dashboard_navigation_pauses_playback(monkeypatch):
+    dashboard = _load_dashboard_module()
+    fake_timer = _FakeTimer(interval=1_000)
+    monkeypatch.setattr(
+        FigureCanvasBase,
+        "new_timer",
+        lambda _canvas, *, interval, callbacks=None: fake_timer,
+    )
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 2.0],
+        reference_y=[0.0, 1.0, 1.5],
+        observed_x=[0.0, 1.0, 2.0],
+        observed_y=[0.0, 1.0, 1.5],
+    )
+    loaded_counts = []
+
+    def load_update(observation_count):
+        loaded_counts.append(observation_count)
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=3,
+    )
+
+    try:
+        navigator.toggle_playback(None)
+        event = KeyEvent("key_press_event", figure.canvas, key="right")
+        figure.canvas.callbacks.process("key_press_event", event)
+
+        assert navigator.observation_count == 1
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Start"
+        assert fake_timer.stop_count == 1
+
+        navigator.toggle_playback(None)
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
+
+        assert navigator.observation_count == 3
+        assert navigator.is_playing is False
+        assert navigator.playback_button.label.get_text() == "Neu starten"
+        assert fake_timer.stop_count == 2
+        assert loaded_counts == [1, 2, 3]
+    finally:
+        plt.close(figure)
+
+
+@pytest.mark.parametrize("playback_interval_ms", [True, 1.5, 0, -1])
+def test_dashboard_rejects_invalid_playback_intervals(playback_interval_ms):
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0],
+        reference_y=[0.0, 1.0],
+        observed_x=[0.0, 1.0],
+        observed_y=[0.0, 1.0],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="playback_interval_ms must be a positive integer",
+    ):
+        dashboard.create_sequential_posterior_dashboard_figure(
+            trajectory,
+            bayesian_model.BayesianCTRVPriors(),
+            lambda _count: None,
+            maximum_observation_count=2,
+            playback_interval_ms=playback_interval_ms,
+        )
+
+
+def test_playback_button_click_is_not_handled_as_slider_release(monkeypatch):
+    dashboard = _load_dashboard_module()
+    fake_timer = _FakeTimer(interval=1_000)
+    monkeypatch.setattr(
+        FigureCanvasBase,
+        "new_timer",
+        lambda _canvas, *, interval, callbacks=None: fake_timer,
+    )
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0],
+        reference_y=[0.0, 1.0],
+        observed_x=[0.0, 1.0],
+        observed_y=[0.0, 1.0],
+    )
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        lambda observation_count: dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        ),
+        maximum_observation_count=2,
+    )
+
+    try:
+        x_position, y_position = navigator.playback_button.ax.transAxes.transform(
+            (0.5, 0.5)
+        )
+        press = MouseEvent(
+            "button_press_event",
+            figure.canvas,
+            x_position,
+            y_position,
+            button=1,
+        )
+        release = MouseEvent(
+            "button_release_event",
+            figure.canvas,
+            x_position,
+            y_position,
+            button=1,
+        )
+        figure.canvas.callbacks.process("button_press_event", press)
+        figure.canvas.callbacks.process("button_release_event", release)
+
+        assert navigator.is_playing is True
+        assert navigator.playback_button.label.get_text() == "Pause"
+        assert fake_timer.start_count == 1
+        assert fake_timer.stop_count == 0
     finally:
         plt.close(figure)

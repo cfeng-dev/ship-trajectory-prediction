@@ -15,6 +15,7 @@ START_INDEX = 0
 POSITION_NOISE_STD_M = 5.0
 POSITION_NOISE_SEED = 2026
 RBPF_SEED = 42
+PLAYBACK_INTERVAL_MS = dashboard.DEFAULT_PLAYBACK_INTERVAL_MS
 SHOW_LEGEND = True
 PRIORS = bayesian_model.BayesianCTRVPriors()
 RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
@@ -34,6 +35,7 @@ def main(argv=None):
         priors=PRIORS,
         rbpf_config=RBPF_CONFIG,
         rbpf_seed=RBPF_SEED,
+        playback_interval_ms=PLAYBACK_INTERVAL_MS,
         show_legend=SHOW_LEGEND,
         show=not arguments.no_show,
     )

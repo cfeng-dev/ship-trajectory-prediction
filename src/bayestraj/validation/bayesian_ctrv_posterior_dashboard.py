@@ -7,7 +7,7 @@ from types import MappingProxyType
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.widgets import RadioButtons, Slider
+from matplotlib.widgets import Button, RadioButtons, Slider
 
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -34,6 +34,7 @@ PARAMETER_GROUP_LABELS = {
     "noise": "Unsicherheiten",
 }
 FIGURE_SIZE = (15.0, 8.5)
+DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,7 @@ class PosteriorDashboardNavigator:
         *,
         maximum_observation_count,
         show_legend,
+        playback_interval_ms,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -135,6 +137,8 @@ class PosteriorDashboardNavigator:
         self._observation_count = 0
         self._parameter_group = "motion"
         self._trajectory_has_been_drawn = False
+        self._is_playing = False
+        self._slider_interaction_active = False
         self._specs_by_name = {
             name: prior_posterior.build_parameter_spec(name, priors)
             for name in PARAMETER_NAMES
@@ -144,7 +148,12 @@ class PosteriorDashboardNavigator:
             for name, spec in self._specs_by_name.items()
         }
 
-        slider_axis = figure.add_axes((0.12, 0.065, 0.58, 0.035))
+        playback_axis = figure.add_axes((0.025, 0.05, 0.085, 0.055))
+        self.playback_button = Button(playback_axis, "Start")
+        self._playback_timer = figure.canvas.new_timer(interval=playback_interval_ms)
+        self._playback_timer.add_callback(self.advance_playback)
+
+        slider_axis = figure.add_axes((0.15, 0.065, 0.55, 0.035))
         slider_steps = np.arange(maximum_observation_count + 1, dtype=float)
         self.slider = Slider(
             slider_axis,
@@ -162,14 +171,19 @@ class PosteriorDashboardNavigator:
             tuple(PARAMETER_GROUP_LABELS.values()),
             active=0,
         )
+        self._slider_press_connection = figure.canvas.mpl_connect(
+            "button_press_event",
+            self._handle_mouse_press,
+        )
         self._slider_release_connection = figure.canvas.mpl_connect(
             "button_release_event",
-            self.show_selected_observation_count,
+            self._handle_mouse_release,
         )
         self._key_press_connection = figure.canvas.mpl_connect(
             "key_press_event",
             self.handle_key_press,
         )
+        self.playback_button.on_clicked(self.toggle_playback)
         self.group_selector.on_clicked(self._select_parameter_group)
         self._draw()
 
@@ -188,14 +202,56 @@ class PosteriorDashboardNavigator:
         """Return the three parameters visible in the posterior column."""
         return PARAMETER_GROUPS[self.parameter_group]
 
+    @property
+    def is_playing(self) -> bool:
+        """Return whether automatic posterior playback is active."""
+        return self._is_playing
+
+    def toggle_playback(self, _event) -> None:
+        """Start, pause, or restart automatic posterior playback."""
+        if self.is_playing:
+            self._stop_playback()
+            return
+        if self.observation_count == self.maximum_observation_count:
+            self.slider.set_val(0)
+            self.show_selected_observation_count(None)
+        self._is_playing = True
+        self._update_playback_button_label()
+        self._playback_timer.start()
+
+    def advance_playback(self) -> None:
+        """Advance automatic playback by exactly one observation stage."""
+        if not self.is_playing:
+            return
+        observation_count = self.observation_count + 1
+        self.slider.set_val(observation_count)
+        self._show_observation_count(observation_count)
+        if observation_count == self.maximum_observation_count:
+            self._stop_playback()
+
     def show_selected_observation_count(self, _event) -> None:
         """Load missing stages and display the slider-selected observation count."""
+        if self.is_playing:
+            self._stop_playback()
         observation_count = int(round(self.slider.val))
+        self._show_observation_count(observation_count)
+
+    def _handle_mouse_press(self, event) -> None:
+        self._slider_interaction_active = event.inaxes is self.slider.ax
+
+    def _handle_mouse_release(self, event) -> None:
+        if not self._slider_interaction_active:
+            return
+        self._slider_interaction_active = False
+        self.show_selected_observation_count(event)
+
+    def _show_observation_count(self, observation_count) -> None:
         if observation_count == self.observation_count:
             return
         if observation_count == 0:
             self._observation_count = 0
             self._draw()
+            self._update_playback_button_label()
             return
 
         loaded_update = False
@@ -216,11 +272,17 @@ class PosteriorDashboardNavigator:
             self._update_density_grids()
         self._observation_count = observation_count
         self._draw()
+        self._update_playback_button_label()
 
     def handle_key_press(self, event) -> None:
-        """Move one posterior stage with the left or right arrow key."""
+        """Control playback or move one stage with the supported keys."""
+        if event.key in {" ", "space"}:
+            self.toggle_playback(event)
+            return
         if event.key not in {"left", "right"}:
             return
+        if self.is_playing:
+            self._stop_playback()
         step = -1 if event.key == "left" else 1
         observation_count = min(
             max(self.observation_count + step, 0),
@@ -229,7 +291,7 @@ class PosteriorDashboardNavigator:
         if observation_count == self.observation_count:
             return
         self.slider.set_val(observation_count)
-        self.show_selected_observation_count(event)
+        self._show_observation_count(observation_count)
 
     def _select_parameter_group(self, selected_label) -> None:
         for group, label in PARAMETER_GROUP_LABELS.items():
@@ -238,6 +300,21 @@ class PosteriorDashboardNavigator:
                 self._draw()
                 return
         raise ValueError("The selected posterior group is unavailable.")
+
+    def _stop_playback(self) -> None:
+        self._playback_timer.stop()
+        self._is_playing = False
+        self._update_playback_button_label()
+
+    def _update_playback_button_label(self) -> None:
+        if self.is_playing:
+            label = "Pause"
+        elif self.observation_count == self.maximum_observation_count:
+            label = "Neu starten"
+        else:
+            label = "Start"
+        self.playback_button.label.set_text(label)
+        self.figure.canvas.draw_idle()
 
     def _update_density_grids(self) -> None:
         for parameter_name, spec in self._specs_by_name.items():
@@ -374,6 +451,7 @@ def create_sequential_posterior_dashboard_figure(
     *,
     maximum_observation_count,
     show_legend=True,
+    playback_interval_ms=DEFAULT_PLAYBACK_INTERVAL_MS,
 ):
     """Create one interactive route and multi-parameter posterior figure."""
     if not isinstance(trajectory, PosteriorDashboardTrajectory):
@@ -388,6 +466,13 @@ def create_sequential_posterior_dashboard_figure(
         or not 1 <= maximum_observation_count <= trajectory.reference_x.size
     ):
         raise ValueError("maximum_observation_count must fit within the trajectory.")
+    if (
+        isinstance(playback_interval_ms, bool)
+        or not isinstance(playback_interval_ms, (int, np.integer))
+        or playback_interval_ms < 1
+    ):
+        raise ValueError("playback_interval_ms must be a positive integer.")
+    playback_interval_ms = int(playback_interval_ms)
 
     figure = plt.figure(figsize=FIGURE_SIZE)
     grid = figure.add_gridspec(
@@ -412,6 +497,7 @@ def create_sequential_posterior_dashboard_figure(
         update_loader,
         maximum_observation_count=maximum_observation_count,
         show_legend=show_legend,
+        playback_interval_ms=playback_interval_ms,
     )
     return figure, navigator
 
@@ -549,6 +635,7 @@ def run_bayesian_ctrv_posterior_dashboard(
     priors,
     rbpf_config,
     rbpf_seed,
+    playback_interval_ms,
     show_legend,
     show=True,
 ):
@@ -593,6 +680,7 @@ def run_bayesian_ctrv_posterior_dashboard(
         load_update,
         maximum_observation_count=maximum_observation_count,
         show_legend=show_legend,
+        playback_interval_ms=playback_interval_ms,
     )
     if show:
         plt.show(block=True)
