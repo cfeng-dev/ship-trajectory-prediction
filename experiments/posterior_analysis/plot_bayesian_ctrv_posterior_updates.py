@@ -10,15 +10,40 @@ import bayestraj.validation.bayesian_ctrv_posterior_dashboard as dashboard
 DATA_FILE = paths.data_path(
     "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
 )
-RUN_ID = 102
-START_INDEX = 0
-POSITION_NOISE_STD_M = 5.0
-POSITION_NOISE_SEED = 2026
-RBPF_SEED = 42
+
+# Posterior-update inference:
+# - Batch: "vi" or "mcmc".
+# - Online: "rbpf" or "smc".
+# None uses the largest supported observation count. Prefer a small value for
+# VI/MCMC because every new posterior stage requires a separate batch fit.
+EXPERIMENT = dashboard.PosteriorDashboardConfig(
+    run_id=102,
+    start_index=0,
+    maximum_observation_count=None,
+    position_noise_std_m=5.0,
+    position_noise_seed=2026,
+    inference_method="rbpf",
+    inference_seed=42,
+)
+PRIORS = bayesian_model.BayesianCTRVPriors(
+    speed_prior_upper_mps=20.0,
+    speed_prior_tail_probability=0.05,
+    turn_rate_prior_abs_heading_change_deg=45.0,
+    turn_rate_prior_reference_interval_seconds=10.0,
+    turn_rate_prior_tail_probability=0.05,
+    sigma_position_observation_prior_upper_m=20.0,
+    sigma_position_observation_prior_tail_probability=0.05,
+    sigma_speed_process_prior_upper_mps=5.0,
+    sigma_speed_process_prior_tail_probability=0.05,
+    sigma_turn_rate_process_prior_upper_deg_s=4.5,
+    sigma_turn_rate_process_prior_tail_probability=0.05,
+)
+VI_CONFIG = inference.create_default_vi_config()
+MCMC_CONFIG = inference.create_default_mcmc_config()
+RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
+SMC_CONFIG = inference.create_default_ctrv_smc_config()
 PLAYBACK_INTERVAL_MS = dashboard.DEFAULT_PLAYBACK_INTERVAL_MS
 SHOW_LEGEND = True
-PRIORS = bayesian_model.BayesianCTRVPriors()
-RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
 
 
 def main(argv=None):
@@ -28,13 +53,12 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     return dashboard.run_bayesian_ctrv_posterior_dashboard(
         data_file=DATA_FILE,
-        run_id=RUN_ID,
-        start_index=START_INDEX,
-        position_noise_std_m=POSITION_NOISE_STD_M,
-        position_noise_seed=POSITION_NOISE_SEED,
+        experiment=EXPERIMENT,
         priors=PRIORS,
+        vi_config=VI_CONFIG,
+        mcmc_config=MCMC_CONFIG,
         rbpf_config=RBPF_CONFIG,
-        rbpf_seed=RBPF_SEED,
+        smc_config=SMC_CONFIG,
         playback_interval_ms=PLAYBACK_INTERVAL_MS,
         show_legend=SHOW_LEGEND,
         show=not arguments.no_show,

@@ -9,7 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.widgets import Button, RadioButtons, Slider
 
+import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
@@ -38,8 +41,29 @@ DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 
 
 @dataclass(frozen=True, slots=True)
+class PosteriorDashboardConfig:
+    """Configuration of one Bayesian CTRV posterior-update dashboard."""
+
+    run_id: int
+    start_index: int
+    maximum_observation_count: int | None
+    position_noise_std_m: float
+    position_noise_seed: int
+    inference_method: str
+    inference_seed: int
+
+    def __post_init__(self) -> None:
+        """Normalize the selected batch or online inference method."""
+        _, inference_method = inference.normalize_inference_method(
+            self.inference_method,
+            online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+        )
+        object.__setattr__(self, "inference_method", inference_method)
+
+
+@dataclass(frozen=True, slots=True)
 class PosteriorDashboardTrajectory:
-    """Reference route and the positions supplied to the online filter."""
+    """Reference route and the positions supplied to inference."""
 
     reference_x: np.ndarray
     reference_y: np.ndarray
@@ -70,7 +94,7 @@ class PosteriorDashboardTrajectory:
 
 @dataclass(frozen=True, slots=True)
 class PosteriorDashboardUpdate:
-    """All parameter draws and diagnostics after one sequential update."""
+    """All parameter draws and diagnostics after one inference stage."""
 
     observation_count: int
     samples_by_parameter: dict[str, np.ndarray]
@@ -122,6 +146,7 @@ class PosteriorDashboardNavigator:
         update_loader,
         *,
         maximum_observation_count,
+        minimum_posterior_observation_count,
         show_legend,
         playback_interval_ms,
     ):
@@ -132,6 +157,7 @@ class PosteriorDashboardNavigator:
         self.priors = priors
         self._update_loader = update_loader
         self.maximum_observation_count = maximum_observation_count
+        self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
         self._updates_by_count = {}
         self._observation_count = 0
@@ -255,7 +281,10 @@ class PosteriorDashboardNavigator:
             return
 
         loaded_update = False
-        for missing_count in range(1, observation_count + 1):
+        for missing_count in range(
+            self.minimum_posterior_observation_count,
+            observation_count + 1,
+        ):
             if missing_count in self._updates_by_count:
                 continue
             update = self._update_loader(missing_count)
@@ -409,7 +438,7 @@ class PosteriorDashboardNavigator:
             linewidth=1.6,
             label="Ausgangs-Prior",
         )
-        if self.observation_count > 0:
+        if self.observation_count >= self.minimum_posterior_observation_count:
             samples = self._updates_by_count[
                 self.observation_count
             ].samples_by_parameter[parameter_name]
@@ -431,6 +460,20 @@ class PosteriorDashboardNavigator:
                 color=prior_posterior.POSTERIOR_FILL_COLOR,
                 alpha=0.18,
             )
+        elif self.observation_count > 0:
+            axis.text(
+                0.5,
+                0.88,
+                (
+                    "Posterior ab N = "
+                    f"{self.minimum_posterior_observation_count} verfügbar"
+                ),
+                transform=axis.transAxes,
+                ha="center",
+                va="top",
+                fontsize=9,
+                color="0.35",
+            )
         axis.set_title(spec.title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Dichte", fontsize=10)
@@ -450,6 +493,7 @@ def create_sequential_posterior_dashboard_figure(
     update_loader,
     *,
     maximum_observation_count,
+    minimum_posterior_observation_count=1,
     show_legend=True,
     playback_interval_ms=DEFAULT_PLAYBACK_INTERVAL_MS,
 ):
@@ -466,6 +510,15 @@ def create_sequential_posterior_dashboard_figure(
         or not 1 <= maximum_observation_count <= trajectory.reference_x.size
     ):
         raise ValueError("maximum_observation_count must fit within the trajectory.")
+    if (
+        isinstance(minimum_posterior_observation_count, bool)
+        or not isinstance(minimum_posterior_observation_count, (int, np.integer))
+        or not 1 <= minimum_posterior_observation_count <= maximum_observation_count
+    ):
+        raise ValueError(
+            "minimum_posterior_observation_count must fit within the dashboard."
+        )
+    minimum_posterior_observation_count = int(minimum_posterior_observation_count)
     if (
         isinstance(playback_interval_ms, bool)
         or not isinstance(playback_interval_ms, (int, np.integer))
@@ -496,10 +549,243 @@ def create_sequential_posterior_dashboard_figure(
         priors,
         update_loader,
         maximum_observation_count=maximum_observation_count,
+        minimum_posterior_observation_count=minimum_posterior_observation_count,
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
     )
     return figure, navigator
+
+
+def create_posterior_dashboard_loader(
+    trajectory_data,
+    *,
+    experiment,
+    priors,
+    vi_config,
+    mcmc_config,
+    rbpf_config,
+    smc_config,
+    initialize_online_filter=None,
+    fit_batch_model=None,
+):
+    """Create the selected batch or online posterior-update loader."""
+    if not isinstance(experiment, PosteriorDashboardConfig):
+        raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
+    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance.")
+    inference_mode, inference_method = inference.normalize_inference_method(
+        experiment.inference_method,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+    )
+    online_mode = inference_mode == "online"
+    trajectory, time_seconds, maximum_observation_count = (
+        _prepare_posterior_dashboard_trajectory(
+            trajectory_data,
+            experiment=experiment,
+            reserve_prediction=not online_mode,
+        )
+    )
+    specs = tuple(
+        prior_posterior.build_parameter_spec(parameter_name, priors)
+        for parameter_name in PARAMETER_NAMES
+    )
+
+    if online_mode:
+        if inference_method == "rbpf":
+            if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
+                raise TypeError(
+                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
+                )
+            filter_type = rbpf.SequentialBayesianCTRVFilter
+            particle_filter_config = rbpf_config
+        else:
+            if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
+                raise TypeError(
+                    "smc_config must be a SequentialMonteCarloCTRVConfig instance."
+                )
+            filter_type = smc.SequentialMonteCarloCTRVFilter
+            particle_filter_config = smc_config
+        if initialize_online_filter is None:
+            initialize_online_filter = filter_type.initialize
+        if not callable(initialize_online_filter):
+            raise TypeError("initialize_online_filter must be callable.")
+        print(f"Initialisiere {inference_method.upper()} mit N = 1 ...")
+        online_filter = initialize_online_filter(
+            time_seconds[:1],
+            trajectory.observed_x[:1],
+            trajectory.observed_y[:1],
+            priors=priors,
+            config=particle_filter_config,
+            seed=experiment.inference_seed,
+        )
+
+        def load_online_update(observation_count):
+            _validate_update_observation_count(
+                observation_count,
+                minimum=1,
+                maximum=maximum_observation_count,
+            )
+            if observation_count < online_filter.processed_observation_count:
+                raise ValueError("The online update loader cannot move backward.")
+            while online_filter.processed_observation_count < observation_count:
+                index = online_filter.processed_observation_count
+                print(
+                    f"Aktualisiere {inference_method.upper()} mit "
+                    f"Messpunkt N = {index + 1} ..."
+                )
+                online_filter.update(
+                    time_seconds[index],
+                    trajectory.observed_x[index],
+                    trajectory.observed_y[index],
+                )
+            fit = online_filter.sample_current_posterior(seed=experiment.inference_seed)
+            return PosteriorDashboardUpdate(
+                observation_count=observation_count,
+                samples_by_parameter=_extract_dashboard_samples(fit, specs),
+                effective_sample_size=online_filter.effective_sample_size,
+                particle_count=particle_filter_config.particle_count,
+                resample_count=online_filter.resample_count,
+            )
+
+        return trajectory, maximum_observation_count, 1, load_online_update
+
+    selected_config = dict(vi_config if inference_method == "vi" else mcmc_config)
+    if fit_batch_model is None:
+        fit_batch_model = batch_inference.fit_bayesian_ctrv_model
+    if not callable(fit_batch_model):
+        raise TypeError("fit_batch_model must be callable.")
+
+    def load_batch_update(observation_count):
+        _validate_update_observation_count(
+            observation_count,
+            minimum=bayesian_model.MIN_OBSERVATION_COUNT,
+            maximum=maximum_observation_count,
+        )
+        print(
+            f"Berechne {inference_method.upper()} Posterior mit "
+            f"N = {observation_count} ..."
+        )
+        window = observation_window.prepare_trajectory_window(
+            trajectory_data,
+            observation_count=observation_count,
+            prediction_count=1,
+            start_index=experiment.start_index,
+        )
+        position_observations = bayesian_model.PositionObservations(
+            time_seconds=window.time_seconds[window.observed_slice],
+            x_meters=trajectory.observed_x[:observation_count],
+            y_meters=trajectory.observed_y[:observation_count],
+            position_noise_std_m=experiment.position_noise_std_m,
+            noise_seed=experiment.position_noise_seed,
+        )
+        fit = fit_batch_model(
+            window,
+            priors=priors,
+            position_observations=position_observations,
+            inference_method=inference_method,
+            seed=experiment.inference_seed,
+            **selected_config,
+        )
+        return PosteriorDashboardUpdate(
+            observation_count=observation_count,
+            samples_by_parameter=_extract_dashboard_samples(fit, specs),
+        )
+
+    return (
+        trajectory,
+        maximum_observation_count,
+        bayesian_model.MIN_OBSERVATION_COUNT,
+        load_batch_update,
+    )
+
+
+def _prepare_posterior_dashboard_trajectory(
+    trajectory_data,
+    *,
+    experiment,
+    reserve_prediction,
+):
+    start_index = experiment.start_index
+    if (
+        isinstance(start_index, bool)
+        or not isinstance(start_index, int)
+        or start_index < 0
+    ):
+        raise ValueError("start_index must be a non-negative integer.")
+    available_observation_count = len(trajectory_data) - start_index
+    if available_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
+        raise ValueError(
+            "The selected trajectory must provide at least four consecutive positions."
+        )
+    maximum_supported_count = available_observation_count - int(reserve_prediction)
+    maximum_observation_count = experiment.maximum_observation_count
+    if maximum_observation_count is None:
+        maximum_observation_count = maximum_supported_count
+    if (
+        isinstance(maximum_observation_count, bool)
+        or not isinstance(maximum_observation_count, int)
+        or not bayesian_model.MIN_OBSERVATION_COUNT
+        <= maximum_observation_count
+        <= maximum_supported_count
+    ):
+        raise ValueError(
+            "maximum_observation_count must fit within the selected trajectory."
+        )
+
+    complete_window = observation_window.prepare_trajectory_window(
+        trajectory_data,
+        observation_count=available_observation_count - 1,
+        prediction_count=1,
+        start_index=start_index,
+    )
+    time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
+    reference_x = np.asarray(complete_window.x_meters, dtype=float)
+    reference_y = np.asarray(complete_window.y_meters, dtype=float)
+    observed_x = reference_x.copy()
+    observed_y = reference_y.copy()
+    position_noise_std_m = numeric_validation.validate_non_negative_finite(
+        "position_noise_std_m",
+        experiment.position_noise_std_m,
+    )
+    position_noise_seed = numeric_validation.validate_non_negative_integer(
+        "position_noise_seed",
+        experiment.position_noise_seed,
+    )
+    if position_noise_std_m > 0.0:
+        noise_generator = np.random.default_rng(position_noise_seed)
+        observed_x += noise_generator.normal(
+            0.0,
+            position_noise_std_m,
+            available_observation_count,
+        )
+        observed_y += noise_generator.normal(
+            0.0,
+            position_noise_std_m,
+            available_observation_count,
+        )
+    trajectory = PosteriorDashboardTrajectory(
+        reference_x,
+        reference_y,
+        observed_x,
+        observed_y,
+    )
+    return trajectory, time_seconds, maximum_observation_count
+
+
+def _validate_update_observation_count(observation_count, *, minimum, maximum):
+    if (
+        isinstance(observation_count, bool)
+        or not isinstance(observation_count, int)
+        or not minimum <= observation_count <= maximum
+    ):
+        raise ValueError(f"observation_count must be between {minimum} and {maximum}.")
+
+
+def _extract_dashboard_samples(fit, specs):
+    return {
+        spec.parameter_name: prior_posterior.extract_posterior_samples(fit, spec)
+        for spec in specs
+    }
 
 
 def create_rbpf_posterior_dashboard_loader(
@@ -514,171 +800,98 @@ def create_rbpf_posterior_dashboard_loader(
     initialize_filter=None,
 ):
     """Create one RBPF stream that exposes all dashboard parameters per stage."""
-    if (
-        isinstance(start_index, bool)
-        or not isinstance(start_index, int)
-        or start_index < 0
-    ):
-        raise ValueError("start_index must be a non-negative integer.")
-    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
-        raise TypeError("priors must be a BayesianCTRVPriors instance.")
-    if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
-        raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
-    position_noise_std_m = numeric_validation.validate_non_negative_finite(
-        "position_noise_std_m",
-        position_noise_std_m,
-    )
-    position_noise_seed = numeric_validation.validate_non_negative_integer(
-        "position_noise_seed",
-        position_noise_seed,
-    )
-    rbpf_seed = numeric_validation.validate_non_negative_integer(
-        "rbpf_seed",
-        rbpf_seed,
-    )
-    maximum_observation_count = len(trajectory_data) - start_index
-    if maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
-        raise ValueError(
-            "The selected trajectory must provide at least four consecutive positions."
-        )
-
-    complete_window = observation_window.prepare_trajectory_window(
-        trajectory_data,
-        observation_count=maximum_observation_count - 1,
-        prediction_count=1,
+    experiment = PosteriorDashboardConfig(
+        run_id=0,
         start_index=start_index,
+        maximum_observation_count=None,
+        position_noise_std_m=position_noise_std_m,
+        position_noise_seed=position_noise_seed,
+        inference_method="rbpf",
+        inference_seed=rbpf_seed,
     )
-    time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
-    reference_x = np.asarray(complete_window.x_meters, dtype=float)
-    reference_y = np.asarray(complete_window.y_meters, dtype=float)
-    observed_x = reference_x.copy()
-    observed_y = reference_y.copy()
-    if position_noise_std_m > 0.0:
-        noise_generator = np.random.default_rng(position_noise_seed)
-        observed_x += noise_generator.normal(
-            0.0,
-            position_noise_std_m,
-            maximum_observation_count,
+    trajectory, maximum_observation_count, _, load_update = (
+        create_posterior_dashboard_loader(
+            trajectory_data,
+            experiment=experiment,
+            priors=priors,
+            vi_config={},
+            mcmc_config={},
+            rbpf_config=rbpf_config,
+            smc_config=None,
+            initialize_online_filter=initialize_filter,
         )
-        observed_y += noise_generator.normal(
-            0.0,
-            position_noise_std_m,
-            maximum_observation_count,
-        )
-    trajectory = PosteriorDashboardTrajectory(
-        reference_x,
-        reference_y,
-        observed_x,
-        observed_y,
     )
-
-    if initialize_filter is None:
-        initialize_filter = rbpf.SequentialBayesianCTRVFilter.initialize
-    if not callable(initialize_filter):
-        raise TypeError("initialize_filter must be callable.")
-    print("Initialisiere RBPF mit N = 1 ...")
-    online_filter = initialize_filter(
-        time_seconds[:1],
-        observed_x[:1],
-        observed_y[:1],
-        priors=priors,
-        config=rbpf_config,
-        seed=rbpf_seed,
-    )
-    specs = tuple(
-        prior_posterior.build_parameter_spec(parameter_name, priors)
-        for parameter_name in PARAMETER_NAMES
-    )
-
-    def load_update(observation_count):
-        if (
-            isinstance(observation_count, bool)
-            or not isinstance(observation_count, int)
-            or not 1 <= observation_count <= maximum_observation_count
-        ):
-            raise ValueError(
-                "observation_count must be within the available trajectory prefix."
-            )
-        if observation_count < online_filter.processed_observation_count:
-            raise ValueError("The RBPF update loader cannot move backward.")
-        while online_filter.processed_observation_count < observation_count:
-            index = online_filter.processed_observation_count
-            print(f"Aktualisiere RBPF mit Messpunkt N = {index + 1} ...")
-            online_filter.update(
-                time_seconds[index],
-                observed_x[index],
-                observed_y[index],
-            )
-        fit = online_filter.sample_current_posterior(seed=rbpf_seed)
-        samples_by_parameter = {
-            spec.parameter_name: prior_posterior.extract_posterior_samples(fit, spec)
-            for spec in specs
-        }
-        return PosteriorDashboardUpdate(
-            observation_count=observation_count,
-            samples_by_parameter=samples_by_parameter,
-            effective_sample_size=online_filter.effective_sample_size,
-            particle_count=rbpf_config.particle_count,
-            resample_count=online_filter.resample_count,
-        )
-
     return trajectory, maximum_observation_count, load_update
 
 
 def run_bayesian_ctrv_posterior_dashboard(
     *,
     data_file,
-    run_id,
-    start_index,
-    position_noise_std_m,
-    position_noise_seed,
+    experiment,
     priors,
+    vi_config,
+    mcmc_config,
     rbpf_config,
-    rbpf_seed,
+    smc_config,
     playback_interval_ms,
     show_legend,
     show=True,
 ):
     """Run the interactive trajectory and posterior dashboard."""
+    if not isinstance(experiment, PosteriorDashboardConfig):
+        raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
     trajectory_data = (
-        observations_io.read_ship_data(data_file, run_id=run_id)
+        observations_io.read_ship_data(data_file, run_id=experiment.run_id)
         .sort_values("time")
         .reset_index(drop=True)
     )
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={run_id}.")
+        raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
-    trajectory, maximum_observation_count, load_update = (
-        create_rbpf_posterior_dashboard_loader(
-            trajectory_data,
-            start_index=start_index,
-            position_noise_std_m=position_noise_std_m,
-            position_noise_seed=position_noise_seed,
-            priors=priors,
-            rbpf_config=rbpf_config,
-            rbpf_seed=rbpf_seed,
-        )
+    (
+        trajectory,
+        maximum_observation_count,
+        minimum_posterior_observation_count,
+        load_update,
+    ) = create_posterior_dashboard_loader(
+        trajectory_data,
+        experiment=experiment,
+        priors=priors,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        rbpf_config=rbpf_config,
+        smc_config=smc_config,
     )
     print("=" * 72)
     print("Bayessche CTRV Posterior-Aktualisierung mit Schiffsbewegung")
     print("=" * 72)
-    print(f"Run ID                : {run_id}")
-    print(f"Startindex            : {start_index}")
-    print("Inferenzmethode       : RBPF")
+    print(f"Run ID                : {experiment.run_id}")
+    print(f"Startindex            : {experiment.start_index}")
+    print(f"Inferenzmethode       : {experiment.inference_method.upper()}")
     print(
         "Beobachtungsstaende  : Prior, "
         f"N=1 bis N={maximum_observation_count} (Schrittweite 1)"
     )
+    if minimum_posterior_observation_count > 1:
+        print(f"Erster Posterior       : N={minimum_posterior_observation_count}")
+        print("Batch-Fenster          : expandierend ab dem Startindex")
     print("Posterior-Gruppen     : Bewegungszustand, Unsicherheiten")
-    print("Navigation            : Schieberegler oder Pfeiltasten links/rechts")
-    print(f"Partikel              : {rbpf_config.particle_count}")
-    print(f"Posteriorziehungen    : {rbpf_config.posterior_draw_count}")
+    print(
+        "Navigation            : Start/Pause, Leertaste, Schieberegler oder Pfeiltasten"
+    )
+    if experiment.inference_method in inference.CTRV_ONLINE_INFERENCE_METHODS:
+        particle_filter_config = (
+            rbpf_config if experiment.inference_method == "rbpf" else smc_config
+        )
+        print(f"Partikel              : {particle_filter_config.particle_count}")
+        print(f"Posteriorziehungen    : {particle_filter_config.posterior_draw_count}")
 
     figure, navigator = create_sequential_posterior_dashboard_figure(
         trajectory,
         priors,
         load_update,
         maximum_observation_count=maximum_observation_count,
+        minimum_posterior_observation_count=(minimum_posterior_observation_count),
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
     )

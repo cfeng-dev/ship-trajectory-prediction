@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 from matplotlib.backend_bases import FigureCanvasBase, KeyEvent, MouseEvent
 
+import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -85,9 +87,19 @@ def _dashboard_samples(offset=0.0):
     }
 
 
-def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
-    dashboard = _load_dashboard_module()
-    trajectory_data = pd.DataFrame(
+def _dashboard_fit_variables():
+    return {
+        "speed_at_origin": np.asarray([2.0, 3.0]),
+        "heading_at_origin": np.asarray([0.0, np.pi / 2.0]),
+        "turn_rate_at_origin": np.asarray([0.0, np.pi / 180.0]),
+        "sigma_position_observation": np.asarray([1.0, 2.0]),
+        "sigma_speed_process": np.asarray([0.1, 0.2]),
+        "sigma_turn_rate_process": np.asarray([np.pi / 180.0, np.pi / 90.0]),
+    }
+
+
+def _dashboard_trajectory_data():
+    return pd.DataFrame(
         {
             "time": pd.date_range(
                 "2026-01-01",
@@ -101,14 +113,150 @@ def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
             "gps_speed": np.full(4, 18.0),
         }
     )
-    variables = {
-        "speed_at_origin": np.asarray([2.0, 3.0]),
-        "heading_at_origin": np.asarray([0.0, np.pi / 2.0]),
-        "turn_rate_at_origin": np.asarray([0.0, np.pi / 180.0]),
-        "sigma_position_observation": np.asarray([1.0, 2.0]),
-        "sigma_speed_process": np.asarray([0.1, 0.2]),
-        "sigma_turn_rate_process": np.asarray([np.pi / 180.0, np.pi / 90.0]),
+
+
+@pytest.mark.parametrize("inference_method", ["vi", "mcmc", "rbpf", "smc"])
+def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
+    dashboard = _load_dashboard_module()
+
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=20,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        inference_method=inference_method.upper(),
+        inference_seed=42,
+    )
+
+    assert experiment.inference_method == inference_method
+
+
+@pytest.mark.parametrize("inference_method", ["rbpf", "smc"])
+def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
+    dashboard = _load_dashboard_module()
+    rbpf_config = rbpf.SequentialCTRVFilterConfig(
+        particle_count=32,
+        posterior_draw_count=20,
+    )
+    smc_config = smc.SequentialMonteCarloCTRVConfig(
+        particle_count=48,
+        posterior_draw_count=24,
+    )
+    expected_config = {
+        "rbpf": rbpf_config,
+        "smc": smc_config,
+    }[inference_method]
+
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=inference_method,
+        inference_seed=42,
+    )
+
+    trajectory, maximum_count, minimum_count, load_update = (
+        dashboard.create_posterior_dashboard_loader(
+            _dashboard_trajectory_data(),
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config=inference.create_default_vi_config(),
+            mcmc_config=inference.create_default_mcmc_config(),
+            rbpf_config=rbpf_config,
+            smc_config=smc_config,
+        )
+    )
+
+    update = load_update(2)
+
+    assert maximum_count == 4
+    assert minimum_count == 1
+    assert trajectory.reference_x.shape == (4,)
+    assert update.observation_count == 2
+    assert update.particle_count == expected_config.particle_count
+    assert all(
+        samples.size == expected_config.posterior_draw_count
+        for samples in update.samples_by_parameter.values()
+    )
+
+
+@pytest.mark.parametrize("inference_method", ["vi", "mcmc"])
+def test_dashboard_loader_runs_selected_expanding_batch_fit(inference_method):
+    dashboard = _load_dashboard_module()
+    vi_config = inference.create_default_vi_config()
+    mcmc_config = inference.create_default_mcmc_config()
+    expected_config = {
+        "vi": vi_config,
+        "mcmc": mcmc_config,
+    }[inference_method]
+    fit_calls = []
+
+    def fit_batch_model(window, **options):
+        fit_calls.append((window, options))
+        return _FakeFit(_dashboard_fit_variables())
+
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=inference_method,
+        inference_seed=42,
+    )
+
+    trajectory, maximum_count, minimum_count, load_update = (
+        dashboard.create_posterior_dashboard_loader(
+            _dashboard_trajectory_data(),
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            rbpf_config=inference.create_default_ctrv_rbpf_config(),
+            smc_config=inference.create_default_ctrv_smc_config(),
+            fit_batch_model=fit_batch_model,
+        )
+    )
+
+    update = load_update(3)
+
+    assert maximum_count == 3
+    assert minimum_count == 3
+    assert trajectory.reference_x.shape == (4,)
+    assert len(fit_calls) == 1
+    window, options = fit_calls[0]
+    assert window.observation_count == 3
+    assert options["inference_method"] == inference_method
+    assert options["seed"] == 42
+    assert options["priors"] == bayesian_model.BayesianCTRVPriors()
+    assert options["position_observations"].x_meters == pytest.approx(
+        trajectory.observed_x[:3]
+    )
+    selected_options = {
+        name: value
+        for name, value in options.items()
+        if name
+        not in {
+            "inference_method",
+            "position_observations",
+            "priors",
+            "seed",
+        }
     }
+    assert selected_options == expected_config
+    assert update.observation_count == 3
+    assert update.effective_sample_size is None
+    assert update.particle_count is None
+    assert update.resample_count is None
+
+
+def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
+    dashboard = _load_dashboard_module()
+    trajectory_data = _dashboard_trajectory_data()
+    variables = _dashboard_fit_variables()
     initializations = []
     updated_times = []
     posterior_seeds = []
@@ -273,6 +421,59 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         plt.close(figure)
 
 
+def test_dashboard_shows_batch_prior_until_minimum_observation_count():
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 2.0, 3.0],
+        reference_y=[0.0, 1.0, 1.5, 1.8],
+        observed_x=[0.0, 1.0, 2.0, 3.0],
+        observed_y=[0.0, 1.0, 1.5, 1.8],
+    )
+    loaded_counts = []
+
+    def load_update(observation_count):
+        loaded_counts.append(observation_count)
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=4,
+        minimum_posterior_observation_count=3,
+    )
+
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+
+        assert navigator.observation_count == 2
+        assert loaded_counts == []
+        assert all(
+            [line.get_label() for line in axis.lines] == ["Ausgangs-Prior"]
+            for axis in navigator.posterior_axes
+        )
+        assert all(
+            "Posterior ab N = 3 verfügbar" in {text.get_text() for text in axis.texts}
+            for axis in navigator.posterior_axes
+        )
+
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
+
+        assert loaded_counts == [3]
+        assert all(
+            [line.get_label() for line in axis.lines]
+            == ["Ausgangs-Prior", "Posterior-Dichte"]
+            for axis in navigator.posterior_axes
+        )
+    finally:
+        plt.close(figure)
+
+
 def test_dashboard_arrow_keys_reuse_cached_stages_and_respect_boundaries():
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
@@ -315,7 +516,7 @@ def test_dashboard_arrow_keys_reuse_cached_stages_and_respect_boundaries():
         plt.close(figure)
 
 
-def test_dashboard_script_runs_the_shared_analysis_without_showing():
+def test_dashboard_script_runs_the_shared_analysis_without_showing(monkeypatch):
     script = _load_dashboard_script()
     calls = []
     sentinel = object()
@@ -324,23 +525,121 @@ def test_dashboard_script_runs_the_shared_analysis_without_showing():
         calls.append(options)
         return sentinel
 
-    script.dashboard.run_bayesian_ctrv_posterior_dashboard = fake_run
+    monkeypatch.setattr(
+        script.dashboard,
+        "run_bayesian_ctrv_posterior_dashboard",
+        fake_run,
+    )
 
     result = script.main(["--no-show"])
 
     assert result is sentinel
     assert len(calls) == 1
     assert calls[0]["data_file"] == script.DATA_FILE
-    assert calls[0]["run_id"] == 102
-    assert calls[0]["start_index"] == 0
-    assert calls[0]["position_noise_std_m"] == pytest.approx(5.0)
-    assert calls[0]["position_noise_seed"] == 2026
+    assert calls[0]["experiment"] is script.EXPERIMENT
+    assert script.EXPERIMENT.run_id == 102
+    assert script.EXPERIMENT.start_index == 0
+    assert script.EXPERIMENT.maximum_observation_count is None
+    assert script.EXPERIMENT.position_noise_std_m == pytest.approx(5.0)
+    assert script.EXPERIMENT.position_noise_seed == 2026
+    assert script.EXPERIMENT.inference_method == "rbpf"
+    assert script.EXPERIMENT.inference_seed == 42
     assert calls[0]["priors"] is script.PRIORS
+    assert calls[0]["vi_config"] is script.VI_CONFIG
+    assert calls[0]["mcmc_config"] is script.MCMC_CONFIG
     assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
-    assert calls[0]["rbpf_seed"] == 42
+    assert calls[0]["smc_config"] is script.SMC_CONFIG
     assert calls[0]["playback_interval_ms"] == 1_000
     assert calls[0]["show_legend"] is True
     assert calls[0]["show"] is False
+
+
+def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
+    dashboard = _load_dashboard_module()
+    trajectory_data = _dashboard_trajectory_data()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 2.0, 3.0],
+        reference_y=[0.0, 1.0, 1.5, 1.8],
+        observed_x=[0.0, 1.0, 2.0, 3.0],
+        observed_y=[0.0, 1.0, 1.5, 1.8],
+    )
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=3,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="vi",
+        inference_seed=42,
+    )
+    priors = bayesian_model.BayesianCTRVPriors()
+    vi_config = inference.create_default_vi_config()
+    mcmc_config = inference.create_default_mcmc_config()
+    rbpf_config = inference.create_default_ctrv_rbpf_config()
+    smc_config = inference.create_default_ctrv_smc_config()
+    loader_calls = []
+    figure_calls = []
+
+    monkeypatch.setattr(
+        dashboard.observations_io,
+        "read_ship_data",
+        lambda _data_file, *, run_id: trajectory_data,
+    )
+
+    def create_loader(data, **options):
+        loader_calls.append((data, options))
+        return trajectory, 3, 3, lambda _count: None
+
+    def create_figure(
+        selected_trajectory,
+        selected_priors,
+        update_loader,
+        **options,
+    ):
+        figure_calls.append(
+            (selected_trajectory, selected_priors, update_loader, options)
+        )
+        return plt.figure(), object()
+
+    monkeypatch.setattr(dashboard, "create_posterior_dashboard_loader", create_loader)
+    monkeypatch.setattr(
+        dashboard,
+        "create_sequential_posterior_dashboard_figure",
+        create_figure,
+    )
+
+    figure, navigator = dashboard.run_bayesian_ctrv_posterior_dashboard(
+        data_file=Path("trajectory.csv"),
+        experiment=experiment,
+        priors=priors,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        rbpf_config=rbpf_config,
+        smc_config=smc_config,
+        playback_interval_ms=750,
+        show_legend=False,
+        show=False,
+    )
+
+    assert len(loader_calls) == 1
+    _, loader_options = loader_calls[0]
+    assert loader_options == {
+        "experiment": experiment,
+        "priors": priors,
+        "vi_config": vi_config,
+        "mcmc_config": mcmc_config,
+        "rbpf_config": rbpf_config,
+        "smc_config": smc_config,
+    }
+    assert len(figure_calls) == 1
+    assert figure_calls[0][3] == {
+        "maximum_observation_count": 3,
+        "minimum_posterior_observation_count": 3,
+        "show_legend": False,
+        "playback_interval_ms": 750,
+    }
+    assert navigator is not None
+    assert not plt.fignum_exists(figure.number)
 
 
 def test_dashboard_keeps_manual_trajectory_zoom_when_posterior_stage_changes():
