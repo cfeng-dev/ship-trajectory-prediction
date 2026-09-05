@@ -97,7 +97,8 @@ a red coordinate-wise median and translucent example paths (not a probability
 region). Forecasts use only observations through N; future recorded positions are
 reference data, never fit inputs. The first line segment connects to the last
 measured position for visual orientation, without changing the model's forecasts.
-The default is 6 steps and up to 20 sample paths. Under **Settings > Daten und
+The default is 3 steps (30 seconds at 10-second intervals) and up to 20 sample
+paths. Under **Settings > Daten und
 Darstellung**, set **Vorhersageschritte** to 0 to disable forecasts, or
 **Zukunftstrajektorien** to 0 to show only the median. Forecasts use the next
 timestamps of the recording, so the horizon shortens near its end. At the last
