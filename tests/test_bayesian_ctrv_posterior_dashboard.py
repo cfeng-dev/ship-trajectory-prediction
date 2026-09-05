@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.backend_bases import FigureCanvasBase, KeyEvent, MouseEvent
+from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf
@@ -17,6 +18,76 @@ import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_embedded_async_navigation_waits_caches_and_preserves_pause():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        coordinates, coordinates, coordinates, coordinates
+    )
+    requests = []
+    supplied_figure = Figure()
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        None,
+        maximum_observation_count=4,
+        figure=supplied_figure,
+        request_update=requests.append,
+    )
+    assert figure is supplied_figure
+    navigator.toggle_playback(None)
+    navigator.advance_playback()
+    navigator.advance_playback()
+    assert navigator.observation_count == 0
+    assert navigator.requested_observation_count == 1
+    assert requests == [1]
+    navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
+    assert not navigator.is_waiting
+    assert requests[-1] == 0
+    navigator.toggle_playback(None)
+    navigator.advance_playback()
+    navigator.pause_playback()
+    navigator.accept_update(dashboard.PosteriorDashboardUpdate(1, _dashboard_samples()))
+    assert navigator.observation_count == 0
+    assert not navigator.is_waiting
+    navigator.trajectory_axis.set_xlim(0.5, 2.0)
+    navigator.toggle_playback(None)
+    navigator.advance_playback()
+    assert navigator.observation_count == 1
+    assert navigator.trajectory_axis.get_xlim() == (0.5, 2.0)
+    navigator.slider.set_val(4)
+    navigator.show_selected_observation_count(None)
+    for count in (2, 3):
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(count, _dashboard_samples())
+        )
+        assert navigator.observation_count == 1
+    navigator.accept_update(dashboard.PosteriorDashboardUpdate(4, _dashboard_samples()))
+    assert navigator.observation_count == 4
+    navigator.disconnect()
+    assert not navigator.is_playing
+
+
+def test_async_playback_stops_after_final_result_not_when_requested():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(2.0)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        maximum_observation_count=1,
+        figure=Figure(),
+        request_update=lambda _: None,
+    )
+    navigator.toggle_playback(None)
+    navigator.advance_playback()
+    assert navigator.is_playing
+    assert navigator.is_waiting
+    navigator.accept_update(dashboard.PosteriorDashboardUpdate(1, _dashboard_samples()))
+    assert navigator.observation_count == 1
+    assert not navigator.is_playing
+    navigator.disconnect()
 
 
 def _load_dashboard_module():

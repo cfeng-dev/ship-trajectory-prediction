@@ -149,6 +149,7 @@ class PosteriorDashboardNavigator:
         minimum_posterior_observation_count,
         show_legend,
         playback_interval_ms,
+        request_update=None,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -156,6 +157,9 @@ class PosteriorDashboardNavigator:
         self.trajectory = trajectory
         self.priors = priors
         self._update_loader = update_loader
+        self._request_update = request_update
+        self._requested_observation_count = 0
+        self._density_grids_dirty = False
         self.maximum_observation_count = maximum_observation_count
         self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
@@ -233,10 +237,55 @@ class PosteriorDashboardNavigator:
         """Return whether automatic posterior playback is active."""
         return self._is_playing
 
+    @property
+    def is_waiting(self) -> bool:
+        """Return whether the requested stage is still being computed."""
+        return self._requested_observation_count != self.observation_count
+
+    @property
+    def requested_observation_count(self) -> int:
+        """Return the navigation target, including a pending background update."""
+        return self._requested_observation_count
+
+    def accept_update(self, update) -> None:
+        """Cache a background result on the UI thread and show it when requested."""
+        if not isinstance(update, PosteriorDashboardUpdate):
+            raise TypeError("update must be a PosteriorDashboardUpdate.")
+        _validate_update_observation_count(
+            update.observation_count,
+            minimum=self.minimum_posterior_observation_count,
+            maximum=self.maximum_observation_count,
+        )
+        self._updates_by_count[update.observation_count] = update
+        self._density_grids_dirty = True
+        if self.is_waiting:
+            self._show_observation_count(self._requested_observation_count)
+
+    def pause_playback(self) -> None:
+        """Pause immediately, retaining any in-flight result only in the cache."""
+        self._stop_playback()
+        if self._request_update is not None:
+            self._requested_observation_count = self.observation_count
+            self._request_update(self.observation_count)
+            self.slider.set_val(self.observation_count)
+
+    def disconnect(self) -> None:
+        """Stop playback and release widget callbacks when an embedded view closes."""
+        self._playback_timer.stop()
+        self._is_playing = False
+        for connection in (
+            self._slider_press_connection,
+            self._slider_release_connection,
+            self._key_press_connection,
+        ):
+            self.figure.canvas.mpl_disconnect(connection)
+        for widget in (self.playback_button, self.slider, self.group_selector):
+            widget.disconnect_events()
+
     def toggle_playback(self, _event) -> None:
         """Start, pause, or restart automatic posterior playback."""
         if self.is_playing:
-            self._stop_playback()
+            self.pause_playback()
             return
         if self.observation_count == self.maximum_observation_count:
             self.slider.set_val(0)
@@ -247,13 +296,11 @@ class PosteriorDashboardNavigator:
 
     def advance_playback(self) -> None:
         """Advance automatic playback by exactly one observation stage."""
-        if not self.is_playing:
+        if not self.is_playing or self.is_waiting:
             return
         observation_count = self.observation_count + 1
         self.slider.set_val(observation_count)
         self._show_observation_count(observation_count)
-        if observation_count == self.maximum_observation_count:
-            self._stop_playback()
 
     def show_selected_observation_count(self, _event) -> None:
         """Load missing stages and display the slider-selected observation count."""
@@ -272,6 +319,9 @@ class PosteriorDashboardNavigator:
         self.show_selected_observation_count(event)
 
     def _show_observation_count(self, observation_count) -> None:
+        self._requested_observation_count = observation_count
+        if self._request_update is not None:
+            self._request_update(observation_count)
         if observation_count == self.observation_count:
             return
         if observation_count == 0:
@@ -280,13 +330,15 @@ class PosteriorDashboardNavigator:
             self._update_playback_button_label()
             return
 
-        loaded_update = False
+        loaded_update = self._density_grids_dirty
         for missing_count in range(
             self.minimum_posterior_observation_count,
             observation_count + 1,
         ):
             if missing_count in self._updates_by_count:
                 continue
+            if self._request_update is not None:
+                return
             update = self._update_loader(missing_count)
             if not isinstance(update, PosteriorDashboardUpdate):
                 raise TypeError("update_loader must return a PosteriorDashboardUpdate.")
@@ -299,9 +351,12 @@ class PosteriorDashboardNavigator:
 
         if loaded_update:
             self._update_density_grids()
+            self._density_grids_dirty = False
         self._observation_count = observation_count
         self._draw()
         self._update_playback_button_label()
+        if self.is_playing and self.observation_count == self.maximum_observation_count:
+            self._stop_playback()
 
     def handle_key_press(self, event) -> None:
         """Control playback or move one stage with the supported keys."""
@@ -317,7 +372,7 @@ class PosteriorDashboardNavigator:
             max(self.observation_count + step, 0),
             self.maximum_observation_count,
         )
-        if observation_count == self.observation_count:
+        if observation_count == self.observation_count and not self.is_waiting:
             return
         self.slider.set_val(observation_count)
         self._show_observation_count(observation_count)
@@ -490,20 +545,30 @@ class PosteriorDashboardNavigator:
 def create_sequential_posterior_dashboard_figure(
     trajectory,
     priors,
-    update_loader,
+    update_loader=None,
     *,
     maximum_observation_count,
     minimum_posterior_observation_count=1,
     show_legend=True,
     playback_interval_ms=DEFAULT_PLAYBACK_INTERVAL_MS,
+    figure=None,
+    request_update=None,
 ):
-    """Create one interactive route and multi-parameter posterior figure."""
+    """Create a dashboard, optionally using an embedded canvas and async requests.
+
+    With ``request_update``, deliver results via ``navigator.accept_update`` on
+    the UI thread. Otherwise ``update_loader`` is called synchronously as before.
+    Attach an embedded canvas to ``figure`` before calling this factory so its
+    playback timer uses the host GUI's event loop.
+    """
     if not isinstance(trajectory, PosteriorDashboardTrajectory):
         raise TypeError("trajectory must be a PosteriorDashboardTrajectory.")
     if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance.")
-    if not callable(update_loader):
-        raise TypeError("update_loader must be callable.")
+    if request_update is None and not callable(update_loader):
+        raise TypeError("update_loader must be callable for synchronous navigation.")
+    if request_update is not None and not callable(request_update):
+        raise TypeError("request_update must be callable.")
     if (
         isinstance(maximum_observation_count, bool)
         or not isinstance(maximum_observation_count, int)
@@ -527,7 +592,8 @@ def create_sequential_posterior_dashboard_figure(
         raise ValueError("playback_interval_ms must be a positive integer.")
     playback_interval_ms = int(playback_interval_ms)
 
-    figure = plt.figure(figsize=FIGURE_SIZE)
+    if figure is None:
+        figure = plt.figure(figsize=FIGURE_SIZE)
     grid = figure.add_gridspec(
         3,
         2,
@@ -552,6 +618,7 @@ def create_sequential_posterior_dashboard_figure(
         minimum_posterior_observation_count=minimum_posterior_observation_count,
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
+        request_update=request_update,
     )
     return figure, navigator
 
