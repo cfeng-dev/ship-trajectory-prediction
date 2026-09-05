@@ -9,7 +9,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
-from matplotlib.backend_bases import FigureCanvasBase, KeyEvent, MouseEvent
+from matplotlib.backend_bases import (
+    FigureCanvasBase,
+    KeyEvent,
+    MouseEvent,
+    NavigationToolbar2,
+    ResizeEvent,
+)
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
@@ -18,6 +25,103 @@ import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("figure_size", [(11, 8), (10, 6), (9.5, 5.5)])
+@pytest.mark.parametrize("dpi", [100, 150])
+def test_dashboard_labels_clear_adjacent_panels_and_controls(figure_size, dpi):
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=figure_size, dpi=dpi)
+    canvas = FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(count, _dashboard_samples()),
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        for group_index in (0, 1):
+            navigator.group_selector.set_active(group_index)
+            canvas.draw()
+            _assert_dashboard_vertical_spacing(navigator, canvas.get_renderer())
+    finally:
+        navigator.disconnect()
+
+
+def _assert_dashboard_vertical_spacing(navigator, renderer):
+    minimum_gap = renderer.points_to_pixels(6)
+    for upper, lower in zip(
+        navigator.posterior_axes[:-1], navigator.posterior_axes[1:], strict=True
+    ):
+        gap = (
+            upper.xaxis.label.get_window_extent(renderer).y0
+            - lower.title.get_window_extent(renderer).y1
+        )
+        assert gap >= minimum_gap, f"Posterior-panel label gap: {gap:.1f}px"
+    label_bottom = (
+        navigator.posterior_axes[-1].xaxis.label.get_window_extent(renderer).y0
+    )
+    controls_top = navigator.group_selector.ax.get_tightbbox(renderer).y1
+    assert label_bottom - controls_top >= minimum_gap, (
+        f"Posterior/control gap: {label_bottom - controls_top:.1f}px"
+    )
+
+
+def test_dashboard_spacing_tracks_canvas_resize_without_loading_updates():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=(11, 8))
+    canvas = FigureCanvasAgg(figure)
+    requests = []
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        figure=figure,
+        maximum_observation_count=4,
+        request_update=requests.append,
+    )
+    try:
+        for figure_size in ((9.5, 5.5), (14, 9), (10, 6)):
+            figure.set_size_inches(*figure_size)
+            ResizeEvent("resize_event", canvas)._process()
+            canvas.draw()
+            _assert_dashboard_vertical_spacing(navigator, canvas.get_renderer())
+        assert requests == []
+        assert navigator.observation_count == 0
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_spacing_survives_toolbar_navigation_after_resize():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=(11, 8))
+    canvas = FigureCanvasAgg(figure)
+    toolbar = NavigationToolbar2(canvas)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        figure=figure,
+        maximum_observation_count=4,
+        request_update=lambda _: None,
+    )
+    try:
+        canvas.draw()
+        toolbar.push_current()
+        navigator.trajectory_axis.set_xlim(0.5, 2.0)
+        toolbar.push_current()
+        figure.set_size_inches(9.5, 5.5)
+        ResizeEvent("resize_event", canvas)._process()
+        for navigate in (toolbar.home, toolbar.forward, toolbar.back):
+            navigate()
+            canvas.draw()
+            _assert_dashboard_vertical_spacing(navigator, canvas.get_renderer())
+    finally:
+        navigator.disconnect()
 
 
 def test_embedded_async_navigation_waits_caches_and_preserves_pause():

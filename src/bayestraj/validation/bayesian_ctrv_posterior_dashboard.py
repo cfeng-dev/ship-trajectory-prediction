@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.layout_engine import LayoutEngine
 from matplotlib.widgets import Button, RadioButtons, Slider
 
 import bayestraj.inference.configuration as inference
@@ -133,6 +134,66 @@ class PosteriorDashboardUpdate:
         )
 
 
+class _PosteriorDashboardLayout(LayoutEngine):
+    """Keep text-sized clearances during resize and toolbar view restoration."""
+
+    _adjust_compatible = True
+    _colorbar_gridspec = False
+
+    def __init__(
+        self, trajectory_axis, posterior_axes, playback_axis, slider_axis, selector_axis
+    ):
+        super().__init__()
+        self.trajectory_axis = trajectory_axis
+        self.posterior_axes = posterior_axes
+        self.playback_axis = playback_axis
+        self.slider_axis = slider_axis
+        self.selector_axis = selector_axis
+
+    def execute(self, figure) -> None:
+        """Reserve fixed-point gaps and a separate footer before every draw.
+
+        Fonts have fixed point sizes, so percentage-only gaps become too small
+        in an embedded window. The lower bounds only guard transient, near-zero
+        canvas sizes during packing.
+        """
+        width_points = max(400.0, figure.get_figwidth() * 72.0)
+        height_points = max(320.0, figure.get_figheight() * 72.0)
+        bottom_margin = 116.0  # Footer, its title, x labels and clear separation.
+        top_margin = 52.0  # Figure title and top-panel title.
+        panel_gap = 58.0  # Upper x label, lower title and breathing room.
+        panel_height = max(
+            1.0, (height_points - bottom_margin - top_margin - 2 * panel_gap) / 3
+        )
+        self.posterior_axes[0].get_gridspec().update(
+            bottom=bottom_margin / height_points,
+            top=1.0 - top_margin / height_points,
+            hspace=panel_gap / panel_height,
+        )
+        # GridSpec.update only moves pyplot-managed axes automatically. Embedded
+        # Figures have no pyplot manager, so apply their subplot positions too.
+        for axis in (self.trajectory_axis, *self.posterior_axes):
+            axis.set_position(axis.get_subplotspec().get_position(figure))
+        selector_width = max(0.2, 165.0 / width_points)
+        selector_left = 0.97 - selector_width
+        playback_width = max(0.085, 64.0 / width_points)
+        slider_left = 0.07 + playback_width
+        self.selector_axis.set_position(
+            (selector_left, 12.0 / height_points, selector_width, 44.0 / height_points)
+        )
+        self.playback_axis.set_position(
+            (0.025, 20.0 / height_points, playback_width, 28.0 / height_points)
+        )
+        self.slider_axis.set_position(
+            (
+                slider_left,
+                29.0 / height_points,
+                selector_left - slider_left - 0.06,
+                10.0 / height_points,
+            )
+        )
+
+
 class PosteriorDashboardNavigator:
     """Synchronize one route and three switchable posterior panels."""
 
@@ -215,6 +276,15 @@ class PosteriorDashboardNavigator:
         )
         self.playback_button.on_clicked(self.toggle_playback)
         self.group_selector.on_clicked(self._select_parameter_group)
+        layout = _PosteriorDashboardLayout(
+            trajectory_axis,
+            self.posterior_axes,
+            playback_axis,
+            slider_axis,
+            selector_axis,
+        )
+        figure.set_layout_engine(layout)
+        layout.execute(figure)
         self._draw()
 
     @property
@@ -599,10 +669,7 @@ def create_sequential_posterior_dashboard_figure(
         2,
         left=0.06,
         right=0.98,
-        bottom=0.2,
-        top=0.9,
         width_ratios=(1.25, 1.0),
-        hspace=0.68,
         wspace=0.28,
     )
     trajectory_axis = figure.add_subplot(grid[:, 0])
