@@ -78,3 +78,41 @@ def test_defaults_are_independent_and_missing_file_is_rejected(form):
     form["data"]["data_file"] += ".missing"
     with pytest.raises(ValueError, match="CSV"):
         settings.parse_settings(form)
+
+
+def test_dialog_validation_is_independent_of_csv_and_other_sections():
+    values = settings.default_form_values()
+    values["priors"]["speed_prior_upper_mps"] = "25.5"
+    result = settings.validate_dialog_values("priors", values["priors"])
+    assert result["speed_prior_upper_mps"] == 25.5
+    assert values["priors"]["speed_prior_upper_mps"] == "25.5"
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc", "rbpf", "smc"])
+def test_inference_dialog_validates_the_method_being_edited(method):
+    values = settings.default_form_values()[method]
+    invalid_field = {"vi": "draws", "mcmc": "chains"}.get(method, "particle_count")
+    values[invalid_field] = "0"
+    with pytest.raises(ValueError):
+        settings.validate_dialog_values(method, values)
+
+
+def test_data_options_dialog_preserves_units_and_validates_interval():
+    values = {
+        "position_noise_std_m": "2.5",
+        "position_noise_seed": "123",
+        "inference_seed": "456",
+        "playback_interval_ms": "1500",
+        "show_legend": False,
+    }
+    result = settings.validate_dialog_values("data", values)
+    assert result == {
+        "position_noise_std_m": 2.5,
+        "position_noise_seed": 123,
+        "inference_seed": 456,
+        "playback_interval_ms": 1500,
+        "show_legend": False,
+    }
+    values["playback_interval_ms"] = "0"
+    with pytest.raises(ValueError):
+        settings.validate_dialog_values("data", values)

@@ -69,10 +69,21 @@ Without refreshing the installed command, use the existing Windows environment:
 .venv\Scripts\python.exe -m tools.posterior_explorer
 ```
 
+The window uses the same **File / View / Settings / Help** menu layout and light
+blue control-panel style as the ship simulator. The **Neue Analyse** button stays
+at the top of the sidebar, outside the scrollable data fields.
+
 Choose a CSV, run, inference method and optional observation limit in **Daten**.
-The **Priors** and **Inferenz** tabs expose the prior and method-specific numerical
-settings. Click **Neue Analyse** to apply edits and begin with an empty cache.
-Hide the settings pane to give the plot more space.
+**File** also opens the CSV chooser. Under **Settings**, open **Priors**,
+**Inferenzparameter** (for the currently selected method), or **Daten und
+Darstellung** (noise, seeds, playback interval and legend). Dialogs edit a draft:
+**Übernehmen** validates and keeps the edits; **Abbrechen** discards them. Neither
+action restarts inference. Click **Neue Analyse** to apply all settings and begin
+with an empty cache.
+
+Use **View** to hide/show the settings pane or reset the plot view, and **Help**
+for keyboard instructions. Closing through **File** has the same graceful
+in-flight-fit behavior as closing the window.
 
 Use Start/Pause or Space to play, the slider to select a stage, and Left/Right
 with the plot focused to step through observations. Space in an input field keeps

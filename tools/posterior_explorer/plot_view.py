@@ -1,6 +1,6 @@
 """Embed the existing Matplotlib dashboard in one disposable Tk view."""
 
-from tkinter import ttk
+import tkinter as tk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
@@ -9,13 +9,15 @@ from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
     create_sequential_posterior_dashboard_figure,
 )
 
+from .view import PLOT_BACKGROUND
 
-class PosteriorPlotView(ttk.Frame):
+
+class PosteriorPlotView(tk.Frame):
     """Own the embedded canvas, navigation toolbar and dashboard callbacks."""
 
     def __init__(self, parent, settings, trajectory, maximum, minimum, request_update):
-        super().__init__(parent)
-        self.figure = Figure(figsize=(11, 8))
+        super().__init__(parent, bg=PLOT_BACKGROUND)
+        self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
         self.toolbar.pack(side="bottom", fill="x")

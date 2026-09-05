@@ -3,20 +3,23 @@
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from .settings import LABELS, METHODS, default_form_values
+from .settings import LABELS, MAIN_DATA_FIELDS, METHODS, default_form_values
+from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 
-class ScrollableForm(ttk.Frame):
+class ScrollableForm(tk.Frame):
     """A form that remains accessible when the settings pane is small."""
 
-    def __init__(self, parent):
-        super().__init__(parent)
-        canvas = tk.Canvas(self, highlightthickness=0, width=360)
+    def __init__(self, parent, *, width=340):
+        super().__init__(parent, bg=CONTROL_BACKGROUND)
+        canvas = self.canvas = tk.Canvas(
+            self, highlightthickness=0, width=width, bg=CONTROL_BACKGROUND
+        )
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        self.body = ttk.Frame(canvas, padding=10)
+        self.body = tk.Frame(canvas, bg=CONTROL_BACKGROUND, padx=12, pady=12)
         window = canvas.create_window((0, 0), window=self.body, anchor="nw")
         self.body.columnconfigure(0, weight=1)
         self.body.bind(
@@ -27,86 +30,109 @@ class ScrollableForm(ttk.Frame):
             "<Configure>", lambda event: canvas.itemconfigure(window, width=event.width)
         )
 
+    def bind_mouse_wheel(self):
+        """Scroll only this form when the pointer is over its populated fields."""
 
-class SettingsPanel(ttk.Frame):
+        def scroll(event):
+            if self.canvas.yview() == (0.0, 1.0):
+                return None
+            direction = -1 if getattr(event, "num", None) == 4 or event.delta > 0 else 1
+            self.canvas.yview_scroll(direction, "units")
+            return "break"
+
+        widgets = [self.canvas, self.body]
+        while widgets:
+            widget = widgets.pop()
+            widget.bind("<MouseWheel>", scroll)
+            widget.bind("<Button-4>", scroll)
+            widget.bind("<Button-5>", scroll)
+            widgets.extend(widget.winfo_children())
+
+
+class SettingsPanel(tk.Frame):
     """Editable data, prior and inference settings with an explicit apply action."""
 
     def __init__(self, parent, on_apply):
-        super().__init__(parent, padding=(8, 0, 8, 8))
-        self.variables = {}
-        self.method_forms = {}
-        ttk.Label(
+        super().__init__(parent, width=350, bg=CONTROL_BACKGROUND)
+        self.pack_propagate(False)
+        self.variables = {
+            group: create_variables(self, fields)
+            for group, fields in default_form_values().items()
+        }
+        tk.Label(
             self,
-            text="Änderungen gelten erst nach „Neue Analyse“.",
-            wraplength=355,
-        ).pack(anchor="w", pady=(0, 8))
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True)
-        defaults = default_form_values()
-        for group, title in (("data", "Daten"), ("priors", "Priors")):
-            form = ScrollableForm(notebook)
-            notebook.add(form, text=title)
-            self._populate(form.body, group, defaults[group])
-        method_tab = ttk.Frame(notebook)
-        notebook.add(method_tab, text="Inferenz")
-        self.method_label = ttk.Label(method_tab, padding=8, wraplength=355)
-        self.method_label.pack(fill="x")
-        for method in METHODS:
-            form = ScrollableForm(method_tab)
-            self._populate(form.body, method, defaults[method])
-            self.method_forms[method] = form
+            text="Posterior-Analyse",
+            font=("Arial", 12, "bold"),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        ).pack(pady=(14, 10))
+        actions = tk.LabelFrame(
+            self,
+            text="Analyse",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=10,
+        )
+        actions.pack(fill="x", padx=14, pady=(0, 8))
+        self.apply_button = create_styled_button(
+            actions, text="Neue Analyse", command=on_apply
+        )
+        self.apply_button.pack(fill="x")
+        tk.Label(
+            actions,
+            text="Übernimmt alle Einstellungen und beginnt bei N = 0.",
+            font=("Arial", 9),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            wraplength=280,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
+
+        self.data_form = ScrollableForm(self)
+        self.data_form.pack(fill="both", expand=True)
+        data_frame = tk.LabelFrame(
+            self.data_form.body,
+            text="Daten",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        data_frame.pack(fill="x")
+        data_frame.columnconfigure(0, weight=1)
+        populate_fields(
+            data_frame,
+            {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS},
+            choose_file=self.choose_file,
+            stacked=True,
+        )
+        self.method_label = tk.Label(
+            self.data_form.body,
+            wraplength=285,
+            justify="left",
+            font=("Arial", 9),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        )
+        self.method_label.pack(fill="x", pady=(12, 0))
+        tk.Label(
+            self.data_form.body,
+            text="Priors, Inferenzparameter, Rauschen und Wiedergabeoptionen: Settings",
+            wraplength=285,
+            justify="left",
+            font=("Arial", 9),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        ).pack(fill="x", pady=(12, 0))
         self.variables["data"]["inference_method"].trace_add("write", self._show_method)
         self._show_method()
-        self.apply_button = ttk.Button(self, text="Neue Analyse", command=on_apply)
-        self.apply_button.pack(fill="x", pady=(10, 0))
+        self.data_form.bind_mouse_wheel()
 
-    def _populate(self, parent, group, fields):
-        variables = self.variables[group] = {}
-        for row, (key, value) in enumerate(fields.items()):
-            variable = (
-                tk.BooleanVar(parent, value=value)
-                if isinstance(value, bool)
-                else tk.StringVar(parent, value=value)
-            )
-            variables[key] = variable
-            label = LABELS.get(key, key)
-            if isinstance(value, bool):
-                ttk.Checkbutton(parent, text=label, variable=variable).grid(
-                    row=row, column=0, columnspan=2, sticky="w", pady=6
-                )
-                continue
-            if key == "data_file":
-                file_frame = ttk.Frame(parent)
-                file_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
-                file_frame.columnconfigure(0, weight=1)
-                ttk.Label(file_frame, text=label).grid(row=0, column=0, sticky="w")
-                ttk.Entry(file_frame, textvariable=variable).grid(
-                    row=1, column=0, sticky="ew"
-                )
-                ttk.Button(
-                    file_frame, text="…", width=3, command=self._choose_file
-                ).grid(row=1, column=1, padx=(5, 0))
-                continue
-            ttk.Label(parent, text=label, wraplength=220).grid(
-                row=row, column=0, sticky="w", pady=6, padx=(0, 8)
-            )
-            choices = {
-                "inference_method": METHODS,
-                "algorithm": ("meanfield", "fullrank"),
-            }.get(key)
-            if choices:
-                widget = ttk.Combobox(
-                    parent,
-                    textvariable=variable,
-                    values=choices,
-                    state="readonly",
-                    width=12,
-                )
-            else:
-                widget = ttk.Entry(parent, textvariable=variable, width=14)
-            widget.grid(row=row, column=1, sticky="ew", pady=6)
-
-    def _choose_file(self):
+    def choose_file(self):
+        """Choose a CSV without starting or replacing an analysis."""
         selected = filedialog.askopenfilename(
             parent=self,
             title="Trajektorien-CSV auswählen",
@@ -117,9 +143,6 @@ class SettingsPanel(ttk.Frame):
 
     def _show_method(self, *_):
         method = self.variables["data"]["inference_method"].get()
-        for form in self.method_forms.values():
-            form.pack_forget()
-        self.method_forms[method].pack(fill="both", expand=True)
         mode = (
             "Online: Beobachtungen werden nacheinander verarbeitet."
             if method in ("rbpf", "smc")
@@ -134,3 +157,71 @@ class SettingsPanel(ttk.Frame):
             group: {key: variable.get() for key, variable in fields.items()}
             for group, fields in self.variables.items()
         }
+
+
+def create_variables(parent, fields):
+    """Create independent Tk variables, also used for uncommitted dialog drafts."""
+    return {
+        key: (
+            tk.BooleanVar(parent, value=value)
+            if isinstance(value, bool)
+            else tk.StringVar(parent, value=value)
+        )
+        for key, value in fields.items()
+    }
+
+
+def populate_fields(parent, variables, *, choose_file=None, stacked=False):
+    """Render common sidebar or dialog fields with their existing units and types."""
+    for index, (key, variable) in enumerate(variables.items()):
+        row = index * 2 if stacked else index
+        column = 0 if stacked else 1
+        field_row = row + 1 if stacked else row
+        label = LABELS.get(key, key)
+        if isinstance(variable, tk.BooleanVar):
+            tk.Checkbutton(
+                parent,
+                text=label,
+                variable=variable,
+                bg=CONTROL_BACKGROUND,
+                activebackground=CONTROL_BACKGROUND,
+                font=FONT,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+            continue
+        tk.Label(
+            parent,
+            text=label,
+            wraplength=280,
+            justify="left",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        ).grid(row=row, column=0, sticky="w", pady=(6, 2), padx=(0, 8))
+        if key == "data_file":
+            file_frame = tk.Frame(parent, bg=CONTROL_BACKGROUND)
+            file_frame.grid(row=field_row, column=column, sticky="ew", pady=(0, 6))
+            file_frame.columnconfigure(0, weight=1)
+            ttk.Entry(file_frame, textvariable=variable, width=16).grid(
+                row=0, column=0, sticky="ew"
+            )
+            create_styled_button(
+                file_frame, text="…", width=2, command=choose_file
+            ).grid(row=0, column=1, padx=(5, 0))
+            continue
+        choices = {
+            "inference_method": METHODS,
+            "algorithm": ("meanfield", "fullrank"),
+        }.get(key)
+        widget = (
+            ttk.Combobox(
+                parent,
+                textvariable=variable,
+                values=choices,
+                state="readonly",
+                width=14,
+            )
+            if choices
+            else ttk.Entry(parent, textvariable=variable, width=14)
+        )
+        widget.grid(row=field_row, column=column, sticky="ew", pady=(0, 6))

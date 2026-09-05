@@ -19,6 +19,20 @@ from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
 from bayestraj.validation.posterior_session import AnalysisSettings
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
+MAIN_DATA_FIELDS = (
+    "data_file",
+    "run_id",
+    "inference_method",
+    "start_index",
+    "maximum_observation_count",
+)
+DATA_OPTION_FIELDS = (
+    "position_noise_std_m",
+    "position_noise_seed",
+    "inference_seed",
+    "playback_interval_ms",
+    "show_legend",
+)
 LABELS = {
     "data_file": "CSV-Datei",
     "run_id": "Run-ID",
@@ -146,6 +160,34 @@ def _validate_batch(method, fields):
             raise ValueError("parallel_chains darf chains nicht überschreiten.")
 
 
+def _validate_data_options(fields):
+    for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
+        _minimum(fields, key, 0)
+    _minimum(fields, "playback_interval_ms", 1)
+
+
+def validate_dialog_values(group, values):
+    """Validate one dialog independently, without needing a valid CSV selection."""
+    defaults = _defaults()
+    if group not in defaults:
+        raise ValueError(f"Unbekannter Einstellungsbereich: {group}")
+    fields = defaults[group]
+    if group == "data":
+        fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
+    parsed = _parse_group(values, fields)
+    if group == "data":
+        _validate_data_options(parsed)
+    elif group == "priors":
+        BayesianCTRVPriors(**parsed)
+    elif group == "rbpf":
+        type(create_default_ctrv_rbpf_config())(**parsed)
+    elif group == "smc":
+        type(create_default_ctrv_smc_config())(**parsed)
+    else:
+        _validate_batch(group, parsed)
+    return parsed
+
+
 def parse_settings(values) -> ExplorerSettings:
     """Validate edits before replacing a working analysis; ignore inactive methods."""
     defaults = _defaults()
@@ -163,10 +205,9 @@ def parse_settings(values) -> ExplorerSettings:
         raise ValueError("Max. Beobachtungen muss eine ganze Zahl sein.") from error
     if maximum:
         _minimum(data, "maximum_observation_count", 3)
-    for key in ("run_id", "start_index", "position_noise_seed", "inference_seed"):
+    for key in ("run_id", "start_index"):
         _minimum(data, key, 0)
-    _minimum(data, "position_noise_std_m", 0)
-    _minimum(data, "playback_interval_ms", 1)
+    _validate_data_options(data)
     interval = data.pop("playback_interval_ms")
     legend = data.pop("show_legend")
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))

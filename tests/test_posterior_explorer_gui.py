@@ -9,6 +9,7 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 
+from posterior_explorer.controls import SettingsPanel  # noqa: E402
 from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
 
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
@@ -35,6 +36,7 @@ def root():
         window = tk.Tk()
     except tk.TclError as error:
         pytest.skip(f"Tk display unavailable: {error}")
+    window.geometry("1000x700")
     window.withdraw()
     errors = []
     window.report_callback_exception = lambda *args: errors.append(args)
@@ -104,6 +106,12 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
         navigator.advance_playback()
         navigator.pause_playback()
         assert navigator.observation_count == 1
+        original_limits = navigator.trajectory_axis.get_xlim()
+        first_view.toolbar.push_current()
+        navigator.trajectory_axis.set_xlim(0.5, 1.5)
+        app.reset_plot_view()
+        assert navigator.trajectory_axis.get_xlim() == original_limits
+        assert navigator.observation_count == 1
         app.toggle_settings()
         assert not app.settings_visible
         app.toggle_settings()
@@ -127,3 +135,136 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
         worker.join(5)
         root.update()
     assert not worker.is_alive
+
+
+def test_analysis_action_stays_above_scrollable_data(root):
+    panel = SettingsPanel(root, lambda: None)
+    panel.pack(fill="both", expand=True)
+    root.update_idletasks()
+    action_container = panel.apply_button.master
+    assert action_container.master is panel
+    packed_sections = panel.pack_slaves()
+    assert packed_sections.index(action_container) < packed_sections.index(
+        panel.data_form
+    )
+    button_y = panel.apply_button.winfo_rooty()
+    panel.data_form.canvas.yview_moveto(1)
+    root.update_idletasks()
+    assert panel.apply_button.winfo_rooty() == button_y
+
+
+def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
+    # Keep the parent withdrawn: no visible test window or actual inference.
+    from posterior_explorer.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: pytest.fail("Unexpected analysis start"))
+    original = panel.values()
+    dialog = SettingsDialog(root, panel, "priors")
+    dialog.variables["speed_prior_upper_mps"].set("30")
+    dialog.cancel()
+    assert panel.values() == original
+    dialog = SettingsDialog(root, panel, "rbpf")
+    errors = []
+    monkeypatch.setattr(
+        "posterior_explorer.dialogs.messagebox.showerror",
+        lambda *args, **kwargs: errors.append(args),
+    )
+    dialog.variables["particle_count"].set("0")
+    dialog.apply()
+    assert dialog.winfo_exists()
+    assert panel.values() == original
+    assert errors
+    dialog.variables["particle_count"].set("64")
+    dialog.apply()
+    assert not dialog.winfo_exists()
+    assert panel.variables["rbpf"]["particle_count"].get() == "64"
+    assert panel.values()["smc"] == original["smc"]
+
+
+class _MenuRecorder:
+    """Record our menu registrations without needing a Tcl display."""
+
+    def __init__(self, _parent, **_options):
+        self.entries = []
+
+    def add_command(self, **options):
+        self.entries.append(options)
+
+    add_cascade = add_command
+    add_checkbutton = add_command
+
+    def add_separator(self):
+        pass
+
+    def entry(self, label):
+        return next(entry for entry in self.entries if entry["label"] == label)
+
+
+class _Value:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
+    # Only native window creation is replaced. Real controller methods handle
+    # visibility, method selection, and closing with an open settings editor.
+    from posterior_explorer import view
+
+    root_options, button_options, closed = {}, {}, []
+    dialogs = []
+
+    class Dialog:
+        def __init__(self, _root, _panel, group):
+            self.group = group
+            self.exists = True
+            dialogs.append(self)
+
+        def winfo_exists(self):
+            return self.exists
+
+        def cancel(self):
+            self.exists = False
+
+    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app.root = SimpleNamespace(configure=lambda **options: root_options.update(options))
+    app.worker = SimpleNamespace(close=lambda: closed.append(True))
+    app.controls = SimpleNamespace(
+        variables={"data": {"inference_method": _Value("smc")}},
+        apply_button=SimpleNamespace(
+            configure=lambda **options: button_options.update(options)
+        ),
+        grid_remove=lambda: None,
+        grid=lambda: None,
+    )
+    app.settings_visible = True
+    app.settings_visible_var = _Value(True)
+    app.status = _Value("")
+    app._closing = False
+    app._settings_dialog = None
+    app.plot_view = None
+    monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
+    monkeypatch.setattr("posterior_explorer.gui.SettingsDialog", Dialog)
+    view.create_menu_bar(app)
+    menu = root_options["menu"]
+    assert [entry["label"] for entry in menu.entries] == [
+        "File",
+        "View",
+        "Settings",
+        "Help",
+    ]
+    menu.entry("View")["menu"].entry("Einstellungen anzeigen")["command"]()
+    assert not app.settings_visible
+    assert app.settings_visible_var.get() is False
+    menu.entry("Settings")["menu"].entry("Inferenzparameter…")["command"]()
+    assert dialogs[0].group == "smc"
+    menu.entry("File")["menu"].entry("Schließen")["command"]()
+    assert app._closing
+    assert not dialogs[0].exists
+    assert closed == [True]
+    assert button_options["state"] == "disabled"

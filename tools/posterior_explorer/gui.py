@@ -1,11 +1,13 @@
 """Coordinate editable settings, background inference and the embedded plot."""
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 
 from bayestraj.validation.posterior_session import PosteriorAnalysisWorker
 
+from . import view
 from .controls import SettingsPanel
+from .dialogs import SettingsDialog
 from .plot_view import PosteriorPlotView
 from .settings import parse_settings
 
@@ -21,35 +23,43 @@ class PosteriorExplorer:
         self._closing = False
         self._error = None
         self._computing = None
-        root.title("Bayesian CTRV — Posterior Explorer")
-        root.geometry("1500x900")
-        root.minsize(1100, 700)
-        root.columnconfigure(1, weight=1)
-        root.rowconfigure(1, weight=1)
-        header = ttk.Frame(root, padding=8)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        self.toggle_button = ttk.Button(
-            header, text="Einstellungen ausblenden", command=self.toggle_settings
-        )
-        self.toggle_button.pack(side="left")
-        ttk.Label(
-            header,
-            text="  Leertaste: Start/Pause  ·  Pfeiltasten im Plot: Einzelschritt  ·  "
-            "Werkzeugleiste: Zoom / Ansicht zurücksetzen",
-        ).pack(side="left", padx=10)
+        self._settings_dialog = None
+        self.settings_visible_var = tk.BooleanVar(root, value=True)
+        view.configure_window(root)
+        view.create_menu_bar(self)
         self.controls = SettingsPanel(root, self.start_analysis)
-        self.controls.grid(row=1, column=0, sticky="ns")
-        self.plot_host = ttk.Frame(root)
-        self.plot_host.grid(row=1, column=1, sticky="nsew")
-        self.placeholder = ttk.Label(
+        self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
+        self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
+        self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        self.placeholder = tk.Label(
             self.plot_host,
-            text="CSV, Run und Methode auswählen, dann „Neue Analyse“ starten.",
+            text="Trajektorie und Posterior-Entwicklung\n\n"
+            "Links CSV, Run und Methode auswählen.\n"
+            "Mit „Neue Analyse“ beginnen.",
+            bg=view.PLOT_BACKGROUND,
+            fg=view.TEXT_COLOR,
+            font=("Arial", 12),
             anchor="center",
         )
         self.placeholder.pack(fill="both", expand=True)
         self.status = tk.StringVar(root, value="Bereit. Noch keine Analyse gestartet.")
-        ttk.Label(root, textvariable=self.status, padding=8, wraplength=1400).grid(
-            row=2, column=0, columnspan=2, sticky="ew"
+        self.status_label = tk.Label(
+            root,
+            textvariable=self.status,
+            padx=10,
+            pady=8,
+            anchor="w",
+            justify="left",
+            bg=view.CONTROL_BACKGROUND,
+            fg=view.TEXT_COLOR,
+            font=view.FONT,
+        )
+        self.status_label.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.status_label.bind(
+            "<Configure>",
+            lambda event: self.status_label.configure(
+                wraplength=max(200, event.width - 20)
+            ),
         )
         root.bind("<space>", self.handle_space, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -86,10 +96,50 @@ class PosteriorExplorer:
             self.controls.grid()
         else:
             self.controls.grid_remove()
-        self.toggle_button.configure(
-            text="Einstellungen ausblenden"
-            if self.settings_visible
-            else "Einstellungen anzeigen"
+        self.settings_visible_var.set(self.settings_visible)
+
+    def open_csv(self):
+        """Expose the existing file chooser from the File menu."""
+        if not self._closing:
+            if not self.settings_visible:
+                self.toggle_settings()
+            self.controls.choose_file()
+
+    def reset_plot_view(self):
+        """Reset only the plot view, without restarting inference or playback."""
+        if self.plot_view is not None:
+            self.plot_view.toolbar.home()
+
+    def show_inference_settings(self):
+        """Edit options for the method currently selected in the sidebar."""
+        self.show_settings_dialog(
+            self.controls.variables["data"]["inference_method"].get()
+        )
+
+    def show_settings_dialog(self, group):
+        """Open one editor at a time, retaining edits until explicitly applied."""
+        if self._closing:
+            return
+        if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
+            self._settings_dialog.lift()
+            self._settings_dialog.focus_set()
+            return
+        self._settings_dialog = SettingsDialog(self.root, self.controls, group)
+
+    def show_help(self):
+        """Keep keyboard instructions available without occupying the plot header."""
+        messagebox.showinfo(
+            "Posterior Explorer — Hilfe",
+            "1. CSV, Run und Methode auswählen; „Neue Analyse“ klicken.\n"
+            "2. Im Plot Start/Pause oder die Leertaste verwenden.\n"
+            "3. Mit dem Slider N auswählen; Pfeiltasten: Einzelschritt.\n\n"
+            "N = 0 zeigt den Prior. Die Posterior-Gruppe wechselt zwischen\n"
+            "Bewegungs- und Rauschparametern. Zoom bleibt bei Updates erhalten.\n\n"
+            "Settings enthält Priors, Inferenzparameter sowie Daten- und\n"
+            "Wiedergabeoptionen. Übernommene Werte gelten erst bei „Neue Analyse“.\n\n"
+            "RBPF/SMC: Online-Updates. VI/MCMC: neuer Batch-Fit je N ab N = 3.\n"
+            "Pause hält den angezeigten Stand fest; laufende Fits dürfen fertig werden.",
+            parent=self.root,
         )
 
     def handle_space(self, event):
@@ -185,6 +235,8 @@ class PosteriorExplorer:
             return
         self._closing = True
         self.controls.apply_button.configure(state="disabled")
+        if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
+            self._settings_dialog.cancel()
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
