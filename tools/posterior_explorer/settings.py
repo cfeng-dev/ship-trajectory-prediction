@@ -14,6 +14,8 @@ from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.paths import data_path
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
     DEFAULT_PLAYBACK_INTERVAL_MS,
+    DEFAULT_PREDICTION_COUNT,
+    DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
 )
 from bayestraj.validation.posterior_session import AnalysisSettings
@@ -27,6 +29,8 @@ MAIN_DATA_FIELDS = (
     "maximum_observation_count",
 )
 DATA_OPTION_FIELDS = (
+    "prediction_count",
+    "prediction_sample_count",
     "position_noise_std_m",
     "position_noise_seed",
     "inference_seed",
@@ -34,6 +38,8 @@ DATA_OPTION_FIELDS = (
     "show_legend",
 )
 LABELS = {
+    "prediction_count": "Vorhersageschritte (0 = aus)",
+    "prediction_sample_count": "Zukunftstrajektorien (0 = aus)",
     "data_file": "CSV-Datei",
     "run_id": "Run-ID",
     "inference_method": "Inferenzmethode",
@@ -85,6 +91,8 @@ def _defaults():
             "inference_method": "rbpf",
             "start_index": 0,
             "maximum_observation_count": "",
+            "prediction_count": DEFAULT_PREDICTION_COUNT,
+            "prediction_sample_count": DEFAULT_PREDICTION_SAMPLE_COUNT,
             "position_noise_std_m": 5.0,
             "position_noise_seed": 2026,
             "inference_seed": 42,
@@ -161,6 +169,8 @@ def _validate_batch(method, fields):
 
 
 def _validate_data_options(fields):
+    for key in ("prediction_count", "prediction_sample_count"):
+        _minimum(fields, key, 0)
     for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
         _minimum(fields, key, 0)
     _minimum(fields, "playback_interval_ms", 1)

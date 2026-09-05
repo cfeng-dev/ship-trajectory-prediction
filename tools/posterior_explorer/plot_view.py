@@ -31,6 +31,7 @@ class PosteriorPlotView(tk.Frame):
             playback_interval_ms=settings.playback_interval_ms,
             figure=self.figure,
             request_update=request_update,
+            prediction_count=settings.analysis.experiment.prediction_count,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()

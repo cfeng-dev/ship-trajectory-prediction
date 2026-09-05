@@ -3,6 +3,7 @@
 import importlib
 import importlib.util
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -270,24 +271,288 @@ def _dashboard_fit_variables():
         "sigma_position_observation": np.asarray([1.0, 2.0]),
         "sigma_speed_process": np.asarray([0.1, 0.2]),
         "sigma_turn_rate_process": np.asarray([np.pi / 180.0, np.pi / 90.0]),
+        "x_prediction": np.asarray([[10.0], [20.0]]),
+        "y_prediction": np.asarray([[15.0], [25.0]]),
     }
 
 
-def _dashboard_trajectory_data():
+def _dashboard_trajectory_data(count=4):
     return pd.DataFrame(
         {
             "time": pd.date_range(
                 "2026-01-01",
-                periods=4,
+                periods=count,
                 freq="10s",
                 tz="UTC",
             ),
             "run_id": 102,
-            "gps_latitude": 54.0 + np.arange(4) * 1e-5,
-            "gps_longitude": 10.0 + np.arange(4) * 2e-5,
-            "gps_speed": np.full(4, 18.0),
+            "gps_latitude": 54.0 + np.arange(count) * 1e-5,
+            "gps_longitude": 10.0 + np.arange(count) * 2e-5,
+            "gps_speed": np.full(count, 18.0),
         }
     )
+
+
+@pytest.mark.parametrize("method", ["rbpf", "smc"])
+def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
+    dashboard = _load_dashboard_module()
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=method,
+        inference_seed=42,
+        prediction_count=2,
+        prediction_sample_count=5,
+    )
+    data = _dashboard_trajectory_data(6)
+    changed_future = data.copy()
+    changed_future.loc[2:, "gps_latitude"] += 0.5
+    changed_future.loc[2:, "gps_longitude"] -= 0.5
+
+    def loader(data, config=experiment):
+        return dashboard.create_posterior_dashboard_loader(
+            data,
+            experiment=config,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config={},
+            mcmc_config={},
+            rbpf_config=rbpf.SequentialCTRVFilterConfig(
+                particle_count=32, posterior_draw_count=30
+            ),
+            smc_config=smc.SequentialMonteCarloCTRVConfig(
+                particle_count=32, posterior_draw_count=30
+            ),
+        )[-1]
+
+    load = loader(data)
+    update = load(2)
+    forecast = update.forecast
+    assert forecast.time_offsets_seconds == pytest.approx([10, 20])
+    assert forecast.median_positions.shape == (2, 2)
+    assert forecast.sample_positions.shape == (5, 2, 2)
+    assert forecast.median_positions == pytest.approx(
+        loader(changed_future)(2).forecast.median_positions
+    )
+    assert forecast.sample_positions == pytest.approx(load(2).forecast.sample_positions)
+    without_forecast = loader(data, replace(experiment, prediction_count=0))
+    for count in (2, 3):
+        actual, baseline = load(count), without_forecast(count)
+        for name in dashboard.PARAMETER_NAMES:
+            np.testing.assert_array_equal(
+                actual.samples_by_parameter[name], baseline.samples_by_parameter[name]
+            )
+    assert load(5).forecast.time_offsets_seconds == pytest.approx([10])
+    assert load(6).forecast is None
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
+    dashboard = _load_dashboard_module()
+    calls = []
+
+    class ForecastFit(_FakeFit):
+        # Exercise VI's mean=False handling as well as regular MCMC draws.
+        def stan_variable(self, name, **options):
+            if method == "vi":
+                assert options.get("mean") is False
+            return super().stan_variable(name, **options)
+
+    def fit_batch(window, **options):
+        calls.append(
+            bayesian_model.build_stan_data(
+                window,
+                priors=options["priors"],
+                position_observations=options["position_observations"],
+            )
+        )
+        count = window.prediction_count
+        values = _dashboard_fit_variables()
+        values["x_prediction"] = np.tile(np.arange(count), (2, 1)) + [[10], [30]]
+        values["y_prediction"] = np.tile(np.arange(count), (2, 1)) + [[20], [40]]
+        values["x_observation_prediction"] = np.full((2, count), 9999)
+        values["y_observation_prediction"] = np.full((2, count), 9999)
+        fit = ForecastFit(values)
+        if method == "vi":
+            fit.variational_sample = True
+        return fit
+
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=1,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=method,
+        inference_seed=42,
+        prediction_count=3,
+        prediction_sample_count=0,
+    )
+    trajectory, maximum, _, load = dashboard.create_posterior_dashboard_loader(
+        _dashboard_trajectory_data(8),
+        experiment=experiment,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        vi_config={},
+        mcmc_config={},
+        rbpf_config=None,
+        smc_config=None,
+        fit_batch_model=fit_batch,
+    )
+    update = load(3)
+    assert update.forecast.time_offsets_seconds == pytest.approx([10, 20, 30])
+    np.testing.assert_allclose(
+        update.forecast.median_positions, [[20, 30], [21, 31], [22, 32]]
+    )
+    assert update.forecast.sample_positions.shape == (0, 3, 2)
+    assert calls[0]["time_observed"] == pytest.approx([0, 10, 20])
+    assert calls[0]["time_prediction"] == pytest.approx([30, 40, 50])
+    assert calls[0]["x_observed"] == pytest.approx(trajectory.observed_x[:3])
+    assert maximum == 6
+    assert load(maximum).forecast.time_offsets_seconds == pytest.approx([10])
+
+
+def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    loads = []
+
+    def load(count):
+        loads.append(count)
+        forecast = dashboard.PosteriorDashboardForecast(
+            time_offsets_seconds=[10, 20],
+            median_positions=[[10 * count, 20], [10 * count + 1, 21]],
+            sample_positions=[[[10 * count - 1, 19], [10 * count, 20]]],
+        )
+        return dashboard.PosteriorDashboardUpdate(
+            count, _dashboard_samples(), forecast=forecast
+        )
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=4,
+        figure=figure,
+        prediction_count=2,
+    )
+    try:
+        assert not any(
+            "Median" in line.get_label() for line in navigator.trajectory_axis.lines
+        )
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        navigator.trajectory_axis.set_xlim(0, 40)
+        navigator.trajectory_axis.set_ylim(0, 40)
+        figure.canvas.draw()
+        limits = (
+            navigator.trajectory_axis.get_xlim(),
+            navigator.trajectory_axis.get_ylim(),
+        )
+        for count in (1, 2):
+            navigator.slider.set_val(count)
+            navigator.show_selected_observation_count(None)
+            line = next(
+                line
+                for line in navigator.trajectory_axis.lines
+                if "Median" in line.get_label()
+            )
+            assert line.get_xdata()[-2:] == pytest.approx([10 * count, 10 * count + 1])
+            np.testing.assert_allclose(
+                (
+                    navigator.trajectory_axis.get_xlim(),
+                    navigator.trajectory_axis.get_ylim(),
+                ),
+                limits,
+            )
+        assert loads == [1, 2]
+        navigator.slider.set_val(0)
+        navigator.show_selected_observation_count(None)
+        assert not any(
+            "Median" in line.get_label() for line in navigator.trajectory_axis.lines
+        )
+    finally:
+        navigator.disconnect()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("prediction_count", -1),
+        ("prediction_count", True),
+        ("prediction_sample_count", 1.5),
+    ],
+)
+def test_dashboard_config_rejects_invalid_forecast_settings(field, value):
+    dashboard = _load_dashboard_module()
+    with pytest.raises(ValueError, match=field):
+        dashboard.PosteriorDashboardConfig(
+            run_id=102,
+            start_index=0,
+            maximum_observation_count=None,
+            position_noise_std_m=0.0,
+            position_noise_seed=2026,
+            inference_method="rbpf",
+            inference_seed=42,
+            **{field: value},
+        )
+
+
+def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        maximum_observation_count=4,
+        figure=figure,
+        request_update=lambda _: None,
+        prediction_count=2,
+    )
+
+    def median_lines():
+        return [
+            line
+            for line in navigator.trajectory_axis.lines
+            if "Median" in line.get_label()
+        ]
+
+    try:
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
+        for count in (1, 2, 3):
+            forecast = dashboard.PosteriorDashboardForecast(
+                [10],
+                [[count * 10, 20]],
+                np.empty((0, 1, 2)),
+            )
+            navigator.accept_update(
+                dashboard.PosteriorDashboardUpdate(
+                    count, _dashboard_samples(), forecast=forecast
+                )
+            )
+            if count < 3:
+                assert navigator.observation_count == 0
+                assert not median_lines()
+        assert median_lines()[0].get_xdata()[-1] == 30
+        navigator.slider.set_val(4)
+        navigator.show_selected_observation_count(None)
+        assert median_lines()[0].get_xdata()[-1] == 30
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(4, _dashboard_samples())
+        )
+        assert not median_lines()
+        assert any(
+            "keine weiteren Prognosezeitpunkte" in text.get_text()
+            for text in navigator.trajectory_axis.texts
+        )
+    finally:
+        navigator.disconnect()
 
 
 @pytest.mark.parametrize("inference_method", ["vi", "mcmc", "rbpf", "smc"])
@@ -712,6 +977,8 @@ def test_dashboard_script_runs_the_shared_analysis_without_showing(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["data_file"] == script.DATA_FILE
     assert calls[0]["experiment"] is script.EXPERIMENT
+    assert calls[0]["experiment"].prediction_count > 0
+    assert calls[0]["experiment"].prediction_sample_count > 0
     assert script.EXPERIMENT.run_id == 102
     assert script.EXPERIMENT.start_index == 0
     assert script.EXPERIMENT.maximum_observation_count is None
@@ -812,6 +1079,7 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
         "minimum_posterior_observation_count": 3,
         "show_legend": False,
         "playback_interval_ms": 750,
+        "prediction_count": experiment.prediction_count,
     }
     assert navigator is not None
     assert not plt.fignum_exists(figure.number)

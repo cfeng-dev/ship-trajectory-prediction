@@ -50,6 +50,8 @@ def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
     values["data"]["inference_method"] = method
     values[method]["particle_count"] = "32"
     values[method]["posterior_draw_count"] = "20"
+    values["data"]["prediction_count"] = "2"
+    values["data"]["prediction_sample_count"] = "5"
     worker = PosteriorAnalysisWorker()
     try:
         worker.start(parse_settings(values).analysis)
@@ -60,6 +62,12 @@ def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
         updates = [event.payload for event in events if event.kind == "update"]
         assert [update.observation_count for update in updates] == [1, 2, 3, 4]
         assert all(update.particle_count == 32 for update in updates)
+        assert [
+            len(update.forecast.time_offsets_seconds) for update in updates[:-1]
+        ] == [2, 2, 1]
+        assert updates[-1].forecast is None
+        assert updates[0].forecast.sample_positions.shape == (5, 2, 2)
+        assert not updates[0].forecast.sample_positions.flags.writeable
         assert all(
             samples.size == 20 for samples in updates[-1].samples_by_parameter.values()
         )

@@ -76,7 +76,8 @@ at the top of the sidebar, outside the scrollable data fields.
 Choose a CSV, run, inference method and optional observation limit in **Daten**.
 **File** also opens the CSV chooser. Under **Settings**, open **Priors**,
 **Inferenzparameter** (for the currently selected method), or **Daten und
-Darstellung** (noise, seeds, playback interval and legend). Dialogs edit a draft:
+Darstellung** (forecast steps/sample paths, noise, seeds, playback interval and
+legend). Dialogs edit a draft:
 **Übernehmen** validates and keeps the edits; **Abbrechen** discards them. Neither
 action restarts inference. Click **Neue Analyse** to apply all settings and begin
 with an empty cache.
@@ -91,6 +92,18 @@ its normal editing behavior. Zoom is retained as the posterior changes; the
 Matplotlib toolbar resets the view or saves a figure. Switch between motion and
 noise parameters using the posterior-group selector.
 
+The trajectory panel also shows the latent forecast for the selected posterior:
+a red coordinate-wise median and translucent example paths (not a probability
+region). Forecasts use only observations through N; future recorded positions are
+reference data, never fit inputs. The first line segment connects to the last
+measured position for visual orientation, without changing the model's forecasts.
+The default is 6 steps and up to 20 sample paths. Under **Settings > Daten und
+Darstellung**, set **Vorhersageschritte** to 0 to disable forecasts, or
+**Zukunftstrajektorien** to 0 to show only the median. Forecasts use the next
+timestamps of the recording, so the horizon shortens near its end. At the last
+recorded position there are no further forecast timestamps. At N=0 only priors
+are shown; forecasts start at N=1 for RBPF/SMC and N=3 for VI/MCMC.
+
 RBPF and SMC update an online filter. VI and MCMC refit an expanding data prefix
 for each stage, starting at N=3; start with a small observation limit. They also
 reserve the final route observation for the existing batch prediction interface.
@@ -100,8 +113,10 @@ result may finish and enter the cache. Replacing an analysis discards its result
 and closing the window waits responsively for an in-flight fit to finish; fits
 are not forcibly terminated.
 
-The header-configured script remains available and unchanged:
+The header-configured script remains available:
 `experiments/posterior_analysis/plot_bayesian_ctrv_posterior_updates.py`.
+Set `EXPERIMENT.prediction_count` and `EXPERIMENT.prediction_sample_count` in its
+header to control the same forecast display.
 The GUI reuses its shared dashboard and inference loaders; it does not import
 that script's editable header. GUI settings are local to the window, not saved
 back into the script. Tkinter is part of standard Python installations, and no

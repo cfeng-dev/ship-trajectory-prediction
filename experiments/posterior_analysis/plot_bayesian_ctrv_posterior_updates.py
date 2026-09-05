@@ -24,6 +24,9 @@ EXPERIMENT = dashboard.PosteriorDashboardConfig(
     position_noise_seed=2026,
     inference_method="rbpf",
     inference_seed=42,
+    # Future timestamps of this recording; the horizon shortens near its end.
+    prediction_count=6,  # 0 disables forecasts.
+    prediction_sample_count=20,  # 0 hides sample paths; the median remains visible.
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
     speed_prior_upper_mps=20.0,

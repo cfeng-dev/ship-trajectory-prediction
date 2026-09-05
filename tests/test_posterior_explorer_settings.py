@@ -60,6 +60,17 @@ def test_inactive_method_fields_do_not_block_analysis(form):
         settings.parse_settings(form)
 
 
+def test_forecast_settings_reach_analysis_and_allow_hiding_samples(form):
+    form["data"]["prediction_count"] = "12"
+    form["data"]["prediction_sample_count"] = "0"
+    result = settings.parse_settings(form)
+    assert result.analysis.experiment.prediction_count == 12
+    assert result.analysis.experiment.prediction_sample_count == 0
+    form["data"]["prediction_count"] = "-1"
+    with pytest.raises(ValueError):
+        settings.parse_settings(form)
+
+
 def test_batch_options_are_forwarded_without_hidden_overrides(form):
     form["data"]["inference_method"] = "vi"
     form["vi"]["algorithm"] = "fullrank"
@@ -99,6 +110,8 @@ def test_inference_dialog_validates_the_method_being_edited(method):
 
 def test_data_options_dialog_preserves_units_and_validates_interval():
     values = {
+        "prediction_count": "8",
+        "prediction_sample_count": "0",
         "position_noise_std_m": "2.5",
         "position_noise_seed": "123",
         "inference_seed": "456",
@@ -107,6 +120,8 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
     }
     result = settings.validate_dialog_values("data", values)
     assert result == {
+        "prediction_count": 8,
+        "prediction_sample_count": 0,
         "position_noise_std_m": 2.5,
         "position_noise_seed": 123,
         "inference_seed": 456,

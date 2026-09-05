@@ -19,6 +19,7 @@ import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
+import bayestraj.validation.reporting as reporting
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
 PARAMETER_GROUPS = {
@@ -39,6 +40,8 @@ PARAMETER_GROUP_LABELS = {
 }
 FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
+DEFAULT_PREDICTION_COUNT = 6
+DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +55,8 @@ class PosteriorDashboardConfig:
     position_noise_seed: int
     inference_method: str
     inference_seed: int
+    prediction_count: int = DEFAULT_PREDICTION_COUNT
+    prediction_sample_count: int = DEFAULT_PREDICTION_SAMPLE_COUNT
 
     def __post_init__(self) -> None:
         """Normalize the selected batch or online inference method."""
@@ -60,6 +65,14 @@ class PosteriorDashboardConfig:
             online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
         object.__setattr__(self, "inference_method", inference_method)
+        for name in ("prediction_count", "prediction_sample_count"):
+            object.__setattr__(
+                self,
+                name,
+                numeric_validation.validate_non_negative_integer(
+                    name, getattr(self, name)
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +107,46 @@ class PosteriorDashboardTrajectory:
 
 
 @dataclass(frozen=True, slots=True)
+class PosteriorDashboardForecast:
+    """Compact, immutable latent forecast for one cached posterior stage.
+
+    Positions are local metres; offsets are seconds after the last observation.
+    Only the median and a limited set of paired draws are retained for playback.
+    """
+
+    time_offsets_seconds: np.ndarray
+    median_positions: np.ndarray
+    sample_positions: np.ndarray
+
+    def __post_init__(self) -> None:
+        offsets = np.asarray(self.time_offsets_seconds, dtype=float).copy()
+        median = np.asarray(self.median_positions, dtype=float).copy()
+        samples = np.asarray(self.sample_positions, dtype=float).copy()
+        numeric_validation.validate_finite_vector("time_offsets_seconds", offsets)
+        if offsets[0] <= 0 or np.any(np.diff(offsets) <= 0):
+            raise ValueError(
+                "Forecast offsets must be positive and strictly increasing."
+            )
+        if (
+            median.shape != (offsets.size, 2)
+            or samples.ndim != 3
+            or samples.shape[1:] != median.shape
+            or not np.all(np.isfinite(median))
+            or not np.all(np.isfinite(samples))
+        ):
+            raise ValueError(
+                "Forecast positions must be finite, matching (time, xy) arrays."
+            )
+        for name, values in (
+            ("time_offsets_seconds", offsets),
+            ("median_positions", median),
+            ("sample_positions", samples),
+        ):
+            values.setflags(write=False)
+            object.__setattr__(self, name, values)
+
+
+@dataclass(frozen=True, slots=True)
 class PosteriorDashboardUpdate:
     """All parameter draws and diagnostics after one inference stage."""
 
@@ -102,8 +155,13 @@ class PosteriorDashboardUpdate:
     effective_sample_size: float | None = None
     particle_count: int | None = None
     resample_count: int | None = None
+    forecast: PosteriorDashboardForecast | None = None
 
     def __post_init__(self) -> None:
+        if self.forecast is not None and not isinstance(
+            self.forecast, PosteriorDashboardForecast
+        ):
+            raise TypeError("forecast must be a PosteriorDashboardForecast or None.")
         if (
             isinstance(self.observation_count, bool)
             or not isinstance(self.observation_count, int)
@@ -211,6 +269,7 @@ class PosteriorDashboardNavigator:
         show_legend,
         playback_interval_ms,
         request_update=None,
+        prediction_count=0,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -224,6 +283,7 @@ class PosteriorDashboardNavigator:
         self.maximum_observation_count = maximum_observation_count
         self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
+        self.prediction_count = prediction_count
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -533,7 +593,7 @@ class PosteriorDashboardNavigator:
                 label="Aktuelle Position",
                 zorder=3,
             )
-        axis.set_title("Schiffsbewegung", fontsize=13, pad=10)
+        self._draw_forecast(axis)
         axis.set_xlabel("Ostposition x [m]", fontsize=11)
         axis.set_ylabel("Nordposition y [m]", fontsize=11)
         axis.grid(alpha=0.25, linewidth=0.8)
@@ -545,6 +605,63 @@ class PosteriorDashboardNavigator:
         self._trajectory_has_been_drawn = True
         if self.show_legend:
             axis.legend(loc="best", fontsize=9, framealpha=0.9)
+
+    def _draw_forecast(self, axis) -> None:
+        """Draw only the forecast belonging to the selected (possibly cached) N."""
+        update = self._updates_by_count.get(self.observation_count)
+        forecast = None if update is None else update.forecast
+        title = "Schiffsbewegung"
+        if forecast is not None:
+            origin = np.array(
+                [
+                    self.trajectory.observed_x[self.observation_count - 1],
+                    self.trajectory.observed_y[self.observation_count - 1],
+                ]
+            )
+            # Connect to the last measured point for orientation, as in the
+            # standalone prediction plot; this does not re-anchor model draws.
+            for index, positions in enumerate(forecast.sample_positions):
+                path = np.vstack((origin, positions))
+                axis.plot(
+                    path[:, 0],
+                    path[:, 1],
+                    color="#DC2626",
+                    alpha=0.14,
+                    linewidth=0.9,
+                    zorder=2,
+                    label="Mögliche Zukunftstrajektorien"
+                    if index == 0
+                    else "_nolegend_",
+                )
+            path = np.vstack((origin, forecast.median_positions))
+            axis.plot(
+                path[:, 0],
+                path[:, 1],
+                color="#DC2626",
+                linewidth=2.2,
+                marker=".",
+                markersize=4,
+                zorder=4,
+                label="Vorhersage (Median)",
+            )
+            title += f" · Prognose +{forecast.time_offsets_seconds[-1]:g} s"
+        elif self.prediction_count:
+            message = (
+                "Ende der Aufzeichnung: keine weiteren Prognosezeitpunkte."
+                if self.observation_count == self.trajectory.reference_x.size
+                else f"Vorhersage ab N = {self.minimum_posterior_observation_count}"
+            )
+            axis.text(
+                0.02,
+                0.02,
+                message,
+                transform=axis.transAxes,
+                fontsize=8,
+                va="bottom",
+                wrap=True,
+                bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
+            )
+        axis.set_title(title, fontsize=13, pad=10)
 
     def _draw_posterior(self, axis, parameter_name) -> None:
         axis.clear()
@@ -623,6 +740,7 @@ def create_sequential_posterior_dashboard_figure(
     playback_interval_ms=DEFAULT_PLAYBACK_INTERVAL_MS,
     figure=None,
     request_update=None,
+    prediction_count=0,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -661,6 +779,10 @@ def create_sequential_posterior_dashboard_figure(
     ):
         raise ValueError("playback_interval_ms must be a positive integer.")
     playback_interval_ms = int(playback_interval_ms)
+    prediction_count = numeric_validation.validate_non_negative_integer(
+        "prediction_count",
+        prediction_count,
+    )
 
     if figure is None:
         figure = plt.figure(figsize=FIGURE_SIZE)
@@ -686,6 +808,7 @@ def create_sequential_posterior_dashboard_figure(
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
         request_update=request_update,
+        prediction_count=prediction_count,
     )
     return figure, navigator
 
@@ -773,12 +896,27 @@ def create_posterior_dashboard_loader(
                     trajectory.observed_y[index],
                 )
             fit = online_filter.sample_current_posterior(seed=experiment.inference_seed)
+            future_times = time_seconds[
+                observation_count : observation_count + experiment.prediction_count
+            ]
+            forecast = None
+            if future_times.size:
+                forecast_fit = online_filter.forecast(
+                    future_times,
+                    seed=1_000_000 + experiment.inference_seed,
+                )
+                forecast = _extract_dashboard_forecast(
+                    forecast_fit,
+                    future_times - time_seconds[observation_count - 1],
+                    experiment.prediction_sample_count,
+                )
             return PosteriorDashboardUpdate(
                 observation_count=observation_count,
                 samples_by_parameter=_extract_dashboard_samples(fit, specs),
                 effective_sample_size=online_filter.effective_sample_size,
                 particle_count=particle_filter_config.particle_count,
                 resample_count=online_filter.resample_count,
+                forecast=forecast,
             )
 
         return trajectory, maximum_observation_count, 1, load_online_update
@@ -802,7 +940,10 @@ def create_posterior_dashboard_loader(
         window = observation_window.prepare_trajectory_window(
             trajectory_data,
             observation_count=observation_count,
-            prediction_count=1,
+            prediction_count=max(
+                1,
+                min(experiment.prediction_count, len(time_seconds) - observation_count),
+            ),
             start_index=experiment.start_index,
         )
         position_observations = bayesian_model.PositionObservations(
@@ -823,6 +964,16 @@ def create_posterior_dashboard_loader(
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
+            forecast=(
+                _extract_dashboard_forecast(
+                    fit,
+                    window.time_seconds[window.prediction_slice]
+                    - window.time_seconds[observation_count - 1],
+                    experiment.prediction_sample_count,
+                )
+                if experiment.prediction_count
+                else None
+            ),
         )
 
     return (
@@ -915,6 +1066,30 @@ def _validate_update_observation_count(observation_count, *, minimum, maximum):
         raise ValueError(f"observation_count must be between {minimum} and {maximum}.")
 
 
+def _extract_dashboard_forecast(fit, time_offsets_seconds, sample_count):
+    """Summarize all latent draws, keeping only a bounded selection of full paths."""
+    x = reporting.posterior_variable_samples(fit, "x_prediction")
+    y = reporting.posterior_variable_samples(fit, "y_prediction")
+    if (
+        x.ndim != 2
+        or x.shape != y.shape
+        or x.shape[0] < 2
+        or x.shape[1] != len(time_offsets_seconds)
+        or not np.all(np.isfinite(x))
+        or not np.all(np.isfinite(y))
+    ):
+        raise ValueError("Forecast draws must be finite matching (draw, time) arrays.")
+    positions = np.stack((x, y), axis=-1)
+    indices = np.linspace(
+        0, len(positions) - 1, min(sample_count, len(positions)), dtype=int
+    )
+    return PosteriorDashboardForecast(
+        time_offsets_seconds=time_offsets_seconds,
+        median_positions=np.median(positions, axis=0),
+        sample_positions=positions[indices],
+    )
+
+
 def _extract_dashboard_samples(fit, specs):
     return {
         spec.parameter_name: prior_posterior.extract_posterior_samples(fit, spec)
@@ -942,6 +1117,7 @@ def create_rbpf_posterior_dashboard_loader(
         position_noise_seed=position_noise_seed,
         inference_method="rbpf",
         inference_seed=rbpf_seed,
+        prediction_count=0,  # Preserve this legacy posterior-only convenience API.
     )
     trajectory, maximum_observation_count, _, load_update = (
         create_posterior_dashboard_loader(
@@ -1011,6 +1187,9 @@ def run_bayesian_ctrv_posterior_dashboard(
         print("Batch-Fenster          : expandierend ab dem Startindex")
     print("Posterior-Gruppen     : Bewegungszustand, Unsicherheiten")
     print(
+        f"Vorhersageschritte    : {experiment.prediction_count} (bis Aufzeichnungsende)"
+    )
+    print(
         "Navigation            : Start/Pause, Leertaste, Schieberegler oder Pfeiltasten"
     )
     if experiment.inference_method in inference.CTRV_ONLINE_INFERENCE_METHODS:
@@ -1028,6 +1207,7 @@ def run_bayesian_ctrv_posterior_dashboard(
         minimum_posterior_observation_count=(minimum_posterior_observation_count),
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
+        prediction_count=experiment.prediction_count,
     )
     if show:
         plt.show(block=True)
