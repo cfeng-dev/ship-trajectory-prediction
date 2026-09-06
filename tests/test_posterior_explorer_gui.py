@@ -48,6 +48,25 @@ def root():
     assert not errors
 
 
+@pytest.mark.parametrize(
+    ("content_height", "screen_height", "expected_height"),
+    (
+        (540, 1080, 540),
+        (180, 1080, 320),
+        (900, 800, 680),
+    ),
+)
+def test_compact_dialog_height_tracks_content_and_screen_limit(
+    content_height,
+    screen_height,
+    expected_height,
+):
+    """Short editors stay compact while longer forms remain scrollable."""
+    from posterior_explorer.dialogs import dialog_height_for_content
+
+    assert dialog_height_for_content(content_height, screen_height) == expected_height
+
+
 def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatch):
     entered, release = Event(), Event()
     prepares = []
