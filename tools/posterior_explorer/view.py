@@ -8,6 +8,10 @@ PLOT_BACKGROUND = "#f4f9fc"
 TEXT_COLOR = "#1f2933"
 FONT = ("Arial", 10)
 
+MAIN_WINDOW_WIDTH = 1400
+MAIN_WINDOW_HEIGHT = 700
+MAIN_WINDOW_VERTICAL_OFFSET = 40
+
 
 def create_styled_button(parent, *, text, command, width=18):
     """Use the simulator's white buttons with blue hover feedback."""
@@ -33,15 +37,30 @@ def create_styled_button(parent, *, text, command, width=18):
     return button
 
 
+def centered_window_position(
+    screen_width, screen_height, window_width, window_height, *, vertical_offset=0
+):
+    """Return the direct screen-centered position used by the ship simulator."""
+    return (
+        (screen_width - window_width) // 2,
+        (screen_height - window_height) // 2 - vertical_offset,
+    )
+
+
 def configure_window(root):
     """Keep the window inside the screen and apply the simulator's light palette."""
     root.title("Bayesian CTRV — Posterior Explorer")
-    width = min(1500, max(800, root.winfo_screenwidth() - 80))
-    height = min(900, max(550, root.winfo_screenheight() - 100))
-    left = max(0, (root.winfo_screenwidth() - width) // 2)
-    top = max(0, (root.winfo_screenheight() - height) // 2 - 20)
-    root.geometry(f"{width}x{height}+{left}+{top}")
-    root.minsize(min(1000, width), min(620, height))
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    left, top = centered_window_position(
+        screen_width,
+        screen_height,
+        MAIN_WINDOW_WIDTH,
+        MAIN_WINDOW_HEIGHT,
+        vertical_offset=MAIN_WINDOW_VERTICAL_OFFSET,
+    )
+    root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}+{left}+{top}")
+    root.minsize(1000, 620)
     root.configure(bg=APP_BACKGROUND)
     root.columnconfigure(1, weight=1)
     root.rowconfigure(0, weight=1)

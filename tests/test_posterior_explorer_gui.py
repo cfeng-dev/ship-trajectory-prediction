@@ -11,6 +11,7 @@ tk = pytest.importorskip("tkinter")
 
 from posterior_explorer.controls import SettingsPanel  # noqa: E402
 from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
+from posterior_explorer.view import centered_window_position  # noqa: E402
 
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
     PARAMETER_NAMES,
@@ -28,6 +29,33 @@ def pump_until(root, predicate):
             return
         Event().wait(0.01)
     pytest.fail("Tk condition was not reached")
+
+
+@pytest.mark.parametrize(
+    ("screen_width", "screen_height", "window_width", "window_height", "expected"),
+    (
+        (1920, 1080, 1400, 700, (260, 190)),
+        (1280, 900, 1100, 720, (90, 90)),
+    ),
+)
+def test_main_window_position_matches_ship_simulator_centering(
+    screen_width, screen_height, window_width, window_height, expected
+):
+    """The explorer uses the simulator's direct screen-centering formula."""
+    assert (
+        centered_window_position(
+            screen_width, screen_height, window_width, window_height
+        )
+        == expected
+    )
+
+
+def test_main_window_position_supports_small_upward_offset():
+    """The explorer can sit slightly above the mathematical screen center."""
+    assert centered_window_position(1920, 1080, 1400, 700, vertical_offset=40) == (
+        260,
+        150,
+    )
 
 
 @pytest.fixture
