@@ -55,6 +55,13 @@ class ScrollableForm(tk.Frame):
             widgets.extend(widget.winfo_children())
 
 
+def split_analysis_data_fields(fields):
+    """Keep the inference choice with the action that consumes it."""
+    analysis = {key: fields[key] for key in ("inference_method",) if key in fields}
+    data = {key: value for key, value in fields.items() if key not in analysis}
+    return analysis, data
+
+
 class SettingsPanel(tk.Frame):
     """Editable data, prior and inference settings with an explicit apply action."""
 
@@ -76,7 +83,7 @@ class SettingsPanel(tk.Frame):
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
         ).pack(pady=(14, 10))
-        actions = tk.LabelFrame(
+        self.analysis_section = tk.LabelFrame(
             body,
             text="Analyse",
             font=FONT,
@@ -85,11 +92,19 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=10,
         )
-        actions.pack(fill="x", pady=(0, 8))
+        self.analysis_section.pack(fill="x", pady=(0, 8))
+        self.analysis_section.columnconfigure(0, weight=1)
+        self.analysis_fields = tk.Frame(self.analysis_section, bg=CONTROL_BACKGROUND)
+        analysis_values, data_values = split_analysis_data_fields(
+            {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS}
+        )
         self.apply_button = create_styled_button(
-            actions, text="Neue Analyse", command=on_apply
+            self.analysis_section, text="Neue Analyse", command=on_apply
         )
         self.apply_button.pack(fill="x")
+        self.analysis_fields.columnconfigure(1, weight=1)
+        populate_fields(self.analysis_fields, analysis_values, stacked=False)
+        self.analysis_fields.pack(fill="x", pady=(8, 0))
 
         self.data_section = tk.LabelFrame(
             body,
@@ -104,7 +119,7 @@ class SettingsPanel(tk.Frame):
         self.data_section.columnconfigure(0, weight=1)
         populate_fields(
             self.data_section,
-            {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS},
+            data_values,
             choose_file=self.choose_file,
             stacked=True,
         )

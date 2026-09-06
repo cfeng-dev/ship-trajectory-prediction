@@ -9,7 +9,10 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 
-from posterior_explorer.controls import SettingsPanel  # noqa: E402
+from posterior_explorer.controls import (  # noqa: E402
+    SettingsPanel,
+    split_analysis_data_fields,
+)
 from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
 from posterior_explorer.view import centered_window_position  # noqa: E402
 
@@ -201,12 +204,34 @@ def test_settings_panel_scrolls_analysis_and_data_together(root):
     assert packed_sections[-1] is panel.data_section
 
 
-def test_analysis_section_contains_only_new_analysis_button(root):
+def test_analysis_section_contains_method_and_new_analysis_button(root):
     panel = SettingsPanel(root, lambda: None)
     panel.pack(fill="both", expand=True)
     root.update_idletasks()
 
-    assert panel.apply_button.master.pack_slaves() == [panel.apply_button]
+    assert panel.analysis_fields.master is panel.analysis_section
+    assert panel.analysis_section.pack_slaves() == [
+        panel.apply_button,
+        panel.analysis_fields,
+    ]
+    method_field = next(
+        child
+        for child in panel.analysis_fields.winfo_children()
+        if child.winfo_class() == "TCombobox"
+    )
+    assert method_field.cget("textvariable") == str(
+        panel.variables["data"]["inference_method"]
+    )
+    assert method_field.grid_info()["column"] == "1"
+
+
+def test_inference_method_is_grouped_with_analysis_fields():
+    analysis, data = split_analysis_data_fields(
+        {"data_file": "route.csv", "inference_method": "rbpf", "run_id": "102"}
+    )
+
+    assert analysis == {"inference_method": "rbpf"}
+    assert data == {"data_file": "route.csv", "run_id": "102"}
 
 
 def test_dialog_labels_and_fields_share_vertical_center(root):
