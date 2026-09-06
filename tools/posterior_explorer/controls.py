@@ -108,26 +108,6 @@ class SettingsPanel(tk.Frame):
             choose_file=self.choose_file,
             stacked=True,
         )
-        self.method_label = tk.Label(
-            body,
-            wraplength=285,
-            justify="left",
-            font=("Arial", 9),
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-        )
-        self.method_label.pack(fill="x", pady=(12, 0))
-        tk.Label(
-            body,
-            text="Priors, Inferenzparameter, Rauschen und Wiedergabeoptionen: Settings",
-            wraplength=285,
-            justify="left",
-            font=("Arial", 9),
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-        ).pack(fill="x", pady=(12, 0))
-        self.variables["data"]["inference_method"].trace_add("write", self._show_method)
-        self._show_method()
         self.settings_form.bind_mouse_wheel()
 
     def choose_file(self):
@@ -139,16 +119,6 @@ class SettingsPanel(tk.Frame):
         )
         if selected:
             self.variables["data"]["data_file"].set(selected)
-
-    def _show_method(self, *_):
-        method = self.variables["data"]["inference_method"].get()
-        mode = (
-            "Online: Beobachtungen werden nacheinander verarbeitet."
-            if method in ("rbpf", "smc")
-            else "Batch: neuer Fit je N, mit wachsendem Datenpräfix (ab N=3). "
-            "Zunächst wenige Beobachtungen wählen."
-        )
-        self.method_label.configure(text=f"{method.upper()} — {mode}")
 
     def values(self):
         """Read a snapshot of the form on the Tk thread."""

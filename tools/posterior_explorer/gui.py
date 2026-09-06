@@ -46,24 +46,6 @@ class PosteriorExplorer:
         )
         self.placeholder.pack(fill="both", expand=True)
         self.status = tk.StringVar(root, value="Bereit. Noch keine Analyse gestartet.")
-        self.status_label = tk.Label(
-            root,
-            textvariable=self.status,
-            padx=10,
-            pady=8,
-            anchor="w",
-            justify="left",
-            bg=view.CONTROL_BACKGROUND,
-            fg=view.TEXT_COLOR,
-            font=view.FONT,
-        )
-        self.status_label.grid(row=1, column=0, columnspan=2, sticky="ew")
-        self.status_label.bind(
-            "<Configure>",
-            lambda event: self.status_label.configure(
-                wraplength=max(200, event.width - 20)
-            ),
-        )
         root.bind("<space>", self.handle_space, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()

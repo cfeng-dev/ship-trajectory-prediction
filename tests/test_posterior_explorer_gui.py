@@ -87,6 +87,7 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
 
     worker = PosteriorAnalysisWorker(prepare)
     app = PosteriorExplorer(root, worker=worker)
+    assert not hasattr(app, "status_label")
     messages = []
     monkeypatch.setattr(
         "posterior_explorer.gui.messagebox.showerror",
@@ -169,6 +170,7 @@ def test_settings_panel_scrolls_analysis_and_data_together(root):
     assert packed_sections.index(action_container) < packed_sections.index(
         panel.data_section
     )
+    assert packed_sections[-1] is panel.data_section
 
 
 def test_analysis_section_contains_only_new_analysis_button(root):
