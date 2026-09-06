@@ -581,7 +581,6 @@ def create_rbpf_posterior_update_loader(
         initialize_filter = rbpf.SequentialBayesianCTRVFilter.initialize
     if not callable(initialize_filter):
         raise TypeError("initialize_filter must be callable.")
-    print("Initialisiere RBPF mit N = 1 ...")
     online_filter = initialize_filter(
         time_seconds[:1],
         x_observed[:1],
@@ -604,7 +603,6 @@ def create_rbpf_posterior_update_loader(
             raise ValueError("The RBPF update loader cannot move backward.")
         while online_filter.processed_observation_count < observation_count:
             index = online_filter.processed_observation_count
-            print(f"Aktualisiere RBPF mit Messpunkt N = {index + 1} ...")
             online_filter.update(
                 time_seconds[index],
                 x_observed[index],

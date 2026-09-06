@@ -679,7 +679,7 @@ class PosteriorDashboardNavigator:
         axis.set_ylabel(y_label, fontsize=11)
         axis.grid(alpha=0.25, linewidth=0.8)
         axis.tick_params(labelsize=10)
-        axis.set_aspect(spatial_aspect, adjustable="datalim")
+        axis.set_aspect(spatial_aspect, adjustable="box")
         if self.coordinate_display_mode == "gps":
             axis.ticklabel_format(style="plain", useOffset=False)
         if view_limits is not None:

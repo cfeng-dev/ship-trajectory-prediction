@@ -410,7 +410,7 @@ def test_heading_summary_uses_circular_center_and_interval():
     assert summary.upper - summary.lower < 10.0
 
 
-def test_rbpf_update_loader_initializes_once_and_processes_one_new_point():
+def test_rbpf_update_loader_initializes_once_and_processes_one_new_point(capsys):
     analysis = _load_analysis_module()
     trajectory_data = pd.DataFrame(
         {
@@ -491,6 +491,7 @@ def test_rbpf_update_loader_initializes_once_and_processes_one_new_point():
     assert updates[-1].effective_sample_size == pytest.approx(24.0)
     assert updates[-1].particle_count == 32
     assert updates[-1].resample_count == 1
+    assert capsys.readouterr().out == ""
 
 
 def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(

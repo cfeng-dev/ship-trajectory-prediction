@@ -1450,7 +1450,9 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
     assert not plt.fignum_exists(figure.number)
 
 
-def test_dashboard_keeps_manual_trajectory_zoom_when_posterior_stage_changes():
+def test_dashboard_keeps_manual_trajectory_zoom_without_aspect_limit_warning(
+    caplog,
+):
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
         reference_x=[0.0, 1.0, 2.0, 3.0],
@@ -1487,6 +1489,7 @@ def test_dashboard_keeps_manual_trajectory_zoom_when_posterior_stage_changes():
 
         assert navigator.trajectory_axis.get_xlim() == pytest.approx(zoomed_xlim)
         assert navigator.trajectory_axis.get_ylim() == pytest.approx(zoomed_ylim)
+        assert "Ignoring fixed y limits" not in caplog.text
     finally:
         plt.close(figure)
 
