@@ -156,20 +156,27 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
     assert not worker.is_alive
 
 
-def test_analysis_action_stays_above_scrollable_data(root):
+def test_settings_panel_scrolls_analysis_and_data_together(root):
     panel = SettingsPanel(root, lambda: None)
     panel.pack(fill="both", expand=True)
     root.update_idletasks()
     action_container = panel.apply_button.master
-    assert action_container.master is panel
-    packed_sections = panel.pack_slaves()
+    assert panel.settings_form.master is panel
+    assert action_container.master is panel.settings_form.body
+    assert panel.data_section.master is panel.settings_form.body
+    assert action_container.winfo_width() == panel.data_section.winfo_width()
+    packed_sections = panel.settings_form.body.pack_slaves()
     assert packed_sections.index(action_container) < packed_sections.index(
-        panel.data_form
+        panel.data_section
     )
-    button_y = panel.apply_button.winfo_rooty()
-    panel.data_form.canvas.yview_moveto(1)
+
+
+def test_analysis_section_contains_only_new_analysis_button(root):
+    panel = SettingsPanel(root, lambda: None)
+    panel.pack(fill="both", expand=True)
     root.update_idletasks()
-    assert panel.apply_button.winfo_rooty() == button_y
+
+    assert panel.apply_button.master.pack_slaves() == [panel.apply_button]
 
 
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):

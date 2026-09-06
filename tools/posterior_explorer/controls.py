@@ -65,15 +65,19 @@ class SettingsPanel(tk.Frame):
             group: create_variables(self, fields)
             for group, fields in default_form_values().items()
         }
+        self.settings_form = ScrollableForm(self)
+        self.data_form = self.settings_form
+        self.settings_form.pack(fill="both", expand=True)
+        body = self.settings_form.body
         tk.Label(
-            self,
+            body,
             text="Posterior-Analyse",
             font=("Arial", 12, "bold"),
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
         ).pack(pady=(14, 10))
         actions = tk.LabelFrame(
-            self,
+            body,
             text="Analyse",
             font=FONT,
             bg=CONTROL_BACKGROUND,
@@ -81,25 +85,14 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=10,
         )
-        actions.pack(fill="x", padx=14, pady=(0, 8))
+        actions.pack(fill="x", pady=(0, 8))
         self.apply_button = create_styled_button(
             actions, text="Neue Analyse", command=on_apply
         )
         self.apply_button.pack(fill="x")
-        tk.Label(
-            actions,
-            text="Übernimmt alle Einstellungen und beginnt bei N = 0.",
-            font=("Arial", 9),
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-            wraplength=280,
-            justify="left",
-        ).pack(anchor="w", pady=(8, 0))
 
-        self.data_form = ScrollableForm(self)
-        self.data_form.pack(fill="both", expand=True)
-        data_frame = tk.LabelFrame(
-            self.data_form.body,
+        self.data_section = tk.LabelFrame(
+            body,
             text="Daten",
             font=FONT,
             bg=CONTROL_BACKGROUND,
@@ -107,16 +100,16 @@ class SettingsPanel(tk.Frame):
             padx=10,
             pady=8,
         )
-        data_frame.pack(fill="x")
-        data_frame.columnconfigure(0, weight=1)
+        self.data_section.pack(fill="x")
+        self.data_section.columnconfigure(0, weight=1)
         populate_fields(
-            data_frame,
+            self.data_section,
             {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS},
             choose_file=self.choose_file,
             stacked=True,
         )
         self.method_label = tk.Label(
-            self.data_form.body,
+            body,
             wraplength=285,
             justify="left",
             font=("Arial", 9),
@@ -125,7 +118,7 @@ class SettingsPanel(tk.Frame):
         )
         self.method_label.pack(fill="x", pady=(12, 0))
         tk.Label(
-            self.data_form.body,
+            body,
             text="Priors, Inferenzparameter, Rauschen und Wiedergabeoptionen: Settings",
             wraplength=285,
             justify="left",
@@ -135,7 +128,7 @@ class SettingsPanel(tk.Frame):
         ).pack(fill="x", pady=(12, 0))
         self.variables["data"]["inference_method"].trace_add("write", self._show_method)
         self._show_method()
-        self.data_form.bind_mouse_wheel()
+        self.settings_form.bind_mouse_wheel()
 
     def choose_file(self):
         """Choose a CSV without starting or replacing an analysis."""
