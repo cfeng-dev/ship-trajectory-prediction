@@ -44,6 +44,7 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
+FOLLOW_SHIP_VIEW_SPAN_METERS = 1_200.0
 COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
 
 
@@ -339,6 +340,7 @@ class PosteriorDashboardNavigator:
         self._observation_count = 0
         self._parameter_group = "motion"
         self._trajectory_has_been_drawn = False
+        self._follow_ship_view_needs_focus = False
         self._is_playing = False
         self._slider_interaction_active = False
         self._specs_by_name = {
@@ -692,8 +694,14 @@ class PosteriorDashboardNavigator:
             axis.legend(loc="best", fontsize=9, framealpha=0.9)
 
     def _follow_ship_changed(self, _label) -> None:
-        """Apply the view preference immediately, without loading or redrawing posteriors."""
-        self._center_trajectory_on_ship()
+        """Focus the ship view or restore the complete recorded trajectory."""
+        if self.follow_checkbox.get_status()[0]:
+            self._follow_ship_view_needs_focus = True
+            self._center_trajectory_on_ship()
+        else:
+            self._follow_ship_view_needs_focus = False
+            self._trajectory_has_been_drawn = False
+            self._draw_trajectory()
         self.figure.canvas.draw_idle()
 
     def _center_trajectory_on_ship(self) -> None:
@@ -706,6 +714,10 @@ class PosteriorDashboardNavigator:
             np.asarray([self.trajectory.observed_x[index]]),
             np.asarray([self.trajectory.observed_y[index]]),
         )
+        if self._follow_ship_view_needs_focus:
+            self._set_focused_ship_view(index)
+            self._follow_ship_view_needs_focus = False
+            return
         for get_limits, set_limits, position in (
             (axis.get_xlim, axis.set_xlim, position_x[0]),
             (axis.get_ylim, axis.set_ylim, position_y[0]),
@@ -713,6 +725,30 @@ class PosteriorDashboardNavigator:
             lower, upper = get_limits()
             half_span = (upper - lower) / 2.0
             set_limits(position - half_span, position + half_span)
+
+    def _set_focused_ship_view(self, index) -> None:
+        """Show a fixed real-world window around the current ship position."""
+        half_span_meters = FOLLOW_SHIP_VIEW_SPAN_METERS / 2.0
+        current_x = self.trajectory.observed_x[index]
+        current_y = self.trajectory.observed_y[index]
+        x_values, _ = self._display_coordinates(
+            np.asarray([current_x - half_span_meters, current_x + half_span_meters]),
+            np.asarray([current_y, current_y]),
+        )
+        _, y_values = self._display_coordinates(
+            np.asarray([current_x, current_x]),
+            np.asarray([current_y - half_span_meters, current_y + half_span_meters]),
+        )
+        for get_limits, set_limits, values in (
+            (self.trajectory_axis.get_xlim, self.trajectory_axis.set_xlim, x_values),
+            (self.trajectory_axis.get_ylim, self.trajectory_axis.set_ylim, y_values),
+        ):
+            lower, upper = sorted(map(float, values))
+            current_lower, current_upper = get_limits()
+            if current_lower > current_upper:
+                set_limits(upper, lower)
+            else:
+                set_limits(lower, upper)
 
     def _draw_forecast(self, axis) -> None:
         """Draw only the forecast belonging to the selected (possibly cached) N."""
@@ -791,6 +827,7 @@ class PosteriorDashboardNavigator:
             self.coordinate_display_mode = previous_mode
             raise
         self._reset_trajectory_view_for_coordinate_change = True
+        self._follow_ship_view_needs_focus = self.follow_checkbox.get_status()[0]
         self._draw_trajectory()
         self.figure.canvas.draw_idle()
 

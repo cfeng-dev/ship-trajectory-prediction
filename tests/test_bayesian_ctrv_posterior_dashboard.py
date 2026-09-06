@@ -307,45 +307,44 @@ def _view_limits(navigator):
     )
 
 
-def test_follow_ship_centers_selected_position_without_changing_zoom(follow_dashboard):
+def test_follow_ship_starts_with_a_focused_1200m_view(follow_dashboard):
     figure, navigator, loads = follow_dashboard
     assert navigator.follow_checkbox.get_status() == [False]
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
-    navigator.trajectory_axis.set_xlim(0, 40)
-    navigator.trajectory_axis.set_ylim(-20, 20)
-    figure.canvas.draw()
-    spans = np.diff(_view_limits(navigator), axis=1)
     posterior_line = navigator.posterior_axes[0].lines[-1]
 
     navigator.follow_checkbox.set_active(0)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    np.testing.assert_allclose(
+        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
+    )
     assert navigator.posterior_axes[0].lines[-1] is posterior_line
     assert loads == [1]
 
     navigator.toggle_playback(None)
     navigator.advance_playback()
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    np.testing.assert_allclose(
+        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
+    )
     navigator.pause_playback()
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [65, 5])
     navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    np.testing.assert_allclose(
+        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
+    )
     assert loads == [1, 2, 3]
 
 
-def test_follow_ship_adopts_new_zoom_and_can_be_disabled(follow_dashboard):
+def test_follow_ship_preserves_manual_zoom_and_resets_when_disabled(follow_dashboard):
     figure, navigator, loads = follow_dashboard
-    prior_limits = _view_limits(navigator)
-    navigator.follow_checkbox.set_active(0)
-    np.testing.assert_allclose(_view_limits(navigator), prior_limits)
-    assert loads == []
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
+    navigator.follow_checkbox.set_active(0)
     navigator.trajectory_axis.set_xlim(0, 8)
     navigator.trajectory_axis.set_ylim(-4, 4)
     figure.canvas.draw()
@@ -354,11 +353,26 @@ def test_follow_ship_adopts_new_zoom_and_can_be_disabled(follow_dashboard):
     navigator.show_selected_observation_count(None)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
     np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
-    frozen_view = _view_limits(navigator)
     navigator.follow_checkbox.set_active(0)
+    reset_view = _view_limits(navigator)
+    assert reset_view[0, 0] <= 0 <= reset_view[0, 1]
+    assert reset_view[0, 0] <= 60 <= reset_view[0, 1]
+    assert reset_view[1, 0] <= -10 <= reset_view[1, 1]
+    assert reset_view[1, 0] <= 30 <= reset_view[1, 1]
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
-    np.testing.assert_allclose(_view_limits(navigator), frozen_view)
+    np.testing.assert_allclose(_view_limits(navigator), reset_view)
+
+
+def test_follow_ship_focus_uses_1200m_in_km_display(follow_dashboard):
+    _, navigator, _ = follow_dashboard
+    navigator.slider.set_val(1)
+    navigator.show_selected_observation_count(None)
+    navigator.set_coordinate_display_mode("km")
+
+    navigator.follow_checkbox.set_active(0)
+
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[1.2], [1.2]])
 
 
 def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboard):
