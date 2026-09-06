@@ -176,6 +176,8 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
         row = index * 2 if stacked else index
         column = 0 if stacked else 1
         field_row = row + 1 if stacked else row
+        label_pady = (6, 2) if stacked else (6, 0)
+        field_pady = (0, 6) if stacked else (6, 0)
         label = LABELS.get(key, key)
         if isinstance(variable, tk.BooleanVar):
             tk.Checkbutton(
@@ -196,10 +198,10 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
-        ).grid(row=row, column=0, sticky="w", pady=(6, 2), padx=(0, 8))
+        ).grid(row=row, column=0, sticky="w", pady=label_pady, padx=(0, 8))
         if key == "data_file":
             file_frame = tk.Frame(parent, bg=CONTROL_BACKGROUND)
-            file_frame.grid(row=field_row, column=column, sticky="ew", pady=(0, 6))
+            file_frame.grid(row=field_row, column=column, sticky="ew", pady=field_pady)
             file_frame.columnconfigure(0, weight=1)
             ttk.Entry(file_frame, textvariable=variable, width=16).grid(
                 row=0, column=0, sticky="ew"
@@ -224,4 +226,4 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
             if choices
             else ttk.Entry(parent, textvariable=variable, width=14)
         )
-        widget.grid(row=field_row, column=column, sticky="ew", pady=(0, 6))
+        widget.grid(row=field_row, column=column, sticky="ew", pady=field_pady)

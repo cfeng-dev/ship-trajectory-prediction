@@ -179,6 +179,32 @@ def test_analysis_section_contains_only_new_analysis_button(root):
     assert panel.apply_button.master.pack_slaves() == [panel.apply_button]
 
 
+def test_dialog_labels_and_fields_share_vertical_center(root):
+    from posterior_explorer.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = SettingsDialog(root, panel, "data")
+    try:
+        dialog.update_idletasks()
+        body = dialog._form.body
+        label = next(
+            child
+            for child in body.winfo_children()
+            if child.winfo_class() == "Label" and child.cget("text") == "Run-ID"
+        )
+        field = next(
+            child
+            for child in body.winfo_children()
+            if child.winfo_class() == "TEntry"
+            and child.cget("textvariable") == str(dialog.variables["run_id"])
+        )
+        label_center = label.winfo_rooty() + label.winfo_height() / 2
+        field_center = field.winfo_rooty() + field.winfo_height() / 2
+        assert label_center == pytest.approx(field_center, abs=1.0)
+    finally:
+        dialog.cancel()
+
+
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     # Keep the parent withdrawn: no visible test window or actual inference.
     from posterior_explorer.dialogs import SettingsDialog
