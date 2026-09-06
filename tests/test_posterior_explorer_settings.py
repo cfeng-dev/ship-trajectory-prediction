@@ -71,6 +71,15 @@ def test_forecast_settings_reach_analysis_and_allow_hiding_samples(form):
         settings.parse_settings(form)
 
 
+def test_coordinate_display_mode_is_a_presentation_setting(form):
+    form["data"]["coordinate_display_mode"] = "gps"
+
+    result = settings.parse_settings(form)
+
+    assert result.coordinate_display_mode == "gps"
+    assert not hasattr(result.analysis.experiment, "coordinate_display_mode")
+
+
 def test_batch_options_are_forwarded_without_hidden_overrides(form):
     form["data"]["inference_method"] = "vi"
     form["vi"]["algorithm"] = "fullrank"
@@ -116,6 +125,7 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "position_noise_seed": "123",
         "inference_seed": "456",
         "playback_interval_ms": "1500",
+        "coordinate_display_mode": "km",
         "show_legend": False,
     }
     result = settings.validate_dialog_values("data", values)
@@ -126,6 +136,7 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "position_noise_seed": 123,
         "inference_seed": 456,
         "playback_interval_ms": 1500,
+        "coordinate_display_mode": "km",
         "show_legend": False,
     }
     values["playback_interval_ms"] = "0"

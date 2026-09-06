@@ -16,9 +16,11 @@ import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
+import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
+import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
@@ -42,6 +44,12 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
+COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
+
+
+def normalize_coordinate_display_mode(coordinate_display_mode):
+    """Return the supported display mode, falling back to metres with a warning."""
+    return prediction_plotting.normalize_plot_coordinate_mode(coordinate_display_mode)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,12 +85,14 @@ class PosteriorDashboardConfig:
 
 @dataclass(frozen=True, slots=True)
 class PosteriorDashboardTrajectory:
-    """Reference route and the positions supplied to inference."""
+    """Reference route, inference positions and their optional GPS origin."""
 
     reference_x: np.ndarray
     reference_y: np.ndarray
     observed_x: np.ndarray
     observed_y: np.ndarray
+    reference_longitude: float | None = None
+    reference_latitude: float | None = None
 
     def __post_init__(self) -> None:
         arrays = {
@@ -104,6 +114,30 @@ class PosteriorDashboardTrajectory:
         for name, values in arrays.items():
             values.setflags(write=False)
             object.__setattr__(self, name, values)
+        longitude = self.reference_longitude
+        latitude = self.reference_latitude
+        if (longitude is None) != (latitude is None):
+            raise ValueError(
+                "reference_longitude and reference_latitude must be provided together."
+            )
+        if longitude is not None:
+            try:
+                longitude = float(longitude)
+                latitude = float(latitude)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    "reference_longitude and reference_latitude must be numeric."
+                ) from error
+            if not np.isfinite(longitude) or not np.isfinite(latitude):
+                raise ValueError(
+                    "reference_longitude and reference_latitude must be finite."
+                )
+            if not -90.0 < latitude < 90.0:
+                raise ValueError(
+                    "reference_latitude must be between -90 and 90 degrees."
+                )
+            object.__setattr__(self, "reference_longitude", longitude)
+            object.__setattr__(self, "reference_latitude", latitude)
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +315,7 @@ class PosteriorDashboardNavigator:
         playback_interval_ms,
         request_update=None,
         prediction_count=0,
+        coordinate_display_mode="m",
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -295,6 +330,11 @@ class PosteriorDashboardNavigator:
         self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
         self.prediction_count = prediction_count
+        self.coordinate_display_mode = normalize_coordinate_display_mode(
+            coordinate_display_mode
+        )
+        self._reset_trajectory_view_for_coordinate_change = False
+        self._validate_coordinate_display_mode()
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -590,12 +630,23 @@ class PosteriorDashboardNavigator:
     def _draw_trajectory(self) -> None:
         axis = self.trajectory_axis
         view_limits = None
-        if self._trajectory_has_been_drawn:
+        if (
+            self._trajectory_has_been_drawn
+            and not self._reset_trajectory_view_for_coordinate_change
+        ):
             view_limits = (axis.get_xlim(), axis.get_ylim())
         axis.clear()
-        axis.plot(
+        reference_x, reference_y = self._display_coordinates(
             self.trajectory.reference_x,
             self.trajectory.reference_y,
+        )
+        observed_x, observed_y = self._display_coordinates(
+            self.trajectory.observed_x,
+            self.trajectory.observed_y,
+        )
+        axis.plot(
+            reference_x,
+            reference_y,
             color="#9CA3AF",
             linewidth=1.5,
             label="Aufgezeichnete Trajektorie",
@@ -604,8 +655,8 @@ class PosteriorDashboardNavigator:
         if self.observation_count > 0:
             observed_slice = slice(0, self.observation_count)
             axis.plot(
-                self.trajectory.observed_x[observed_slice],
-                self.trajectory.observed_y[observed_slice],
+                observed_x[observed_slice],
+                observed_y[observed_slice],
                 color="#24557A",
                 linewidth=2.2,
                 label="Beobachtungen bis N",
@@ -613,8 +664,8 @@ class PosteriorDashboardNavigator:
             )
             current_index = self.observation_count - 1
             axis.plot(
-                self.trajectory.observed_x[current_index],
-                self.trajectory.observed_y[current_index],
+                observed_x[current_index],
+                observed_y[current_index],
                 marker="o",
                 markersize=7,
                 linestyle="none",
@@ -623,16 +674,20 @@ class PosteriorDashboardNavigator:
                 zorder=3,
             )
         self._draw_forecast(axis)
-        axis.set_xlabel("Ostposition x [m]", fontsize=11)
-        axis.set_ylabel("Nordposition y [m]", fontsize=11)
+        x_label, y_label, spatial_aspect = self._coordinate_display_spec()
+        axis.set_xlabel(x_label, fontsize=11)
+        axis.set_ylabel(y_label, fontsize=11)
         axis.grid(alpha=0.25, linewidth=0.8)
         axis.tick_params(labelsize=10)
-        axis.set_aspect("equal", adjustable="datalim")
+        axis.set_aspect(spatial_aspect, adjustable="datalim")
+        if self.coordinate_display_mode == "gps":
+            axis.ticklabel_format(style="plain", useOffset=False)
         if view_limits is not None:
             axis.set_xlim(view_limits[0])
             axis.set_ylim(view_limits[1])
         self._center_trajectory_on_ship()
         self._trajectory_has_been_drawn = True
+        self._reset_trajectory_view_for_coordinate_change = False
         if self.show_legend:
             axis.legend(loc="best", fontsize=9, framealpha=0.9)
 
@@ -647,9 +702,13 @@ class PosteriorDashboardNavigator:
             return
         axis = self.trajectory_axis
         index = self.observation_count - 1
+        position_x, position_y = self._display_coordinates(
+            np.asarray([self.trajectory.observed_x[index]]),
+            np.asarray([self.trajectory.observed_y[index]]),
+        )
         for get_limits, set_limits, position in (
-            (axis.get_xlim, axis.set_xlim, self.trajectory.observed_x[index]),
-            (axis.get_ylim, axis.set_ylim, self.trajectory.observed_y[index]),
+            (axis.get_xlim, axis.set_xlim, position_x[0]),
+            (axis.get_ylim, axis.set_ylim, position_y[0]),
         ):
             lower, upper = get_limits()
             half_span = (upper - lower) / 2.0
@@ -661,16 +720,18 @@ class PosteriorDashboardNavigator:
         forecast = None if update is None else update.forecast
         title = "Schiffsbewegung"
         if forecast is not None:
-            origin = np.array(
-                [
-                    self.trajectory.observed_x[self.observation_count - 1],
-                    self.trajectory.observed_y[self.observation_count - 1],
-                ]
+            origin_x, origin_y = self._display_coordinates(
+                np.asarray([self.trajectory.observed_x[self.observation_count - 1]]),
+                np.asarray([self.trajectory.observed_y[self.observation_count - 1]]),
             )
+            origin = np.array([origin_x[0], origin_y[0]])
             # Connect to the last measured point for orientation, as in the
             # standalone prediction plot; this does not re-anchor model draws.
             for index, positions in enumerate(forecast.sample_positions):
-                path = np.vstack((origin, positions))
+                sample_x, sample_y = self._display_coordinates(
+                    positions[:, 0], positions[:, 1]
+                )
+                path = np.vstack((origin, np.column_stack((sample_x, sample_y))))
                 axis.plot(
                     path[:, 0],
                     path[:, 1],
@@ -682,7 +743,10 @@ class PosteriorDashboardNavigator:
                     if index == 0
                     else "_nolegend_",
                 )
-            path = np.vstack((origin, forecast.median_positions))
+            median_x, median_y = self._display_coordinates(
+                forecast.median_positions[:, 0], forecast.median_positions[:, 1]
+            )
+            path = np.vstack((origin, np.column_stack((median_x, median_y))))
             axis.plot(
                 path[:, 0],
                 path[:, 1],
@@ -711,6 +775,62 @@ class PosteriorDashboardNavigator:
                 bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
             )
         axis.set_title(title, fontsize=13, pad=10)
+
+    def set_coordinate_display_mode(self, coordinate_display_mode) -> None:
+        """Redraw cached spatial results in a new unit without another inference run."""
+        coordinate_display_mode = normalize_coordinate_display_mode(
+            coordinate_display_mode
+        )
+        if coordinate_display_mode == self.coordinate_display_mode:
+            return
+        previous_mode = self.coordinate_display_mode
+        self.coordinate_display_mode = coordinate_display_mode
+        try:
+            self._validate_coordinate_display_mode()
+        except Exception:
+            self.coordinate_display_mode = previous_mode
+            raise
+        self._reset_trajectory_view_for_coordinate_change = True
+        self._draw_trajectory()
+        self.figure.canvas.draw_idle()
+
+    def _validate_coordinate_display_mode(self) -> None:
+        if self.coordinate_display_mode == "gps" and (
+            self.trajectory.reference_longitude is None
+            or self.trajectory.reference_latitude is None
+        ):
+            raise ValueError(
+                "GPS coordinate display requires reference_longitude and "
+                "reference_latitude."
+            )
+
+    def _display_coordinates(self, x_meters, y_meters):
+        """Convert local metre coordinates only at the presentation boundary."""
+        if self.coordinate_display_mode == "m":
+            return x_meters, y_meters
+        if self.coordinate_display_mode == "km":
+            return (
+                x_meters / coordinates.METERS_PER_KILOMETER,
+                y_meters / coordinates.METERS_PER_KILOMETER,
+            )
+        return coordinates.local_to_gps_coordinates(
+            x_meters,
+            y_meters,
+            self.trajectory.reference_longitude,
+            self.trajectory.reference_latitude,
+        )
+
+    def _coordinate_display_spec(self):
+        """Return readable labels and spatial scaling for the active display mode."""
+        if self.coordinate_display_mode == "m":
+            return "Ostposition x [m]", "Nordposition y [m]", 1.0
+        if self.coordinate_display_mode == "km":
+            return "Ostposition x [km]", "Nordposition y [km]", 1.0
+        return (
+            "Längengrad [°]",
+            "Breitengrad [°]",
+            float(1.0 / np.cos(np.radians(self.trajectory.reference_latitude))),
+        )
 
     def _draw_posterior(self, axis, parameter_name) -> None:
         axis.clear()
@@ -790,6 +910,7 @@ def create_sequential_posterior_dashboard_figure(
     figure=None,
     request_update=None,
     prediction_count=0,
+    coordinate_display_mode="m",
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -858,6 +979,7 @@ def create_sequential_posterior_dashboard_figure(
         playback_interval_ms=playback_interval_ms,
         request_update=request_update,
         prediction_count=prediction_count,
+        coordinate_display_mode=coordinate_display_mode,
     )
     return figure, navigator
 
@@ -1102,6 +1224,8 @@ def _prepare_posterior_dashboard_trajectory(
         reference_y,
         observed_x,
         observed_y,
+        reference_longitude=complete_window.reference_longitude,
+        reference_latitude=complete_window.reference_latitude,
     )
     return trajectory, time_seconds, maximum_observation_count
 
@@ -1194,6 +1318,7 @@ def run_bayesian_ctrv_posterior_dashboard(
     smc_config,
     playback_interval_ms,
     show_legend,
+    coordinate_display_mode="m",
     show=True,
 ):
     """Run the interactive trajectory and posterior dashboard."""
@@ -1239,6 +1364,10 @@ def run_bayesian_ctrv_posterior_dashboard(
         f"Vorhersageschritte    : {experiment.prediction_count} (bis Aufzeichnungsende)"
     )
     print(
+        "Koordinatenanzeige    : "
+        f"{normalize_coordinate_display_mode(coordinate_display_mode)}"
+    )
+    print(
         "Navigation            : Start/Pause, Leertaste, Schieberegler oder Pfeiltasten"
     )
     if experiment.inference_method in inference.CTRV_ONLINE_INFERENCE_METHODS:
@@ -1257,6 +1386,7 @@ def run_bayesian_ctrv_posterior_dashboard(
         show_legend=show_legend,
         playback_interval_ms=playback_interval_ms,
         prediction_count=experiment.prediction_count,
+        coordinate_display_mode=coordinate_display_mode,
     )
     if show:
         plt.show(block=True)

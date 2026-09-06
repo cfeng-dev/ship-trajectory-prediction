@@ -32,11 +32,16 @@ class PosteriorPlotView(tk.Frame):
             figure=self.figure,
             request_update=request_update,
             prediction_count=settings.analysis.experiment.prediction_count,
+            coordinate_display_mode=settings.coordinate_display_mode,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
         )
         self.canvas.draw_idle()
+
+    def set_coordinate_display_mode(self, coordinate_display_mode):
+        """Redraw the current dashboard in another unit without replacing analysis."""
+        self.navigator.set_coordinate_display_mode(coordinate_display_mode)
 
     def disable_navigation(self):
         """Keep the last valid plot visible after an inference error."""

@@ -3,7 +3,13 @@
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from .settings import LABELS, MAIN_DATA_FIELDS, METHODS, default_form_values
+from .settings import (
+    COORDINATE_DISPLAY_MODES,
+    LABELS,
+    MAIN_DATA_FIELDS,
+    METHODS,
+    default_form_values,
+)
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 
@@ -212,6 +218,7 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
         choices = {
             "inference_method": METHODS,
             "algorithm": ("meanfield", "fullrank"),
+            "coordinate_display_mode": COORDINATE_DISPLAY_MODES,
         }.get(key)
         widget = (
             ttk.Combobox(

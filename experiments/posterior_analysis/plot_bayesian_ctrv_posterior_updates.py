@@ -46,6 +46,7 @@ MCMC_CONFIG = inference.create_default_mcmc_config()
 RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
 SMC_CONFIG = inference.create_default_ctrv_smc_config()
 PLAYBACK_INTERVAL_MS = dashboard.DEFAULT_PLAYBACK_INTERVAL_MS
+COORDINATE_DISPLAY_MODE = "m"  # "m", "km" or "gps" (longitude/latitude)
 SHOW_LEGEND = True
 
 
@@ -63,6 +64,7 @@ def main(argv=None):
         rbpf_config=RBPF_CONFIG,
         smc_config=SMC_CONFIG,
         playback_interval_ms=PLAYBACK_INTERVAL_MS,
+        coordinate_display_mode=COORDINATE_DISPLAY_MODE,
         show_legend=SHOW_LEGEND,
         show=not arguments.no_show,
     )

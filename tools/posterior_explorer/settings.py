@@ -13,12 +13,18 @@ from bayestraj.inference.configuration import (
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.paths import data_path
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
+    COORDINATE_DISPLAY_MODES as _COORDINATE_DISPLAY_MODES,
+)
+from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
     DEFAULT_PLAYBACK_INTERVAL_MS,
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
+    normalize_coordinate_display_mode,
 )
 from bayestraj.validation.posterior_session import AnalysisSettings
+
+COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
 MAIN_DATA_FIELDS = (
@@ -35,9 +41,11 @@ DATA_OPTION_FIELDS = (
     "position_noise_seed",
     "inference_seed",
     "playback_interval_ms",
+    "coordinate_display_mode",
     "show_legend",
 )
 LABELS = {
+    "coordinate_display_mode": "Koordinatenanzeige",
     "prediction_count": "Vorhersageschritte (0 = aus)",
     "prediction_sample_count": "Zukunftstrajektorien (0 = aus)",
     "data_file": "CSV-Datei",
@@ -75,6 +83,7 @@ class ExplorerSettings:
 
     analysis: AnalysisSettings
     playback_interval_ms: int
+    coordinate_display_mode: str
     show_legend: bool
 
 
@@ -97,6 +106,7 @@ def _defaults():
             "position_noise_seed": 2026,
             "inference_seed": 42,
             "playback_interval_ms": DEFAULT_PLAYBACK_INTERVAL_MS,
+            "coordinate_display_mode": "m",
             "show_legend": True,
         },
         "priors": asdict(BayesianCTRVPriors()),
@@ -174,6 +184,9 @@ def _validate_data_options(fields):
     for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
         _minimum(fields, key, 0)
     _minimum(fields, "playback_interval_ms", 1)
+    fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
+        fields["coordinate_display_mode"]
+    )
 
 
 def validate_dialog_values(group, values):
@@ -219,6 +232,7 @@ def parse_settings(values) -> ExplorerSettings:
         _minimum(data, key, 0)
     _validate_data_options(data)
     interval = data.pop("playback_interval_ms")
+    coordinate_display_mode = data.pop("coordinate_display_mode")
     legend = data.pop("show_legend")
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
@@ -236,5 +250,6 @@ def parse_settings(values) -> ExplorerSettings:
             smc_config=smc,
         ),
         playback_interval_ms=interval,
+        coordinate_display_mode=coordinate_display_mode,
         show_legend=legend,
     )

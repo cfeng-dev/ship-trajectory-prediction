@@ -24,6 +24,7 @@ import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.observations.coordinates as coordinates
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -135,6 +136,137 @@ def test_dashboard_keeps_y_label_visible_with_wide_coordinate_ticks(dpi):
         assert label_bounds.x0 >= canvas.get_renderer().points_to_pixels(12)
     finally:
         navigator.disconnect()
+
+
+def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
+    """Kilometre mode converts every spatial artist while keeping the posterior stage."""
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        [10, 20],
+        [[1500, 500], [2000, 1000]],
+        [[[1400, 400], [1900, 900]]],
+    )
+    loads = []
+
+    def load(observation_count):
+        loads.append(observation_count)
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count,
+            _dashboard_samples(),
+            forecast=forecast,
+        )
+
+    figure = Figure()
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=4,
+        figure=figure,
+        coordinate_display_mode="km",
+        prediction_count=2,
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        reference_line = next(
+            line
+            for line in navigator.trajectory_axis.lines
+            if line.get_label() == "Aufgezeichnete Trajektorie"
+        )
+        median_line = next(
+            line
+            for line in navigator.trajectory_axis.lines
+            if line.get_label() == "Vorhersage (Median)"
+        )
+        assert reference_line.get_xdata() == pytest.approx([0, 1, 2, 3])
+        assert reference_line.get_ydata() == pytest.approx([0, 1, 2, 3])
+        assert median_line.get_xdata() == pytest.approx([0, 1.5, 2])
+        assert median_line.get_ydata() == pytest.approx([0, 0.5, 1])
+        assert navigator.trajectory_axis.get_xlabel() == "Ostposition x [km]"
+        assert navigator.trajectory_axis.get_ylabel() == "Nordposition y [km]"
+        assert loads == [1]
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_switches_to_gps_without_reloading_the_posterior():
+    """GPS display redraws cached positions only and leaves inference untouched."""
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+        [0, 1000, 2000, 3000],
+        reference_longitude=8.0,
+        reference_latitude=47.0,
+    )
+    loads = []
+
+    def load(observation_count):
+        loads.append(observation_count)
+        return dashboard.PosteriorDashboardUpdate(
+            observation_count, _dashboard_samples()
+        )
+
+    figure = Figure()
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        navigator.set_coordinate_display_mode("gps")
+        reference_line = next(
+            line
+            for line in navigator.trajectory_axis.lines
+            if line.get_label() == "Aufgezeichnete Trajektorie"
+        )
+        expected_longitude, expected_latitude = coordinates.local_to_gps_coordinates(
+            trajectory.reference_x,
+            trajectory.reference_y,
+            reference_longitude=8.0,
+            reference_latitude=47.0,
+        )
+        np.testing.assert_allclose(reference_line.get_xdata(), expected_longitude)
+        np.testing.assert_allclose(reference_line.get_ydata(), expected_latitude)
+        assert navigator.trajectory_axis.get_xlabel() == "Längengrad [°]"
+        assert navigator.trajectory_axis.get_ylabel() == "Breitengrad [°]"
+        assert navigator.trajectory_axis.get_aspect() == pytest.approx(
+            1 / np.cos(np.radians(47.0))
+        )
+        assert navigator.observation_count == 1
+        assert loads == [1]
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_rejects_gps_display_without_a_reference_position():
+    """GPS ticks need the local-meter origin to represent real coordinates."""
+    dashboard = _load_dashboard_module()
+    with pytest.raises(ValueError, match="reference_longitude"):
+        dashboard.create_sequential_posterior_dashboard_figure(
+            dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4)),
+            bayesian_model.BayesianCTRVPriors(),
+            lambda count: dashboard.PosteriorDashboardUpdate(
+                count, _dashboard_samples()
+            ),
+            maximum_observation_count=4,
+            figure=Figure(),
+            coordinate_display_mode="gps",
+        )
 
 
 @pytest.fixture(params=["standalone", "embedded"])
@@ -1223,6 +1355,7 @@ def test_dashboard_script_runs_the_shared_analysis_without_showing(monkeypatch):
     assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
     assert calls[0]["smc_config"] is script.SMC_CONFIG
     assert calls[0]["playback_interval_ms"] == 1_000
+    assert calls[0]["coordinate_display_mode"] == script.COORDINATE_DISPLAY_MODE
     assert calls[0]["show_legend"] is True
     assert calls[0]["show"] is False
 
@@ -1311,6 +1444,7 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
         "show_legend": False,
         "playback_interval_ms": 750,
         "prediction_count": experiment.prediction_count,
+        "coordinate_display_mode": "m",
     }
     assert navigator is not None
     assert not plt.fignum_exists(figure.number)

@@ -112,6 +112,13 @@ timestamps of the recording, so the horizon shortens near its end. At the last
 recorded position there are no further forecast timestamps. At N=0 only priors
 are shown; forecasts start at N=1 for RBPF/SMC and N=3 for VI/MCMC.
 
+Under **Settings > Daten und Darstellung**, **Koordinatenanzeige** switches the
+trajectory panel immediately between local metres, kilometres and GPS
+(longitude/latitude). This affects only the displayed route, current position
+and forecast; inference and posterior values remain in metres. GPS uses the
+reference position of the selected route and adjusts the spatial aspect for its
+latitude.
+
 RBPF and SMC update an online filter. VI and MCMC refit an expanding data prefix
 for each stage, starting at N=3; start with a small observation limit. They also
 reserve the final route observation for the existing batch prediction interface.
@@ -123,8 +130,9 @@ are not forcibly terminated.
 
 The header-configured script remains available:
 `experiments/posterior_analysis/plot_bayesian_ctrv_posterior_updates.py`.
-Set `EXPERIMENT.prediction_count` and `EXPERIMENT.prediction_sample_count` in its
-header to control the same forecast display.
+Set `EXPERIMENT.prediction_count`, `EXPERIMENT.prediction_sample_count` and
+`COORDINATE_DISPLAY_MODE` in its header to control the forecast and coordinate
+display.
 The GUI reuses its shared dashboard and inference loaders; it does not import
 that script's editable header. GUI settings are local to the window, not saved
 back into the script. Tkinter is part of standard Python installations, and no

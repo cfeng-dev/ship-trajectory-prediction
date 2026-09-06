@@ -28,6 +28,9 @@ class PosteriorExplorer:
         view.configure_window(root)
         view.create_menu_bar(self)
         self.controls = SettingsPanel(root, self.start_analysis)
+        self.controls.variables["data"]["coordinate_display_mode"].trace_add(
+            "write", self._update_coordinate_display_mode
+        )
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
         self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -109,6 +112,18 @@ class PosteriorExplorer:
         """Reset only the plot view, without restarting inference or playback."""
         if self.plot_view is not None:
             self.plot_view.toolbar.home()
+
+    def _update_coordinate_display_mode(self, *_):
+        """Apply a display-only coordinate selection to the running dashboard."""
+        if self._closing or self.plot_view is None:
+            return
+        coordinate_display_mode = self.controls.variables["data"][
+            "coordinate_display_mode"
+        ].get()
+        try:
+            self.plot_view.set_coordinate_display_mode(coordinate_display_mode)
+        except ValueError as error:
+            messagebox.showerror("Koordinatenanzeige", str(error), parent=self.root)
 
     def show_inference_settings(self):
         """Edit options for the method currently selected in the sidebar."""
