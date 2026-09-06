@@ -70,6 +70,206 @@ def _assert_dashboard_vertical_spacing(navigator, renderer):
     assert label_bottom - controls_top >= minimum_gap, (
         f"Posterior/control gap: {label_bottom - controls_top:.1f}px"
     )
+    follow_bounds = navigator.follow_checkbox.ax.get_tightbbox(renderer)
+    trajectory_label = navigator.trajectory_axis.xaxis.label.get_window_extent(renderer)
+    assert trajectory_label.y0 - follow_bounds.y1 >= minimum_gap
+    playback_bounds = navigator.playback_button.ax.get_tightbbox(renderer)
+    assert follow_bounds.y0 - playback_bounds.y1 >= minimum_gap
+    label_bounds = navigator.follow_checkbox.labels[0].get_window_extent(renderer)
+    assert label_bounds.x1 <= navigator.follow_checkbox.ax.bbox.x1
+
+
+@pytest.mark.parametrize("figure_size", [(7.68, 7.68), (9.5, 5.5)])
+@pytest.mark.parametrize("dpi", [100, 150])
+def test_dashboard_keeps_y_label_and_follow_control_visible(figure_size, dpi):
+    """Catch clipped trajectory labels and an unusably small follow toggle."""
+    dashboard = _load_dashboard_module()
+    figure = Figure(figsize=figure_size, dpi=dpi)
+    canvas = FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(count, _dashboard_samples()),
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        canvas.draw()
+        renderer = canvas.get_renderer()
+        y_label_bounds = navigator.trajectory_axis.yaxis.label.get_window_extent(
+            renderer
+        )
+        assert y_label_bounds.x0 >= renderer.points_to_pixels(4)
+        marker_area = navigator.follow_checkbox._frames.get_sizes()[0]
+        assert np.sqrt(marker_area) >= 14
+    finally:
+        navigator.disconnect()
+
+
+@pytest.fixture(params=["standalone", "embedded"])
+def follow_dashboard(request):
+    dashboard = _load_dashboard_module()
+    figure = None
+    if request.param == "embedded":
+        figure = Figure(figsize=(11, 8))
+        FigureCanvasAgg(figure)
+    loads = []
+
+    def load(count):
+        loads.append(count)
+        return dashboard.PosteriorDashboardUpdate(count, _dashboard_samples())
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(
+            [0, 20, 60],
+            [0, 30, 10],
+            [10, 30, 65],
+            [-10, 20, 5],
+        ),
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=3,
+        figure=figure,
+    )
+    try:
+        yield figure, navigator, loads
+    finally:
+        navigator.disconnect()
+        plt.close(figure)
+
+
+def _view_limits(navigator):
+    return np.array(
+        [navigator.trajectory_axis.get_xlim(), navigator.trajectory_axis.get_ylim()]
+    )
+
+
+def test_follow_ship_centers_selected_position_without_changing_zoom(follow_dashboard):
+    figure, navigator, loads = follow_dashboard
+    assert navigator.follow_checkbox.get_status() == [False]
+    navigator.slider.set_val(1)
+    navigator.show_selected_observation_count(None)
+    navigator.trajectory_axis.set_xlim(0, 40)
+    navigator.trajectory_axis.set_ylim(-20, 20)
+    figure.canvas.draw()
+    spans = np.diff(_view_limits(navigator), axis=1)
+    posterior_line = navigator.posterior_axes[0].lines[-1]
+
+    navigator.follow_checkbox.set_active(0)
+    np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    assert navigator.posterior_axes[0].lines[-1] is posterior_line
+    assert loads == [1]
+
+    navigator.toggle_playback(None)
+    navigator.advance_playback()
+    np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    navigator.pause_playback()
+    navigator.slider.set_val(3)
+    navigator.show_selected_observation_count(None)
+    np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [65, 5])
+    navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
+    np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    assert loads == [1, 2, 3]
+
+
+def test_follow_ship_adopts_new_zoom_and_can_be_disabled(follow_dashboard):
+    figure, navigator, loads = follow_dashboard
+    prior_limits = _view_limits(navigator)
+    navigator.follow_checkbox.set_active(0)
+    np.testing.assert_allclose(_view_limits(navigator), prior_limits)
+    assert loads == []
+    navigator.slider.set_val(1)
+    navigator.show_selected_observation_count(None)
+    navigator.trajectory_axis.set_xlim(0, 8)
+    navigator.trajectory_axis.set_ylim(-4, 4)
+    figure.canvas.draw()
+    spans = np.diff(_view_limits(navigator), axis=1)
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), spans)
+    frozen_view = _view_limits(navigator)
+    navigator.follow_checkbox.set_active(0)
+    navigator.slider.set_val(3)
+    navigator.show_selected_observation_count(None)
+    np.testing.assert_allclose(_view_limits(navigator), frozen_view)
+
+
+def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboard):
+    figure, navigator, loads = follow_dashboard
+    toolbar = NavigationToolbar2(figure.canvas)
+    toolbar.zoom()
+    navigator.toggle_playback(None)
+    figure.canvas.draw()
+    label = navigator.follow_checkbox.labels[0].get_window_extent(
+        figure.canvas.get_renderer()
+    )
+
+    def click():
+        for name in ("button_press_event", "button_release_event"):
+            MouseEvent(
+                name,
+                figure.canvas,
+                (label.x0 + label.x1) / 2,
+                (label.y0 + label.y1) / 2,
+                button=1,
+            )._process()
+
+    click()
+    assert navigator.follow_checkbox.get_status() == [True]
+    assert navigator.is_playing
+    assert navigator.observation_count == 0
+    assert loads == []
+    navigator.disconnect()
+    click()
+    assert navigator.follow_checkbox.get_status() == [True]
+
+
+def test_follow_ship_waits_for_displayed_async_result_and_respects_pause():
+    dashboard = _load_dashboard_module()
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    requests = []
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(
+            [0, 20, 60],
+            [0, 30, 10],
+            [10, 30, 65],
+            [-10, 20, 5],
+        ),
+        bayesian_model.BayesianCTRVPriors(),
+        maximum_observation_count=3,
+        figure=figure,
+        request_update=requests.append,
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(1, _dashboard_samples())
+        )
+        navigator.toggle_playback(None)
+        navigator.advance_playback()
+        assert navigator.is_waiting
+        previous_requests = list(requests)
+        navigator.follow_checkbox.set_active(0)
+        assert requests == previous_requests
+        np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
+        frozen_view = _view_limits(navigator)
+        navigator.pause_playback()
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(2, _dashboard_samples())
+        )
+        np.testing.assert_allclose(_view_limits(navigator), frozen_view)
+        assert navigator.observation_count == 1
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
+    finally:
+        navigator.disconnect()
 
 
 def test_dashboard_spacing_tracks_canvas_resize_without_loading_updates():

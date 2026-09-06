@@ -92,6 +92,13 @@ its normal editing behavior. Zoom is retained as the posterior changes; the
 Matplotlib toolbar resets the view or saves a figure. Switch between motion and
 noise parameters using the posterior-group selector.
 
+Zoom to the desired scale, then enable **Schiff folgen** below the trajectory,
+above Start/Pause. The viewport centers on the current observed ship position
+and follows playback, slider selection and backward steps without changing the
+zoom scale. Disable it to pan freely again. The switch takes effect immediately
+without a new analysis, is initially off, and also appears in the standalone
+script. At N=0 there is no current position, so the viewport stays unchanged.
+
 The trajectory panel also shows the latent forecast for the selected posterior:
 a red coordinate-wise median and translucent example paths (not a probability
 region). Forecasts use only observations through N; future recorded positions are

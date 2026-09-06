@@ -8,7 +8,7 @@ from types import MappingProxyType
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.layout_engine import LayoutEngine
-from matplotlib.widgets import Button, RadioButtons, Slider
+from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
@@ -199,7 +199,13 @@ class _PosteriorDashboardLayout(LayoutEngine):
     _colorbar_gridspec = False
 
     def __init__(
-        self, trajectory_axis, posterior_axes, playback_axis, slider_axis, selector_axis
+        self,
+        trajectory_axis,
+        posterior_axes,
+        playback_axis,
+        slider_axis,
+        selector_axis,
+        follow_axis,
     ):
         super().__init__()
         self.trajectory_axis = trajectory_axis
@@ -207,6 +213,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.playback_axis = playback_axis
         self.slider_axis = slider_axis
         self.selector_axis = selector_axis
+        self.follow_axis = follow_axis
 
     def execute(self, figure) -> None:
         """Reserve fixed-point gaps and a separate footer before every draw.
@@ -224,6 +231,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
             1.0, (height_points - bottom_margin - top_margin - 2 * panel_gap) / 3
         )
         self.posterior_axes[0].get_gridspec().update(
+            left=max(0.06, 50.0 / width_points),
             bottom=bottom_margin / height_points,
             top=1.0 - top_margin / height_points,
             hspace=panel_gap / panel_height,
@@ -240,7 +248,10 @@ class _PosteriorDashboardLayout(LayoutEngine):
             (selector_left, 12.0 / height_points, selector_width, 44.0 / height_points)
         )
         self.playback_axis.set_position(
-            (0.025, 20.0 / height_points, playback_width, 28.0 / height_points)
+            (0.025, 18.0 / height_points, playback_width, 28.0 / height_points)
+        )
+        self.follow_axis.set_position(
+            (0.025, 54.0 / height_points, 165.0 / width_points, 24.0 / height_points)
         )
         self.slider_axis.set_position(
             (
@@ -322,6 +333,17 @@ class PosteriorDashboardNavigator:
             tuple(PARAMETER_GROUP_LABELS.values()),
             active=0,
         )
+        follow_axis = figure.add_axes((0.025, 0.08, 0.2, 0.04))
+        follow_axis.set_frame_on(False)
+        self.follow_checkbox = CheckButtons(
+            follow_axis,
+            ("Schiff folgen",),
+            (False,),
+            useblit=False,
+            label_props={"fontsize": [10]},
+            frame_props={"s": [196], "linewidth": [1.2]},
+            check_props={"s": [196], "linewidth": [1.5]},
+        )
         self._slider_press_connection = figure.canvas.mpl_connect(
             "button_press_event",
             self._handle_mouse_press,
@@ -336,12 +358,14 @@ class PosteriorDashboardNavigator:
         )
         self.playback_button.on_clicked(self.toggle_playback)
         self.group_selector.on_clicked(self._select_parameter_group)
+        self.follow_checkbox.on_clicked(self._follow_ship_changed)
         layout = _PosteriorDashboardLayout(
             trajectory_axis,
             self.posterior_axes,
             playback_axis,
             slider_axis,
             selector_axis,
+            follow_axis,
         )
         figure.set_layout_engine(layout)
         layout.execute(figure)
@@ -409,7 +433,12 @@ class PosteriorDashboardNavigator:
             self._key_press_connection,
         ):
             self.figure.canvas.mpl_disconnect(connection)
-        for widget in (self.playback_button, self.slider, self.group_selector):
+        for widget in (
+            self.playback_button,
+            self.slider,
+            self.group_selector,
+            self.follow_checkbox,
+        ):
             widget.disconnect_events()
 
     def toggle_playback(self, _event) -> None:
@@ -602,9 +631,29 @@ class PosteriorDashboardNavigator:
         if view_limits is not None:
             axis.set_xlim(view_limits[0])
             axis.set_ylim(view_limits[1])
+        self._center_trajectory_on_ship()
         self._trajectory_has_been_drawn = True
         if self.show_legend:
             axis.legend(loc="best", fontsize=9, framealpha=0.9)
+
+    def _follow_ship_changed(self, _label) -> None:
+        """Apply the view preference immediately, without loading or redrawing posteriors."""
+        self._center_trajectory_on_ship()
+        self.figure.canvas.draw_idle()
+
+    def _center_trajectory_on_ship(self) -> None:
+        """Translate the current viewport; preserve its spans and axis directions."""
+        if not self.follow_checkbox.get_status()[0] or self.observation_count == 0:
+            return
+        axis = self.trajectory_axis
+        index = self.observation_count - 1
+        for get_limits, set_limits, position in (
+            (axis.get_xlim, axis.set_xlim, self.trajectory.observed_x[index]),
+            (axis.get_ylim, axis.set_ylim, self.trajectory.observed_y[index]),
+        ):
+            lower, upper = get_limits()
+            half_span = (upper - lower) / 2.0
+            set_limits(position - half_span, position + half_span)
 
     def _draw_forecast(self, axis) -> None:
         """Draw only the forecast belonging to the selected (possibly cached) N."""
