@@ -231,7 +231,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
             1.0, (height_points - bottom_margin - top_margin - 2 * panel_gap) / 3
         )
         self.posterior_axes[0].get_gridspec().update(
-            left=max(0.06, 50.0 / width_points),
+            left=max(0.06, 76.0 / width_points),
             bottom=bottom_margin / height_points,
             top=1.0 - top_margin / height_points,
             hspace=panel_gap / panel_height,

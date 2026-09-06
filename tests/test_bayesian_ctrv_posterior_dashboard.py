@@ -106,6 +106,37 @@ def test_dashboard_keeps_y_label_and_follow_control_visible(figure_size, dpi):
         navigator.disconnect()
 
 
+@pytest.mark.parametrize("dpi", [100, 150])
+def test_dashboard_keeps_y_label_visible_with_wide_coordinate_ticks(dpi):
+    """Wide meter tick labels must not push the trajectory label off-canvas."""
+    dashboard = _load_dashboard_module()
+    figure = Figure(figsize=(7.16, 7.16), dpi=dpi)
+    canvas = FigureCanvasAgg(figure)
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        [-2500, -1000, 800, 3200],
+        [3000, 1400, -900, -3100],
+        [-2400, -900, 900, 3100],
+        [2900, 1350, -850, -3000],
+    )
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(count, _dashboard_samples()),
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        canvas.draw()
+        label_bounds = navigator.trajectory_axis.yaxis.label.get_window_extent(
+            canvas.get_renderer()
+        )
+        assert label_bounds.x0 >= canvas.get_renderer().points_to_pixels(12)
+    finally:
+        navigator.disconnect()
+
+
 @pytest.fixture(params=["standalone", "embedded"])
 def follow_dashboard(request):
     dashboard = _load_dashboard_module()
