@@ -97,6 +97,6 @@ def create_menu_bar(gui):
     menu_bar.add_cascade(label="Settings", menu=settings_menu)
 
     help_menu = tk.Menu(menu_bar, tearoff=0)
-    help_menu.add_command(label="Show help", command=gui.show_help)
+    help_menu.add_command(label="Show Help", command=gui.show_help)
     menu_bar.add_cascade(label="Help", menu=help_menu)
     gui.root.configure(menu=menu_bar)

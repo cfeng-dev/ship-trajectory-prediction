@@ -501,6 +501,9 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         "Settings",
         "Help",
     ]
+    assert [entry["label"] for entry in menu.entry("Help")["menu"].entries] == [
+        "Show Help"
+    ]
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
         "Show settings",
@@ -555,3 +558,35 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
     assert opened[0].focused
     opened[0].on_close()
     assert app._help_window is None
+
+
+def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
+    """Every help section starts descriptions at the same horizontal position."""
+    from posterior_explorer import dialogs
+
+    options = []
+
+    class Label:
+        def __init__(self, _parent, **kwargs):
+            options.append(kwargs)
+
+        def grid(self, **_kwargs):
+            pass
+
+    monkeypatch.setattr(dialogs.tk, "Label", Label)
+
+    dialogs.add_help_description_rows(object(), (("Space", "Play"),))
+
+    assert options[0]["width"] == dialogs.HELP_DESCRIPTION_COLUMN_WIDTH
+
+
+def test_help_window_uses_ship_simulator_content_height_and_top_left_position():
+    """Help stays tall enough for reading and opens at the top-left screen corner."""
+    from posterior_explorer.dialogs import (
+        help_content_height_for_screen,
+        help_window_position,
+    )
+
+    assert help_content_height_for_screen(900, 1080) == 702
+    assert help_content_height_for_screen(400, 1080) == 400
+    assert help_window_position() == (0, 0)

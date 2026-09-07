@@ -20,7 +20,9 @@ DATA_DIALOG_WIDTH = 560
 WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
-HELP_WINDOW_WIDTH = 620
+HELP_WINDOW_WIDTH = 660
+HELP_DESCRIPTION_COLUMN_WIDTH = 24
+HELP_CONTENT_MAX_SCREEN_RATIO = 0.65
 
 POSTERIOR_HELP_SECTIONS = (
     (
@@ -63,6 +65,41 @@ POSTERIOR_HELP_SECTIONS = (
         ),
     ),
 )
+
+
+def add_help_description_rows(parent, rows):
+    """Add rows with a shared control column, aligned across help sections."""
+    for row, (control, description) in enumerate(rows):
+        tk.Label(
+            parent,
+            text=control,
+            width=HELP_DESCRIPTION_COLUMN_WIDTH,
+            font=("Arial", 10, "bold"),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            anchor="nw",
+            justify="left",
+        ).grid(row=row, column=0, sticky="nw", padx=(0, 20), pady=3)
+        tk.Label(
+            parent,
+            text=description,
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            anchor="nw",
+            justify="left",
+            wraplength=330,
+        ).grid(row=row, column=1, sticky="nw", pady=3)
+
+
+def help_content_height_for_screen(content_height, screen_height):
+    """Match the ship simulator's readable, screen-bounded help area."""
+    return min(content_height, int(screen_height * HELP_CONTENT_MAX_SCREEN_RATIO))
+
+
+def help_window_position():
+    """Place help in the top-left corner instead of centering it over the app."""
+    return 0, 0
 
 
 def dialog_height_for_content(content_height, screen_height):
@@ -182,26 +219,7 @@ class PosteriorHelpWindow(tk.Toplevel):
             )
             section.pack(fill="x", pady=(0, 12))
             section.columnconfigure(1, weight=1)
-            for row, (control, description) in enumerate(rows):
-                tk.Label(
-                    section,
-                    text=control,
-                    font=("Arial", 10, "bold"),
-                    bg=CONTROL_BACKGROUND,
-                    fg=TEXT_COLOR,
-                    anchor="nw",
-                    justify="left",
-                ).grid(row=row, column=0, sticky="nw", padx=(0, 20), pady=3)
-                tk.Label(
-                    section,
-                    text=description,
-                    font=FONT,
-                    bg=CONTROL_BACKGROUND,
-                    fg=TEXT_COLOR,
-                    anchor="nw",
-                    justify="left",
-                    wraplength=330,
-                ).grid(row=row, column=1, sticky="nw", pady=3)
+            add_help_description_rows(section, rows)
 
         actions = tk.Frame(main, bg=CONTROL_BACKGROUND)
         actions.pack(fill="x", padx=24, pady=(12, 18))
@@ -211,12 +229,16 @@ class PosteriorHelpWindow(tk.Toplevel):
         self._form.bind_mouse_wheel()
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.update_idletasks()
+        self._form.canvas.configure(
+            height=help_content_height_for_screen(
+                self._form.body.winfo_reqheight(),
+                self.winfo_screenheight(),
+            )
+        )
+        self.update_idletasks()
         content_height = main.winfo_reqheight() + DIALOG_CONTENT_PADDING
         height = dialog_height_for_content(content_height, self.winfo_screenheight())
-        left = max(
-            0, parent.winfo_rootx() + (parent.winfo_width() - HELP_WINDOW_WIDTH) // 2
-        )
-        top = max(0, parent.winfo_rooty() + (parent.winfo_height() - height) // 2)
+        left, top = help_window_position()
         self.geometry(f"{HELP_WINDOW_WIDTH}x{height}+{left}+{top}")
         self.deiconify()
         self.focus_set()
