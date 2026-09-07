@@ -27,7 +27,7 @@ class PosteriorExplorer:
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
         view.create_menu_bar(self)
-        self.controls = SettingsPanel(root, self.start_analysis)
+        self.controls = SettingsPanel(root, self.start_analysis, self.reset_analysis)
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
         )
@@ -38,7 +38,7 @@ class PosteriorExplorer:
             self.plot_host,
             text="Trajektorie und Posterior-Entwicklung\n\n"
             "Links CSV, Run und Methode auswählen.\n"
-            "Mit „Neue Analyse“ beginnen.",
+            "Mit „Analyse starten“ beginnen.",
             bg=view.PLOT_BACKGROUND,
             fg=view.TEXT_COLOR,
             font=("Arial", 12),
@@ -73,6 +73,25 @@ class PosteriorExplorer:
             "Ein eventuell laufender alter Fit wird zuerst beendet."
         )
         self.worker.start(settings.analysis)
+
+    def reset_analysis(self):
+        """Clear the current result and leave the selected settings untouched."""
+        if self._closing:
+            return
+        self.worker.request(0)
+        self._settings = None
+        self._error = None
+        self._computing = None
+        if self.plot_view is not None:
+            self.plot_view.destroy()
+            self.plot_view = None
+        self.placeholder.configure(
+            text="Trajektorie und Posterior-Entwicklung\n\n"
+            "Links CSV, Run und Methode auswählen.\n"
+            "Mit „Analyse starten“ beginnen."
+        )
+        self.placeholder.pack(fill="both", expand=True)
+        self.status.set("Bereit. Analyse zurückgesetzt.")
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
@@ -127,13 +146,13 @@ class PosteriorExplorer:
         """Keep keyboard instructions available without occupying the plot header."""
         messagebox.showinfo(
             "Posterior Explorer — Hilfe",
-            "1. CSV, Run und Methode auswählen; „Neue Analyse“ klicken.\n"
+            "1. CSV, Run und Methode auswählen; „Analyse starten“ klicken.\n"
             "2. Im Plot Start/Pause oder die Leertaste verwenden.\n"
             "3. Mit dem Slider N auswählen; Pfeiltasten: Einzelschritt.\n\n"
             "N = 0 zeigt den Prior. Die Posterior-Gruppe wechselt zwischen\n"
             "Bewegungs- und Rauschparametern. Zoom bleibt bei Updates erhalten.\n\n"
             "Settings enthält Priors, Inferenzparameter sowie Daten- und\n"
-            "Wiedergabeoptionen. Übernommene Werte gelten erst bei „Neue Analyse“.\n\n"
+            "Wiedergabeoptionen. Übernommene Werte gelten erst bei „Analyse starten“.\n\n"
             "RBPF/SMC: Online-Updates. VI/MCMC: neuer Batch-Fit je N ab N = 3.\n"
             "Pause hält den angezeigten Stand fest; laufende Fits dürfen fertig werden.",
             parent=self.root,
@@ -194,6 +213,8 @@ class PosteriorExplorer:
         self._poll_id = self.root.after(75, self._poll)
 
     def _handle_event(self, event):
+        if self._settings is None:
+            return
         if event.kind == "ready":
             trajectory, maximum, minimum = event.payload
             self.placeholder.pack_forget()
@@ -232,6 +253,7 @@ class PosteriorExplorer:
             return
         self._closing = True
         self.controls.apply_button.configure(state="disabled")
+        self.controls.reset_button.configure(state="disabled")
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.cancel()
         if self.plot_view is not None:

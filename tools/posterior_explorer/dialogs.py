@@ -37,7 +37,7 @@ class SettingsDialog(tk.Toplevel):
         self._header = tk.Label(
             self,
             text="Übernehmen aktualisiert die Einstellungen.\n"
-            "Eine laufende Analyse bleibt unverändert bis „Neue Analyse“.",
+            "Eine laufende Analyse bleibt unverändert bis „Analyse starten“.",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,

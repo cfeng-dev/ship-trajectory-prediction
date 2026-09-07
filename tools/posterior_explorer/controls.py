@@ -65,9 +65,10 @@ def split_analysis_data_fields(fields):
 class SettingsPanel(tk.Frame):
     """Editable data, prior and inference settings with an explicit apply action."""
 
-    def __init__(self, parent, on_apply):
+    def __init__(self, parent, on_apply, on_reset=None):
         super().__init__(parent, width=350, bg=CONTROL_BACKGROUND)
         self.pack_propagate(False)
+        on_reset = on_reset or (lambda: None)
         self.variables = {
             group: create_variables(self, fields)
             for group, fields in default_form_values().items()
@@ -99,9 +100,13 @@ class SettingsPanel(tk.Frame):
             {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS}
         )
         self.apply_button = create_styled_button(
-            self.analysis_section, text="Neue Analyse", command=on_apply
+            self.analysis_section, text="Analyse starten", command=on_apply
         )
         self.apply_button.pack(fill="x")
+        self.reset_button = create_styled_button(
+            self.analysis_section, text="Zurücksetzen", command=on_reset
+        )
+        self.reset_button.pack(fill="x", pady=(6, 0))
         self.analysis_fields.columnconfigure(1, weight=1)
         populate_fields(self.analysis_fields, analysis_values, stacked=False)
         self.analysis_fields.pack(fill="x", pady=(8, 0))
