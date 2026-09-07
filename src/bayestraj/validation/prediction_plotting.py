@@ -601,8 +601,9 @@ def _draw_prediction_regions(
     *,
     annotate_time=True,
     group_index=None,
+    region_probabilities=PREDICTION_REGION_LEVELS,
 ):
-    """Draw one empirical covariance region pair per future time point."""
+    """Draw selected empirical covariance regions per future time point."""
     x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
     horizon_seconds = _prediction_horizon_seconds(
         forecast_time_seconds,
@@ -620,16 +621,23 @@ def _draw_prediction_regions(
             "Posterior-prädiktiver Bereich (50 %)",
         ),
     }
+    selected_probabilities = tuple(region_probabilities)
+    if any(probability not in region_styles for probability in selected_probabilities):
+        raise ValueError("region_probabilities must contain supported regions.")
+    if not selected_probabilities:
+        return []
     centers = []
     for time_index in range(x_samples.shape[1]):
         regions = metrics.empirical_covariance_regions(
             x_samples[:, time_index],
             y_samples[:, time_index],
-            probabilities=PREDICTION_REGION_LEVELS,
+            probabilities=selected_probabilities,
         )
-        center = regions[0.9].center
+        center = next(iter(regions.values())).center
         centers.append(center)
         for probability in (0.9, 0.5):
+            if probability not in regions:
+                continue
             color, alpha, _ = region_styles[probability]
             region = regions[probability]
             ellipse = Ellipse(
@@ -652,7 +660,7 @@ def _draw_prediction_regions(
 
     if annotate_time:
         _label_prediction_horizons(axis, centers, horizon_seconds)
-    return [
+    handles = [
         Patch(
             facecolor=region_styles[0.5][0],
             edgecolor="none",
@@ -665,6 +673,15 @@ def _draw_prediction_regions(
             alpha=region_styles[0.9][1],
             label=region_styles[0.9][2],
         ),
+    ]
+    return [
+        handle
+        for handle, probability in zip(
+            handles,
+            (0.5, 0.9),
+            strict=True,
+        )
+        if probability in selected_probabilities
     ]
 
 

@@ -9,7 +9,11 @@ from . import view
 from .controls import SettingsPanel
 from .dialogs import SettingsDialog
 from .plot_view import PosteriorPlotView
-from .settings import normalize_inference_method, parse_settings
+from .settings import (
+    DISPLAY_OPTION_FIELDS,
+    normalize_inference_method,
+    parse_settings,
+)
 
 
 class PosteriorExplorer:
@@ -31,6 +35,10 @@ class PosteriorExplorer:
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
         )
+        for key in DISPLAY_OPTION_FIELDS:
+            self.controls.variables["data"][key].trace_add(
+                "write", self._update_display_options
+            )
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
         self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -125,6 +133,16 @@ class PosteriorExplorer:
             self.plot_view.set_coordinate_display_mode(coordinate_display_mode)
         except ValueError as error:
             messagebox.showerror("Koordinatenanzeige", str(error), parent=self.root)
+
+    def _update_display_options(self, *_):
+        """Apply plot-only checkboxes without starting another analysis."""
+        if self._closing or self.plot_view is None:
+            return
+        display_options = {
+            key: self.controls.variables["data"][key].get()
+            for key in DISPLAY_OPTION_FIELDS
+        }
+        self.plot_view.set_display_options(display_options)
 
     def show_inference_settings(self):
         """Edit options for the method currently selected in the sidebar."""

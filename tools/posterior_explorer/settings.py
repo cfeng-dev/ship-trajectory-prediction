@@ -53,6 +53,23 @@ DATA_OPTION_FIELDS = (
     "playback_interval_ms",
     "coordinate_display_mode",
     "show_legend",
+    "show_reference_trajectory",
+    "show_observed_trajectory",
+    "show_current_position",
+    "show_sample_trajectories",
+    "show_median_forecast",
+    "show_prediction_region_50",
+    "show_prediction_region_90",
+)
+DISPLAY_OPTION_FIELDS = (
+    "show_legend",
+    "show_reference_trajectory",
+    "show_observed_trajectory",
+    "show_current_position",
+    "show_sample_trajectories",
+    "show_median_forecast",
+    "show_prediction_region_50",
+    "show_prediction_region_90",
 )
 LABELS = {
     "coordinate_display_mode": "Koordinatenanzeige",
@@ -68,6 +85,13 @@ LABELS = {
     "inference_seed": "Seed für Inferenz",
     "playback_interval_ms": "Wiedergabeintervall [ms]",
     "show_legend": "Legende anzeigen",
+    "show_reference_trajectory": "Aufgezeichnete Trajektorie anzeigen",
+    "show_observed_trajectory": "Beobachtungen bis N anzeigen",
+    "show_current_position": "Aktuelle Position anzeigen",
+    "show_sample_trajectories": "Mögliche Zukunftstrajektorien anzeigen",
+    "show_median_forecast": "Vorhersage (Median) anzeigen",
+    "show_prediction_region_50": "Posterior-Bereich 50 % anzeigen",
+    "show_prediction_region_90": "Posterior-Bereich 90 % anzeigen",
     "speed_prior_upper_mps": "Geschwindigkeit: obere Schwelle [m/s]",
     "speed_prior_tail_probability": "Geschwindigkeit: Tail-Wahrscheinlichkeit",
     "turn_rate_prior_abs_heading_change_deg": "Drehrate: Kursänderung [°]",
@@ -101,6 +125,13 @@ class ExplorerSettings:
     playback_interval_ms: int
     coordinate_display_mode: str
     show_legend: bool
+    show_reference_trajectory: bool
+    show_observed_trajectory: bool
+    show_current_position: bool
+    show_sample_trajectories: bool
+    show_median_forecast: bool
+    show_prediction_region_50: bool
+    show_prediction_region_90: bool
 
 
 def _defaults():
@@ -124,6 +155,13 @@ def _defaults():
             "playback_interval_ms": DEFAULT_PLAYBACK_INTERVAL_MS,
             "coordinate_display_mode": "m",
             "show_legend": True,
+            "show_reference_trajectory": True,
+            "show_observed_trajectory": True,
+            "show_current_position": True,
+            "show_sample_trajectories": True,
+            "show_median_forecast": True,
+            "show_prediction_region_50": True,
+            "show_prediction_region_90": True,
         },
         "priors": asdict(BayesianCTRVPriors()),
         "rbpf": asdict(create_default_ctrv_rbpf_config()),
@@ -250,7 +288,7 @@ def parse_settings(values) -> ExplorerSettings:
     _validate_data_options(data)
     interval = data.pop("playback_interval_ms")
     coordinate_display_mode = data.pop("coordinate_display_mode")
-    legend = data.pop("show_legend")
+    display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
     _validate_batch(method, defaults[method])
@@ -268,5 +306,5 @@ def parse_settings(values) -> ExplorerSettings:
         ),
         playback_interval_ms=interval,
         coordinate_display_mode=coordinate_display_mode,
-        show_legend=legend,
+        **display_options,
     )

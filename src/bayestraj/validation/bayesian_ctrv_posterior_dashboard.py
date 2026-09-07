@@ -317,6 +317,13 @@ class PosteriorDashboardNavigator:
         request_update=None,
         prediction_count=0,
         coordinate_display_mode="m",
+        show_reference_trajectory=True,
+        show_observed_trajectory=True,
+        show_current_position=True,
+        show_sample_trajectories=True,
+        show_median_forecast=True,
+        show_prediction_region_50=True,
+        show_prediction_region_90=True,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -330,6 +337,13 @@ class PosteriorDashboardNavigator:
         self.maximum_observation_count = maximum_observation_count
         self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
+        self.show_reference_trajectory = show_reference_trajectory
+        self.show_observed_trajectory = show_observed_trajectory
+        self.show_current_position = show_current_position
+        self.show_sample_trajectories = show_sample_trajectories
+        self.show_median_forecast = show_median_forecast
+        self.show_prediction_region_50 = show_prediction_region_50
+        self.show_prediction_region_90 = show_prediction_region_90
         self.prediction_count = prediction_count
         self.coordinate_display_mode = normalize_coordinate_display_mode(
             coordinate_display_mode
@@ -646,35 +660,38 @@ class PosteriorDashboardNavigator:
             self.trajectory.observed_x,
             self.trajectory.observed_y,
         )
-        axis.plot(
-            reference_x,
-            reference_y,
-            color="#9CA3AF",
-            linewidth=1.5,
-            label="Aufgezeichnete Trajektorie",
-            zorder=1,
-        )
+        if self.show_reference_trajectory:
+            axis.plot(
+                reference_x,
+                reference_y,
+                color="#9CA3AF",
+                linewidth=1.5,
+                label="Aufgezeichnete Trajektorie",
+                zorder=1,
+            )
         if self.observation_count > 0:
             observed_slice = slice(0, self.observation_count)
-            axis.plot(
-                observed_x[observed_slice],
-                observed_y[observed_slice],
-                color="#24557A",
-                linewidth=2.2,
-                label="Beobachtungen bis N",
-                zorder=2,
-            )
+            if self.show_observed_trajectory:
+                axis.plot(
+                    observed_x[observed_slice],
+                    observed_y[observed_slice],
+                    color="#24557A",
+                    linewidth=2.2,
+                    label="Beobachtungen bis N",
+                    zorder=2,
+                )
             current_index = self.observation_count - 1
-            axis.plot(
-                observed_x[current_index],
-                observed_y[current_index],
-                marker="o",
-                markersize=7,
-                linestyle="none",
-                color="#D97706",
-                label="Aktuelle Position",
-                zorder=3,
-            )
+            if self.show_current_position:
+                axis.plot(
+                    observed_x[current_index],
+                    observed_y[current_index],
+                    marker="o",
+                    markersize=7,
+                    linestyle="none",
+                    color="#D97706",
+                    label="Aktuelle Position",
+                    zorder=3,
+                )
         forecast_legend_handles = self._draw_forecast(axis)
         x_label, y_label, spatial_aspect = self._coordinate_display_spec()
         axis.set_xlabel(x_label, fontsize=11)
@@ -771,8 +788,18 @@ class PosteriorDashboardNavigator:
                 np.asarray([self.trajectory.observed_y[self.observation_count - 1]]),
             )
             origin = np.array([origin_x[0], origin_y[0]])
+            region_probabilities = tuple(
+                probability
+                for probability, enabled in (
+                    (0.5, self.show_prediction_region_50),
+                    (0.9, self.show_prediction_region_90),
+                )
+                if enabled
+            )
             display_sample_positions = None
-            if forecast.sample_positions.shape[0] >= 2:
+            if forecast.sample_positions.shape[0] >= 2 and (
+                self.show_sample_trajectories or region_probabilities
+            ):
                 display_sample_positions = np.empty_like(forecast.sample_positions)
                 for time_index in range(forecast.sample_positions.shape[1]):
                     sample_x, sample_y = self._display_coordinates(
@@ -790,10 +817,13 @@ class PosteriorDashboardNavigator:
                     ),
                     np.concatenate(([0.0], forecast.time_offsets_seconds)),
                     annotate_time=False,
+                    region_probabilities=region_probabilities,
                 )
             # Connect to the last measured point for orientation, as in the
             # standalone prediction plot; this does not re-anchor model draws.
-            for index, positions in enumerate(forecast.sample_positions):
+            for index, positions in enumerate(
+                forecast.sample_positions if self.show_sample_trajectories else ()
+            ):
                 if display_sample_positions is None:
                     sample_x, sample_y = self._display_coordinates(
                         positions[:, 0], positions[:, 1]
@@ -817,16 +847,17 @@ class PosteriorDashboardNavigator:
                 forecast.median_positions[:, 0], forecast.median_positions[:, 1]
             )
             path = np.vstack((origin, np.column_stack((median_x, median_y))))
-            axis.plot(
-                path[:, 0],
-                path[:, 1],
-                color="#DC2626",
-                linewidth=2.2,
-                marker=".",
-                markersize=4,
-                zorder=4,
-                label="Vorhersage (Median)",
-            )
+            if self.show_median_forecast:
+                axis.plot(
+                    path[:, 0],
+                    path[:, 1],
+                    color="#DC2626",
+                    linewidth=2.2,
+                    marker=".",
+                    markersize=4,
+                    zorder=4,
+                    label="Vorhersage (Median)",
+                )
             title += f" · Prognose +{forecast.time_offsets_seconds[-1]:g} s"
         elif self.prediction_count:
             message = (
@@ -846,6 +877,35 @@ class PosteriorDashboardNavigator:
             )
         axis.set_title(title, fontsize=13, pad=10)
         return legend_handles
+
+    def set_display_options(
+        self,
+        *,
+        show_legend,
+        show_reference_trajectory,
+        show_observed_trajectory,
+        show_current_position,
+        show_sample_trajectories,
+        show_median_forecast,
+        show_prediction_region_50,
+        show_prediction_region_90,
+    ) -> None:
+        """Apply presentation-only toggles without loading another update."""
+        options = {
+            "show_legend": show_legend,
+            "show_reference_trajectory": show_reference_trajectory,
+            "show_observed_trajectory": show_observed_trajectory,
+            "show_current_position": show_current_position,
+            "show_sample_trajectories": show_sample_trajectories,
+            "show_median_forecast": show_median_forecast,
+            "show_prediction_region_50": show_prediction_region_50,
+            "show_prediction_region_90": show_prediction_region_90,
+        }
+        if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
+            raise ValueError("Display options must be boolean values.")
+        for name, value in options.items():
+            setattr(self, name, bool(value))
+        self._draw()
 
     def set_coordinate_display_mode(self, coordinate_display_mode) -> None:
         """Redraw cached spatial results in a new unit without another inference run."""
@@ -983,6 +1043,13 @@ def create_sequential_posterior_dashboard_figure(
     request_update=None,
     prediction_count=0,
     coordinate_display_mode="m",
+    show_reference_trajectory=True,
+    show_observed_trajectory=True,
+    show_current_position=True,
+    show_sample_trajectories=True,
+    show_median_forecast=True,
+    show_prediction_region_50=True,
+    show_prediction_region_90=True,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -1052,6 +1119,13 @@ def create_sequential_posterior_dashboard_figure(
         request_update=request_update,
         prediction_count=prediction_count,
         coordinate_display_mode=coordinate_display_mode,
+        show_reference_trajectory=show_reference_trajectory,
+        show_observed_trajectory=show_observed_trajectory,
+        show_current_position=show_current_position,
+        show_sample_trajectories=show_sample_trajectories,
+        show_median_forecast=show_median_forecast,
+        show_prediction_region_50=show_prediction_region_50,
+        show_prediction_region_90=show_prediction_region_90,
     )
     return figure, navigator
 

@@ -876,6 +876,106 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         navigator.disconnect()
 
 
+def test_dashboard_display_options_hide_selected_trajectory_elements():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+
+    def load(count):
+        forecast = dashboard.PosteriorDashboardForecast(
+            time_offsets_seconds=[10, 20],
+            median_positions=[[10 * count, 20], [10 * count + 1, 21]],
+            sample_positions=[
+                [[10 * count - 1, 19], [10 * count, 20]],
+                [[10 * count + 1, 19], [10 * count + 1, 21]],
+                [[10 * count - 1, 21], [10 * count + 1, 20]],
+                [[10 * count + 1, 21], [10 * count, 22]],
+            ],
+        )
+        return dashboard.PosteriorDashboardUpdate(
+            count, _dashboard_samples(), forecast=forecast
+        )
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=4,
+        figure=figure,
+        prediction_count=2,
+        show_reference_trajectory=False,
+        show_observed_trajectory=False,
+        show_current_position=False,
+        show_sample_trajectories=False,
+        show_median_forecast=False,
+        show_prediction_region_50=False,
+        show_prediction_region_90=True,
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        labels = [line.get_label() for line in navigator.trajectory_axis.lines]
+        assert labels == []
+        region_patches = [
+            patch
+            for patch in navigator.trajectory_axis.patches
+            if patch.get_gid().startswith("posterior-predictive-region-")
+        ]
+        assert len(region_patches) == 2
+        assert all("-0.9-" in patch.get_gid() for patch in region_patches)
+        legend_labels = [
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+        assert legend_labels == ["Posterior-prädiktiver Bereich (90 %)"]
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_display_options_redraw_without_loading_an_update():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    calls = []
+
+    def load(count):
+        calls.append(count)
+        return dashboard.PosteriorDashboardUpdate(count, _dashboard_samples())
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        assert calls[-1] == 2
+        loaded_calls = list(calls)
+        navigator.set_display_options(
+            show_legend=False,
+            show_reference_trajectory=False,
+            show_observed_trajectory=True,
+            show_current_position=True,
+            show_sample_trajectories=True,
+            show_median_forecast=True,
+            show_prediction_region_50=True,
+            show_prediction_region_90=True,
+        )
+        assert calls == loaded_calls
+        assert not navigator.trajectory_axis.get_legend()
+        assert not any(
+            line.get_label() == "Aufgezeichnete Trajektorie"
+            for line in navigator.trajectory_axis.lines
+        )
+    finally:
+        navigator.disconnect()
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

@@ -33,6 +33,13 @@ class PosteriorPlotView(tk.Frame):
             request_update=request_update,
             prediction_count=settings.analysis.experiment.prediction_count,
             coordinate_display_mode=settings.coordinate_display_mode,
+            show_reference_trajectory=settings.show_reference_trajectory,
+            show_observed_trajectory=settings.show_observed_trajectory,
+            show_current_position=settings.show_current_position,
+            show_sample_trajectories=settings.show_sample_trajectories,
+            show_median_forecast=settings.show_median_forecast,
+            show_prediction_region_50=settings.show_prediction_region_50,
+            show_prediction_region_90=settings.show_prediction_region_90,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
@@ -42,6 +49,10 @@ class PosteriorPlotView(tk.Frame):
     def set_coordinate_display_mode(self, coordinate_display_mode):
         """Redraw the current dashboard in another unit without replacing analysis."""
         self.navigator.set_coordinate_display_mode(coordinate_display_mode)
+
+    def set_display_options(self, display_options):
+        """Redraw presentation choices without replacing the current analysis."""
+        self.navigator.set_display_options(**display_options)
 
     def disable_navigation(self):
         """Keep the last valid plot visible after an inference error."""

@@ -137,6 +137,13 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "playback_interval_ms": "1500",
         "coordinate_display_mode": "km",
         "show_legend": False,
+        "show_reference_trajectory": False,
+        "show_observed_trajectory": True,
+        "show_current_position": True,
+        "show_sample_trajectories": False,
+        "show_median_forecast": True,
+        "show_prediction_region_50": True,
+        "show_prediction_region_90": False,
     }
     result = settings.validate_dialog_values("data", values)
     assert result == {
@@ -148,6 +155,13 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "playback_interval_ms": 1500,
         "coordinate_display_mode": "km",
         "show_legend": False,
+        "show_reference_trajectory": False,
+        "show_observed_trajectory": True,
+        "show_current_position": True,
+        "show_sample_trajectories": False,
+        "show_median_forecast": True,
+        "show_prediction_region_50": True,
+        "show_prediction_region_90": False,
     }
     values["playback_interval_ms"] = "0"
     with pytest.raises(ValueError):

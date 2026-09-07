@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from .controls import ScrollableForm, create_variables, populate_fields
-from .settings import DATA_OPTION_FIELDS, validate_dialog_values
+from .settings import DATA_OPTION_FIELDS, DISPLAY_OPTION_FIELDS, validate_dialog_values
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 DIALOG_MINIMUM_HEIGHT = 320
@@ -53,7 +53,42 @@ class SettingsDialog(tk.Toplevel):
         self.variables = create_variables(self, fields)
         self._form = ScrollableForm(self, width=580)
         self._form.grid(row=1, column=0, sticky="nsew")
-        populate_fields(self._form.body, self.variables)
+        if group == "data":
+            data_fields = {
+                key: self.variables[key]
+                for key in self.variables
+                if key not in DISPLAY_OPTION_FIELDS
+            }
+            data_section = tk.LabelFrame(
+                self._form.body,
+                text="Daten und Wiedergabe",
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                padx=10,
+                pady=8,
+            )
+            data_section.pack(fill="x", pady=(0, 8))
+            data_section.columnconfigure(1, weight=1)
+            populate_fields(
+                data_section,
+                data_fields,
+                choose_file=self.panel.choose_file,
+            )
+            display_section = tk.LabelFrame(
+                self._form.body,
+                text="Plot-Anzeige",
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                padx=10,
+                pady=8,
+            )
+            display_section.pack(fill="x")
+            display_fields = {key: self.variables[key] for key in DISPLAY_OPTION_FIELDS}
+            populate_fields(display_section, display_fields)
+        else:
+            populate_fields(self._form.body, self.variables)
         self._form.bind_mouse_wheel()
         self._actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         self._actions.grid(row=2, column=0, sticky="ew")

@@ -243,20 +243,58 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
     try:
         dialog.update_idletasks()
         body = dialog._form.body
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
         label = next(
             child
-            for child in body.winfo_children()
+            for child in descendants(body)
             if child.winfo_class() == "Label" and child.cget("text") == "Run-ID"
         )
         field = next(
             child
-            for child in body.winfo_children()
+            for child in descendants(body)
             if child.winfo_class() == "TEntry"
             and child.cget("textvariable") == str(dialog.variables["run_id"])
         )
         label_center = label.winfo_rooty() + label.winfo_height() / 2
         field_center = field.winfo_rooty() + field.winfo_height() / 2
         assert label_center == pytest.approx(field_center, abs=1.0)
+    finally:
+        dialog.cancel()
+
+
+def test_data_dialog_groups_plot_display_options(root):
+    from posterior_explorer.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = SettingsDialog(root, panel, "data")
+    try:
+        sections = {
+            section.cget("text"): section
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+        }
+        assert "Plot-Anzeige" in sections
+        display_section = sections["Plot-Anzeige"]
+        labels = {
+            child.cget("text")
+            for child in display_section.winfo_children()
+            if child.winfo_class() == "Checkbutton"
+        }
+        assert labels == {
+            "Legende anzeigen",
+            "Aufgezeichnete Trajektorie anzeigen",
+            "Beobachtungen bis N anzeigen",
+            "Aktuelle Position anzeigen",
+            "Mögliche Zukunftstrajektorien anzeigen",
+            "Vorhersage (Median) anzeigen",
+            "Posterior-Bereich 50 % anzeigen",
+            "Posterior-Bereich 90 % anzeigen",
+        }
     finally:
         dialog.cancel()
 
