@@ -35,7 +35,7 @@ def test_settings_preserve_selected_method_and_units(form, method):
 def test_inference_method_display_labels_normalize_to_internal_values():
     assert (
         settings.METHOD_DISPLAY_LABELS["rbpf"]
-        == "RBPF – Rao-Blackwellized Partikelfilter (Online)"
+        == "RBPF – Rao-Blackwellized particle filter (online)"
     )
     for method, label in settings.METHOD_DISPLAY_LABELS.items():
         assert settings.normalize_inference_method(label) == method

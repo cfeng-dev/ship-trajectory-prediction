@@ -20,6 +20,49 @@ DATA_DIALOG_WIDTH = 560
 WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
+HELP_WINDOW_WIDTH = 620
+
+POSTERIOR_HELP_SECTIONS = (
+    (
+        "Keyboard shortcuts",
+        (
+            ("Space", "Start or pause plot playback"),
+            ("← / →", "Move the display one observation backward or forward"),
+            ("Toolbar", "Pan, zoom, or reset the plot view"),
+        ),
+    ),
+    (
+        "Menu",
+        (
+            ("File → Open CSV", "Select the CSV file for analysis"),
+            ("File → Close", "Close Posterior Explorer"),
+            ("View", "Show or hide settings; open plot display options"),
+            ("Settings", "Configure priors, inference, data, and playback"),
+            ("Help", "Open this help window"),
+        ),
+    ),
+    (
+        "Controls",
+        (
+            ("Start analysis", "Analyse the selected CSV with the current settings"),
+            ("Reset", "Clear the current analysis and display"),
+            ("Inference method", "Select RBPF, SMC, VI, or MCMC for the next analysis"),
+            ("Follow ship", "Center the plot on the current ship position"),
+            ("N slider", "Show the prior at N = 0 and posterior updates afterward"),
+        ),
+    ),
+    (
+        "Display",
+        (
+            ("Plot display", "Select legend, trajectories, and forecast regions"),
+            (
+                "Motion state",
+                "Posterior for speed, heading, and turn rate",
+            ),
+            ("Uncertainties", "Posterior for observation and process noise"),
+        ),
+    ),
+)
 
 
 def dialog_height_for_content(content_height, screen_height):
@@ -50,12 +93,12 @@ class PlotDisplayWindow(tk.Toplevel):
         self._on_close = on_close
         self._closed = False
         self.transient(parent)
-        self.title("Plot-Anzeige")
+        self.title("Plot display")
         self.configure(bg=CONTROL_BACKGROUND)
         self.resizable(False, False)
         tk.Label(
             self,
-            text="Änderungen werden sofort im Plot übernommen.",
+            text="Changes are applied to the plot immediately.",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -102,6 +145,92 @@ class PlotDisplayWindow(tk.Toplevel):
         self.destroy()
 
 
+class PosteriorHelpWindow(tk.Toplevel):
+    """Non-modal, scrollable instructions for the posterior explorer."""
+
+    def __init__(self, parent, *, on_close=None):
+        super().__init__(parent)
+        self._on_close = on_close
+        self._closed = False
+        self.withdraw()
+        self.transient(parent)
+        self.title("Help")
+        self.configure(bg=CONTROL_BACKGROUND)
+        self.resizable(False, False)
+
+        main = tk.Frame(self, bg=CONTROL_BACKGROUND)
+        main.pack(fill="both", expand=True)
+        tk.Label(
+            main,
+            text="Posterior Explorer",
+            font=("Arial", 13, "bold"),
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            anchor="w",
+        ).pack(fill="x", padx=24, pady=(18, 12))
+        self._form = ScrollableForm(main, width=HELP_WINDOW_WIDTH - 60)
+        self._form.pack(fill="both", expand=True, padx=24)
+        for title, rows in POSTERIOR_HELP_SECTIONS:
+            section = tk.LabelFrame(
+                self._form.body,
+                text=title,
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                padx=12,
+                pady=10,
+            )
+            section.pack(fill="x", pady=(0, 12))
+            section.columnconfigure(1, weight=1)
+            for row, (control, description) in enumerate(rows):
+                tk.Label(
+                    section,
+                    text=control,
+                    font=("Arial", 10, "bold"),
+                    bg=CONTROL_BACKGROUND,
+                    fg=TEXT_COLOR,
+                    anchor="nw",
+                    justify="left",
+                ).grid(row=row, column=0, sticky="nw", padx=(0, 20), pady=3)
+                tk.Label(
+                    section,
+                    text=description,
+                    font=FONT,
+                    bg=CONTROL_BACKGROUND,
+                    fg=TEXT_COLOR,
+                    anchor="nw",
+                    justify="left",
+                    wraplength=330,
+                ).grid(row=row, column=1, sticky="nw", pady=3)
+
+        actions = tk.Frame(main, bg=CONTROL_BACKGROUND)
+        actions.pack(fill="x", padx=24, pady=(12, 18))
+        create_styled_button(actions, text="OK", width=12, command=self.close).pack(
+            anchor="e"
+        )
+        self._form.bind_mouse_wheel()
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.update_idletasks()
+        content_height = main.winfo_reqheight() + DIALOG_CONTENT_PADDING
+        height = dialog_height_for_content(content_height, self.winfo_screenheight())
+        left = max(
+            0, parent.winfo_rootx() + (parent.winfo_width() - HELP_WINDOW_WIDTH) // 2
+        )
+        top = max(0, parent.winfo_rooty() + (parent.winfo_height() - height) // 2)
+        self.geometry(f"{HELP_WINDOW_WIDTH}x{height}+{left}+{top}")
+        self.deiconify()
+        self.focus_set()
+
+    def close(self):
+        """Close the help window without changing the current analysis."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._on_close is not None:
+            self._on_close()
+        self.destroy()
+
+
 class SettingsDialog(tk.Toplevel):
     """Edit a local draft; commit only validated values and never start inference."""
 
@@ -113,17 +242,17 @@ class SettingsDialog(tk.Toplevel):
         self.configure(bg=CONTROL_BACKGROUND)
         title = {
             "priors": "Priors",
-            "data": "Daten und Wiedergabe",
-            "plot": "Plot-Anzeige",
-        }.get(group, f"Inferenzparameter — {group.upper()}")
+            "data": "Data and playback",
+            "plot": "Plot display",
+        }.get(group, f"Inference parameters — {group.upper()}")
         self.title(title)
         width = dialog_width_for_group(group, parent.winfo_screenwidth())
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
         self._header = tk.Label(
             self,
-            text="Übernehmen aktualisiert die Einstellungen.\n"
-            "Eine laufende Analyse bleibt unverändert bis „Analyse starten“.",
+            text="Apply updates these settings.\n"
+            "A running analysis remains unchanged until “Start analysis”.",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -144,7 +273,7 @@ class SettingsDialog(tk.Toplevel):
         if group == "data":
             data_section = tk.LabelFrame(
                 self._form.body,
-                text="Daten und Wiedergabe",
+                text="Data and playback",
                 font=FONT,
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,
@@ -163,10 +292,10 @@ class SettingsDialog(tk.Toplevel):
         self._form.bind_mouse_wheel()
         self._actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         self._actions.grid(row=2, column=0, sticky="ew")
-        create_styled_button(self._actions, text="Übernehmen", command=self.apply).pack(
+        create_styled_button(self._actions, text="Apply", command=self.apply).pack(
             side="right", padx=(8, 0)
         )
-        create_styled_button(self._actions, text="Abbrechen", command=self.cancel).pack(
+        create_styled_button(self._actions, text="Cancel", command=self.cancel).pack(
             side="right"
         )
         self.protocol("WM_DELETE_WINDOW", self.cancel)
@@ -198,7 +327,7 @@ class SettingsDialog(tk.Toplevel):
                 {key: variable.get() for key, variable in self.variables.items()},
             )
         except (ValueError, TypeError) as error:
-            messagebox.showerror("Einstellungen prüfen", str(error), parent=self)
+            messagebox.showerror("Check settings", str(error), parent=self)
             return
         target_group = "data" if self.group == "plot" else self.group
         for key, value in values.items():

@@ -80,14 +80,14 @@ class SettingsPanel(tk.Frame):
         body = self.settings_form.body
         tk.Label(
             body,
-            text="Posterior-Analyse",
+            text="Posterior analysis",
             font=("Arial", 12, "bold"),
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
         ).pack(pady=(14, 10))
         self.analysis_section = tk.LabelFrame(
             body,
-            text="Analyse",
+            text="Analysis",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -101,11 +101,11 @@ class SettingsPanel(tk.Frame):
             {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS}
         )
         self.apply_button = create_styled_button(
-            self.analysis_section, text="Analyse starten", command=on_apply
+            self.analysis_section, text="Start analysis", command=on_apply
         )
         self.apply_button.pack(fill="x")
         self.reset_button = create_styled_button(
-            self.analysis_section, text="Zurücksetzen", command=on_reset
+            self.analysis_section, text="Reset", command=on_reset
         )
         self.reset_button.pack(fill="x", pady=(6, 0))
         self.analysis_fields.columnconfigure(0, weight=1)
@@ -114,7 +114,7 @@ class SettingsPanel(tk.Frame):
 
         self.data_section = tk.LabelFrame(
             body,
-            text="Daten",
+            text="Data",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -135,8 +135,8 @@ class SettingsPanel(tk.Frame):
         """Choose a CSV without starting or replacing an analysis."""
         selected = filedialog.askopenfilename(
             parent=self,
-            title="Trajektorien-CSV auswählen",
-            filetypes=(("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")),
+            title="Select trajectory CSV",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
         )
         if selected:
             self.variables["data"]["data_file"].set(selected)

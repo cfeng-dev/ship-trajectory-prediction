@@ -7,7 +7,7 @@ from bayestraj.validation.posterior_session import PosteriorAnalysisWorker
 
 from . import view
 from .controls import SettingsPanel
-from .dialogs import PlotDisplayWindow, SettingsDialog
+from .dialogs import PlotDisplayWindow, PosteriorHelpWindow, SettingsDialog
 from .plot_view import PosteriorPlotView
 from .settings import (
     DISPLAY_OPTION_FIELDS,
@@ -29,6 +29,7 @@ class PosteriorExplorer:
         self._computing = None
         self._settings_dialog = None
         self._plot_display_window = None
+        self._help_window = None
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
         self.controls = SettingsPanel(root, self.start_analysis, self.reset_analysis)
@@ -45,16 +46,16 @@ class PosteriorExplorer:
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         self.placeholder = tk.Label(
             self.plot_host,
-            text="Trajektorie und Posterior-Entwicklung\n\n"
-            "Links CSV, Run und Methode auswählen.\n"
-            "Mit „Analyse starten“ beginnen.",
+            text="Trajectory and posterior evolution\n\n"
+            "Select CSV, run, and method on the left.\n"
+            "Then click “Start analysis”.",
             bg=view.PLOT_BACKGROUND,
             fg=view.TEXT_COLOR,
             font=("Arial", 12),
             anchor="center",
         )
         self.placeholder.pack(fill="both", expand=True)
-        self.status = tk.StringVar(root, value="Bereit. Noch keine Analyse gestartet.")
+        self.status = tk.StringVar(root, value="Ready. No analysis started yet.")
         root.bind("<space>", self.handle_space, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()
@@ -67,7 +68,7 @@ class PosteriorExplorer:
         try:
             settings = parse_settings(self.controls.values())
         except (ValueError, TypeError) as error:
-            messagebox.showerror("Einstellungen prüfen", str(error), parent=self.root)
+            messagebox.showerror("Check settings", str(error), parent=self.root)
             return
         if self.plot_view is not None:
             self.plot_view.destroy()
@@ -75,11 +76,10 @@ class PosteriorExplorer:
         self._settings = settings
         self._error = None
         self._computing = None
-        self.placeholder.configure(text="Analyse wird vorbereitet …")
+        self.placeholder.configure(text="Preparing analysis …")
         self.placeholder.pack(fill="both", expand=True)
         self.status.set(
-            "Lade Daten / initialisiere Inferenz. "
-            "Ein eventuell laufender alter Fit wird zuerst beendet."
+            "Loading data / initializing inference. Any previous fit is stopped first."
         )
         self.worker.start(settings.analysis)
 
@@ -95,12 +95,12 @@ class PosteriorExplorer:
             self.plot_view.destroy()
             self.plot_view = None
         self.placeholder.configure(
-            text="Trajektorie und Posterior-Entwicklung\n\n"
-            "Links CSV, Run und Methode auswählen.\n"
-            "Mit „Analyse starten“ beginnen."
+            text="Trajectory and posterior evolution\n\n"
+            "Select CSV, run, and method on the left.\n"
+            "Then click “Start analysis”."
         )
         self.placeholder.pack(fill="both", expand=True)
-        self.status.set("Bereit. Analyse zurückgesetzt.")
+        self.status.set("Ready. Analysis reset.")
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
@@ -135,7 +135,7 @@ class PosteriorExplorer:
         try:
             self.plot_view.set_coordinate_display_mode(coordinate_display_mode)
         except ValueError as error:
-            messagebox.showerror("Koordinatenanzeige", str(error), parent=self.root)
+            messagebox.showerror("Coordinate display", str(error), parent=self.root)
 
     def _update_display_options(self, *_):
         """Apply plot-only checkboxes without starting another analysis."""
@@ -186,20 +186,20 @@ class PosteriorExplorer:
         self._plot_display_window = None
 
     def show_help(self):
-        """Keep keyboard instructions available without occupying the plot header."""
-        messagebox.showinfo(
-            "Posterior Explorer — Hilfe",
-            "1. CSV, Run und Methode auswählen; „Analyse starten“ klicken.\n"
-            "2. Im Plot Start/Pause oder die Leertaste verwenden.\n"
-            "3. Mit dem Slider N auswählen; Pfeiltasten: Einzelschritt.\n\n"
-            "N = 0 zeigt den Prior. Die Posterior-Gruppe wechselt zwischen\n"
-            "Bewegungs- und Rauschparametern. Zoom bleibt bei Updates erhalten.\n\n"
-            "Settings enthält Priors, Inferenzparameter sowie Daten- und\n"
-            "Wiedergabeoptionen. Übernommene Werte gelten erst bei „Analyse starten“.\n\n"
-            "RBPF/SMC: Online-Updates. VI/MCMC: neuer Batch-Fit je N ab N = 3.\n"
-            "Pause hält den angezeigten Stand fest; laufende Fits dürfen fertig werden.",
-            parent=self.root,
+        """Open the persistent non-modal help window."""
+        if self._closing:
+            return
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.lift()
+            self._help_window.focus_set()
+            return
+        self._help_window = PosteriorHelpWindow(
+            self.root,
+            on_close=self._help_closed,
         )
+
+    def _help_closed(self):
+        self._help_window = None
 
     def handle_space(self, event):
         """Avoid double toggles on the canvas and preserve normal text input."""
@@ -237,14 +237,14 @@ class PosteriorExplorer:
                     self._show_error(f"{type(error).__name__}: {error}")
             if self.plot_view is not None and self._error is None:
                 navigator = self.plot_view.navigator
-                state = "Wiedergabe" if navigator.is_playing else "Pausiert"
+                state = "Playing" if navigator.is_playing else "Paused"
                 progress = (
-                    f" · Berechne N={self._computing}"
+                    f" · Computing N={self._computing}"
                     if self._computing is not None
                     else ""
                 )
                 target = (
-                    f" · Ziel N={navigator.requested_observation_count}"
+                    f" · Target N={navigator.requested_observation_count}"
                     if navigator.is_waiting
                     else ""
                 )
@@ -286,10 +286,8 @@ class PosteriorExplorer:
         if self.plot_view is not None:
             self.plot_view.disable_navigation()
         else:
-            self.placeholder.configure(
-                text="Analyse fehlgeschlagen. Einstellungen prüfen."
-            )
-        self.status.set(f"Fehler: {detail} — Zum Fortsetzen eine neue Analyse starten.")
+            self.placeholder.configure(text="Analysis failed. Check settings.")
+        self.status.set(f"Error: {detail} — Start a new analysis to continue.")
 
     def close(self):
         """Keep Tk responsive while a current fit finishes, then close cleanly."""
@@ -303,8 +301,11 @@ class PosteriorExplorer:
         plot_display_window = getattr(self, "_plot_display_window", None)
         if plot_display_window is not None and plot_display_window.winfo_exists():
             plot_display_window.close()
+        help_window = getattr(self, "_help_window", None)
+        if help_window is not None and help_window.winfo_exists():
+            help_window.close()
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
         self.worker.close()
-        self.status.set("Schließe … eine laufende Berechnung wird noch beendet.")
+        self.status.set("Closing … a running calculation is finishing.")

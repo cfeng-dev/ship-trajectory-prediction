@@ -28,10 +28,10 @@ COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
 METHOD_DISPLAY_LABELS = {
-    "rbpf": "RBPF – Rao-Blackwellized Partikelfilter (Online)",
+    "rbpf": "RBPF – Rao-Blackwellized particle filter (online)",
     "smc": "SMC – Sequential Monte Carlo (Online)",
-    "vi": "VI – Variationsinferenz (Batch)",
-    "mcmc": "MCMC – Markov-Chain-Monte-Carlo (Batch)",
+    "vi": "VI – Variational inference (batch)",
+    "mcmc": "MCMC – Markov chain Monte Carlo (batch)",
 }
 METHOD_DISPLAY_OPTIONS = tuple(METHOD_DISPLAY_LABELS.values())
 METHOD_DISPLAY_TO_VALUE = {
@@ -64,42 +64,42 @@ DISPLAY_OPTION_FIELDS = (
     "show_prediction_region_90",
 )
 LABELS = {
-    "coordinate_display_mode": "Koordinatenanzeige",
-    "prediction_count": "Vorhersageschritte (0 = aus)",
-    "prediction_sample_count": "Zukunftstrajektorien (0 = aus)",
-    "data_file": "CSV-Datei",
-    "run_id": "Run-ID",
-    "inference_method": "Inferenzmethode",
-    "start_index": "Startindex (ab 0)",
-    "maximum_observation_count": "Max. Beobachtungen (leer = alle)",
-    "position_noise_std_m": "Zusätzliches Positionsrauschen [m]",
-    "position_noise_seed": "Seed für Positionsrauschen",
-    "inference_seed": "Seed für Inferenz",
-    "playback_interval_ms": "Wiedergabeintervall [ms]",
-    "show_legend": "Legende anzeigen",
-    "show_reference_trajectory": "Aufgezeichnete Trajektorie anzeigen",
-    "show_observed_trajectory": "Beobachtungen bis N anzeigen",
-    "show_current_position": "Aktuelle Position anzeigen",
-    "show_sample_trajectories": "Mögliche Zukunftstrajektorien anzeigen",
-    "show_median_forecast": "Vorhersage (Median) anzeigen",
-    "show_prediction_region_50": "Posterior-Bereich 50 % anzeigen",
-    "show_prediction_region_90": "Posterior-Bereich 90 % anzeigen",
-    "speed_prior_upper_mps": "Geschwindigkeit: obere Schwelle [m/s]",
-    "speed_prior_tail_probability": "Geschwindigkeit: Tail-Wahrscheinlichkeit",
-    "turn_rate_prior_abs_heading_change_deg": "Drehrate: Kursänderung [°]",
-    "turn_rate_prior_reference_interval_seconds": "Drehrate: Referenzintervall [s]",
-    "turn_rate_prior_tail_probability": "Drehrate: Tail-Wahrscheinlichkeit",
-    "sigma_position_observation_prior_upper_m": "Beobachtungsrauschen: Schwelle [m]",
-    "sigma_position_observation_prior_tail_probability": "Beobachtung: Tail-Wahrscheinlichkeit",
-    "sigma_speed_process_prior_upper_mps": "Geschwindigkeitsprozess: Schwelle [m/s]",
-    "sigma_speed_process_prior_tail_probability": "Geschwindigkeitsprozess: Tail-Wahrsch.",
-    "sigma_turn_rate_process_prior_upper_deg_s": "Drehratenprozess: Schwelle [°/s]",
-    "sigma_turn_rate_process_prior_tail_probability": "Drehratenprozess: Tail-Wahrscheinlichkeit",
-    "particle_count": "Partikelanzahl",
-    "posterior_draw_count": "Posterior-Draws",
-    "resample_ess_fraction": "Resampling: ESS-Anteil",
-    "rejuvenation_scale": "Rejuvenation-Skala",
-    "require_converged": "VI-Konvergenz verlangen",
+    "coordinate_display_mode": "Coordinate display",
+    "prediction_count": "Forecast steps (0 = off)",
+    "prediction_sample_count": "Future trajectories (0 = off)",
+    "data_file": "CSV file",
+    "run_id": "Run ID",
+    "inference_method": "Inference method",
+    "start_index": "Start index (from 0)",
+    "maximum_observation_count": "Maximum observations (empty = all)",
+    "position_noise_std_m": "Additional position noise [m]",
+    "position_noise_seed": "Position-noise seed",
+    "inference_seed": "Inference seed",
+    "playback_interval_ms": "Playback interval [ms]",
+    "show_legend": "Show legend",
+    "show_reference_trajectory": "Show recorded trajectory",
+    "show_observed_trajectory": "Show observations through N",
+    "show_current_position": "Show current position",
+    "show_sample_trajectories": "Show possible future trajectories",
+    "show_median_forecast": "Show forecast (median)",
+    "show_prediction_region_50": "Show 50% posterior-predictive region",
+    "show_prediction_region_90": "Show 90% posterior-predictive region",
+    "speed_prior_upper_mps": "Speed: upper threshold [m/s]",
+    "speed_prior_tail_probability": "Speed: tail probability",
+    "turn_rate_prior_abs_heading_change_deg": "Turn rate: heading change [°]",
+    "turn_rate_prior_reference_interval_seconds": "Turn rate: reference interval [s]",
+    "turn_rate_prior_tail_probability": "Turn rate: tail probability",
+    "sigma_position_observation_prior_upper_m": "Observation noise: threshold [m]",
+    "sigma_position_observation_prior_tail_probability": "Observation noise: tail probability",
+    "sigma_speed_process_prior_upper_mps": "Speed process: threshold [m/s]",
+    "sigma_speed_process_prior_tail_probability": "Speed process: tail probability",
+    "sigma_turn_rate_process_prior_upper_deg_s": "Turn-rate process: threshold [°/s]",
+    "sigma_turn_rate_process_prior_tail_probability": "Turn-rate process: tail probability",
+    "particle_count": "Particle count",
+    "posterior_draw_count": "Posterior draws",
+    "resample_ess_fraction": "Resampling: ESS fraction",
+    "rejuvenation_scale": "Rejuvenation scale",
+    "require_converged": "Require VI convergence",
 }
 
 
@@ -191,37 +191,37 @@ def _parse_group(values, defaults):
             else:
                 value = str(value).strip()
         except (ValueError, TypeError) as error:
-            raise ValueError(f"Ungültiger Wert für {LABELS.get(key, key)}.") from error
+            raise ValueError(f"Invalid value for {LABELS.get(key, key)}.") from error
         parsed[key] = value
     return parsed
 
 
 def _minimum(fields, key, minimum):
     if fields[key] < minimum:
-        raise ValueError(f"{LABELS.get(key, key)} muss mindestens {minimum} sein.")
+        raise ValueError(f"{LABELS.get(key, key)} must be at least {minimum}.")
 
 
 def _validate_batch(method, fields):
     if method == "vi":
         if fields["algorithm"] not in ("meanfield", "fullrank"):
-            raise ValueError("VI algorithm muss meanfield oder fullrank sein.")
+            raise ValueError("VI algorithm must be meanfield or fullrank.")
         for key in ("iter", "grad_samples", "elbo_samples", "eval_elbo"):
             _minimum(fields, key, 1)
         _minimum(fields, "draws", 2)
         _minimum(fields, "adapt_iter", 0)
         for key in ("eta", "tol_rel_obj"):
             if fields[key] <= 0:
-                raise ValueError(f"{key} muss größer als 0 sein.")
+                raise ValueError(f"{key} must be greater than 0.")
     elif method == "mcmc":
         for key in ("chains", "parallel_chains", "iter_sampling", "max_treedepth"):
             _minimum(fields, key, 1)
         _minimum(fields, "iter_warmup", 0)
         if fields["chains"] * fields["iter_sampling"] < 2:
-            raise ValueError("Mindestens zwei MCMC-Draws sind erforderlich.")
+            raise ValueError("At least two MCMC draws are required.")
         if not 0 < fields["adapt_delta"] < 1:
-            raise ValueError("adapt_delta muss zwischen 0 und 1 liegen.")
+            raise ValueError("adapt_delta must be between 0 and 1.")
         if fields["parallel_chains"] > fields["chains"]:
-            raise ValueError("parallel_chains darf chains nicht überschreiten.")
+            raise ValueError("parallel_chains must not exceed chains.")
 
 
 def _validate_data_options(fields):
@@ -230,9 +230,9 @@ def _validate_data_options(fields):
         try:
             maximum = int(maximum)
         except ValueError as error:
-            raise ValueError("Max. Beobachtungen muss eine ganze Zahl sein.") from error
+            raise ValueError("Maximum observations must be an integer.") from error
         if maximum < 3:
-            raise ValueError("Max. Beobachtungen muss mindestens 3 sein.")
+            raise ValueError("Maximum observations must be at least 3.")
     for key in ("prediction_count", "prediction_sample_count"):
         if key in fields:
             _minimum(fields, key, 0)
@@ -281,15 +281,15 @@ def parse_settings(values) -> ExplorerSettings:
     data["inference_method"] = normalize_inference_method(data["inference_method"])
     data_file = Path(data.pop("data_file"))
     if not data_file.is_file():
-        raise ValueError("Bitte eine vorhandene CSV-Datei auswählen.")
+        raise ValueError("Select an existing CSV file.")
     method = data["inference_method"]
     if method not in METHODS:
-        raise ValueError("Inferenzmethode muss rbpf, smc, vi oder mcmc sein.")
+        raise ValueError("Inference method must be rbpf, smc, vi, or mcmc.")
     maximum = data["maximum_observation_count"]
     try:
         data["maximum_observation_count"] = int(maximum) if maximum else None
     except ValueError as error:
-        raise ValueError("Max. Beobachtungen muss eine ganze Zahl sein.") from error
+        raise ValueError("Maximum observations must be an integer.") from error
     if maximum:
         _minimum(data, "maximum_observation_count", 3)
     for key in ("run_id", "start_index"):

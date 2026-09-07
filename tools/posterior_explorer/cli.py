@@ -11,7 +11,7 @@ def main(argv=None):
         import tkinter as tk
     except ImportError as error:
         parser.exit(
-            2, f"Tkinter ist in dieser Python-Installation nicht verfügbar: {error}\n"
+            2, f"Tkinter is not available in this Python installation: {error}\n"
         )
 
     from .gui import PosteriorExplorer

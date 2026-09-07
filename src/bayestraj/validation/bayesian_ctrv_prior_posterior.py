@@ -245,11 +245,11 @@ class PriorPosteriorNavigator:
             color=PRIOR_COLOR,
             linestyle="--",
             linewidth=2.0,
-            label="Ausgangs-Prior",
+            label="Initial prior",
         )
 
         if self._stage_index == 0:
-            status = "N = 0 – Ausgangs-Prior ohne Beobachtungen"
+            status = "N = 0 — Initial prior without observations"
         else:
             update = self._updates_by_count[self.observation_count]
             posterior_density = evaluate_posterior_density(
@@ -262,7 +262,7 @@ class PriorPosteriorNavigator:
                 posterior_density,
                 color=POSTERIOR_COLOR,
                 linewidth=2.2,
-                label="Posterior-Dichte",
+                label="Posterior density",
             )
             self.axis.fill_between(
                 self.x_values,
@@ -273,12 +273,12 @@ class PriorPosteriorNavigator:
             status = f"N = {update.observation_count}"
 
         self.axis.set_title(
-            f"Prior-Posterior-Aktualisierung: {self.spec.title}\n{status}",
+            f"Prior-to-posterior update: {self.spec.title}\n{status}",
             fontsize=15,
             pad=TITLE_PAD_POINTS,
         )
         self.axis.set_xlabel(self.spec.x_label, fontsize=13)
-        self.axis.set_ylabel("Dichte", fontsize=13)
+        self.axis.set_ylabel("Density", fontsize=13)
         self.axis.set_xlim(float(self.x_values[0]), float(self.x_values[-1]))
         if self.spec.support == "circular":
             self.axis.set_xticks([-270.0, -180.0, -90.0, 0.0, 90.0, 180.0, 270.0])
@@ -295,7 +295,7 @@ _PARAMETER_METADATA = {
         "speed_at_origin",
         None,
         "m/s",
-        "Aktuelle Geschwindigkeit",
+        "Current speed",
         r"$v_N$ [m/s]",
         "positive",
     ),
@@ -303,7 +303,7 @@ _PARAMETER_METADATA = {
         "heading_at_origin",
         None,
         "°",
-        "Aktueller Kurswinkel",
+        "Current heading",
         r"$\theta_N$ [$^\circ$]",
         "circular",
     ),
@@ -311,7 +311,7 @@ _PARAMETER_METADATA = {
         "turn_rate_at_origin",
         None,
         "°/s",
-        "Aktuelle Drehrate",
+        "Current turn rate",
         r"$\omega_N$ [$^\circ$/s]",
         "real",
     ),
@@ -319,7 +319,7 @@ _PARAMETER_METADATA = {
         "sigma_position_observation",
         None,
         "m",
-        "Positionsmessrauschen",
+        "Position observation noise",
         r"$\sigma_{\mathrm{obs}}$ [m]",
         "positive",
     ),
@@ -327,7 +327,7 @@ _PARAMETER_METADATA = {
         "sigma_speed_process",
         None,
         "m/s",
-        "Geschwindigkeits-Prozessrauschen",
+        "Speed process noise",
         r"$\sigma_v$ [m/s]",
         "positive",
     ),
@@ -335,7 +335,7 @@ _PARAMETER_METADATA = {
         "sigma_turn_rate_process",
         None,
         "°/s",
-        "Drehraten-Prozessrauschen",
+        "Turn-rate process noise",
         r"$\sigma_\omega$ [$^\circ$/s]",
         "positive",
     ),
@@ -656,26 +656,23 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         rbpf_seed=rbpf_seed,
     )
     print("=" * 72)
-    print("Bayessche CTRV Prior-Posterior-Aktualisierung")
+    print("Bayesian CTRV prior-to-posterior update")
     print("=" * 72)
     print(f"Parameter             : {spec.title}")
     print(f"Run ID                : {run_id}")
-    print(f"Startindex            : {start_index}")
-    print("Inferenzmethode       : RBPF")
+    print(f"Start index           : {start_index}")
+    print("Inference method      : RBPF")
     print(
-        "Beobachtungsstaende  : Prior, "
-        f"N=1 bis N={maximum_observation_count} (Schrittweite 1)"
+        "Observation stages    : Prior, "
+        f"N=1 to N={maximum_observation_count} (step size 1)"
     )
+    print("Interpretation        : Each step updates the same sequential filter.")
     print(
-        "Interpretation        : Jeder Schritt aktualisiert denselben "
-        "sequentiellen Filter."
+        "Computation            : Slider target; missing stages "
+        "are processed sequentially."
     )
-    print(
-        "Berechnung            : Zielwert am Schieberegler; fehlende Punkte "
-        "werden sequenziell verarbeitet."
-    )
-    print(f"Partikel              : {rbpf_config.particle_count}")
-    print(f"Posteriorziehungen    : {rbpf_config.posterior_draw_count}")
+    print(f"Particles             : {rbpf_config.particle_count}")
+    print(f"Posterior draws       : {rbpf_config.posterior_draw_count}")
     print(f"Prior                 : {_describe_prior(spec, priors)}")
 
     def load_and_report_update(observation_count):
@@ -686,12 +683,12 @@ def run_bayesian_ctrv_prior_posterior_analysis(
             credible_interval=credible_interval,
         )
         percentage = 100.0 * credible_interval
-        center_label = "Kreismittel" if spec.support == "circular" else "Median"
+        center_label = "Circular mean" if spec.support == "circular" else "Median"
         display_unit = _terminal_display_unit(spec)
-        print(f"\nPosterior nach N={update.observation_count}:")
+        print(f"\nPosterior after N={update.observation_count}:")
         print(f"  {center_label}: {summary.center:.3f} {display_unit}")
         print(
-            f"  {percentage:g} %-Intervall: "
+            f"  {percentage:g}% interval: "
             f"[{summary.lower:.3f}, {summary.upper:.3f}] {display_unit}"
         )
         if (
@@ -789,10 +786,10 @@ def _validate_credible_interval(credible_interval):
 
 def _describe_prior(spec, priors):
     descriptions = {
-        "current_speed": (f"Halbnormal(Skala={priors.speed_prior_scale:.4g} m/s)"),
-        "current_heading": "Gleichverteilung(-180 Grad, 180 Grad)",
+        "current_speed": (f"Half-normal(scale={priors.speed_prior_scale:.4g} m/s)"),
+        "current_heading": "Uniform(-180 deg, 180 deg)",
         "current_turn_rate": (
-            f"Normal(0, {np.rad2deg(priors.turn_rate_prior_scale):.4g} Grad/s)"
+            f"Normal(0, {np.rad2deg(priors.turn_rate_prior_scale):.4g} deg/s)"
         ),
         "position_observation_noise": (
             f"Exponential(Rate={priors.sigma_position_observation_prior_rate:.4g} 1/m)"
@@ -809,8 +806,8 @@ def _describe_prior(spec, priors):
 
 def _terminal_display_unit(spec):
     return {
-        "°": "Grad",
-        "°/s": "Grad/s",
+        "°": "deg",
+        "°/s": "deg/s",
     }.get(spec.display_unit, spec.display_unit)
 
 

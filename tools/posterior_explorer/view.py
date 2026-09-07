@@ -70,18 +70,18 @@ def create_menu_bar(gui):
     """Expose application actions through the same four menus as the simulator."""
     menu_bar = tk.Menu(gui.root)
     file_menu = tk.Menu(menu_bar, tearoff=0)
-    file_menu.add_command(label="CSV öffnen…", command=gui.open_csv)
+    file_menu.add_command(label="Open CSV…", command=gui.open_csv)
     file_menu.add_separator()
-    file_menu.add_command(label="Schließen", command=gui.close)
+    file_menu.add_command(label="Close", command=gui.close)
     menu_bar.add_cascade(label="File", menu=file_menu)
 
     view_menu = tk.Menu(menu_bar, tearoff=0)
     view_menu.add_checkbutton(
-        label="Einstellungen anzeigen",
+        label="Show settings",
         variable=gui.settings_visible_var,
         command=gui.toggle_settings,
     )
-    view_menu.add_command(label="Plot-Anzeige…", command=gui.show_plot_display)
+    view_menu.add_command(label="Plot display…", command=gui.show_plot_display)
     menu_bar.add_cascade(label="View", menu=view_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=0)
@@ -89,14 +89,14 @@ def create_menu_bar(gui):
         label="Priors…", command=lambda: gui.show_settings_dialog("priors")
     )
     settings_menu.add_command(
-        label="Inferenzparameter…", command=gui.show_inference_settings
+        label="Inference parameters…", command=gui.show_inference_settings
     )
     settings_menu.add_command(
-        label="Daten und Darstellung…", command=lambda: gui.show_settings_dialog("data")
+        label="Data and display…", command=lambda: gui.show_settings_dialog("data")
     )
     menu_bar.add_cascade(label="Settings", menu=settings_menu)
 
     help_menu = tk.Menu(menu_bar, tearoff=0)
-    help_menu.add_command(label="Bedienung und Tastenkürzel", command=gui.show_help)
+    help_menu.add_command(label="Show help", command=gui.show_help)
     menu_bar.add_cascade(label="Help", menu=help_menu)
     gui.root.configure(menu=menu_bar)

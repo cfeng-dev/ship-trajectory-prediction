@@ -179,19 +179,19 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         reference_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Aufgezeichnete Trajektorie"
+            if line.get_label() == "Recorded trajectory"
         )
         median_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Vorhersage (Median)"
+            if line.get_label() == "Forecast (median)"
         )
         assert reference_line.get_xdata() == pytest.approx([0, 1, 2, 3])
         assert reference_line.get_ydata() == pytest.approx([0, 1, 2, 3])
         assert median_line.get_xdata() == pytest.approx([0, 1.5, 2])
         assert median_line.get_ydata() == pytest.approx([0, 0.5, 1])
-        assert navigator.trajectory_axis.get_xlabel() == "Ostposition x [km]"
-        assert navigator.trajectory_axis.get_ylabel() == "Nordposition y [km]"
+        assert navigator.trajectory_axis.get_xlabel() == "Easting x [km]"
+        assert navigator.trajectory_axis.get_ylabel() == "Northing y [km]"
         assert loads == [1]
     finally:
         navigator.disconnect()
@@ -232,7 +232,7 @@ def test_dashboard_switches_to_gps_without_reloading_the_posterior():
         reference_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Aufgezeichnete Trajektorie"
+            if line.get_label() == "Recorded trajectory"
         )
         expected_longitude, expected_latitude = coordinates.local_to_gps_coordinates(
             trajectory.reference_x,
@@ -242,8 +242,8 @@ def test_dashboard_switches_to_gps_without_reloading_the_posterior():
         )
         np.testing.assert_allclose(reference_line.get_xdata(), expected_longitude)
         np.testing.assert_allclose(reference_line.get_ydata(), expected_latitude)
-        assert navigator.trajectory_axis.get_xlabel() == "Längengrad [°]"
-        assert navigator.trajectory_axis.get_ylabel() == "Breitengrad [°]"
+        assert navigator.trajectory_axis.get_xlabel() == "Longitude [°]"
+        assert navigator.trajectory_axis.get_ylabel() == "Latitude [°]"
         assert navigator.trajectory_axis.get_aspect() == pytest.approx(
             1 / np.cos(np.radians(47.0))
         )
@@ -329,8 +329,8 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     assert not navigator.group_selector._buttons.get_visible()
     assert not any(label.get_visible() for label in navigator.group_selector.labels)
     assert all(axis.get_visible() for axis in (*motion_axes, *noise_axes))
-    assert motion_axes[0].get_title() == "Aktuelle Geschwindigkeit"
-    assert noise_axes[0].get_title() == "Positionsmessrauschen"
+    assert motion_axes[0].get_title() == "Current speed"
+    assert noise_axes[0].get_title() == "Position observation noise"
     assert motion_axes[0].get_position().x1 < noise_axes[0].get_position().x0
     assert navigator.trajectory_axis.get_position().width == pytest.approx(
         compact_trajectory_position.width
@@ -1002,7 +1002,7 @@ def test_dashboard_display_options_redraw_without_loading_an_update():
         assert calls == loaded_calls
         assert not navigator.trajectory_axis.get_legend()
         assert not any(
-            line.get_label() == "Aufgezeichnete Trajektorie"
+            line.get_label() == "Recorded trajectory"
             for line in navigator.trajectory_axis.lines
         )
     finally:
@@ -1348,10 +1348,10 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
             "current_turn_rate",
         )
         assert [line.get_label() for line in navigator.trajectory_axis.lines] == [
-            "Aufgezeichnete Trajektorie"
+            "Recorded trajectory"
         ]
         assert all(
-            [line.get_label() for line in axis.lines] == ["Ausgangs-Prior"]
+            [line.get_label() for line in axis.lines] == ["Initial prior"]
             for axis in navigator.posterior_axes
         )
 
@@ -1361,16 +1361,16 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         assert navigator.observation_count == 3
         assert loaded_counts == [1, 2, 3]
         assert [line.get_label() for line in navigator.trajectory_axis.lines] == [
-            "Aufgezeichnete Trajektorie",
-            "Beobachtungen bis N",
-            "Aktuelle Position",
+            "Recorded trajectory",
+            "Observations through N",
+            "Current position",
         ]
         observed_line = navigator.trajectory_axis.lines[1]
         assert observed_line.get_xdata() == pytest.approx([0.1, 1.1, 2.1])
         assert observed_line.get_ydata() == pytest.approx([-0.1, 0.9, 1.4])
         assert all(
             [line.get_label() for line in axis.lines]
-            == ["Ausgangs-Prior", "Posterior-Dichte"]
+            == ["Initial prior", "Posterior density"]
             for axis in navigator.posterior_axes
         )
 
@@ -1385,7 +1385,7 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         assert loaded_counts == [1, 2, 3]
         assert all(
             [line.get_label() for line in axis.lines]
-            == ["Ausgangs-Prior", "Posterior-Dichte"]
+            == ["Initial prior", "Posterior density"]
             for axis in navigator.posterior_axes
         )
     finally:
@@ -1424,11 +1424,11 @@ def test_dashboard_shows_batch_prior_until_minimum_observation_count():
         assert navigator.observation_count == 2
         assert loaded_counts == []
         assert all(
-            [line.get_label() for line in axis.lines] == ["Ausgangs-Prior"]
+            [line.get_label() for line in axis.lines] == ["Initial prior"]
             for axis in navigator.posterior_axes
         )
         assert all(
-            "Posterior ab N = 3 verfügbar" in {text.get_text() for text in axis.texts}
+            "Posterior available from N = 3" in {text.get_text() for text in axis.texts}
             for axis in navigator.posterior_axes
         )
 
@@ -1438,7 +1438,7 @@ def test_dashboard_shows_batch_prior_until_minimum_observation_count():
         assert loaded_counts == [3]
         assert all(
             [line.get_label() for line in axis.lines]
-            == ["Ausgangs-Prior", "Posterior-Dichte"]
+            == ["Initial prior", "Posterior density"]
             for axis in navigator.posterior_axes
         )
     finally:

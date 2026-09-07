@@ -303,7 +303,7 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
         label = next(
             child
             for child in descendants(body)
-            if child.winfo_class() == "Label" and child.cget("text") == "Run-ID"
+            if child.winfo_class() == "Label" and child.cget("text") == "Run ID"
         )
         field = next(
             child
@@ -329,7 +329,7 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
             for section in dialog._form.body.winfo_children()
             if section.winfo_class() == "Labelframe"
         }
-        assert section_labels == {"Daten und Wiedergabe"}
+        assert section_labels == {"Data and playback"}
     finally:
         dialog.cancel()
 
@@ -346,14 +346,14 @@ def test_plot_dialog_contains_display_options(root):
             if child.winfo_class() == "Checkbutton"
         }
         assert labels == {
-            "Legende anzeigen",
-            "Aufgezeichnete Trajektorie anzeigen",
-            "Beobachtungen bis N anzeigen",
-            "Aktuelle Position anzeigen",
-            "Mögliche Zukunftstrajektorien anzeigen",
-            "Vorhersage (Median) anzeigen",
-            "Posterior-Bereich 50 % anzeigen",
-            "Posterior-Bereich 90 % anzeigen",
+            "Show legend",
+            "Show recorded trajectory",
+            "Show observations through N",
+            "Show current position",
+            "Show possible future trajectories",
+            "Show forecast (median)",
+            "Show 50% posterior-predictive region",
+            "Show 90% posterior-predictive region",
         }
     finally:
         dialog.cancel()
@@ -503,18 +503,55 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     ]
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
-        "Einstellungen anzeigen",
-        "Plot-Anzeige…",
+        "Show settings",
+        "Plot display…",
     ]
-    view_menu.entry("Plot-Anzeige…")["command"]()
+    view_menu.entry("Plot display…")["command"]()
     assert plot_windows == [True]
-    menu.entry("View")["menu"].entry("Einstellungen anzeigen")["command"]()
+    menu.entry("View")["menu"].entry("Show settings")["command"]()
     assert not app.settings_visible
     assert app.settings_visible_var.get() is False
-    menu.entry("Settings")["menu"].entry("Inferenzparameter…")["command"]()
+    menu.entry("Settings")["menu"].entry("Inference parameters…")["command"]()
     assert dialogs[0].group == "smc"
-    menu.entry("File")["menu"].entry("Schließen")["command"]()
+    menu.entry("File")["menu"].entry("Close")["command"]()
     assert app._closing
     assert not dialogs[0].exists
     assert closed == [True]
     assert button_options["state"] == "disabled"
+
+
+def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
+    """Help uses one non-modal child window instead of a message box."""
+    opened = []
+
+    class HelpWindow:
+        def __init__(self, _root, *, on_close):
+            self.on_close = on_close
+            self.exists = True
+            self.lifted = False
+            self.focused = False
+            opened.append(self)
+
+        def winfo_exists(self):
+            return self.exists
+
+        def lift(self):
+            self.lifted = True
+
+        def focus_set(self):
+            self.focused = True
+
+    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app.root = object()
+    app._closing = False
+    app._help_window = None
+    monkeypatch.setattr("posterior_explorer.gui.PosteriorHelpWindow", HelpWindow)
+
+    app.show_help()
+    app.show_help()
+
+    assert len(opened) == 1
+    assert opened[0].lifted
+    assert opened[0].focused
+    opened[0].on_close()
+    assert app._help_window is None

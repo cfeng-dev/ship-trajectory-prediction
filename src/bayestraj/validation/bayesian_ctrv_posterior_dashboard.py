@@ -37,8 +37,8 @@ PARAMETER_GROUPS = {
     ),
 }
 PARAMETER_GROUP_LABELS = {
-    "motion": "Bewegungszustand",
-    "noise": "Unsicherheiten",
+    "motion": "Motion state",
+    "noise": "Uncertainties",
 }
 FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
@@ -434,7 +434,7 @@ class PosteriorDashboardNavigator:
             valfmt="%0.0f",
         )
         selector_axis = figure.add_axes((0.77, 0.035, 0.2, 0.1))
-        selector_axis.set_title("Posterior-Gruppe", fontsize=10)
+        selector_axis.set_title("Posterior group", fontsize=10)
         self.group_selector = RadioButtons(
             selector_axis,
             tuple(PARAMETER_GROUP_LABELS.values()),
@@ -444,7 +444,7 @@ class PosteriorDashboardNavigator:
         follow_axis.set_frame_on(False)
         self.follow_checkbox = CheckButtons(
             follow_axis,
-            ("Schiff folgen",),
+            ("Follow ship",),
             (False,),
             useblit=False,
             label_props={"fontsize": [10]},
@@ -691,7 +691,7 @@ class PosteriorDashboardNavigator:
         if self.is_playing:
             label = "Pause"
         elif self.observation_count == self.maximum_observation_count:
-            label = "Neu starten"
+            label = "Restart"
         else:
             label = "Start"
         self.playback_button.label.set_text(label)
@@ -730,7 +730,7 @@ class PosteriorDashboardNavigator:
             ):
                 self._draw_posterior(axis, parameter_name)
         self.figure.suptitle(
-            f"Bayessche CTRV Posterior-Aktualisierung — N = {self.observation_count}",
+            f"Bayesian CTRV posterior update — N = {self.observation_count}",
             fontsize=15,
             fontweight="bold",
         )
@@ -759,7 +759,7 @@ class PosteriorDashboardNavigator:
                 reference_y,
                 color="#9CA3AF",
                 linewidth=1.5,
-                label="Aufgezeichnete Trajektorie",
+                label="Recorded trajectory",
                 zorder=1,
             )
         if self.observation_count > 0:
@@ -770,7 +770,7 @@ class PosteriorDashboardNavigator:
                     observed_y[observed_slice],
                     color="#24557A",
                     linewidth=2.2,
-                    label="Beobachtungen bis N",
+                    label="Observations through N",
                     zorder=2,
                 )
             current_index = self.observation_count - 1
@@ -782,7 +782,7 @@ class PosteriorDashboardNavigator:
                     markersize=7,
                     linestyle="none",
                     color="#D97706",
-                    label="Aktuelle Position",
+                    label="Current position",
                     zorder=3,
                 )
         forecast_legend_handles = self._draw_forecast(axis)
@@ -873,7 +873,7 @@ class PosteriorDashboardNavigator:
         """Draw the selected forecast and its posterior-predictive regions."""
         update = self._updates_by_count.get(self.observation_count)
         forecast = None if update is None else update.forecast
-        title = "Schiffsbewegung"
+        title = "Ship movement"
         legend_handles = []
         if forecast is not None:
             origin_x, origin_y = self._display_coordinates(
@@ -932,7 +932,7 @@ class PosteriorDashboardNavigator:
                     alpha=0.14,
                     linewidth=0.9,
                     zorder=2,
-                    label="Mögliche Zukunftstrajektorien"
+                    label="Possible future trajectories"
                     if index == 0
                     else "_nolegend_",
                 )
@@ -949,14 +949,14 @@ class PosteriorDashboardNavigator:
                     marker=".",
                     markersize=4,
                     zorder=4,
-                    label="Vorhersage (Median)",
+                    label="Forecast (median)",
                 )
-            title += f" · Prognose +{forecast.time_offsets_seconds[-1]:g} s"
+            title += f" · Forecast +{forecast.time_offsets_seconds[-1]:g} s"
         elif self.prediction_count:
             message = (
-                "Ende der Aufzeichnung: keine weiteren Prognosezeitpunkte."
+                "End of recorded trajectory: no further forecast times."
                 if self.observation_count == self.trajectory.reference_x.size
-                else f"Vorhersage ab N = {self.minimum_posterior_observation_count}"
+                else f"Forecast from N = {self.minimum_posterior_observation_count}"
             )
             axis.text(
                 0.02,
@@ -1048,12 +1048,12 @@ class PosteriorDashboardNavigator:
     def _coordinate_display_spec(self):
         """Return readable labels and spatial scaling for the active display mode."""
         if self.coordinate_display_mode == "m":
-            return "Ostposition x [m]", "Nordposition y [m]", 1.0
+            return "Easting x [m]", "Northing y [m]", 1.0
         if self.coordinate_display_mode == "km":
-            return "Ostposition x [km]", "Nordposition y [km]", 1.0
+            return "Easting x [km]", "Northing y [km]", 1.0
         return (
-            "Längengrad [°]",
-            "Breitengrad [°]",
+            "Longitude [°]",
+            "Latitude [°]",
             float(1.0 / np.cos(np.radians(self.trajectory.reference_latitude))),
         )
 
@@ -1078,7 +1078,7 @@ class PosteriorDashboardNavigator:
             color=prior_posterior.PRIOR_COLOR,
             linestyle="--",
             linewidth=1.6,
-            label="Ausgangs-Prior",
+            label="Initial prior",
         )
         if self.observation_count >= self.minimum_posterior_observation_count:
             samples = self._updates_by_count[
@@ -1094,7 +1094,7 @@ class PosteriorDashboardNavigator:
                 posterior_density,
                 color=prior_posterior.POSTERIOR_COLOR,
                 linewidth=1.9,
-                label="Posterior-Dichte",
+                label="Posterior density",
             )
             axis.fill_between(
                 x_values,
@@ -1107,8 +1107,8 @@ class PosteriorDashboardNavigator:
                 0.5,
                 0.88,
                 (
-                    "Posterior ab N = "
-                    f"{self.minimum_posterior_observation_count} verfügbar"
+                    "Posterior available from N = "
+                    f"{self.minimum_posterior_observation_count}"
                 ),
                 transform=axis.transAxes,
                 ha="center",
@@ -1118,7 +1118,7 @@ class PosteriorDashboardNavigator:
             )
         axis.set_title(spec.title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
-        axis.set_ylabel("Dichte", fontsize=10)
+        axis.set_ylabel("Density", fontsize=10)
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))
         if spec.support == "circular":
             axis.set_xticks([-180.0, -90.0, 0.0, 90.0, 180.0])
@@ -1357,7 +1357,7 @@ def create_posterior_dashboard_loader(
             maximum=maximum_observation_count,
         )
         print(
-            f"Berechne {inference_method.upper()} Posterior mit "
+            f"Computing {inference_method.upper()} posterior with "
             f"N = {observation_count} ..."
         )
         window = observation_window.prepare_trajectory_window(
@@ -1599,35 +1599,31 @@ def run_bayesian_ctrv_posterior_dashboard(
         smc_config=smc_config,
     )
     print("=" * 72)
-    print("Bayessche CTRV Posterior-Aktualisierung mit Schiffsbewegung")
+    print("Bayesian CTRV posterior update with ship movement")
     print("=" * 72)
     print(f"Run ID                : {experiment.run_id}")
-    print(f"Startindex            : {experiment.start_index}")
-    print(f"Inferenzmethode       : {experiment.inference_method.upper()}")
+    print(f"Start index           : {experiment.start_index}")
+    print(f"Inference method      : {experiment.inference_method.upper()}")
     print(
-        "Beobachtungsstaende  : Prior, "
-        f"N=1 bis N={maximum_observation_count} (Schrittweite 1)"
+        "Observation stages    : Prior, "
+        f"N=1 to N={maximum_observation_count} (step size 1)"
     )
     if minimum_posterior_observation_count > 1:
-        print(f"Erster Posterior       : N={minimum_posterior_observation_count}")
-        print("Batch-Fenster          : expandierend ab dem Startindex")
-    print("Posterior-Gruppen     : Bewegungszustand, Unsicherheiten")
+        print(f"First posterior       : N={minimum_posterior_observation_count}")
+        print("Batch window          : expanding from the start index")
+    print("Posterior groups      : Motion state, uncertainties")
+    print(f"Forecast steps        : {experiment.prediction_count} (to recorded end)")
     print(
-        f"Vorhersageschritte    : {experiment.prediction_count} (bis Aufzeichnungsende)"
-    )
-    print(
-        "Koordinatenanzeige    : "
+        "Coordinate display    : "
         f"{normalize_coordinate_display_mode(coordinate_display_mode)}"
     )
-    print(
-        "Navigation            : Start/Pause, Leertaste, Schieberegler oder Pfeiltasten"
-    )
+    print("Navigation            : Start/Pause, Space, slider, or arrow keys")
     if experiment.inference_method in inference.CTRV_ONLINE_INFERENCE_METHODS:
         particle_filter_config = (
             rbpf_config if experiment.inference_method == "rbpf" else smc_config
         )
-        print(f"Partikel              : {particle_filter_config.particle_count}")
-        print(f"Posteriorziehungen    : {particle_filter_config.posterior_draw_count}")
+        print(f"Particles             : {particle_filter_config.particle_count}")
+        print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
 
     figure, navigator = create_sequential_posterior_dashboard_figure(
         trajectory,

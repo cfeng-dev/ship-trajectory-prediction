@@ -198,7 +198,7 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert len(plt.get_fignums()) == 1
         assert navigator.observation_count == 0
         assert "N = 0" in navigator.axis.get_title()
-        assert [line.get_label() for line in navigator.axis.lines] == ["Ausgangs-Prior"]
+        assert [line.get_label() for line in navigator.axis.lines] == ["Initial prior"]
         assert navigator.slider.val == pytest.approx(0.0)
         assert navigator.slider.valstep == pytest.approx([0.0, 3.0, 5.0, 10.0, 20.0])
         assert not hasattr(navigator, "previous_button")
@@ -210,8 +210,8 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert navigator.observation_count == 3
         assert "N = 3" in navigator.axis.get_title()
         assert [line.get_label() for line in navigator.axis.lines] == [
-            "Ausgangs-Prior",
-            "Posterior-Dichte",
+            "Initial prior",
+            "Posterior density",
         ]
 
         navigator.slider.set_val(20)
@@ -594,12 +594,12 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     assert loaded_counts == [1]
     assert shown == [True]
     assert closed == [figure]
-    assert "Inferenzmethode       : RBPF" in report
-    assert "Beobachtungsstaende" in report
-    assert "N=1 bis N=5" in report
-    assert "Schieberegler" in report
+    assert "Inference method      : RBPF" in report
+    assert "Observation stages" in report
+    assert "N=1 to N=5" in report
+    assert "Slider" in report
     assert "Weiter-Klick" not in report
-    assert "Posterior nach N=1" in report
+    assert "Posterior after N=1" in report
     assert "ESS" in report
     assert "Resamplings" in report
-    assert "90 %-Intervall" in report
+    assert "90% interval" in report
