@@ -7,7 +7,7 @@ from bayestraj.validation.posterior_session import PosteriorAnalysisWorker
 
 from . import view
 from .controls import SettingsPanel
-from .dialogs import SettingsDialog
+from .dialogs import PlotDisplayWindow, SettingsDialog
 from .plot_view import PosteriorPlotView
 from .settings import (
     DISPLAY_OPTION_FIELDS,
@@ -28,6 +28,7 @@ class PosteriorExplorer:
         self._error = None
         self._computing = None
         self._settings_dialog = None
+        self._plot_display_window = None
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
         self.controls = SettingsPanel(root, self.start_analysis, self.reset_analysis)
@@ -162,6 +163,26 @@ class PosteriorExplorer:
             return
         self._settings_dialog = SettingsDialog(self.root, self.controls, group)
 
+    def show_plot_display(self):
+        """Open or raise the non-modal live plot-display panel."""
+        if self._closing:
+            return
+        if (
+            self._plot_display_window is not None
+            and self._plot_display_window.winfo_exists()
+        ):
+            self._plot_display_window.lift()
+            self._plot_display_window.focus_set()
+            return
+        self._plot_display_window = PlotDisplayWindow(
+            self.root,
+            self.controls,
+            on_close=self._plot_display_closed,
+        )
+
+    def _plot_display_closed(self):
+        self._plot_display_window = None
+
     def show_help(self):
         """Keep keyboard instructions available without occupying the plot header."""
         messagebox.showinfo(
@@ -276,6 +297,9 @@ class PosteriorExplorer:
         self.controls.reset_button.configure(state="disabled")
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.cancel()
+        plot_display_window = getattr(self, "_plot_display_window", None)
+        if plot_display_window is not None and plot_display_window.winfo_exists():
+            plot_display_window.close()
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None

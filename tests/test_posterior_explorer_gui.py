@@ -373,6 +373,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
 
     root_options, button_options, closed = {}, {}, []
     dialogs = []
+    plot_windows = []
 
     class Dialog:
         def __init__(self, _root, _panel, group):
@@ -417,6 +418,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.status = _Value("")
     app._closing = False
     app._settings_dialog = None
+    app.show_plot_display = lambda: plot_windows.append(True)
     app.plot_view = None
     monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
     monkeypatch.setattr("posterior_explorer.gui.SettingsDialog", Dialog)
@@ -430,16 +432,9 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         "Help",
     ]
     plot_menu = menu.entry("Plot")["menu"]
-    assert [entry["label"] for entry in plot_menu.entries] == [
-        "Legende",
-        "Aufgezeichnete Trajektorie",
-        "Beobachtungen bis N",
-        "Aktuelle Position",
-        "Zukunftstrajektorien",
-        "Vorhersage (Median)",
-        "Posterior-Bereich 50 %",
-        "Posterior-Bereich 90 %",
-    ]
+    assert [entry["label"] for entry in plot_menu.entries] == ["Plot-Anzeige…"]
+    plot_menu.entry("Plot-Anzeige…")["command"]()
+    assert plot_windows == [True]
     menu.entry("View")["menu"].entry("Einstellungen anzeigen")["command"]()
     assert not app.settings_visible
     assert app.settings_visible_var.get() is False

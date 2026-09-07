@@ -11,16 +11,6 @@ FONT = ("Arial", 10)
 MAIN_WINDOW_WIDTH = 1400
 MAIN_WINDOW_HEIGHT = 700
 MAIN_WINDOW_VERTICAL_OFFSET = 40
-PLOT_DISPLAY_MENU_ITEMS = (
-    ("Legende", "show_legend"),
-    ("Aufgezeichnete Trajektorie", "show_reference_trajectory"),
-    ("Beobachtungen bis N", "show_observed_trajectory"),
-    ("Aktuelle Position", "show_current_position"),
-    ("Zukunftstrajektorien", "show_sample_trajectories"),
-    ("Vorhersage (Median)", "show_median_forecast"),
-    ("Posterior-Bereich 50 %", "show_prediction_region_50"),
-    ("Posterior-Bereich 90 %", "show_prediction_region_90"),
-)
 
 
 def create_styled_button(parent, *, text, command, width=18):
@@ -95,11 +85,7 @@ def create_menu_bar(gui):
     menu_bar.add_cascade(label="View", menu=view_menu)
 
     plot_menu = tk.Menu(menu_bar, tearoff=0)
-    for label, key in PLOT_DISPLAY_MENU_ITEMS:
-        plot_menu.add_checkbutton(
-            label=label,
-            variable=gui.controls.variables["data"][key],
-        )
+    plot_menu.add_command(label="Plot-Anzeige…", command=gui.show_plot_display)
     menu_bar.add_cascade(label="Plot", menu=plot_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=0)

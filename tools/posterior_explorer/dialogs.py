@@ -4,18 +4,86 @@ import tkinter as tk
 from tkinter import messagebox
 
 from .controls import ScrollableForm, create_variables, populate_fields
-from .settings import DATA_OPTION_FIELDS, DISPLAY_OPTION_FIELDS, validate_dialog_values
+from .settings import (
+    DATA_OPTION_FIELDS,
+    DISPLAY_OPTION_FIELDS,
+    LABELS,
+    validate_dialog_values,
+)
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 DIALOG_MINIMUM_HEIGHT = 320
 DIALOG_SCREEN_MARGIN = 120
 DIALOG_CONTENT_PADDING = 16
+PLOT_DISPLAY_WINDOW_WIDTH = 430
+PLOT_DISPLAY_WINDOW_HEIGHT = 360
 
 
 def dialog_height_for_content(content_height, screen_height):
     """Fit a short editor to its content within the available screen height."""
     available_height = max(DIALOG_MINIMUM_HEIGHT, screen_height - DIALOG_SCREEN_MARGIN)
     return min(max(DIALOG_MINIMUM_HEIGHT, content_height), available_height)
+
+
+class PlotDisplayWindow(tk.Toplevel):
+    """Non-modal live controls for the frequently changed plot layers."""
+
+    def __init__(self, parent, panel, *, on_close=None):
+        super().__init__(parent)
+        self.panel = panel
+        self._on_close = on_close
+        self._closed = False
+        self.transient(parent)
+        self.title("Plot-Anzeige")
+        self.configure(bg=CONTROL_BACKGROUND)
+        self.resizable(False, False)
+        tk.Label(
+            self,
+            text="Änderungen werden sofort im Plot übernommen.",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            anchor="w",
+            padx=14,
+            pady=12,
+        ).pack(fill="x")
+        body = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=4)
+        body.pack(fill="both", expand=True)
+        for key in DISPLAY_OPTION_FIELDS:
+            tk.Checkbutton(
+                body,
+                text=LABELS[key],
+                variable=panel.variables["data"][key],
+                bg=CONTROL_BACKGROUND,
+                activebackground=CONTROL_BACKGROUND,
+                font=FONT,
+                fg=TEXT_COLOR,
+                anchor="w",
+            ).pack(fill="x", pady=3)
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.update_idletasks()
+        left = max(
+            0,
+            parent.winfo_rootx()
+            + (parent.winfo_width() - PLOT_DISPLAY_WINDOW_WIDTH) // 2,
+        )
+        top = max(
+            0,
+            parent.winfo_rooty()
+            + (parent.winfo_height() - PLOT_DISPLAY_WINDOW_HEIGHT) // 2,
+        )
+        self.geometry(
+            f"{PLOT_DISPLAY_WINDOW_WIDTH}x{PLOT_DISPLAY_WINDOW_HEIGHT}+{left}+{top}"
+        )
+
+    def close(self):
+        """Close the live display panel without changing any selections."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._on_close is not None:
+            self._on_close()
+        self.destroy()
 
 
 class SettingsDialog(tk.Toplevel):
