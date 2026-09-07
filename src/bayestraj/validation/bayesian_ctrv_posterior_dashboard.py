@@ -504,8 +504,18 @@ class PosteriorDashboardNavigator:
         self._layout.display_mode = mode
         self._layout.active_group = self._parameter_group
         self._layout.execute(self.figure)
+        self._set_group_selector_visible(mode == "compact")
         self._draw()
         self.figure.canvas.draw_idle()
+
+    def _set_group_selector_visible(self, visible) -> None:
+        """Hide every artist of the compact-only posterior-group selector."""
+        self.group_selector.ax.set_visible(visible)
+        self.group_selector._buttons.set_visible(visible)
+        self.group_selector.ax.title.set_visible(visible)
+        self.group_selector.active = visible
+        for label in self.group_selector.labels:
+            label.set_visible(visible)
 
     @property
     def parameter_names(self) -> tuple[str, str, str]:
@@ -710,9 +720,6 @@ class PosteriorDashboardNavigator:
                     self._draw_posterior(
                         axis,
                         parameter_name,
-                        group_label=(
-                            PARAMETER_GROUP_LABELS[group] if index == 0 else None
-                        ),
                         show_legend_axis=(group == "motion" and index == 0),
                     )
         else:
@@ -1055,7 +1062,6 @@ class PosteriorDashboardNavigator:
         axis,
         parameter_name,
         *,
-        group_label=None,
         show_legend_axis=None,
     ) -> None:
         axis.clear()
@@ -1110,8 +1116,7 @@ class PosteriorDashboardNavigator:
                 fontsize=9,
                 color="0.35",
             )
-        title = spec.title if group_label is None else f"{group_label}\n{spec.title}"
-        axis.set_title(title, fontsize=11, pad=6)
+        axis.set_title(spec.title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Dichte", fontsize=10)
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))

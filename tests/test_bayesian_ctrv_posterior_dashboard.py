@@ -326,9 +326,11 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
 
     assert navigator.posterior_display_mode == "expanded"
     assert not navigator.group_selector.ax.get_visible()
+    assert not navigator.group_selector._buttons.get_visible()
+    assert not any(label.get_visible() for label in navigator.group_selector.labels)
     assert all(axis.get_visible() for axis in (*motion_axes, *noise_axes))
-    assert motion_axes[0].get_title().startswith("Bewegungszustand")
-    assert noise_axes[0].get_title().startswith("Unsicherheiten")
+    assert motion_axes[0].get_title() == "Aktuelle Geschwindigkeit"
+    assert noise_axes[0].get_title() == "Positionsmessrauschen"
     assert motion_axes[0].get_position().x1 < noise_axes[0].get_position().x0
     assert navigator.trajectory_axis.get_position().width == pytest.approx(
         compact_trajectory_position.width
@@ -338,6 +340,8 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     figure.canvas.draw()
     assert navigator.posterior_display_mode == "compact"
     assert navigator.group_selector.ax.get_visible()
+    assert navigator.group_selector._buttons.get_visible()
+    assert all(label.get_visible() for label in navigator.group_selector.labels)
     assert not any(axis.get_visible() for axis in noise_axes)
 
 
