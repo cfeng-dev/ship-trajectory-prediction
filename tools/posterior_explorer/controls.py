@@ -3,6 +3,8 @@
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+import numpy as np
+
 from .settings import (
     COORDINATE_DISPLAY_MODES,
     LABELS,
@@ -129,7 +131,63 @@ class SettingsPanel(tk.Frame):
             choose_file=self.choose_file,
             stacked=True,
         )
+        self.posterior_state_section = tk.LabelFrame(
+            body,
+            text="Current posterior state",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        self.posterior_state_section.pack(fill="x", pady=(8, 0))
+        self.posterior_state_values = {
+            key: tk.StringVar(self, value="—")
+            for key in ("position", "heading", "speed", "turn_rate")
+        }
+        for row, (label, key) in enumerate(
+            (
+                ("Position", "position"),
+                ("Heading", "heading"),
+                ("Speed", "speed"),
+                ("Turn rate ω", "turn_rate"),
+            )
+        ):
+            tk.Label(
+                self.posterior_state_section,
+                text=f"{label}:",
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=2)
+            tk.Label(
+                self.posterior_state_section,
+                textvariable=self.posterior_state_values[key],
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+            ).grid(row=row, column=1, sticky="nw", pady=2)
         self.settings_form.bind_mouse_wheel()
+
+    def show_posterior_state(self, update):
+        """Show latent-state medians; raw CSV observations are not displayed."""
+        if update is None or update.current_position_samples is None:
+            for variable in self.posterior_state_values.values():
+                variable.set("—")
+            return
+        x, y = np.median(update.current_position_samples, axis=0)
+        samples = update.samples_by_parameter
+        self.posterior_state_values["position"].set(f"x = {x:.2f} m, y = {y:.2f} m")
+        self.posterior_state_values["heading"].set(
+            f"{np.median(samples['current_heading']):.2f}°"
+        )
+        self.posterior_state_values["speed"].set(
+            f"{np.median(samples['current_speed']):.2f} m/s"
+        )
+        self.posterior_state_values["turn_rate"].set(
+            f"{np.median(samples['current_turn_rate']):.2f}°/s"
+        )
 
     def choose_file(self):
         """Choose a CSV without starting or replacing an analysis."""

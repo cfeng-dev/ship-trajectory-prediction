@@ -672,8 +672,25 @@ def _dashboard_samples(offset=0.0):
     }
 
 
+def test_dashboard_update_keeps_latent_current_position_samples():
+    """The dashboard contract distinguishes latent position draws from GPS inputs."""
+    dashboard = _load_dashboard_module()
+    update = dashboard.PosteriorDashboardUpdate(
+        2,
+        _dashboard_samples(),
+        current_position_samples=[[10.0, -4.0], [12.0, -2.0]],
+    )
+
+    np.testing.assert_allclose(
+        update.current_position_samples, [[10.0, -4.0], [12.0, -2.0]]
+    )
+    assert not update.current_position_samples.flags.writeable
+
+
 def _dashboard_fit_variables():
     return {
+        "x_state": np.asarray([[10.0, 12.0, 14.0], [20.0, 22.0, 24.0]]),
+        "y_state": np.asarray([[-4.0, -2.0, 0.0], [6.0, 8.0, 10.0]]),
         "speed_at_origin": np.asarray([2.0, 3.0]),
         "heading_at_origin": np.asarray([0.0, np.pi / 2.0]),
         "turn_rate_at_origin": np.asarray([0.0, np.pi / 180.0]),
@@ -1293,6 +1310,10 @@ def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
 
     final_update = updates[-1]
     assert final_update.observation_count == 3
+    np.testing.assert_allclose(
+        final_update.current_position_samples,
+        [[14.0, 0.0], [24.0, 10.0]],
+    )
     assert tuple(final_update.samples_by_parameter) == dashboard.PARAMETER_NAMES
     assert final_update.samples_by_parameter["current_speed"] == pytest.approx(
         [2.0, 3.0]

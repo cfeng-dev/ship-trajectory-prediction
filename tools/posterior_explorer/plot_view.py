@@ -15,7 +15,16 @@ from .view import PLOT_BACKGROUND
 class PosteriorPlotView(tk.Frame):
     """Own the embedded canvas, navigation toolbar and dashboard callbacks."""
 
-    def __init__(self, parent, settings, trajectory, maximum, minimum, request_update):
+    def __init__(
+        self,
+        parent,
+        settings,
+        trajectory,
+        maximum,
+        minimum,
+        request_update,
+        on_state_change=None,
+    ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
@@ -40,6 +49,7 @@ class PosteriorPlotView(tk.Frame):
             show_median_forecast=settings.show_median_forecast,
             show_prediction_region_50=settings.show_prediction_region_50,
             show_prediction_region_90=settings.show_prediction_region_90,
+            on_state_change=on_state_change,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()

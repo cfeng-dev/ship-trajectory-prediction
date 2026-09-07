@@ -73,6 +73,7 @@ class PosteriorExplorer:
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
+        self.controls.show_posterior_state(None)
         self._settings = settings
         self._error = None
         self._computing = None
@@ -91,6 +92,7 @@ class PosteriorExplorer:
         self._settings = None
         self._error = None
         self._computing = None
+        self.controls.show_posterior_state(None)
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
@@ -268,6 +270,7 @@ class PosteriorExplorer:
                 maximum,
                 minimum,
                 self.worker.request,
+                self.controls.show_posterior_state,
             )
             self.plot_view.set_settings_visible(self.settings_visible)
             self.plot_view.pack(fill="both", expand=True)

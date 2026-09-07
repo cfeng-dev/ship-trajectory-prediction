@@ -277,6 +277,8 @@ class SequentialMonteCarloCTRVFilter:
         )
         return particle_utils.SequentialCTRVFit(
             {
+                "x_state": states[:, _STATE_X_INDEX],
+                "y_state": states[:, _STATE_Y_INDEX],
                 "speed_at_origin": states[:, _STATE_SPEED_INDEX],
                 "heading_at_origin": states[:, _STATE_HEADING_INDEX],
                 "turn_rate_at_origin": states[:, _STATE_TURN_RATE_INDEX],

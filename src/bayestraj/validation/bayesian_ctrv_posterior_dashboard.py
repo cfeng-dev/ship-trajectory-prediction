@@ -187,12 +187,30 @@ class PosteriorDashboardUpdate:
 
     observation_count: int
     samples_by_parameter: dict[str, np.ndarray]
+    current_position_samples: np.ndarray | None = None
     effective_sample_size: float | None = None
     particle_count: int | None = None
     resample_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
 
     def __post_init__(self) -> None:
+        if self.current_position_samples is not None:
+            current_position_samples = np.asarray(
+                self.current_position_samples, dtype=float
+            ).copy()
+            if (
+                current_position_samples.ndim != 2
+                or current_position_samples.shape[0] < 2
+                or current_position_samples.shape[1] != 2
+                or not np.all(np.isfinite(current_position_samples))
+            ):
+                raise ValueError(
+                    "current_position_samples must be finite (draw, x/y) pairs."
+                )
+            current_position_samples.setflags(write=False)
+            object.__setattr__(
+                self, "current_position_samples", current_position_samples
+            )
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
@@ -369,6 +387,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
+        on_state_change=None,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -382,6 +401,7 @@ class PosteriorDashboardNavigator:
         self.priors = priors
         self._update_loader = update_loader
         self._request_update = request_update
+        self._on_state_change = on_state_change
         self._requested_observation_count = 0
         self._density_grids_dirty = False
         self.maximum_observation_count = maximum_observation_count
@@ -735,6 +755,13 @@ class PosteriorDashboardNavigator:
             fontweight="bold",
         )
         self.figure.canvas.draw_idle()
+        if self._on_state_change is not None:
+            self._on_state_change(self.current_update)
+
+    @property
+    def current_update(self):
+        """Return the active posterior stage, or ``None`` before inference."""
+        return self._updates_by_count.get(self.observation_count)
 
     def _draw_trajectory(self) -> None:
         axis = self.trajectory_axis
@@ -1151,6 +1178,7 @@ def create_sequential_posterior_dashboard_figure(
     show_median_forecast=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
+    on_state_change=None,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -1232,6 +1260,7 @@ def create_sequential_posterior_dashboard_figure(
         show_median_forecast=show_median_forecast,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
+        on_state_change=on_state_change,
     )
     return figure, navigator
 
@@ -1336,6 +1365,7 @@ def create_posterior_dashboard_loader(
             return PosteriorDashboardUpdate(
                 observation_count=observation_count,
                 samples_by_parameter=_extract_dashboard_samples(fit, specs),
+                current_position_samples=_extract_dashboard_current_position(fit),
                 effective_sample_size=online_filter.effective_sample_size,
                 particle_count=particle_filter_config.particle_count,
                 resample_count=online_filter.resample_count,
@@ -1387,6 +1417,7 @@ def create_posterior_dashboard_loader(
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
+            current_position_samples=_extract_dashboard_current_position(fit),
             forecast=(
                 _extract_dashboard_forecast(
                     fit,
@@ -1520,6 +1551,28 @@ def _extract_dashboard_samples(fit, specs):
         spec.parameter_name: prior_posterior.extract_posterior_samples(fit, spec)
         for spec in specs
     }
+
+
+def _extract_dashboard_current_position(fit):
+    """Extract final latent x/y draws without using observed GPS coordinates."""
+    x = reporting.posterior_variable_samples(fit, "x_state")
+    y = reporting.posterior_variable_samples(fit, "y_state")
+    if x.ndim == 2:
+        x = x[:, -1]
+    if y.ndim == 2:
+        y = y[:, -1]
+    if (
+        x.ndim != 1
+        or y.ndim != 1
+        or x.shape != y.shape
+        or x.size < 2
+        or not np.all(np.isfinite(x))
+        or not np.all(np.isfinite(y))
+    ):
+        raise ValueError(
+            "Current latent position draws must be matching finite vectors."
+        )
+    return np.column_stack((x, y))
 
 
 def create_rbpf_posterior_dashboard_loader(
