@@ -427,13 +427,16 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert [entry["label"] for entry in menu.entries] == [
         "File",
         "View",
-        "Plot",
         "Settings",
         "Help",
     ]
-    plot_menu = menu.entry("Plot")["menu"]
-    assert [entry["label"] for entry in plot_menu.entries] == ["Plot-Anzeige…"]
-    plot_menu.entry("Plot-Anzeige…")["command"]()
+    view_menu = menu.entry("View")["menu"]
+    assert [entry["label"] for entry in view_menu.entries] == [
+        "Einstellungen anzeigen",
+        "Plotansicht zurücksetzen",
+        "Plot-Anzeige…",
+    ]
+    view_menu.entry("Plot-Anzeige…")["command"]()
     assert plot_windows == [True]
     menu.entry("View")["menu"].entry("Einstellungen anzeigen")["command"]()
     assert not app.settings_visible

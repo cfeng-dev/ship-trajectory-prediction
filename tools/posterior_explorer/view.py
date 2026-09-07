@@ -82,11 +82,8 @@ def create_menu_bar(gui):
         command=gui.toggle_settings,
     )
     view_menu.add_command(label="Plotansicht zurücksetzen", command=gui.reset_plot_view)
+    view_menu.add_command(label="Plot-Anzeige…", command=gui.show_plot_display)
     menu_bar.add_cascade(label="View", menu=view_menu)
-
-    plot_menu = tk.Menu(menu_bar, tearoff=0)
-    plot_menu.add_command(label="Plot-Anzeige…", command=gui.show_plot_display)
-    menu_bar.add_cascade(label="Plot", menu=plot_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=0)
     settings_menu.add_command(

@@ -307,7 +307,7 @@ def _view_limits(navigator):
     )
 
 
-def test_follow_ship_starts_with_a_focused_1200m_view(follow_dashboard):
+def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
     figure, navigator, loads = follow_dashboard
     assert navigator.follow_checkbox.get_status() == [False]
     navigator.slider.set_val(1)
@@ -316,27 +316,21 @@ def test_follow_ship_starts_with_a_focused_1200m_view(follow_dashboard):
 
     navigator.follow_checkbox.set_active(0)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
-    np.testing.assert_allclose(
-        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
-    )
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
     assert navigator.posterior_axes[0].lines[-1] is posterior_line
     assert loads == [1]
 
     navigator.toggle_playback(None)
     navigator.advance_playback()
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(
-        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
-    )
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
     navigator.pause_playback()
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [65, 5])
     navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(
-        np.diff(_view_limits(navigator), axis=1), [[1200], [1200]]
-    )
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
     assert loads == [1, 2, 3]
 
 
@@ -364,7 +358,7 @@ def test_follow_ship_preserves_manual_zoom_and_resets_when_disabled(follow_dashb
     np.testing.assert_allclose(_view_limits(navigator), reset_view)
 
 
-def test_follow_ship_focus_uses_1200m_in_km_display(follow_dashboard):
+def test_follow_ship_focus_uses_600m_in_km_display(follow_dashboard):
     _, navigator, _ = follow_dashboard
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
@@ -372,7 +366,7 @@ def test_follow_ship_focus_uses_1200m_in_km_display(follow_dashboard):
 
     navigator.follow_checkbox.set_active(0)
 
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[1.2], [1.2]])
+    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[0.6], [0.6]])
 
 
 def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboard):
@@ -849,6 +843,7 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         ]
         assert "Posterior-prädiktiver Bereich (50 %)" in legend_labels
         assert "Posterior-prädiktiver Bereich (90 %)" in legend_labels
+        assert navigator.trajectory_axis.get_legend()._loc == 1
         for count in (1, 2):
             navigator.slider.set_val(count)
             navigator.show_selected_observation_count(None)

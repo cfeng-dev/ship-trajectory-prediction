@@ -44,7 +44,7 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
-FOLLOW_SHIP_VIEW_SPAN_METERS = 1_200.0
+FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
 
 
@@ -714,7 +714,7 @@ class PosteriorDashboardNavigator:
             axis.legend(
                 handles,
                 labels,
-                loc="best",
+                loc="upper right",
                 fontsize=9,
                 framealpha=0.9,
             )
