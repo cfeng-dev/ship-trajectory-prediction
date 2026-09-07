@@ -14,6 +14,10 @@ from posterior_explorer.controls import (  # noqa: E402
     split_analysis_data_fields,
 )
 from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
+from posterior_explorer.settings import (  # noqa: E402
+    DATA_OPTION_FIELDS,
+    MAIN_DATA_FIELDS,
+)
 from posterior_explorer.view import centered_window_position  # noqa: E402
 
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
@@ -233,6 +237,20 @@ def test_inference_method_is_grouped_with_analysis_fields():
 
     assert analysis == {"inference_method": "rbpf"}
     assert data == {"data_file": "route.csv", "run_id": "102"}
+
+
+def test_sidebar_keeps_input_data_controls_and_moves_optional_limit_to_settings():
+    """The default sidebar shows data selection/noise, not a rarely used limit."""
+    assert MAIN_DATA_FIELDS == (
+        "data_file",
+        "run_id",
+        "inference_method",
+        "start_index",
+        "position_noise_std_m",
+        "position_noise_seed",
+    )
+    assert "maximum_observation_count" not in MAIN_DATA_FIELDS
+    assert "maximum_observation_count" in DATA_OPTION_FIELDS
 
 
 def test_dialog_labels_and_fields_share_vertical_center(root):

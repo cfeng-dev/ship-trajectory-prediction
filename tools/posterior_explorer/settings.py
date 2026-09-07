@@ -42,13 +42,13 @@ MAIN_DATA_FIELDS = (
     "run_id",
     "inference_method",
     "start_index",
-    "maximum_observation_count",
-)
-DATA_OPTION_FIELDS = (
-    "prediction_count",
-    "prediction_sample_count",
     "position_noise_std_m",
     "position_noise_seed",
+)
+DATA_OPTION_FIELDS = (
+    "maximum_observation_count",
+    "prediction_count",
+    "prediction_sample_count",
     "inference_seed",
     "playback_interval_ms",
     "coordinate_display_mode",
@@ -225,14 +225,26 @@ def _validate_batch(method, fields):
 
 
 def _validate_data_options(fields):
+    maximum = fields.get("maximum_observation_count")
+    if maximum:
+        try:
+            maximum = int(maximum)
+        except ValueError as error:
+            raise ValueError("Max. Beobachtungen muss eine ganze Zahl sein.") from error
+        if maximum < 3:
+            raise ValueError("Max. Beobachtungen muss mindestens 3 sein.")
     for key in ("prediction_count", "prediction_sample_count"):
-        _minimum(fields, key, 0)
+        if key in fields:
+            _minimum(fields, key, 0)
     for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
-        _minimum(fields, key, 0)
-    _minimum(fields, "playback_interval_ms", 1)
-    fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
-        fields["coordinate_display_mode"]
-    )
+        if key in fields:
+            _minimum(fields, key, 0)
+    if "playback_interval_ms" in fields:
+        _minimum(fields, "playback_interval_ms", 1)
+    if "coordinate_display_mode" in fields:
+        fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
+            fields["coordinate_display_mode"]
+        )
 
 
 def validate_dialog_values(group, values):
