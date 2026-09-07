@@ -675,7 +675,7 @@ class PosteriorDashboardNavigator:
                 label="Aktuelle Position",
                 zorder=3,
             )
-        self._draw_forecast(axis)
+        forecast_legend_handles = self._draw_forecast(axis)
         x_label, y_label, spatial_aspect = self._coordinate_display_spec()
         axis.set_xlabel(x_label, fontsize=11)
         axis.set_ylabel(y_label, fontsize=11)
@@ -691,7 +691,16 @@ class PosteriorDashboardNavigator:
         self._trajectory_has_been_drawn = True
         self._reset_trajectory_view_for_coordinate_change = False
         if self.show_legend:
-            axis.legend(loc="best", fontsize=9, framealpha=0.9)
+            handles, labels = axis.get_legend_handles_labels()
+            handles.extend(forecast_legend_handles)
+            labels.extend(handle.get_label() for handle in forecast_legend_handles)
+            axis.legend(
+                handles,
+                labels,
+                loc="best",
+                fontsize=9,
+                framealpha=0.9,
+            )
 
     def _follow_ship_changed(self, _label) -> None:
         """Focus the ship view or restore the complete recorded trajectory."""
@@ -750,23 +759,48 @@ class PosteriorDashboardNavigator:
             else:
                 set_limits(lower, upper)
 
-    def _draw_forecast(self, axis) -> None:
-        """Draw only the forecast belonging to the selected (possibly cached) N."""
+    def _draw_forecast(self, axis) -> list:
+        """Draw the selected forecast and its posterior-predictive regions."""
         update = self._updates_by_count.get(self.observation_count)
         forecast = None if update is None else update.forecast
         title = "Schiffsbewegung"
+        legend_handles = []
         if forecast is not None:
             origin_x, origin_y = self._display_coordinates(
                 np.asarray([self.trajectory.observed_x[self.observation_count - 1]]),
                 np.asarray([self.trajectory.observed_y[self.observation_count - 1]]),
             )
             origin = np.array([origin_x[0], origin_y[0]])
+            display_sample_positions = None
+            if forecast.sample_positions.shape[0] >= 2:
+                display_sample_positions = np.empty_like(forecast.sample_positions)
+                for time_index in range(forecast.sample_positions.shape[1]):
+                    sample_x, sample_y = self._display_coordinates(
+                        forecast.sample_positions[:, time_index, 0],
+                        forecast.sample_positions[:, time_index, 1],
+                    )
+                    display_sample_positions[:, time_index] = np.column_stack(
+                        (sample_x, sample_y)
+                    )
+                legend_handles = prediction_plotting._draw_prediction_regions(
+                    axis,
+                    (
+                        display_sample_positions[:, :, 0],
+                        display_sample_positions[:, :, 1],
+                    ),
+                    np.concatenate(([0.0], forecast.time_offsets_seconds)),
+                    annotate_time=False,
+                )
             # Connect to the last measured point for orientation, as in the
             # standalone prediction plot; this does not re-anchor model draws.
             for index, positions in enumerate(forecast.sample_positions):
-                sample_x, sample_y = self._display_coordinates(
-                    positions[:, 0], positions[:, 1]
-                )
+                if display_sample_positions is None:
+                    sample_x, sample_y = self._display_coordinates(
+                        positions[:, 0], positions[:, 1]
+                    )
+                else:
+                    sample_x = display_sample_positions[index, :, 0]
+                    sample_y = display_sample_positions[index, :, 1]
                 path = np.vstack((origin, np.column_stack((sample_x, sample_y))))
                 axis.plot(
                     path[:, 0],
@@ -811,6 +845,7 @@ class PosteriorDashboardNavigator:
                 bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
             )
         axis.set_title(title, fontsize=13, pad=10)
+        return legend_handles
 
     def set_coordinate_display_mode(self, coordinate_display_mode) -> None:
         """Redraw cached spatial results in a new unit without another inference run."""

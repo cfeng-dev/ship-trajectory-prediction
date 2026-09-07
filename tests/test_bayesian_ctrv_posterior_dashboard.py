@@ -800,7 +800,12 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         forecast = dashboard.PosteriorDashboardForecast(
             time_offsets_seconds=[10, 20],
             median_positions=[[10 * count, 20], [10 * count + 1, 21]],
-            sample_positions=[[[10 * count - 1, 19], [10 * count, 20]]],
+            sample_positions=[
+                [[10 * count - 1, 19], [10 * count, 20]],
+                [[10 * count + 1, 19], [10 * count + 1, 21]],
+                [[10 * count - 1, 21], [10 * count + 1, 20]],
+                [[10 * count + 1, 21], [10 * count, 22]],
+            ],
         )
         return dashboard.PosteriorDashboardUpdate(
             count, _dashboard_samples(), forecast=forecast
@@ -829,6 +834,21 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
             navigator.trajectory_axis.get_xlim(),
             navigator.trajectory_axis.get_ylim(),
         )
+        region_patches = [
+            patch
+            for patch in navigator.trajectory_axis.patches
+            if patch.get_gid().startswith("posterior-predictive-region-")
+        ]
+        assert len(region_patches) == 4
+        assert {
+            patch.get_gid().split("-", maxsplit=4)[3] for patch in region_patches
+        } == {"0.5", "0.9"}
+        legend_labels = [
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+        assert "Posterior-prädiktiver Bereich (50 %)" in legend_labels
+        assert "Posterior-prädiktiver Bereich (90 %)" in legend_labels
         for count in (1, 2):
             navigator.slider.set_val(count)
             navigator.show_selected_observation_count(None)
@@ -851,6 +871,7 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         assert not any(
             "Median" in line.get_label() for line in navigator.trajectory_axis.lines
         )
+        assert not navigator.trajectory_axis.patches
     finally:
         navigator.disconnect()
 
