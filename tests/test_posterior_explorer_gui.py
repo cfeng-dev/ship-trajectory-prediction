@@ -102,6 +102,39 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
     assert dialog_height_for_content(content_height, screen_height) == expected_height
 
 
+@pytest.mark.parametrize(
+    ("group", "expected_width"),
+    (
+        ("rbpf", 470),
+        ("smc", 470),
+        ("vi", 470),
+        ("mcmc", 470),
+        ("priors", 560),
+        ("data", 560),
+    ),
+)
+def test_settings_dialog_width_matches_the_edited_group(group, expected_width):
+    """Small inference forms do not use the wider data-editor layout."""
+    from posterior_explorer.dialogs import dialog_width_for_group
+
+    assert dialog_width_for_group(group, screen_width=1920) == expected_width
+
+
+def test_settings_dialog_focuses_without_grabbing_the_main_window():
+    """The main window close control remains available while a dialog is open."""
+    from posterior_explorer.dialogs import SettingsDialog
+
+    calls = []
+    dialog = SimpleNamespace(
+        grab_set=lambda: calls.append("grab"),
+        focus_set=lambda: calls.append("focus"),
+    )
+
+    SettingsDialog._on_map(dialog, SimpleNamespace(widget=dialog))
+
+    assert calls == ["focus"]
+
+
 def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatch):
     entered, release = Event(), Event()
     prepares = []
@@ -471,7 +504,6 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
         "Einstellungen anzeigen",
-        "Plotansicht zurücksetzen",
         "Plot-Anzeige…",
     ]
     view_menu.entry("Plot-Anzeige…")["command"]()

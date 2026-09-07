@@ -81,7 +81,6 @@ def create_menu_bar(gui):
         variable=gui.settings_visible_var,
         command=gui.toggle_settings,
     )
-    view_menu.add_command(label="Plotansicht zurücksetzen", command=gui.reset_plot_view)
     view_menu.add_command(label="Plot-Anzeige…", command=gui.show_plot_display)
     menu_bar.add_cascade(label="View", menu=view_menu)
 

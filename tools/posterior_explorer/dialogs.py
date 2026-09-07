@@ -1,4 +1,4 @@
-"""Modal, transactional editors for the explorer's advanced settings."""
+"""Transactional editors for the explorer's advanced settings."""
 
 import tkinter as tk
 from tkinter import messagebox
@@ -15,6 +15,9 @@ from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 DIALOG_MINIMUM_HEIGHT = 320
 DIALOG_SCREEN_MARGIN = 120
 DIALOG_CONTENT_PADDING = 16
+INFERENCE_DIALOG_WIDTH = 470
+DATA_DIALOG_WIDTH = 560
+WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
 
@@ -23,6 +26,19 @@ def dialog_height_for_content(content_height, screen_height):
     """Fit a short editor to its content within the available screen height."""
     available_height = max(DIALOG_MINIMUM_HEIGHT, screen_height - DIALOG_SCREEN_MARGIN)
     return min(max(DIALOG_MINIMUM_HEIGHT, content_height), available_height)
+
+
+def dialog_width_for_group(group, screen_width):
+    """Keep concise inference forms narrower than data and prior editors."""
+    preferred_width = {
+        "rbpf": INFERENCE_DIALOG_WIDTH,
+        "smc": INFERENCE_DIALOG_WIDTH,
+        "vi": INFERENCE_DIALOG_WIDTH,
+        "mcmc": INFERENCE_DIALOG_WIDTH,
+        "data": DATA_DIALOG_WIDTH,
+        "priors": DATA_DIALOG_WIDTH,
+    }.get(group, WIDE_DIALOG_WIDTH)
+    return min(preferred_width, max(400, screen_width - 80))
 
 
 class PlotDisplayWindow(tk.Toplevel):
@@ -101,7 +117,7 @@ class SettingsDialog(tk.Toplevel):
             "plot": "Plot-Anzeige",
         }.get(group, f"Inferenzparameter — {group.upper()}")
         self.title(title)
-        width = min(650, max(400, parent.winfo_screenwidth() - 80))
+        width = dialog_width_for_group(group, parent.winfo_screenwidth())
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
         self._header = tk.Label(
@@ -112,7 +128,7 @@ class SettingsDialog(tk.Toplevel):
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             justify="left",
-            wraplength=560,
+            wraplength=width - 50,
             padx=14,
             pady=12,
         )
@@ -123,7 +139,7 @@ class SettingsDialog(tk.Toplevel):
         elif group == "plot":
             fields = {key: fields[key] for key in DISPLAY_OPTION_FIELDS}
         self.variables = create_variables(self, fields)
-        self._form = ScrollableForm(self, width=580)
+        self._form = ScrollableForm(self, width=max(360, width - 70))
         self._form.grid(row=1, column=0, sticky="nsew")
         if group == "data":
             data_section = tk.LabelFrame(
@@ -172,7 +188,6 @@ class SettingsDialog(tk.Toplevel):
 
     def _on_map(self, event):
         if event.widget is self:
-            self.grab_set()
             self.focus_set()
 
     def apply(self):
@@ -191,7 +206,7 @@ class SettingsDialog(tk.Toplevel):
         self.cancel()
 
     def cancel(self):
-        """Discard the draft and release the modal grab."""
+        """Discard the draft and close the non-modal editor."""
         if self.grab_current() is self:
             self.grab_release()
         self.destroy()
