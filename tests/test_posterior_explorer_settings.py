@@ -32,6 +32,16 @@ def test_settings_preserve_selected_method_and_units(form, method):
     assert result.playback_interval_ms > 0
 
 
+def test_inference_method_display_labels_normalize_to_internal_values():
+    assert (
+        settings.METHOD_DISPLAY_LABELS["rbpf"]
+        == "RBPF – Rao-Blackwellized Partikelfilter (Online)"
+    )
+    for method, label in settings.METHOD_DISPLAY_LABELS.items():
+        assert settings.normalize_inference_method(label) == method
+        assert settings.normalize_inference_method(method) == method
+
+
 @pytest.mark.parametrize(
     ("group", "field", "value"),
     [

@@ -223,7 +223,7 @@ def test_analysis_section_contains_method_start_and_reset_buttons(root):
     assert method_field.cget("textvariable") == str(
         panel.variables["data"]["inference_method"]
     )
-    assert method_field.grid_info()["column"] == "1"
+    assert method_field.grid_info()["column"] == "0"
 
 
 def test_inference_method_is_grouped_with_analysis_fields():

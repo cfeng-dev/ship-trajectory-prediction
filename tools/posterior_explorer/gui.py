@@ -9,7 +9,7 @@ from . import view
 from .controls import SettingsPanel
 from .dialogs import SettingsDialog
 from .plot_view import PosteriorPlotView
-from .settings import parse_settings
+from .settings import normalize_inference_method, parse_settings
 
 
 class PosteriorExplorer:
@@ -129,7 +129,9 @@ class PosteriorExplorer:
     def show_inference_settings(self):
         """Edit options for the method currently selected in the sidebar."""
         self.show_settings_dialog(
-            self.controls.variables["data"]["inference_method"].get()
+            normalize_inference_method(
+                self.controls.variables["data"]["inference_method"].get()
+            )
         )
 
     def show_settings_dialog(self, group):

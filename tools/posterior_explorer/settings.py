@@ -27,6 +27,16 @@ from bayestraj.validation.posterior_session import AnalysisSettings
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
+METHOD_DISPLAY_LABELS = {
+    "rbpf": "RBPF – Rao-Blackwellized Partikelfilter (Online)",
+    "smc": "SMC – Sequential Monte Carlo (Online)",
+    "vi": "VI – Variationsinferenz (Batch)",
+    "mcmc": "MCMC – Markov-Chain-Monte-Carlo (Batch)",
+}
+METHOD_DISPLAY_OPTIONS = tuple(METHOD_DISPLAY_LABELS.values())
+METHOD_DISPLAY_TO_VALUE = {
+    label: method for method, label in METHOD_DISPLAY_LABELS.items()
+}
 MAIN_DATA_FIELDS = (
     "data_file",
     "run_id",
@@ -75,6 +85,12 @@ LABELS = {
     "rejuvenation_scale": "Rejuvenation-Skala",
     "require_converged": "VI-Konvergenz verlangen",
 }
+
+
+def normalize_inference_method(value):
+    """Convert a friendly method label back to its internal identifier."""
+    value = str(value).strip()
+    return METHOD_DISPLAY_TO_VALUE.get(value, value)
 
 
 @dataclass(frozen=True)
@@ -215,6 +231,7 @@ def parse_settings(values) -> ExplorerSettings:
     """Validate edits before replacing a working analysis; ignore inactive methods."""
     defaults = _defaults()
     data = _parse_group(values["data"], defaults["data"])
+    data["inference_method"] = normalize_inference_method(data["inference_method"])
     data_file = Path(data.pop("data_file"))
     if not data_file.is_file():
         raise ValueError("Bitte eine vorhandene CSV-Datei auswählen.")

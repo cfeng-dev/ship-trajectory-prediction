@@ -7,7 +7,8 @@ from .settings import (
     COORDINATE_DISPLAY_MODES,
     LABELS,
     MAIN_DATA_FIELDS,
-    METHODS,
+    METHOD_DISPLAY_LABELS,
+    METHOD_DISPLAY_OPTIONS,
     default_form_values,
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
@@ -107,8 +108,8 @@ class SettingsPanel(tk.Frame):
             self.analysis_section, text="Zurücksetzen", command=on_reset
         )
         self.reset_button.pack(fill="x", pady=(6, 0))
-        self.analysis_fields.columnconfigure(1, weight=1)
-        populate_fields(self.analysis_fields, analysis_values, stacked=False)
+        self.analysis_fields.columnconfigure(0, weight=1)
+        populate_fields(self.analysis_fields, analysis_values, stacked=True)
         self.analysis_fields.pack(fill="x", pady=(8, 0))
 
         self.data_section = tk.LabelFrame(
@@ -200,8 +201,11 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
                 file_frame, text="…", width=2, command=choose_file
             ).grid(row=0, column=1, padx=(5, 0))
             continue
+        if key == "inference_method":
+            display_value = METHOD_DISPLAY_LABELS.get(variable.get(), variable.get())
+            variable.set(display_value)
         choices = {
-            "inference_method": METHODS,
+            "inference_method": METHOD_DISPLAY_OPTIONS,
             "algorithm": ("meanfield", "fullrank"),
             "coordinate_display_mode": COORDINATE_DISPLAY_MODES,
         }.get(key)
