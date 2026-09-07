@@ -267,22 +267,31 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
         dialog.cancel()
 
 
-def test_data_dialog_groups_plot_display_options(root):
+def test_data_dialog_contains_only_data_and_replay_options(root):
     from posterior_explorer.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
     try:
-        sections = {
-            section.cget("text"): section
+        section_labels = {
+            section.cget("text")
             for section in dialog._form.body.winfo_children()
             if section.winfo_class() == "Labelframe"
         }
-        assert "Plot-Anzeige" in sections
-        display_section = sections["Plot-Anzeige"]
+        assert section_labels == {"Daten und Wiedergabe"}
+    finally:
+        dialog.cancel()
+
+
+def test_plot_dialog_contains_display_options(root):
+    from posterior_explorer.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = SettingsDialog(root, panel, "plot")
+    try:
         labels = {
             child.cget("text")
-            for child in display_section.winfo_children()
+            for child in dialog._form.body.winfo_children()
             if child.winfo_class() == "Checkbutton"
         }
         assert labels == {
@@ -381,7 +390,19 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.root = SimpleNamespace(configure=lambda **options: root_options.update(options))
     app.worker = SimpleNamespace(close=lambda: closed.append(True))
     app.controls = SimpleNamespace(
-        variables={"data": {"inference_method": _Value("smc")}},
+        variables={
+            "data": {
+                "inference_method": _Value("smc"),
+                "show_legend": _Value(True),
+                "show_reference_trajectory": _Value(True),
+                "show_observed_trajectory": _Value(True),
+                "show_current_position": _Value(True),
+                "show_sample_trajectories": _Value(True),
+                "show_median_forecast": _Value(True),
+                "show_prediction_region_50": _Value(True),
+                "show_prediction_region_90": _Value(True),
+            }
+        },
         apply_button=SimpleNamespace(
             configure=lambda **options: button_options.update(options)
         ),
@@ -404,8 +425,20 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert [entry["label"] for entry in menu.entries] == [
         "File",
         "View",
+        "Plot",
         "Settings",
         "Help",
+    ]
+    plot_menu = menu.entry("Plot")["menu"]
+    assert [entry["label"] for entry in plot_menu.entries] == [
+        "Legende",
+        "Aufgezeichnete Trajektorie",
+        "Beobachtungen bis N",
+        "Aktuelle Position",
+        "Zukunftstrajektorien",
+        "Vorhersage (Median)",
+        "Posterior-Bereich 50 %",
+        "Posterior-Bereich 90 %",
     ]
     menu.entry("View")["menu"].entry("Einstellungen anzeigen")["command"]()
     assert not app.settings_visible

@@ -52,14 +52,6 @@ DATA_OPTION_FIELDS = (
     "inference_seed",
     "playback_interval_ms",
     "coordinate_display_mode",
-    "show_legend",
-    "show_reference_trajectory",
-    "show_observed_trajectory",
-    "show_current_position",
-    "show_sample_trajectories",
-    "show_median_forecast",
-    "show_prediction_region_50",
-    "show_prediction_region_90",
 )
 DISPLAY_OPTION_FIELDS = (
     "show_legend",
@@ -246,14 +238,19 @@ def _validate_data_options(fields):
 def validate_dialog_values(group, values):
     """Validate one dialog independently, without needing a valid CSV selection."""
     defaults = _defaults()
-    if group not in defaults:
+    if group != "plot" and group not in defaults:
         raise ValueError(f"Unbekannter Einstellungsbereich: {group}")
-    fields = defaults[group]
+    if group == "plot":
+        fields = {key: defaults["data"][key] for key in DISPLAY_OPTION_FIELDS}
+    else:
+        fields = defaults[group]
     if group == "data":
         fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
     parsed = _parse_group(values, fields)
     if group == "data":
         _validate_data_options(parsed)
+    elif group == "plot":
+        pass
     elif group == "priors":
         BayesianCTRVPriors(**parsed)
     elif group == "rbpf":

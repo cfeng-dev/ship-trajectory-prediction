@@ -27,9 +27,11 @@ class SettingsDialog(tk.Toplevel):
         self.group = group
         self.transient(parent)
         self.configure(bg=CONTROL_BACKGROUND)
-        title = {"priors": "Priors", "data": "Daten und Darstellung"}.get(
-            group, f"Inferenzparameter — {group.upper()}"
-        )
+        title = {
+            "priors": "Priors",
+            "data": "Daten und Wiedergabe",
+            "plot": "Plot-Anzeige",
+        }.get(group, f"Inferenzparameter — {group.upper()}")
         self.title(title)
         width = min(650, max(400, parent.winfo_screenwidth() - 80))
         self.columnconfigure(0, weight=1)
@@ -47,18 +49,15 @@ class SettingsDialog(tk.Toplevel):
             pady=12,
         )
         self._header.grid(row=0, column=0, sticky="ew")
-        fields = panel.values()[group]
+        fields = panel.values()["data"] if group == "plot" else panel.values()[group]
         if group == "data":
             fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
+        elif group == "plot":
+            fields = {key: fields[key] for key in DISPLAY_OPTION_FIELDS}
         self.variables = create_variables(self, fields)
         self._form = ScrollableForm(self, width=580)
         self._form.grid(row=1, column=0, sticky="nsew")
         if group == "data":
-            data_fields = {
-                key: self.variables[key]
-                for key in self.variables
-                if key not in DISPLAY_OPTION_FIELDS
-            }
             data_section = tk.LabelFrame(
                 self._form.body,
                 text="Daten und Wiedergabe",
@@ -72,21 +71,9 @@ class SettingsDialog(tk.Toplevel):
             data_section.columnconfigure(1, weight=1)
             populate_fields(
                 data_section,
-                data_fields,
+                self.variables,
                 choose_file=self.panel.choose_file,
             )
-            display_section = tk.LabelFrame(
-                self._form.body,
-                text="Plot-Anzeige",
-                font=FONT,
-                bg=CONTROL_BACKGROUND,
-                fg=TEXT_COLOR,
-                padx=10,
-                pady=8,
-            )
-            display_section.pack(fill="x")
-            display_fields = {key: self.variables[key] for key in DISPLAY_OPTION_FIELDS}
-            populate_fields(display_section, display_fields)
         else:
             populate_fields(self._form.body, self.variables)
         self._form.bind_mouse_wheel()
@@ -130,8 +117,9 @@ class SettingsDialog(tk.Toplevel):
         except (ValueError, TypeError) as error:
             messagebox.showerror("Einstellungen prüfen", str(error), parent=self)
             return
+        target_group = "data" if self.group == "plot" else self.group
         for key, value in values.items():
-            self.panel.variables[self.group][key].set(value)
+            self.panel.variables[target_group][key].set(value)
         self.cancel()
 
     def cancel(self):

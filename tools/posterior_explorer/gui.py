@@ -30,7 +30,6 @@ class PosteriorExplorer:
         self._settings_dialog = None
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
-        view.create_menu_bar(self)
         self.controls = SettingsPanel(root, self.start_analysis, self.reset_analysis)
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
@@ -39,6 +38,7 @@ class PosteriorExplorer:
             self.controls.variables["data"][key].trace_add(
                 "write", self._update_display_options
             )
+        view.create_menu_bar(self)
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
         self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
