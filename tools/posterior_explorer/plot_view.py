@@ -54,6 +54,10 @@ class PosteriorPlotView(tk.Frame):
         """Redraw presentation choices without replacing the current analysis."""
         self.navigator.set_display_options(**display_options)
 
+    def set_settings_visible(self, visible):
+        """Switch between compact and six-panel posterior presentation."""
+        self.navigator.set_posterior_display_mode("compact" if visible else "expanded")
+
     def disable_navigation(self):
         """Keep the last valid plot visible after an inference error."""
         self.navigator.pause_playback()

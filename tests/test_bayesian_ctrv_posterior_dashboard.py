@@ -307,6 +307,40 @@ def _view_limits(navigator):
     )
 
 
+def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
+    figure, navigator, _ = follow_dashboard
+    figure.canvas.draw()
+    assert navigator.posterior_display_mode == "compact"
+    assert navigator.group_selector.ax.get_visible()
+    assert not any(
+        axis.get_visible() for axis in navigator.posterior_axes_by_group["noise"]
+    )
+    compact_trajectory_position = navigator.trajectory_axis.get_position()
+    compact_posterior_position = navigator.posterior_axes[0].get_position()
+    assert compact_trajectory_position.width > compact_posterior_position.width
+
+    navigator.set_posterior_display_mode("expanded")
+    figure.canvas.draw()
+    motion_axes = navigator.posterior_axes_by_group["motion"]
+    noise_axes = navigator.posterior_axes_by_group["noise"]
+
+    assert navigator.posterior_display_mode == "expanded"
+    assert not navigator.group_selector.ax.get_visible()
+    assert all(axis.get_visible() for axis in (*motion_axes, *noise_axes))
+    assert motion_axes[0].get_title().startswith("Bewegungszustand")
+    assert noise_axes[0].get_title().startswith("Unsicherheiten")
+    assert motion_axes[0].get_position().x1 < noise_axes[0].get_position().x0
+    assert navigator.trajectory_axis.get_position().width == pytest.approx(
+        compact_trajectory_position.width
+    )
+
+    navigator.set_posterior_display_mode("compact")
+    figure.canvas.draw()
+    assert navigator.posterior_display_mode == "compact"
+    assert navigator.group_selector.ax.get_visible()
+    assert not any(axis.get_visible() for axis in noise_axes)
+
+
 def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
     figure, navigator, loads = follow_dashboard
     assert navigator.follow_checkbox.get_status() == [False]

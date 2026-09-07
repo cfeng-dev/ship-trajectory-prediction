@@ -236,7 +236,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
     def __init__(
         self,
         trajectory_axis,
-        posterior_axes,
+        posterior_axes_by_group,
         playback_axis,
         slider_axis,
         selector_axis,
@@ -244,11 +244,13 @@ class _PosteriorDashboardLayout(LayoutEngine):
     ):
         super().__init__()
         self.trajectory_axis = trajectory_axis
-        self.posterior_axes = posterior_axes
+        self.posterior_axes_by_group = posterior_axes_by_group
         self.playback_axis = playback_axis
         self.slider_axis = slider_axis
         self.selector_axis = selector_axis
         self.follow_axis = follow_axis
+        self.display_mode = "compact"
+        self.active_group = "motion"
 
     def execute(self, figure) -> None:
         """Reserve fixed-point gaps and a separate footer before every draw.
@@ -265,23 +267,65 @@ class _PosteriorDashboardLayout(LayoutEngine):
         panel_height = max(
             1.0, (height_points - bottom_margin - top_margin - 2 * panel_gap) / 3
         )
-        self.posterior_axes[0].get_gridspec().update(
+        grid = (
+            self.posterior_axes_by_group["motion"][0].get_subplotspec().get_gridspec()
+        )
+        grid.update(
             left=max(0.06, 76.0 / width_points),
+            right=0.98,
             bottom=bottom_margin / height_points,
             top=1.0 - top_margin / height_points,
             hspace=panel_gap / panel_height,
+            wspace=0.28,
         )
         # GridSpec.update only moves pyplot-managed axes automatically. Embedded
         # Figures have no pyplot manager, so apply their subplot positions too.
-        for axis in (self.trajectory_axis, *self.posterior_axes):
-            axis.set_position(axis.get_subplotspec().get_position(figure))
-        selector_width = max(0.2, 165.0 / width_points)
-        selector_left = 0.97 - selector_width
-        playback_width = max(0.085, 64.0 / width_points)
-        slider_left = 0.07 + playback_width
-        self.selector_axis.set_position(
-            (selector_left, 12.0 / height_points, selector_width, 44.0 / height_points)
+        self.trajectory_axis.set_position(
+            self.trajectory_axis.get_subplotspec().get_position(figure)
         )
+        motion_axes = self.posterior_axes_by_group["motion"]
+        noise_axes = self.posterior_axes_by_group["noise"]
+        if self.display_mode == "expanded":
+            for axis in (*motion_axes, *noise_axes):
+                axis.set_visible(True)
+                axis.set_position(axis.get_subplotspec().get_position(figure))
+        else:
+            for group, axes in self.posterior_axes_by_group.items():
+                visible = group == self.active_group
+                for index, axis in enumerate(axes):
+                    axis.set_visible(visible)
+                    if visible:
+                        motion_position = (
+                            motion_axes[index].get_subplotspec().get_position(figure)
+                        )
+                        noise_position = (
+                            noise_axes[index].get_subplotspec().get_position(figure)
+                        )
+                        axis.set_position(
+                            (
+                                motion_position.x0,
+                                motion_position.y0,
+                                noise_position.x1 - motion_position.x0,
+                                motion_position.height,
+                            )
+                        )
+        playback_width = max(0.085, 64.0 / width_points)
+        if self.display_mode == "expanded":
+            self.selector_axis.set_visible(False)
+            selector_left = 0.97
+        else:
+            self.selector_axis.set_visible(True)
+            selector_width = max(0.2, 165.0 / width_points)
+            selector_left = 0.97 - selector_width
+            self.selector_axis.set_position(
+                (
+                    selector_left,
+                    12.0 / height_points,
+                    selector_width,
+                    44.0 / height_points,
+                )
+            )
+        slider_left = 0.07 + playback_width
         self.playback_axis.set_position(
             (0.025, 18.0 / height_points, playback_width, 28.0 / height_points)
         )
@@ -317,6 +361,7 @@ class PosteriorDashboardNavigator:
         request_update=None,
         prediction_count=0,
         coordinate_display_mode="m",
+        posterior_axes_by_group=None,
         show_reference_trajectory=True,
         show_observed_trajectory=True,
         show_current_position=True,
@@ -327,7 +372,12 @@ class PosteriorDashboardNavigator:
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
-        self.posterior_axes = tuple(posterior_axes)
+        if posterior_axes_by_group is None:
+            posterior_axes_by_group = {"motion": tuple(posterior_axes)}
+        self.posterior_axes_by_group = {
+            group: tuple(axes) for group, axes in posterior_axes_by_group.items()
+        }
+        self.posterior_axes = self.posterior_axes_by_group["motion"]
         self.trajectory = trajectory
         self.priors = priors
         self._update_loader = update_loader
@@ -353,6 +403,7 @@ class PosteriorDashboardNavigator:
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
+        self._posterior_display_mode = "compact"
         self._trajectory_has_been_drawn = False
         self._follow_ship_view_needs_focus = False
         self._is_playing = False
@@ -417,12 +468,13 @@ class PosteriorDashboardNavigator:
         self.follow_checkbox.on_clicked(self._follow_ship_changed)
         layout = _PosteriorDashboardLayout(
             trajectory_axis,
-            self.posterior_axes,
+            self.posterior_axes_by_group,
             playback_axis,
             slider_axis,
             selector_axis,
             follow_axis,
         )
+        self._layout = layout
         figure.set_layout_engine(layout)
         layout.execute(figure)
         self._draw()
@@ -436,6 +488,24 @@ class PosteriorDashboardNavigator:
     def parameter_group(self) -> str:
         """Return the key of the currently displayed parameter group."""
         return self._parameter_group
+
+    @property
+    def posterior_display_mode(self) -> str:
+        """Return whether one or both posterior groups are currently visible."""
+        return self._posterior_display_mode
+
+    def set_posterior_display_mode(self, mode) -> None:
+        """Show one selected group or both posterior groups side by side."""
+        if mode not in {"compact", "expanded"}:
+            raise ValueError("mode must be 'compact' or 'expanded'.")
+        if self._posterior_display_mode == mode:
+            return
+        self._posterior_display_mode = mode
+        self._layout.display_mode = mode
+        self._layout.active_group = self._parameter_group
+        self._layout.execute(self.figure)
+        self._draw()
+        self.figure.canvas.draw_idle()
 
     @property
     def parameter_names(self) -> tuple[str, str, str]:
@@ -596,6 +666,8 @@ class PosteriorDashboardNavigator:
         for group, label in PARAMETER_GROUP_LABELS.items():
             if selected_label == label:
                 self._parameter_group = group
+                self.posterior_axes = self.posterior_axes_by_group[group]
+                self._layout.active_group = group
                 self._draw()
                 return
         raise ValueError("The selected posterior group is unavailable.")
@@ -630,12 +702,26 @@ class PosteriorDashboardNavigator:
 
     def _draw(self) -> None:
         self._draw_trajectory()
-        for axis, parameter_name in zip(
-            self.posterior_axes,
-            self.parameter_names,
-            strict=True,
-        ):
-            self._draw_posterior(axis, parameter_name)
+        if self._posterior_display_mode == "expanded":
+            for group, axes in self.posterior_axes_by_group.items():
+                for index, (axis, parameter_name) in enumerate(
+                    zip(axes, PARAMETER_GROUPS[group], strict=True)
+                ):
+                    self._draw_posterior(
+                        axis,
+                        parameter_name,
+                        group_label=(
+                            PARAMETER_GROUP_LABELS[group] if index == 0 else None
+                        ),
+                        show_legend_axis=(group == "motion" and index == 0),
+                    )
+        else:
+            for axis, parameter_name in zip(
+                self.posterior_axes,
+                self.parameter_names,
+                strict=True,
+            ):
+                self._draw_posterior(axis, parameter_name)
         self.figure.suptitle(
             f"Bayessche CTRV Posterior-Aktualisierung — N = {self.observation_count}",
             fontsize=15,
@@ -964,7 +1050,14 @@ class PosteriorDashboardNavigator:
             float(1.0 / np.cos(np.radians(self.trajectory.reference_latitude))),
         )
 
-    def _draw_posterior(self, axis, parameter_name) -> None:
+    def _draw_posterior(
+        self,
+        axis,
+        parameter_name,
+        *,
+        group_label=None,
+        show_legend_axis=None,
+    ) -> None:
         axis.clear()
         spec = self._specs_by_name[parameter_name]
         x_values = self._x_values_by_name[parameter_name]
@@ -1017,7 +1110,8 @@ class PosteriorDashboardNavigator:
                 fontsize=9,
                 color="0.35",
             )
-        axis.set_title(spec.title, fontsize=11, pad=6)
+        title = spec.title if group_label is None else f"{group_label}\n{spec.title}"
+        axis.set_title(title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Dichte", fontsize=10)
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))
@@ -1026,7 +1120,9 @@ class PosteriorDashboardNavigator:
         axis.set_ylim(bottom=0.0)
         axis.grid(alpha=0.25, linewidth=0.8)
         axis.tick_params(labelsize=9)
-        if self.show_legend and axis is self.posterior_axes[0]:
+        if show_legend_axis is None:
+            show_legend_axis = axis is self.posterior_axes[0]
+        if self.show_legend and show_legend_axis:
             axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
 
 
@@ -1097,14 +1193,18 @@ def create_sequential_posterior_dashboard_figure(
         figure = plt.figure(figsize=FIGURE_SIZE)
     grid = figure.add_gridspec(
         3,
-        2,
+        3,
         left=0.06,
         right=0.98,
-        width_ratios=(1.25, 1.0),
+        width_ratios=(1.25, 0.5, 0.5),
         wspace=0.28,
     )
     trajectory_axis = figure.add_subplot(grid[:, 0])
-    posterior_axes = tuple(figure.add_subplot(grid[row, 1]) for row in range(3))
+    posterior_axes_by_group = {
+        "motion": tuple(figure.add_subplot(grid[row, 1]) for row in range(3)),
+        "noise": tuple(figure.add_subplot(grid[row, 2]) for row in range(3)),
+    }
+    posterior_axes = posterior_axes_by_group["motion"]
     navigator = PosteriorDashboardNavigator(
         figure,
         trajectory_axis,
@@ -1119,6 +1219,7 @@ def create_sequential_posterior_dashboard_figure(
         request_update=request_update,
         prediction_count=prediction_count,
         coordinate_display_mode=coordinate_display_mode,
+        posterior_axes_by_group=posterior_axes_by_group,
         show_reference_trajectory=show_reference_trajectory,
         show_observed_trajectory=show_observed_trajectory,
         show_current_position=show_current_position,

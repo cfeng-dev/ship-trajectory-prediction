@@ -366,6 +366,26 @@ class _Value:
         self.value = value
 
 
+def test_toggle_settings_switches_posterior_display_mode():
+    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app.settings_visible = True
+    app.settings_visible_var = _Value(True)
+    app.controls = SimpleNamespace(
+        grid=lambda: None,
+        grid_remove=lambda: None,
+    )
+    selector_visibility = []
+    app.plot_view = SimpleNamespace(
+        set_settings_visible=lambda visible: selector_visibility.append(visible)
+    )
+
+    app.toggle_settings()
+    app.toggle_settings()
+
+    assert selector_visibility == [False, True]
+    assert app.settings_visible_var.get() is True
+
+
 def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     # Only native window creation is replaced. Real controller methods handle
     # visibility, method selection, and closing with an open settings editor.

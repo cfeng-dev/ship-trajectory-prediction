@@ -110,6 +110,8 @@ class PosteriorExplorer:
         else:
             self.controls.grid_remove()
         self.settings_visible_var.set(self.settings_visible)
+        if self.plot_view is not None:
+            self.plot_view.set_settings_visible(self.settings_visible)
 
     def open_csv(self):
         """Expose the existing file chooser from the File menu."""
@@ -267,6 +269,7 @@ class PosteriorExplorer:
                 minimum,
                 self.worker.request,
             )
+            self.plot_view.set_settings_visible(self.settings_visible)
             self.plot_view.pack(fill="both", expand=True)
         elif event.kind == "computing":
             self._computing = event.payload
