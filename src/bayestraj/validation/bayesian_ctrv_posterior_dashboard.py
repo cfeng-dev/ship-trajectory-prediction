@@ -175,12 +175,22 @@ class PosteriorDashboardTrajectory:
             object.__setattr__(self, "reference_latitude", latitude)
 
     def reference_state_at(self, observation_count, *, coordinate_display_mode="m"):
-        """Return the unmodified CSV/reference state for display at one stage."""
+        """Return reference values that are identifiable at one display stage."""
         observation_count = int(observation_count)
-        index = min(max(observation_count - 1, 0), len(self.reference_x) - 1)
         coordinate_display_mode = normalize_coordinate_display_mode(
             coordinate_display_mode
         )
+        if observation_count <= 0:
+            return (
+                np.nan,
+                np.nan,
+                np.nan,
+                np.nan,
+                np.nan,
+                coordinate_display_mode,
+                np.nan,
+            )
+        index = min(max(observation_count - 1, 0), len(self.reference_x) - 1)
         x, y = self.reference_x[index], self.reference_y[index]
         if coordinate_display_mode == "km":
             x /= coordinates.METERS_PER_KILOMETER
@@ -198,9 +208,13 @@ class PosteriorDashboardTrajectory:
         return (
             x,
             y,
-            self.reference_heading_degrees[index],
-            self.reference_speed_mps[index],
-            self.reference_turn_rate_degrees_per_second[index],
+            self.reference_heading_degrees[index] if observation_count >= 2 else np.nan,
+            self.reference_speed_mps[index] if observation_count >= 2 else np.nan,
+            (
+                self.reference_turn_rate_degrees_per_second[index]
+                if observation_count >= 3
+                else np.nan
+            ),
             coordinate_display_mode,
             self.reference_time_seconds[index],
         )

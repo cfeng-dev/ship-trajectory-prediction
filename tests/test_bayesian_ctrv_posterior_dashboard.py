@@ -699,24 +699,36 @@ def _dashboard_samples(offset=0.0):
     }
 
 
-def test_dashboard_trajectory_returns_unmodified_csv_state():
-    """The sidebar state is sourced from the unmodified reference trajectory."""
+def test_dashboard_trajectory_reveals_reference_state_when_informative():
+    """The reference sidebar follows the same observability stages as the plots."""
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
-        reference_x=[10.0, 12.0],
-        reference_y=[-4.0, -2.0],
-        observed_x=[99.0, 98.0],
-        observed_y=[88.0, 87.0],
-        reference_speed_mps=[5.0, 6.0],
-        reference_heading_degrees=[20.0, 25.0],
-        reference_turn_rate_degrees_per_second=[0.5, 0.75],
-        reference_time_seconds=[0.0, 12.5],
+        reference_x=[10.0, 12.0, 15.0],
+        reference_y=[-4.0, -2.0, 1.0],
+        observed_x=[99.0, 98.0, 97.0],
+        observed_y=[88.0, 87.0, 86.0],
+        reference_speed_mps=[5.0, 6.0, 7.0],
+        reference_heading_degrees=[20.0, 25.0, 30.0],
+        reference_turn_rate_degrees_per_second=[0.5, 0.75, 1.0],
+        reference_time_seconds=[0.0, 12.5, 25.0],
     )
 
-    state = trajectory.reference_state_at(2)
-    assert state[:5] == pytest.approx((12.0, -2.0, 25.0, 6.0, 0.75))
-    assert state[5] == "m"
-    assert state[6] == pytest.approx(12.5)
+    prior = trajectory.reference_state_at(0)
+    first_position = trajectory.reference_state_at(1)
+    second_position = trajectory.reference_state_at(2)
+    third_position = trajectory.reference_state_at(3)
+
+    assert np.isnan(prior[:5]).all()
+    assert np.isnan(prior[6])
+    assert first_position[:2] == pytest.approx((10.0, -4.0))
+    assert np.isnan(first_position[2:5]).all()
+    assert first_position[6] == pytest.approx(0.0)
+    assert second_position[:4] == pytest.approx((12.0, -2.0, 25.0, 6.0))
+    assert np.isnan(second_position[4])
+    assert second_position[6] == pytest.approx(12.5)
+    assert third_position[:5] == pytest.approx((15.0, 1.0, 30.0, 7.0, 1.0))
+    assert third_position[5] == "m"
+    assert third_position[6] == pytest.approx(25.0)
 
 
 def _dashboard_fit_variables():

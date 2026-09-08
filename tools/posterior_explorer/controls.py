@@ -26,6 +26,8 @@ CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
 
 def format_reference_position(x, y, *, coordinate_display_mode="m"):
     """Format local CSV coordinates like the simulator status display."""
+    if not np.isfinite(x) or not np.isfinite(y):
+        return "—"
     if coordinate_display_mode == "gps":
         return f"longitude = {x:.6f}°\nlatitude = {y:.6f}°"
     unit = "km" if coordinate_display_mode == "km" else "m"
@@ -153,7 +155,7 @@ class SettingsPanel(tk.Frame):
         )
         self.posterior_state_section = tk.LabelFrame(
             body,
-            text="Current CSV state",
+            text="Reference state",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
