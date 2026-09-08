@@ -80,6 +80,7 @@ class PosteriorExplorer:
         self._computing = None
         self._analysis_active = True
         self.controls.set_analysis_active(True)
+        view.set_analysis_menu_enabled(self, False)
         self.placeholder.configure(text="Preparing analysis …")
         self.placeholder.pack(fill="both", expand=True)
         self.status.set(
@@ -94,6 +95,7 @@ class PosteriorExplorer:
         self.worker.request(0)
         self._analysis_active = False
         self.controls.set_analysis_active(False)
+        view.set_analysis_menu_enabled(self, True)
         self._settings = None
         self._error = None
         self._computing = None
@@ -298,6 +300,7 @@ class PosteriorExplorer:
         self._computing = None
         self._analysis_active = False
         self.controls.set_analysis_active(False)
+        view.set_analysis_menu_enabled(self, True)
         self.worker.request(0)
         if self.plot_view is not None:
             self.plot_view.disable_navigation()
@@ -311,7 +314,6 @@ class PosteriorExplorer:
             return
         self._closing = True
         self.controls.apply_button.configure(state="disabled")
-        self.controls.cancel_button.configure(state="disabled")
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.cancel()
         plot_display_window = getattr(self, "_plot_display_window", None)

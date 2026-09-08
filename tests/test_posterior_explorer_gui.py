@@ -331,10 +331,9 @@ def test_analysis_section_contains_method_and_start_button(root):
     assert panel.analysis_fields.master is panel.analysis_section
     assert panel.analysis_section.pack_slaves() == [
         panel.apply_button,
-        panel.cancel_button,
         panel.analysis_fields,
     ]
-    assert panel.cancel_button.cget("state") == "disabled"
+    assert panel.apply_button.cget("text") == "Start analysis"
     method_field = next(
         child
         for child in panel.analysis_fields.winfo_children()
@@ -491,6 +490,15 @@ class _MenuRecorder:
     def entry(self, label):
         return next(entry for entry in self.entries if entry["label"] == label)
 
+    def entryconfigure(self, label, **options):
+        entry = self.entries[label] if isinstance(label, int) else self.entry(label)
+        entry.update(options)
+
+    def index(self, label):
+        if label == "end":
+            return len(self.entries) - 1
+        return self.entries.index(self.entry(label))
+
 
 class _Value:
     def __init__(self, value):
@@ -583,6 +591,12 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     monkeypatch.setattr("posterior_explorer.gui.SettingsDialog", Dialog)
     view.create_menu_bar(app)
     menu = root_options["menu"]
+    view.set_analysis_menu_enabled(app, False)
+    assert menu.entries[app._settings_menu_index]["state"] == "disabled"
+    assert app._file_menu.entries[app._open_csv_menu_index]["state"] == "disabled"
+    view.set_analysis_menu_enabled(app, True)
+    assert menu.entries[app._settings_menu_index]["state"] == "normal"
+    assert app._file_menu.entries[app._open_csv_menu_index]["state"] == "normal"
     assert [entry["label"] for entry in menu.entries] == [
         "File",
         "View",

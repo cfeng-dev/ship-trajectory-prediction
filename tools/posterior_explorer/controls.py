@@ -13,7 +13,13 @@ from .settings import (
     METHOD_DISPLAY_OPTIONS,
     default_form_values,
 )
-from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
+from .view import (
+    CONTROL_BACKGROUND,
+    FONT,
+    TEXT_COLOR,
+    create_styled_button,
+    set_styled_button_palette,
+)
 
 CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
 
@@ -81,7 +87,8 @@ class SettingsPanel(tk.Frame):
     def __init__(self, parent, on_apply, on_cancel=None):
         super().__init__(parent, width=350, bg=CONTROL_BACKGROUND)
         self.pack_propagate(False)
-        on_cancel = on_cancel or (lambda: None)
+        self._on_apply = on_apply
+        self._on_cancel = on_cancel or (lambda: None)
         self.variables = {
             group: create_variables(self, fields)
             for group, fields in default_form_values().items()
@@ -114,14 +121,9 @@ class SettingsPanel(tk.Frame):
             {key: self.variables["data"][key] for key in MAIN_DATA_FIELDS}
         )
         self.apply_button = create_styled_button(
-            self.analysis_section, text="Start analysis", command=on_apply
+            self.analysis_section, text="Start analysis", command=self._on_apply
         )
         self.apply_button.pack(fill="x")
-        self.cancel_button = create_styled_button(
-            self.analysis_section, text="Cancel analysis", command=on_cancel
-        )
-        self.cancel_button.pack(fill="x", pady=(6, 0))
-        self.cancel_button.configure(state="disabled")
         self.analysis_fields.columnconfigure(0, weight=1)
         populate_fields(
             self.analysis_fields,
@@ -232,7 +234,24 @@ class SettingsPanel(tk.Frame):
                 state = "disabled" if active else "normal"
             widget.configure(state=state)
         self.apply_button.configure(state="disabled" if active else "normal")
-        self.cancel_button.configure(state="normal" if active else "disabled")
+        if active:
+            self.apply_button.configure(
+                text="Cancel analysis", command=self._on_cancel, state="normal"
+            )
+            set_styled_button_palette(
+                self.apply_button,
+                background="#f7d9d9",
+                hover_background="#efbcbc",
+            )
+        else:
+            self.apply_button.configure(
+                text="Start analysis", command=self._on_apply, state="normal"
+            )
+            set_styled_button_palette(
+                self.apply_button,
+                background="#ffffff",
+                hover_background="#b8d8e8",
+            )
 
     def values(self):
         """Read a snapshot of the form on the Tk thread."""

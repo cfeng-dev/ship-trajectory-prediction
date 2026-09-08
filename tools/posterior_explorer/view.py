@@ -37,6 +37,23 @@ def create_styled_button(parent, *, text, command, width=18):
     return button
 
 
+def set_styled_button_palette(button, *, background, hover_background):
+    """Update a styled button's resting and hover colours together."""
+    button.configure(bg=background, activebackground=hover_background)
+    button.bind(
+        "<Enter>",
+        lambda _: (
+            button.configure(bg=hover_background)
+            if button.cget("state") != "disabled"
+            else None
+        ),
+    )
+    button.bind(
+        "<Leave>",
+        lambda _: button.configure(bg=background),
+    )
+
+
 def centered_window_position(
     screen_width, screen_height, window_width, window_height, *, vertical_offset=0
 ):
@@ -71,6 +88,7 @@ def create_menu_bar(gui):
     menu_bar = tk.Menu(gui.root)
     file_menu = tk.Menu(menu_bar, tearoff=0)
     file_menu.add_command(label="Open CSV…", command=gui.open_csv)
+    open_csv_menu_index = file_menu.index("end")
     file_menu.add_separator()
     file_menu.add_command(label="Close", command=gui.close)
     menu_bar.add_cascade(label="File", menu=file_menu)
@@ -104,8 +122,31 @@ def create_menu_bar(gui):
         label="Data and display…", command=lambda: gui.show_settings_dialog("data")
     )
     menu_bar.add_cascade(label="Settings", menu=settings_menu)
+    settings_menu_index = menu_bar.index("end")
 
     help_menu = tk.Menu(menu_bar, tearoff=0)
     help_menu.add_command(label="Show Help", command=gui.show_help)
     menu_bar.add_cascade(label="Help", menu=help_menu)
+    gui._menu_bar = menu_bar
+    gui._file_menu = file_menu
+    gui._open_csv_menu_index = open_csv_menu_index
+    gui._settings_menu_index = settings_menu_index
     gui.root.configure(menu=menu_bar)
+
+
+def set_analysis_menu_enabled(gui, enabled):
+    """Visibly lock menu actions that would change an active inference run."""
+    menu_bar = getattr(gui, "_menu_bar", None)
+    file_menu = getattr(gui, "_file_menu", None)
+    open_csv_menu_index = getattr(gui, "_open_csv_menu_index", None)
+    settings_menu_index = getattr(gui, "_settings_menu_index", None)
+    if (
+        menu_bar is None
+        or file_menu is None
+        or open_csv_menu_index is None
+        or settings_menu_index is None
+    ):
+        return
+    state = "normal" if enabled else "disabled"
+    file_menu.entryconfigure(open_csv_menu_index, state=state)
+    menu_bar.entryconfigure(settings_menu_index, state=state)
