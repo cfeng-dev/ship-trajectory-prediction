@@ -75,8 +75,6 @@ def update_status_display(gui):
     speed = gui.get_speed_from_slider()
     simulation_state = gui.get_simulation_state()
 
-    radius_text = "∞" if abs(omega) < 1e-8 else f"{speed / omega:.2f} m"
-
     if simulation_state == "running":
         simulation_text = "Running"
         simulation_color = "darkgreen"
@@ -114,5 +112,4 @@ def update_status_display(gui):
     gui.heading_value_label.config(text=f"{heading_deg:.1f}°")
     gui.omega_value_label.config(text=f"{omega_deg:.1f}°/s")
     gui.speed_value_label.config(text=f"{speed:.2f} m/s")
-    gui.radius_value_label.config(text=radius_text)
     gui.time_value_label.config(text=f"{gui.simulator.current_time:.1f} s")

@@ -329,21 +329,25 @@ def create_status_section(gui, parent):
     gui.heading_value_label = create_status_value_label(gui, status_frame)
     gui.omega_value_label = create_status_value_label(gui, status_frame)
     gui.speed_value_label = create_status_value_label(gui, status_frame)
-    gui.radius_value_label = create_status_value_label(gui, status_frame)
     gui.time_value_label = create_status_value_label(gui, status_frame)
 
     status_frame.columnconfigure(0, weight=0)
     status_frame.columnconfigure(1, weight=1)
 
-    status_rows = [
-        ("Simulation:", gui.simulation_value_label),
-        ("Position:", gui.position_value_label),
-        ("Heading:", gui.heading_value_label),
-        ("Turn rate:", gui.omega_value_label),
-        ("Speed:", gui.speed_value_label),
-        ("Turn Radius:", gui.radius_value_label),
-        ("Time:", gui.time_value_label),
-    ]
+    status_rows = list(
+        zip(
+            STATUS_ROW_LABELS,
+            (
+                gui.simulation_value_label,
+                gui.position_value_label,
+                gui.speed_value_label,
+                gui.heading_value_label,
+                gui.omega_value_label,
+                gui.time_value_label,
+            ),
+            strict=True,
+        )
+    )
 
     for row_index, (label_text, value_label) in enumerate(status_rows):
         tk.Label(
@@ -382,3 +386,13 @@ def create_status_value_label(gui, parent):
         bg=gui.control_panel_color,
         fg="black",
     )
+
+
+STATUS_ROW_LABELS = (
+    "Simulation:",
+    "Position:",
+    "Speed:",
+    "Heading:",
+    "Turn rate:",
+    "Time:",
+)

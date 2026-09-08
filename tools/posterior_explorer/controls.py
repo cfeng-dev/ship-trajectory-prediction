@@ -15,6 +15,8 @@ from .settings import (
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
+CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate")
+
 
 def format_reference_position(x, y, *, coordinate_display_mode="m"):
     """Format local CSV coordinates like the simulator status display."""
@@ -153,14 +155,14 @@ class SettingsPanel(tk.Frame):
             key: tk.StringVar(self, value="—")
             for key in ("position", "heading", "speed", "turn_rate")
         }
-        for row, (label, key) in enumerate(
-            (
-                ("Position", "position"),
-                ("Heading", "heading"),
-                ("Speed", "speed"),
-                ("Turn rate", "turn_rate"),
-            )
-        ):
+        labels_by_key = {
+            "position": "Position",
+            "speed": "Speed",
+            "heading": "Heading",
+            "turn_rate": "Turn rate",
+        }
+        for row, key in enumerate(CSV_STATE_ROW_KEYS):
+            label = labels_by_key[key]
             tk.Label(
                 self.posterior_state_section,
                 text=f"{label}:",

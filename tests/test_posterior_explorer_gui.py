@@ -10,6 +10,7 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from posterior_explorer.controls import (  # noqa: E402
+    CSV_STATE_ROW_KEYS,
     SettingsPanel,
     format_reference_position,
     split_analysis_data_fields,
@@ -20,6 +21,7 @@ from posterior_explorer.settings import (  # noqa: E402
     MAIN_DATA_FIELDS,
 )
 from posterior_explorer.view import centered_window_position  # noqa: E402
+from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
 
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
     PARAMETER_NAMES,
@@ -72,6 +74,18 @@ def test_reference_position_uses_ship_simulator_style_two_line_value():
     assert format_reference_position(1.5, -2.0, coordinate_display_mode="km") == (
         "x = 1.50 km\ny = -2.00 km"
     )
+
+
+def test_status_panels_share_motion_state_row_order():
+    """Position, speed, heading, and turn rate appear in the same order."""
+    assert CSV_STATE_ROW_KEYS == ("position", "speed", "heading", "turn_rate")
+    assert STATUS_ROW_LABELS[1:5] == (
+        "Position:",
+        "Speed:",
+        "Heading:",
+        "Turn rate:",
+    )
+    assert "Turn Radius:" not in STATUS_ROW_LABELS
     assert format_reference_position(8.31, 47.05, coordinate_display_mode="gps") == (
         "longitude = 8.310000°\nlatitude = 47.050000°"
     )
