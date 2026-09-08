@@ -11,6 +11,7 @@ tk = pytest.importorskip("tkinter")
 
 from posterior_explorer.controls import (  # noqa: E402
     SettingsPanel,
+    format_reference_position,
     split_analysis_data_fields,
 )
 from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
@@ -65,13 +66,18 @@ def test_main_window_position_supports_small_upward_offset():
     )
 
 
+def test_reference_position_uses_ship_simulator_style_two_line_value():
+    """The CSV status keeps x and y vertically aligned under Position."""
+    assert format_reference_position(11.0, -3.0) == "x = 11.00 m\ny = -3.00 m"
+
+
 def test_settings_panel_displays_reference_csv_state(root):
     """The sidebar presents unmodified trajectory values, not posterior draws."""
     panel = SettingsPanel(root, lambda: None)
 
     panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0))
 
-    assert panel.posterior_state_values["position"].get() == "x = 11.00 m, y = -3.00 m"
+    assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"
     assert panel.posterior_state_values["heading"].get() == "2.00°"
     assert panel.posterior_state_values["turn_rate"].get() == "2.00°/s"
@@ -297,6 +303,7 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
         "position_noise_std_m",
         "position_noise_seed",
     )
+    assert "coordinate_display_mode" not in DATA_OPTION_FIELDS
 
 
 def test_dialog_labels_and_fields_share_vertical_center(root):
@@ -411,6 +418,7 @@ class _MenuRecorder:
 
     add_cascade = add_command
     add_checkbutton = add_command
+    add_radiobutton = add_command
 
     def add_separator(self):
         pass
@@ -477,6 +485,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.controls = SimpleNamespace(
         variables={
             "data": {
+                "coordinate_display_mode": _Value("m"),
                 "inference_method": _Value("smc"),
                 "show_legend": _Value(True),
                 "show_reference_trajectory": _Value(True),
@@ -520,8 +529,17 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
         "Show settings",
+        "Coordinate display",
         "Plot display…",
     ]
+    coordinate_menu = view_menu.entry("Coordinate display")["menu"]
+    assert [entry["label"] for entry in coordinate_menu.entries] == [
+        "Local [m]",
+        "Local [km]",
+        "GPS [°]",
+    ]
+    coordinate_menu.entry("GPS [°]")["command"]()
+    assert app.controls.variables["data"]["coordinate_display_mode"].get() == "gps"
     view_menu.entry("Plot display…")["command"]()
     assert plot_windows == [True]
     menu.entry("View")["menu"].entry("Show settings")["command"]()

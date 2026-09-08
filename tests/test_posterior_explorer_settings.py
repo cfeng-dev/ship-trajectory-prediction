@@ -137,7 +137,6 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "prediction_sample_count": "0",
         "inference_seed": "456",
         "playback_interval_ms": "1500",
-        "coordinate_display_mode": "km",
     }
     result = settings.validate_dialog_values("data", values)
     assert result == {
@@ -149,7 +148,6 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "prediction_sample_count": 0,
         "inference_seed": 456,
         "playback_interval_ms": 1500,
-        "coordinate_display_mode": "km",
     }
     values["playback_interval_ms"] = "0"
     with pytest.raises(ValueError):

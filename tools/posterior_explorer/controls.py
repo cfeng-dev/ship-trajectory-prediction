@@ -16,6 +16,11 @@ from .settings import (
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 
+def format_reference_position(x, y):
+    """Format local CSV coordinates like the simulator status display."""
+    return f"x = {x:.2f} m\ny = {y:.2f} m"
+
+
 class ScrollableForm(tk.Frame):
     """A form that remains accessible when the settings pane is small."""
 
@@ -150,24 +155,24 @@ class SettingsPanel(tk.Frame):
                 ("Position", "position"),
                 ("Heading", "heading"),
                 ("Speed", "speed"),
-                ("Turn rate ω", "turn_rate"),
+                ("Turn rate", "turn_rate"),
             )
         ):
             tk.Label(
                 self.posterior_state_section,
                 text=f"{label}:",
-                font=FONT,
+                font=("Arial", 9, "bold"),
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,
-            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=2)
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
             tk.Label(
                 self.posterior_state_section,
                 textvariable=self.posterior_state_values[key],
-                font=FONT,
+                font="TkFixedFont",
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,
                 justify="left",
-            ).grid(row=row, column=1, sticky="nw", pady=2)
+            ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
 
     def show_reference_state(self, state):
@@ -177,7 +182,7 @@ class SettingsPanel(tk.Frame):
                 variable.set("—")
             return
         x, y, heading, speed, turn_rate = state
-        self.posterior_state_values["position"].set(f"x = {x:.2f} m, y = {y:.2f} m")
+        self.posterior_state_values["position"].set(format_reference_position(x, y))
         self.posterior_state_values["heading"].set(
             f"{heading:.2f}°" if np.isfinite(heading) else "—"
         )

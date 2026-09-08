@@ -81,6 +81,15 @@ def create_menu_bar(gui):
         variable=gui.settings_visible_var,
         command=gui.toggle_settings,
     )
+    coordinate_menu = tk.Menu(view_menu, tearoff=0)
+    for label, value in (("Local [m]", "m"), ("Local [km]", "km"), ("GPS [°]", "gps")):
+        coordinate_menu.add_radiobutton(
+            label=label,
+            variable=gui.controls.variables["data"]["coordinate_display_mode"],
+            value=value,
+            command=lambda mode=value: gui.set_coordinate_display_mode(mode),
+        )
+    view_menu.add_cascade(label="Coordinate display", menu=coordinate_menu)
     view_menu.add_command(label="Plot display…", command=gui.show_plot_display)
     menu_bar.add_cascade(label="View", menu=view_menu)
 

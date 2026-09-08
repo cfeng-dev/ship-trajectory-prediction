@@ -139,6 +139,12 @@ class PosteriorExplorer:
         except ValueError as error:
             messagebox.showerror("Coordinate display", str(error), parent=self.root)
 
+    def set_coordinate_display_mode(self, coordinate_display_mode):
+        """Select a presentation unit from the View menu."""
+        self.controls.variables["data"]["coordinate_display_mode"].set(
+            coordinate_display_mode
+        )
+
     def _update_display_options(self, *_):
         """Apply plot-only checkboxes without starting another analysis."""
         if self._closing or self.plot_view is None:

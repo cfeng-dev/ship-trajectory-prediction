@@ -339,7 +339,7 @@ def create_status_section(gui, parent):
         ("Simulation:", gui.simulation_value_label),
         ("Position:", gui.position_value_label),
         ("Heading:", gui.heading_value_label),
-        ("Omega:", gui.omega_value_label),
+        ("Turn rate:", gui.omega_value_label),
         ("Speed:", gui.speed_value_label),
         ("Turn Radius:", gui.radius_value_label),
         ("Time:", gui.time_value_label),

@@ -51,7 +51,6 @@ DATA_OPTION_FIELDS = (
     "prediction_sample_count",
     "inference_seed",
     "playback_interval_ms",
-    "coordinate_display_mode",
 )
 DISPLAY_OPTION_FIELDS = (
     "show_legend",
