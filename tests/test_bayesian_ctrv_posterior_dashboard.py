@@ -672,25 +672,26 @@ def _dashboard_samples(offset=0.0):
     }
 
 
-def test_dashboard_update_keeps_latent_current_position_samples():
-    """The dashboard contract distinguishes latent position draws from GPS inputs."""
+def test_dashboard_trajectory_returns_unmodified_csv_state():
+    """The sidebar state is sourced from the unmodified reference trajectory."""
     dashboard = _load_dashboard_module()
-    update = dashboard.PosteriorDashboardUpdate(
-        2,
-        _dashboard_samples(),
-        current_position_samples=[[10.0, -4.0], [12.0, -2.0]],
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[10.0, 12.0],
+        reference_y=[-4.0, -2.0],
+        observed_x=[99.0, 98.0],
+        observed_y=[88.0, 87.0],
+        reference_speed_mps=[5.0, 6.0],
+        reference_heading_degrees=[20.0, 25.0],
+        reference_turn_rate_degrees_per_second=[0.5, 0.75],
     )
 
-    np.testing.assert_allclose(
-        update.current_position_samples, [[10.0, -4.0], [12.0, -2.0]]
+    assert trajectory.reference_state_at(2) == pytest.approx(
+        (12.0, -2.0, 25.0, 6.0, 0.75)
     )
-    assert not update.current_position_samples.flags.writeable
 
 
 def _dashboard_fit_variables():
     return {
-        "x_state": np.asarray([[10.0, 12.0, 14.0], [20.0, 22.0, 24.0]]),
-        "y_state": np.asarray([[-4.0, -2.0, 0.0], [6.0, 8.0, 10.0]]),
         "speed_at_origin": np.asarray([2.0, 3.0]),
         "heading_at_origin": np.asarray([0.0, np.pi / 2.0]),
         "turn_rate_at_origin": np.asarray([0.0, np.pi / 180.0]),
@@ -715,8 +716,37 @@ def _dashboard_trajectory_data(count=4):
             "gps_latitude": 54.0 + np.arange(count) * 1e-5,
             "gps_longitude": 10.0 + np.arange(count) * 2e-5,
             "gps_speed": np.full(count, 18.0),
+            "theta": np.linspace(0.0, np.pi / 6.0, count),
+            "omega": np.linspace(0.0, np.pi / 180.0, count),
         }
     )
+
+
+def test_dashboard_preparation_preserves_raw_csv_state_despite_gui_noise():
+    """Reference status data stays separate from the optional GUI perturbation."""
+    dashboard = _load_dashboard_module()
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        inference_method="rbpf",
+        inference_seed=42,
+    )
+
+    trajectory, _, _ = dashboard._prepare_posterior_dashboard_trajectory(
+        _dashboard_trajectory_data(), experiment=experiment, reserve_prediction=0
+    )
+
+    assert trajectory.reference_speed_mps == pytest.approx([5.0, 5.0, 5.0, 5.0])
+    assert trajectory.reference_heading_degrees == pytest.approx(
+        [0.0, 10.0, 20.0, 30.0]
+    )
+    assert trajectory.reference_turn_rate_degrees_per_second == pytest.approx(
+        [0.0, 1 / 3, 2 / 3, 1.0]
+    )
+    assert not np.array_equal(trajectory.reference_x, trajectory.observed_x)
 
 
 @pytest.mark.parametrize("method", ["rbpf", "smc"])
@@ -1310,10 +1340,6 @@ def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
 
     final_update = updates[-1]
     assert final_update.observation_count == 3
-    np.testing.assert_allclose(
-        final_update.current_position_samples,
-        [[14.0, 0.0], [24.0, 10.0]],
-    )
     assert tuple(final_update.samples_by_parameter) == dashboard.PARAMETER_NAMES
     assert final_update.samples_by_parameter["current_speed"] == pytest.approx(
         [2.0, 3.0]

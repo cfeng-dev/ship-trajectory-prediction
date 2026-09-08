@@ -65,16 +65,11 @@ def test_main_window_position_supports_small_upward_offset():
     )
 
 
-def test_settings_panel_displays_only_latent_posterior_state(root):
-    """The sidebar status uses posterior draws, never raw GPS columns."""
+def test_settings_panel_displays_reference_csv_state(root):
+    """The sidebar presents unmodified trajectory values, not posterior draws."""
     panel = SettingsPanel(root, lambda: None)
-    update = PosteriorDashboardUpdate(
-        1,
-        {name: np.asarray([1.0, 3.0]) for name in PARAMETER_NAMES},
-        current_position_samples=np.asarray([[10.0, -4.0], [12.0, -2.0]]),
-    )
 
-    panel.show_posterior_state(update)
+    panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0))
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m, y = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"

@@ -92,6 +92,9 @@ class PosteriorDashboardTrajectory:
     reference_y: np.ndarray
     observed_x: np.ndarray
     observed_y: np.ndarray
+    reference_speed_mps: np.ndarray | None = None
+    reference_heading_degrees: np.ndarray | None = None
+    reference_turn_rate_degrees_per_second: np.ndarray | None = None
     reference_longitude: float | None = None
     reference_latitude: float | None = None
 
@@ -113,6 +116,20 @@ class PosteriorDashboardTrajectory:
         ):
             raise ValueError("Trajectory coordinates must be finite and non-empty.")
         for name, values in arrays.items():
+            values.setflags(write=False)
+            object.__setattr__(self, name, values)
+        for name in (
+            "reference_speed_mps",
+            "reference_heading_degrees",
+            "reference_turn_rate_degrees_per_second",
+        ):
+            values = getattr(self, name)
+            if values is None:
+                values = np.full(arrays["reference_x"].shape, np.nan)
+            else:
+                values = np.asarray(values, dtype=float).copy()
+                if values.shape != arrays["reference_x"].shape or values.ndim != 1:
+                    raise ValueError(f"{name} must match the trajectory coordinates.")
             values.setflags(write=False)
             object.__setattr__(self, name, values)
         longitude = self.reference_longitude
@@ -139,6 +156,18 @@ class PosteriorDashboardTrajectory:
                 )
             object.__setattr__(self, "reference_longitude", longitude)
             object.__setattr__(self, "reference_latitude", latitude)
+
+    def reference_state_at(self, observation_count):
+        """Return the unmodified CSV/reference state for display at one stage."""
+        observation_count = int(observation_count)
+        index = min(max(observation_count - 1, 0), len(self.reference_x) - 1)
+        return (
+            self.reference_x[index],
+            self.reference_y[index],
+            self.reference_heading_degrees[index],
+            self.reference_speed_mps[index],
+            self.reference_turn_rate_degrees_per_second[index],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,30 +216,12 @@ class PosteriorDashboardUpdate:
 
     observation_count: int
     samples_by_parameter: dict[str, np.ndarray]
-    current_position_samples: np.ndarray | None = None
     effective_sample_size: float | None = None
     particle_count: int | None = None
     resample_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
 
     def __post_init__(self) -> None:
-        if self.current_position_samples is not None:
-            current_position_samples = np.asarray(
-                self.current_position_samples, dtype=float
-            ).copy()
-            if (
-                current_position_samples.ndim != 2
-                or current_position_samples.shape[0] < 2
-                or current_position_samples.shape[1] != 2
-                or not np.all(np.isfinite(current_position_samples))
-            ):
-                raise ValueError(
-                    "current_position_samples must be finite (draw, x/y) pairs."
-                )
-            current_position_samples.setflags(write=False)
-            object.__setattr__(
-                self, "current_position_samples", current_position_samples
-            )
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
@@ -756,12 +767,9 @@ class PosteriorDashboardNavigator:
         )
         self.figure.canvas.draw_idle()
         if self._on_state_change is not None:
-            self._on_state_change(self.current_update)
-
-    @property
-    def current_update(self):
-        """Return the active posterior stage, or ``None`` before inference."""
-        return self._updates_by_count.get(self.observation_count)
+            self._on_state_change(
+                self.trajectory.reference_state_at(self.observation_count)
+            )
 
     def _draw_trajectory(self) -> None:
         axis = self.trajectory_axis
@@ -1365,7 +1373,6 @@ def create_posterior_dashboard_loader(
             return PosteriorDashboardUpdate(
                 observation_count=observation_count,
                 samples_by_parameter=_extract_dashboard_samples(fit, specs),
-                current_position_samples=_extract_dashboard_current_position(fit),
                 effective_sample_size=online_filter.effective_sample_size,
                 particle_count=particle_filter_config.particle_count,
                 resample_count=online_filter.resample_count,
@@ -1417,7 +1424,6 @@ def create_posterior_dashboard_loader(
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
-            current_position_samples=_extract_dashboard_current_position(fit),
             forecast=(
                 _extract_dashboard_forecast(
                     fit,
@@ -1480,6 +1486,16 @@ def _prepare_posterior_dashboard_trajectory(
     time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
     reference_x = np.asarray(complete_window.x_meters, dtype=float)
     reference_y = np.asarray(complete_window.y_meters, dtype=float)
+    reference_heading_degrees, reference_turn_rate_degrees_per_second = (
+        _reference_heading_and_turn_rate(
+            trajectory_data,
+            start_index=start_index,
+            count=available_observation_count,
+            time_seconds=time_seconds,
+            reference_x=reference_x,
+            reference_y=reference_y,
+        )
+    )
     observed_x = reference_x.copy()
     observed_y = reference_y.copy()
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
@@ -1507,6 +1523,9 @@ def _prepare_posterior_dashboard_trajectory(
         reference_y,
         observed_x,
         observed_y,
+        reference_speed_mps=complete_window.gps_speed_mps,
+        reference_heading_degrees=reference_heading_degrees,
+        reference_turn_rate_degrees_per_second=reference_turn_rate_degrees_per_second,
         reference_longitude=complete_window.reference_longitude,
         reference_latitude=complete_window.reference_latitude,
     )
@@ -1553,26 +1572,30 @@ def _extract_dashboard_samples(fit, specs):
     }
 
 
-def _extract_dashboard_current_position(fit):
-    """Extract final latent x/y draws without using observed GPS coordinates."""
-    x = reporting.posterior_variable_samples(fit, "x_state")
-    y = reporting.posterior_variable_samples(fit, "y_state")
-    if x.ndim == 2:
-        x = x[:, -1]
-    if y.ndim == 2:
-        y = y[:, -1]
-    if (
-        x.ndim != 1
-        or y.ndim != 1
-        or x.shape != y.shape
-        or x.size < 2
-        or not np.all(np.isfinite(x))
-        or not np.all(np.isfinite(y))
-    ):
-        raise ValueError(
-            "Current latent position draws must be matching finite vectors."
-        )
-    return np.column_stack((x, y))
+def _reference_heading_and_turn_rate(
+    trajectory_data, *, start_index, count, time_seconds, reference_x, reference_y
+):
+    """Use simulation truth columns when present, otherwise raw-route derivatives."""
+    ordered_data = (
+        trajectory_data.sort_values("time")
+        .reset_index(drop=True)
+        .iloc[start_index : start_index + count]
+    )
+    if {"theta", "omega"}.issubset(ordered_data.columns):
+        heading = np.rad2deg(np.asarray(ordered_data["theta"], dtype=float))
+        turn_rate = np.rad2deg(np.asarray(ordered_data["omega"], dtype=float))
+        if np.all(np.isfinite(heading)) and np.all(np.isfinite(turn_rate)):
+            return heading, turn_rate
+    delta_x = np.diff(reference_x)
+    delta_y = np.diff(reference_y)
+    heading_radians = np.arctan2(delta_y, delta_x)
+    heading = np.empty(count)
+    heading[0] = heading_radians[0]
+    heading[1:] = heading_radians
+    turn_rate = np.empty(count)
+    turn_rate[0] = 0.0
+    turn_rate[1:] = np.diff(np.unwrap(heading)) / np.diff(time_seconds)
+    return np.rad2deg(heading), np.rad2deg(turn_rate)
 
 
 def create_rbpf_posterior_dashboard_loader(

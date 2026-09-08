@@ -133,7 +133,7 @@ class SettingsPanel(tk.Frame):
         )
         self.posterior_state_section = tk.LabelFrame(
             body,
-            text="Current posterior state",
+            text="Current CSV state",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -170,23 +170,22 @@ class SettingsPanel(tk.Frame):
             ).grid(row=row, column=1, sticky="nw", pady=2)
         self.settings_form.bind_mouse_wheel()
 
-    def show_posterior_state(self, update):
-        """Show latent-state medians; raw CSV observations are not displayed."""
-        if update is None or update.current_position_samples is None:
+    def show_reference_state(self, state):
+        """Show the unmodified reference state for the selected CSV row."""
+        if state is None:
             for variable in self.posterior_state_values.values():
                 variable.set("—")
             return
-        x, y = np.median(update.current_position_samples, axis=0)
-        samples = update.samples_by_parameter
+        x, y, heading, speed, turn_rate = state
         self.posterior_state_values["position"].set(f"x = {x:.2f} m, y = {y:.2f} m")
         self.posterior_state_values["heading"].set(
-            f"{np.median(samples['current_heading']):.2f}°"
+            f"{heading:.2f}°" if np.isfinite(heading) else "—"
         )
         self.posterior_state_values["speed"].set(
-            f"{np.median(samples['current_speed']):.2f} m/s"
+            f"{speed:.2f} m/s" if np.isfinite(speed) else "—"
         )
         self.posterior_state_values["turn_rate"].set(
-            f"{np.median(samples['current_turn_rate']):.2f}°/s"
+            f"{turn_rate:.2f}°/s" if np.isfinite(turn_rate) else "—"
         )
 
     def choose_file(self):
