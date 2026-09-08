@@ -27,12 +27,13 @@ class PosteriorExplorer:
         self._closing = False
         self._error = None
         self._computing = None
+        self._analysis_active = False
         self._settings_dialog = None
         self._plot_display_window = None
         self._help_window = None
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
-        self.controls = SettingsPanel(root, self.start_analysis)
+        self.controls = SettingsPanel(root, self.start_analysis, self.cancel_analysis)
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
         )
@@ -63,7 +64,7 @@ class PosteriorExplorer:
 
     def start_analysis(self):
         """Apply validated settings and replace the analysis, never mixing caches."""
-        if self._closing:
+        if self._closing or self._analysis_active:
             return
         try:
             settings = parse_settings(self.controls.values())
@@ -77,12 +78,36 @@ class PosteriorExplorer:
         self._settings = settings
         self._error = None
         self._computing = None
+        self._analysis_active = True
+        self.controls.set_analysis_active(True)
         self.placeholder.configure(text="Preparing analysis …")
         self.placeholder.pack(fill="both", expand=True)
         self.status.set(
             "Loading data / initializing inference. Any previous fit is stopped first."
         )
         self.worker.start(settings.analysis)
+
+    def cancel_analysis(self):
+        """Discard the current result and unlock settings for the next run."""
+        if self._closing or not self._analysis_active:
+            return
+        self.worker.request(0)
+        self._analysis_active = False
+        self.controls.set_analysis_active(False)
+        self._settings = None
+        self._error = None
+        self._computing = None
+        self.controls.show_reference_state(None)
+        if self.plot_view is not None:
+            self.plot_view.destroy()
+            self.plot_view = None
+        self.placeholder.configure(
+            text="Trajectory and posterior evolution\n\n"
+            "Select CSV, run, and method on the left.\n"
+            "Then click “Start analysis”."
+        )
+        self.placeholder.pack(fill="both", expand=True)
+        self.status.set("Analysis cancelled. Settings unlocked.")
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
@@ -97,7 +122,7 @@ class PosteriorExplorer:
 
     def open_csv(self):
         """Expose the existing file chooser from the File menu."""
-        if not self._closing:
+        if not self._closing and not self._analysis_active:
             if not self.settings_visible:
                 self.toggle_settings()
             self.controls.choose_file()
@@ -145,7 +170,7 @@ class PosteriorExplorer:
 
     def show_settings_dialog(self, group):
         """Open one editor at a time, retaining edits until explicitly applied."""
-        if self._closing:
+        if self._closing or self._analysis_active:
             return
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.lift()
@@ -271,6 +296,8 @@ class PosteriorExplorer:
     def _show_error(self, detail):
         self._error = detail
         self._computing = None
+        self._analysis_active = False
+        self.controls.set_analysis_active(False)
         self.worker.request(0)
         if self.plot_view is not None:
             self.plot_view.disable_navigation()
@@ -284,6 +311,7 @@ class PosteriorExplorer:
             return
         self._closing = True
         self.controls.apply_button.configure(state="disabled")
+        self.controls.cancel_button.configure(state="disabled")
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.cancel()
         plot_display_window = getattr(self, "_plot_display_window", None)

@@ -97,9 +97,46 @@ def test_status_panels_share_motion_state_row_order():
     )
 
 
+def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypatch):
+    """A running analysis keeps its settings immutable until cancellation."""
+    from posterior_explorer import gui
+
+    settings = SimpleNamespace(analysis=object())
+    worker_starts, worker_requests, locked_states = [], [], []
+    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app._closing = False
+    app._analysis_active = False
+    app._settings = None
+    app._error = None
+    app._computing = None
+    app.plot_view = None
+    app.controls = SimpleNamespace(
+        values=lambda: {},
+        show_reference_state=lambda _state: None,
+        set_analysis_active=lambda active: locked_states.append(active),
+    )
+    app.placeholder = SimpleNamespace(
+        configure=lambda **_options: None, pack=lambda **_options: None
+    )
+    app.status = SimpleNamespace(set=lambda _text: None)
+    app.worker = SimpleNamespace(
+        start=lambda analysis: worker_starts.append(analysis),
+        request=lambda count: worker_requests.append(count),
+    )
+    monkeypatch.setattr(gui, "parse_settings", lambda _values: settings)
+
+    app.start_analysis()
+    app.cancel_analysis()
+
+    assert worker_starts == [settings.analysis]
+    assert worker_requests == [0]
+    assert locked_states == [True, False]
+    assert not app._analysis_active
+
+
 def test_settings_panel_displays_reference_csv_state(root):
     """The sidebar presents unmodified trajectory values, not posterior draws."""
-    panel = SettingsPanel(root, lambda: None)
+    panel = SettingsPanel(root, lambda: None, lambda: None)
 
     panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0, "m", 12.5))
 
@@ -294,9 +331,10 @@ def test_analysis_section_contains_method_and_start_button(root):
     assert panel.analysis_fields.master is panel.analysis_section
     assert panel.analysis_section.pack_slaves() == [
         panel.apply_button,
+        panel.cancel_button,
         panel.analysis_fields,
     ]
-    assert not hasattr(panel, "reset_button")
+    assert panel.cancel_button.cget("state") == "disabled"
     method_field = next(
         child
         for child in panel.analysis_fields.winfo_children()
@@ -527,6 +565,9 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         apply_button=SimpleNamespace(
             configure=lambda **options: button_options.update(options)
         ),
+        cancel_button=SimpleNamespace(
+            configure=lambda **options: button_options.update(options)
+        ),
         grid_remove=lambda: None,
         grid=lambda: None,
     )
@@ -534,6 +575,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.settings_visible_var = _Value(True)
     app.status = _Value("")
     app._closing = False
+    app._analysis_active = False
     app._settings_dialog = None
     app.show_plot_display = lambda: plot_windows.append(True)
     app.plot_view = None

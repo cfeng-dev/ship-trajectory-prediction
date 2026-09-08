@@ -78,13 +78,15 @@ def split_analysis_data_fields(fields):
 class SettingsPanel(tk.Frame):
     """Editable data, prior and inference settings with an explicit apply action."""
 
-    def __init__(self, parent, on_apply):
+    def __init__(self, parent, on_apply, on_cancel=None):
         super().__init__(parent, width=350, bg=CONTROL_BACKGROUND)
         self.pack_propagate(False)
+        on_cancel = on_cancel or (lambda: None)
         self.variables = {
             group: create_variables(self, fields)
             for group, fields in default_form_values().items()
         }
+        self._analysis_input_widgets = []
         self.settings_form = ScrollableForm(self)
         self.data_form = self.settings_form
         self.settings_form.pack(fill="both", expand=True)
@@ -115,8 +117,18 @@ class SettingsPanel(tk.Frame):
             self.analysis_section, text="Start analysis", command=on_apply
         )
         self.apply_button.pack(fill="x")
+        self.cancel_button = create_styled_button(
+            self.analysis_section, text="Cancel analysis", command=on_cancel
+        )
+        self.cancel_button.pack(fill="x", pady=(6, 0))
+        self.cancel_button.configure(state="disabled")
         self.analysis_fields.columnconfigure(0, weight=1)
-        populate_fields(self.analysis_fields, analysis_values, stacked=True)
+        populate_fields(
+            self.analysis_fields,
+            analysis_values,
+            stacked=True,
+            editable_widgets=self._analysis_input_widgets,
+        )
         self.analysis_fields.pack(fill="x", pady=(8, 0))
 
         self.data_section = tk.LabelFrame(
@@ -135,6 +147,7 @@ class SettingsPanel(tk.Frame):
             data_values,
             choose_file=self.choose_file,
             stacked=True,
+            editable_widgets=self._analysis_input_widgets,
         )
         self.posterior_state_section = tk.LabelFrame(
             body,
@@ -210,6 +223,17 @@ class SettingsPanel(tk.Frame):
         if selected:
             self.variables["data"]["data_file"].set(selected)
 
+    def set_analysis_active(self, active):
+        """Lock inputs whose changes would require a fresh inference run."""
+        for widget in self._analysis_input_widgets:
+            if isinstance(widget, ttk.Combobox):
+                state = "disabled" if active else "readonly"
+            else:
+                state = "disabled" if active else "normal"
+            widget.configure(state=state)
+        self.apply_button.configure(state="disabled" if active else "normal")
+        self.cancel_button.configure(state="normal" if active else "disabled")
+
     def values(self):
         """Read a snapshot of the form on the Tk thread."""
         return {
@@ -230,7 +254,9 @@ def create_variables(parent, fields):
     }
 
 
-def populate_fields(parent, variables, *, choose_file=None, stacked=False):
+def populate_fields(
+    parent, variables, *, choose_file=None, stacked=False, editable_widgets=None
+):
     """Render common sidebar or dialog fields with their existing units and types."""
     for index, (key, variable) in enumerate(variables.items()):
         row = index * 2 if stacked else index
@@ -240,7 +266,7 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
         field_pady = (0, 6) if stacked else (6, 0)
         label = LABELS.get(key, key)
         if isinstance(variable, tk.BooleanVar):
-            tk.Checkbutton(
+            widget = tk.Checkbutton(
                 parent,
                 text=label,
                 variable=variable,
@@ -248,7 +274,10 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
                 activebackground=CONTROL_BACKGROUND,
                 font=FONT,
                 fg=TEXT_COLOR,
-            ).grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+            )
+            widget.grid(row=row, column=0, columnspan=2, sticky="w", pady=6)
+            if editable_widgets is not None:
+                editable_widgets.append(widget)
             continue
         tk.Label(
             parent,
@@ -263,12 +292,14 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
             file_frame = tk.Frame(parent, bg=CONTROL_BACKGROUND)
             file_frame.grid(row=field_row, column=column, sticky="ew", pady=field_pady)
             file_frame.columnconfigure(0, weight=1)
-            ttk.Entry(file_frame, textvariable=variable, width=16).grid(
-                row=0, column=0, sticky="ew"
-            )
-            create_styled_button(
+            entry = ttk.Entry(file_frame, textvariable=variable, width=16)
+            entry.grid(row=0, column=0, sticky="ew")
+            browse_button = create_styled_button(
                 file_frame, text="…", width=2, command=choose_file
-            ).grid(row=0, column=1, padx=(5, 0))
+            )
+            browse_button.grid(row=0, column=1, padx=(5, 0))
+            if editable_widgets is not None:
+                editable_widgets.extend((entry, browse_button))
             continue
         if key == "inference_method":
             display_value = METHOD_DISPLAY_LABELS.get(variable.get(), variable.get())
@@ -290,3 +321,5 @@ def populate_fields(parent, variables, *, choose_file=None, stacked=False):
             else ttk.Entry(parent, textvariable=variable, width=14)
         )
         widget.grid(row=field_row, column=column, sticky="ew", pady=field_pady)
+        if editable_widgets is not None:
+            editable_widgets.append(widget)
