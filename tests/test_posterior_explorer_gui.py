@@ -286,7 +286,7 @@ def test_settings_panel_scrolls_analysis_and_data_together(root):
     assert packed_sections[-1] is panel.data_section
 
 
-def test_analysis_section_contains_method_start_and_reset_buttons(root):
+def test_analysis_section_contains_method_and_start_button(root):
     panel = SettingsPanel(root, lambda: None)
     panel.pack(fill="both", expand=True)
     root.update_idletasks()
@@ -294,9 +294,9 @@ def test_analysis_section_contains_method_start_and_reset_buttons(root):
     assert panel.analysis_fields.master is panel.analysis_section
     assert panel.analysis_section.pack_slaves() == [
         panel.apply_button,
-        panel.reset_button,
         panel.analysis_fields,
     ]
+    assert not hasattr(panel, "reset_button")
     method_field = next(
         child
         for child in panel.analysis_fields.winfo_children()
@@ -525,9 +525,6 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
             }
         },
         apply_button=SimpleNamespace(
-            configure=lambda **options: button_options.update(options)
-        ),
-        reset_button=SimpleNamespace(
             configure=lambda **options: button_options.update(options)
         ),
         grid_remove=lambda: None,

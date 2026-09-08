@@ -32,7 +32,7 @@ class PosteriorExplorer:
         self._help_window = None
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         view.configure_window(root)
-        self.controls = SettingsPanel(root, self.start_analysis, self.reset_analysis)
+        self.controls = SettingsPanel(root, self.start_analysis)
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
         )
@@ -83,26 +83,6 @@ class PosteriorExplorer:
             "Loading data / initializing inference. Any previous fit is stopped first."
         )
         self.worker.start(settings.analysis)
-
-    def reset_analysis(self):
-        """Clear the current result and leave the selected settings untouched."""
-        if self._closing:
-            return
-        self.worker.request(0)
-        self._settings = None
-        self._error = None
-        self._computing = None
-        self.controls.show_reference_state(None)
-        if self.plot_view is not None:
-            self.plot_view.destroy()
-            self.plot_view = None
-        self.placeholder.configure(
-            text="Trajectory and posterior evolution\n\n"
-            "Select CSV, run, and method on the left.\n"
-            "Then click “Start analysis”."
-        )
-        self.placeholder.pack(fill="both", expand=True)
-        self.status.set("Ready. Analysis reset.")
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
@@ -304,7 +284,6 @@ class PosteriorExplorer:
             return
         self._closing = True
         self.controls.apply_button.configure(state="disabled")
-        self.controls.reset_button.configure(state="disabled")
         if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
             self._settings_dialog.cancel()
         plot_display_window = getattr(self, "_plot_display_window", None)

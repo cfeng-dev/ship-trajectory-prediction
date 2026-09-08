@@ -47,7 +47,6 @@ POSTERIOR_HELP_SECTIONS = (
         "Controls",
         (
             ("Start analysis", "Analyse the selected CSV with the current settings"),
-            ("Reset", "Clear the current analysis and display"),
             ("Inference method", "Select RBPF, SMC, VI, or MCMC for the next analysis"),
             ("Follow ship", "Center the plot on the current ship position"),
             ("N slider", "Show the prior at N = 0 and posterior updates afterward"),
