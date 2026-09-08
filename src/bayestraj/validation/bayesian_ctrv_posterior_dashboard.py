@@ -36,6 +36,21 @@ PARAMETER_GROUPS = {
         "turn_rate_process_noise",
     ),
 }
+MOTION_POSTERIOR_MINIMUM_OBSERVATION_COUNTS = {
+    "current_speed": 2,
+    "current_heading": 2,
+    "current_turn_rate": 3,
+}
+MOTION_PRIOR_TITLES = {
+    "current_speed": "Initial speed prior",
+    "current_heading": "Initial heading prior",
+    "current_turn_rate": "Initial turn-rate prior",
+}
+MOTION_POSTERIOR_TITLES = {
+    "current_speed": "Speed posterior",
+    "current_heading": "Heading posterior",
+    "current_turn_rate": "Turn-rate posterior",
+}
 PARAMETER_GROUP_LABELS = {
     "motion": "Motion state",
     "noise": "Uncertainties",
@@ -1146,7 +1161,14 @@ class PosteriorDashboardNavigator:
             linewidth=1.6,
             label="Initial prior",
         )
-        if self.observation_count >= self.minimum_posterior_observation_count:
+        minimum_posterior_observation_count = max(
+            self.minimum_posterior_observation_count,
+            MOTION_POSTERIOR_MINIMUM_OBSERVATION_COUNTS.get(parameter_name, 0),
+        )
+        posterior_available = (
+            self.observation_count >= minimum_posterior_observation_count
+        )
+        if posterior_available:
             samples = self._updates_by_count[
                 self.observation_count
             ].samples_by_parameter[parameter_name]
@@ -1172,17 +1194,21 @@ class PosteriorDashboardNavigator:
             axis.text(
                 0.5,
                 0.88,
-                (
-                    "Posterior available from N = "
-                    f"{self.minimum_posterior_observation_count}"
-                ),
+                (f"Posterior available from N = {minimum_posterior_observation_count}"),
                 transform=axis.transAxes,
                 ha="center",
                 va="top",
                 fontsize=9,
                 color="0.35",
             )
-        axis.set_title(spec.title, fontsize=11, pad=6)
+        title = spec.title
+        if parameter_name in MOTION_PRIOR_TITLES:
+            title = (
+                MOTION_POSTERIOR_TITLES[parameter_name]
+                if posterior_available
+                else MOTION_PRIOR_TITLES[parameter_name]
+            )
+        axis.set_title(title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Density", fontsize=10)
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))

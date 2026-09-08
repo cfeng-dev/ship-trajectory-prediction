@@ -329,12 +329,39 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     assert not navigator.group_selector._buttons.get_visible()
     assert not any(label.get_visible() for label in navigator.group_selector.labels)
     assert all(axis.get_visible() for axis in (*motion_axes, *noise_axes))
-    assert motion_axes[0].get_title() == "Current speed"
+    assert motion_axes[0].get_title() == "Initial speed prior"
+    assert motion_axes[1].get_title() == "Initial heading prior"
+    assert motion_axes[2].get_title() == "Initial turn-rate prior"
     assert noise_axes[0].get_title() == "Position observation noise"
     assert motion_axes[0].get_position().x1 < noise_axes[0].get_position().x0
     assert navigator.trajectory_axis.get_position().width == pytest.approx(
         compact_trajectory_position.width
     )
+
+    navigator.slider.set_val(1)
+    navigator.show_selected_observation_count(None)
+    assert [axis.get_title() for axis in motion_axes] == [
+        "Initial speed prior",
+        "Initial heading prior",
+        "Initial turn-rate prior",
+    ]
+    assert all(
+        [line.get_label() for line in axis.lines] == ["Initial prior"]
+        for axis in motion_axes
+    )
+
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    assert [axis.get_title() for axis in motion_axes] == [
+        "Speed posterior",
+        "Heading posterior",
+        "Initial turn-rate prior",
+    ]
+    assert [line.get_label() for line in motion_axes[2].lines] == ["Initial prior"]
+
+    navigator.slider.set_val(3)
+    navigator.show_selected_observation_count(None)
+    assert motion_axes[2].get_title() == "Turn-rate posterior"
 
     navigator.set_posterior_display_mode("compact")
     figure.canvas.draw()
