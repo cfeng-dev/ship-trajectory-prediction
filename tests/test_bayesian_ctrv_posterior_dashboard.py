@@ -683,11 +683,13 @@ def test_dashboard_trajectory_returns_unmodified_csv_state():
         reference_speed_mps=[5.0, 6.0],
         reference_heading_degrees=[20.0, 25.0],
         reference_turn_rate_degrees_per_second=[0.5, 0.75],
+        reference_time_seconds=[0.0, 12.5],
     )
 
     state = trajectory.reference_state_at(2)
     assert state[:5] == pytest.approx((12.0, -2.0, 25.0, 6.0, 0.75))
     assert state[5] == "m"
+    assert state[6] == pytest.approx(12.5)
 
 
 def _dashboard_fit_variables():

@@ -78,7 +78,13 @@ def test_reference_position_uses_ship_simulator_style_two_line_value():
 
 def test_status_panels_share_motion_state_row_order():
     """Position, speed, heading, and turn rate appear in the same order."""
-    assert CSV_STATE_ROW_KEYS == ("position", "speed", "heading", "turn_rate")
+    assert CSV_STATE_ROW_KEYS == (
+        "position",
+        "speed",
+        "heading",
+        "turn_rate",
+        "time",
+    )
     assert STATUS_ROW_LABELS[1:5] == (
         "Position:",
         "Speed:",
@@ -95,12 +101,13 @@ def test_settings_panel_displays_reference_csv_state(root):
     """The sidebar presents unmodified trajectory values, not posterior draws."""
     panel = SettingsPanel(root, lambda: None)
 
-    panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0, "m"))
+    panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0, "m", 12.5))
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"
     assert panel.posterior_state_values["heading"].get() == "2.00°"
     assert panel.posterior_state_values["turn_rate"].get() == "2.00°/s"
+    assert panel.posterior_state_values["time"].get() == "12.5 s"
 
 
 @pytest.fixture

@@ -95,6 +95,7 @@ class PosteriorDashboardTrajectory:
     reference_speed_mps: np.ndarray | None = None
     reference_heading_degrees: np.ndarray | None = None
     reference_turn_rate_degrees_per_second: np.ndarray | None = None
+    reference_time_seconds: np.ndarray | None = None
     reference_longitude: float | None = None
     reference_latitude: float | None = None
 
@@ -122,6 +123,7 @@ class PosteriorDashboardTrajectory:
             "reference_speed_mps",
             "reference_heading_degrees",
             "reference_turn_rate_degrees_per_second",
+            "reference_time_seconds",
         ):
             values = getattr(self, name)
             if values is None:
@@ -185,6 +187,7 @@ class PosteriorDashboardTrajectory:
             self.reference_speed_mps[index],
             self.reference_turn_rate_degrees_per_second[index],
             coordinate_display_mode,
+            self.reference_time_seconds[index],
         )
 
 
@@ -1554,6 +1557,7 @@ def _prepare_posterior_dashboard_trajectory(
         reference_speed_mps=complete_window.gps_speed_mps,
         reference_heading_degrees=reference_heading_degrees,
         reference_turn_rate_degrees_per_second=reference_turn_rate_degrees_per_second,
+        reference_time_seconds=time_seconds,
         reference_longitude=complete_window.reference_longitude,
         reference_latitude=complete_window.reference_latitude,
     )

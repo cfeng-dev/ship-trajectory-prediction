@@ -15,7 +15,7 @@ from .settings import (
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
-CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate")
+CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
 
 
 def format_reference_position(x, y, *, coordinate_display_mode="m"):
@@ -152,14 +152,14 @@ class SettingsPanel(tk.Frame):
         )
         self.posterior_state_section.pack(fill="x", pady=(8, 0))
         self.posterior_state_values = {
-            key: tk.StringVar(self, value="—")
-            for key in ("position", "heading", "speed", "turn_rate")
+            key: tk.StringVar(self, value="—") for key in CSV_STATE_ROW_KEYS
         }
         labels_by_key = {
             "position": "Position",
             "speed": "Speed",
             "heading": "Heading",
             "turn_rate": "Turn rate",
+            "time": "Time",
         }
         for row, key in enumerate(CSV_STATE_ROW_KEYS):
             label = labels_by_key[key]
@@ -186,7 +186,7 @@ class SettingsPanel(tk.Frame):
             for variable in self.posterior_state_values.values():
                 variable.set("—")
             return
-        x, y, heading, speed, turn_rate, coordinate_display_mode = state
+        x, y, heading, speed, turn_rate, coordinate_display_mode, time_seconds = state
         self.posterior_state_values["position"].set(
             format_reference_position(
                 x, y, coordinate_display_mode=coordinate_display_mode
@@ -200,6 +200,9 @@ class SettingsPanel(tk.Frame):
         )
         self.posterior_state_values["turn_rate"].set(
             f"{turn_rate:.2f}°/s" if np.isfinite(turn_rate) else "—"
+        )
+        self.posterior_state_values["time"].set(
+            f"{time_seconds:.1f} s" if np.isfinite(time_seconds) else "—"
         )
 
     def choose_file(self):
