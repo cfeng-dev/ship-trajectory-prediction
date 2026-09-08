@@ -284,18 +284,19 @@ def test_inference_method_is_grouped_with_analysis_fields():
     assert data == {"data_file": "route.csv", "run_id": "102"}
 
 
-def test_sidebar_keeps_input_data_controls_and_moves_optional_limit_to_settings():
-    """The default sidebar shows data selection/noise, not a rarely used limit."""
+def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings():
+    """The default sidebar exposes CSV selection, not inference input settings."""
     assert MAIN_DATA_FIELDS == (
         "data_file",
         "run_id",
         "inference_method",
+    )
+    assert DATA_OPTION_FIELDS[:4] == (
         "start_index",
+        "maximum_observation_count",
         "position_noise_std_m",
         "position_noise_seed",
     )
-    assert "maximum_observation_count" not in MAIN_DATA_FIELDS
-    assert "maximum_observation_count" in DATA_OPTION_FIELDS
 
 
 def test_dialog_labels_and_fields_share_vertical_center(root):

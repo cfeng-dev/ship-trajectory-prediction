@@ -41,12 +41,12 @@ MAIN_DATA_FIELDS = (
     "data_file",
     "run_id",
     "inference_method",
-    "start_index",
-    "position_noise_std_m",
-    "position_noise_seed",
 )
 DATA_OPTION_FIELDS = (
+    "start_index",
     "maximum_observation_count",
+    "position_noise_std_m",
+    "position_noise_seed",
     "prediction_count",
     "prediction_sample_count",
     "inference_seed",

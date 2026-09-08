@@ -129,7 +129,10 @@ def test_inference_dialog_validates_the_method_being_edited(method):
 
 def test_data_options_dialog_preserves_units_and_validates_interval():
     values = {
+        "start_index": "2",
         "maximum_observation_count": "",
+        "position_noise_std_m": "1.5",
+        "position_noise_seed": "2026",
         "prediction_count": "8",
         "prediction_sample_count": "0",
         "inference_seed": "456",
@@ -138,7 +141,10 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
     }
     result = settings.validate_dialog_values("data", values)
     assert result == {
+        "start_index": 2,
         "maximum_observation_count": "",
+        "position_noise_std_m": 1.5,
+        "position_noise_seed": 2026,
         "prediction_count": 8,
         "prediction_sample_count": 0,
         "inference_seed": 456,
