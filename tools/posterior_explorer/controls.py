@@ -16,9 +16,12 @@ from .settings import (
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 
-def format_reference_position(x, y):
+def format_reference_position(x, y, *, coordinate_display_mode="m"):
     """Format local CSV coordinates like the simulator status display."""
-    return f"x = {x:.2f} m\ny = {y:.2f} m"
+    if coordinate_display_mode == "gps":
+        return f"longitude = {x:.6f}°\nlatitude = {y:.6f}°"
+    unit = "km" if coordinate_display_mode == "km" else "m"
+    return f"x = {x:.2f} {unit}\ny = {y:.2f} {unit}"
 
 
 class ScrollableForm(tk.Frame):
@@ -181,8 +184,12 @@ class SettingsPanel(tk.Frame):
             for variable in self.posterior_state_values.values():
                 variable.set("—")
             return
-        x, y, heading, speed, turn_rate = state
-        self.posterior_state_values["position"].set(format_reference_position(x, y))
+        x, y, heading, speed, turn_rate, coordinate_display_mode = state
+        self.posterior_state_values["position"].set(
+            format_reference_position(
+                x, y, coordinate_display_mode=coordinate_display_mode
+            )
+        )
         self.posterior_state_values["heading"].set(
             f"{heading:.2f}°" if np.isfinite(heading) else "—"
         )

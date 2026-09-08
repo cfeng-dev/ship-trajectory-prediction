@@ -69,13 +69,19 @@ def test_main_window_position_supports_small_upward_offset():
 def test_reference_position_uses_ship_simulator_style_two_line_value():
     """The CSV status keeps x and y vertically aligned under Position."""
     assert format_reference_position(11.0, -3.0) == "x = 11.00 m\ny = -3.00 m"
+    assert format_reference_position(1.5, -2.0, coordinate_display_mode="km") == (
+        "x = 1.50 km\ny = -2.00 km"
+    )
+    assert format_reference_position(8.31, 47.05, coordinate_display_mode="gps") == (
+        "longitude = 8.310000°\nlatitude = 47.050000°"
+    )
 
 
 def test_settings_panel_displays_reference_csv_state(root):
     """The sidebar presents unmodified trajectory values, not posterior draws."""
     panel = SettingsPanel(root, lambda: None)
 
-    panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0))
+    panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0, "m"))
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"

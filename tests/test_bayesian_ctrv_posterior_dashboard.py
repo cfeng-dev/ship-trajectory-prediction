@@ -685,9 +685,9 @@ def test_dashboard_trajectory_returns_unmodified_csv_state():
         reference_turn_rate_degrees_per_second=[0.5, 0.75],
     )
 
-    assert trajectory.reference_state_at(2) == pytest.approx(
-        (12.0, -2.0, 25.0, 6.0, 0.75)
-    )
+    state = trajectory.reference_state_at(2)
+    assert state[:5] == pytest.approx((12.0, -2.0, 25.0, 6.0, 0.75))
+    assert state[5] == "m"
 
 
 def _dashboard_fit_variables():

@@ -157,16 +157,34 @@ class PosteriorDashboardTrajectory:
             object.__setattr__(self, "reference_longitude", longitude)
             object.__setattr__(self, "reference_latitude", latitude)
 
-    def reference_state_at(self, observation_count):
+    def reference_state_at(self, observation_count, *, coordinate_display_mode="m"):
         """Return the unmodified CSV/reference state for display at one stage."""
         observation_count = int(observation_count)
         index = min(max(observation_count - 1, 0), len(self.reference_x) - 1)
+        coordinate_display_mode = normalize_coordinate_display_mode(
+            coordinate_display_mode
+        )
+        x, y = self.reference_x[index], self.reference_y[index]
+        if coordinate_display_mode == "km":
+            x /= coordinates.METERS_PER_KILOMETER
+            y /= coordinates.METERS_PER_KILOMETER
+        elif coordinate_display_mode == "gps":
+            if self.reference_longitude is None or self.reference_latitude is None:
+                raise ValueError("GPS display requires a reference GPS position.")
+            longitude, latitude = coordinates.local_to_gps_coordinates(
+                np.asarray([x]),
+                np.asarray([y]),
+                self.reference_longitude,
+                self.reference_latitude,
+            )
+            x, y = longitude[0], latitude[0]
         return (
-            self.reference_x[index],
-            self.reference_y[index],
+            x,
+            y,
             self.reference_heading_degrees[index],
             self.reference_speed_mps[index],
             self.reference_turn_rate_degrees_per_second[index],
+            coordinate_display_mode,
         )
 
 
@@ -768,7 +786,10 @@ class PosteriorDashboardNavigator:
         self.figure.canvas.draw_idle()
         if self._on_state_change is not None:
             self._on_state_change(
-                self.trajectory.reference_state_at(self.observation_count)
+                self.trajectory.reference_state_at(
+                    self.observation_count,
+                    coordinate_display_mode=self.coordinate_display_mode,
+                )
             )
 
     def _draw_trajectory(self) -> None:
@@ -1053,6 +1074,13 @@ class PosteriorDashboardNavigator:
         self._follow_ship_view_needs_focus = self.follow_checkbox.get_status()[0]
         self._draw_trajectory()
         self.figure.canvas.draw_idle()
+        if self._on_state_change is not None:
+            self._on_state_change(
+                self.trajectory.reference_state_at(
+                    self.observation_count,
+                    coordinate_display_mode=self.coordinate_display_mode,
+                )
+            )
 
     def _validate_coordinate_display_mode(self) -> None:
         if self.coordinate_display_mode == "gps" and (
