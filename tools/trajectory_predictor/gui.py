@@ -3,12 +3,11 @@
 import tkinter as tk
 from tkinter import messagebox
 
-from bayestraj.validation.posterior_session import PosteriorAnalysisWorker
-
 from . import view
 from .controls import SettingsPanel
 from .dialogs import PlotDisplayWindow, PosteriorHelpWindow, SettingsDialog
 from .plot_view import PosteriorPlotView
+from .session import PosteriorAnalysisWorker
 from .settings import (
     DISPLAY_OPTION_FIELDS,
     normalize_inference_method,

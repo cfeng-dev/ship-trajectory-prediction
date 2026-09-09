@@ -21,7 +21,8 @@ from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
     PosteriorDashboardConfig,
     normalize_coordinate_display_mode,
 )
-from bayestraj.validation.posterior_session import AnalysisSettings
+
+from .session import AnalysisSettings
 
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 

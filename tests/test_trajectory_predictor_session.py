@@ -8,9 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+from trajectory_predictor.session import PosteriorAnalysisWorker
 from trajectory_predictor.settings import default_form_values, parse_settings
-
-from bayestraj.validation.posterior_session import PosteriorAnalysisWorker
 
 
 @pytest.fixture
