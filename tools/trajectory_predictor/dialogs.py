@@ -38,7 +38,7 @@ POSTERIOR_HELP_SECTIONS = (
         "Menu",
         (
             ("File → Open CSV", "Select the CSV file for analysis"),
-            ("File → Close", "Close Trajectory Predictor"),
+            ("File → Exit", "Exit Trajectory Predictor"),
             ("View", "Show or hide settings; open plot display options"),
             ("Settings", "Configure priors, inference, and analysis setup"),
             ("Help", "Open this help window"),

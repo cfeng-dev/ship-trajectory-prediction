@@ -66,7 +66,7 @@ def centered_window_position(
 
 def configure_window(root):
     """Keep the window inside the screen and apply the simulator's light palette."""
-    root.title("Bayesian CTRV — Trajectory Predictor")
+    root.title("Bayesian CTRV — Ship Trajectory Predictor")
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     left, top = centered_window_position(
@@ -90,7 +90,7 @@ def create_menu_bar(gui):
     file_menu.add_command(label="Open CSV…", command=gui.open_csv)
     open_csv_menu_index = file_menu.index("end")
     file_menu.add_separator()
-    file_menu.add_command(label="Close", command=gui.close)
+    file_menu.add_command(label="Exit", command=gui.close)
     menu_bar.add_cascade(label="File", menu=file_menu)
 
     view_menu = tk.Menu(menu_bar, tearoff=0)

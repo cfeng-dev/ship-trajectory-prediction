@@ -165,6 +165,40 @@ def test_help_documents_analysis_setup_options():
     ]
 
 
+def test_main_window_title_identifies_the_ship_trajectory_predictor():
+    from trajectory_predictor.view import configure_window
+
+    class Window:
+        def title(self, value):
+            self.title_value = value
+
+        def winfo_screenwidth(self):
+            return 1920
+
+        def winfo_screenheight(self):
+            return 1080
+
+        def geometry(self, _value):
+            pass
+
+        def minsize(self, _width, _height):
+            pass
+
+        def configure(self, **_kwargs):
+            pass
+
+        def columnconfigure(self, _column, **_kwargs):
+            pass
+
+        def rowconfigure(self, _row, **_kwargs):
+            pass
+
+    window = Window()
+    configure_window(window)
+
+    assert window.title_value == "Bayesian CTRV — Ship Trajectory Predictor"
+
+
 @pytest.fixture
 def root():
     try:
@@ -673,7 +707,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert app.settings_visible_var.get() is False
     menu.entry("Settings")["menu"].entry("Inference parameters…")["command"]()
     assert dialogs[0].group == "smc"
-    menu.entry("File")["menu"].entry("Close")["command"]()
+    menu.entry("File")["menu"].entry("Exit")["command"]()
     assert app._closing
     assert not dialogs[0].exists
     assert closed == [True]
