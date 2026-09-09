@@ -186,6 +186,11 @@ class PlotDisplayWindow(tk.Toplevel):
                 fg=TEXT_COLOR,
                 anchor="w",
             ).pack(fill="x", pady=3)
+        actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
+        actions.pack(fill="x")
+        create_styled_button(actions, text="OK", width=12, command=self.close).pack(
+            side="right"
+        )
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.update_idletasks()
         left = max(

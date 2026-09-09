@@ -518,6 +518,35 @@ def test_plot_dialog_contains_display_options(root):
         dialog.cancel()
 
 
+def test_plot_display_window_closes_from_its_ok_button(root):
+    from trajectory_predictor.dialogs import PlotDisplayWindow
+    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+
+    panel = SimpleNamespace(
+        variables={
+            "data": {
+                key: tk.BooleanVar(root, value=True) for key in DISPLAY_OPTION_FIELDS
+            }
+        }
+    )
+    closed = []
+    window = PlotDisplayWindow(root, panel, on_close=lambda: closed.append(True))
+    try:
+        ok_button = next(
+            child
+            for frame in window.winfo_children()
+            for child in frame.winfo_children()
+            if isinstance(child, tk.Button) and child.cget("text") == "OK"
+        )
+        ok_button.invoke()
+
+        assert closed == [True]
+        assert not window.winfo_exists()
+    finally:
+        if window.winfo_exists():
+            window.close()
+
+
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     # Keep the parent withdrawn: no visible test window or actual inference.
     from trajectory_predictor.dialogs import SettingsDialog
