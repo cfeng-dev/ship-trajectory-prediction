@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.layout_engine import LayoutEngine
 from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 
@@ -91,6 +92,7 @@ class PosteriorDashboardConfig:
     inference_seed: int
     prediction_count: int = DEFAULT_PREDICTION_COUNT
     prediction_sample_count: int = DEFAULT_PREDICTION_SAMPLE_COUNT
+    observation_interval_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         """Normalize the selected batch or online inference method."""
@@ -107,6 +109,14 @@ class PosteriorDashboardConfig:
                     name, getattr(self, name)
                 ),
             )
+        object.__setattr__(
+            self,
+            "observation_interval_seconds",
+            numeric_validation.validate_positive_finite(
+                "observation_interval_seconds",
+                self.observation_interval_seconds,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1540,12 +1550,23 @@ def _prepare_posterior_dashboard_trajectory(
         or start_index < 0
     ):
         raise ValueError("start_index must be a non-negative integer.")
-    available_observation_count = len(trajectory_data) - start_index
-    if available_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
+    selected_trajectory_data = trajectory_data.iloc[start_index:]
+    if len(selected_trajectory_data) < bayesian_model.MIN_OBSERVATION_COUNT + 1:
         raise ValueError(
             f"Start index {start_index} is too large: the selected trajectory has "
             f"{len(trajectory_data)} positions, but at least four consecutive "
             "positions are required."
+        )
+    selected_trajectory_data = _select_trajectory_rows_at_interval(
+        selected_trajectory_data,
+        experiment.observation_interval_seconds,
+    )
+    available_observation_count = len(selected_trajectory_data)
+    if available_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
+        raise ValueError(
+            f"Observation interval {experiment.observation_interval_seconds:g} s "
+            f"leaves only {available_observation_count} positions; at least four "
+            "consecutive positions are required."
         )
     maximum_supported_count = available_observation_count - int(reserve_prediction)
     maximum_observation_count = experiment.maximum_observation_count
@@ -1563,18 +1584,18 @@ def _prepare_posterior_dashboard_trajectory(
         )
 
     complete_window = observation_window.prepare_trajectory_window(
-        trajectory_data,
+        selected_trajectory_data,
         observation_count=available_observation_count - 1,
         prediction_count=1,
-        start_index=start_index,
+        start_index=0,
     )
     time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
     reference_x = np.asarray(complete_window.x_meters, dtype=float)
     reference_y = np.asarray(complete_window.y_meters, dtype=float)
     reference_heading_degrees, reference_turn_rate_degrees_per_second = (
         _reference_heading_and_turn_rate(
-            trajectory_data,
-            start_index=start_index,
+            selected_trajectory_data,
+            start_index=0,
             count=available_observation_count,
             time_seconds=time_seconds,
             reference_x=reference_x,
@@ -1616,6 +1637,25 @@ def _prepare_posterior_dashboard_trajectory(
         reference_latitude=complete_window.reference_latitude,
     )
     return trajectory, time_seconds, maximum_observation_count
+
+
+def _select_trajectory_rows_at_interval(trajectory_data, interval_seconds):
+    """Keep the first row and later rows at least one interval apart in time."""
+    interval_seconds = numeric_validation.validate_positive_finite(
+        "observation_interval_seconds",
+        interval_seconds,
+    )
+    if trajectory_data.empty:
+        return trajectory_data.copy()
+    timestamps = pd.to_datetime(trajectory_data["time"], utc=True)
+    interval = pd.Timedelta(seconds=interval_seconds)
+    selected_indices = [0]
+    last_timestamp = timestamps.iloc[0]
+    for index, timestamp in enumerate(timestamps.iloc[1:], start=1):
+        if timestamp - last_timestamp >= interval:
+            selected_indices.append(index)
+            last_timestamp = timestamp
+    return trajectory_data.iloc[selected_indices].copy()
 
 
 def _validate_update_observation_count(observation_count, *, minimum, maximum):

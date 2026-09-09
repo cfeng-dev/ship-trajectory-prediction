@@ -130,6 +130,7 @@ def test_inference_dialog_validates_the_method_being_edited(method):
 def test_data_options_dialog_preserves_units_and_validates_interval():
     values = {
         "start_index": "2",
+        "observation_interval_seconds": "10",
         "maximum_observation_count": "",
         "position_noise_std_m": "1.5",
         "position_noise_seed": "2026",
@@ -141,6 +142,7 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
     result = settings.validate_dialog_values("data", values)
     assert result == {
         "start_index": 2,
+        "observation_interval_seconds": 10.0,
         "maximum_observation_count": "",
         "position_noise_std_m": 1.5,
         "position_noise_seed": 2026,
@@ -151,6 +153,10 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
     }
     values["playback_interval_ms"] = "0"
     with pytest.raises(ValueError):
+        settings.validate_dialog_values("data", values)
+    values["playback_interval_ms"] = "1500"
+    values["observation_interval_seconds"] = "0"
+    with pytest.raises(ValueError, match="Observation interval"):
         settings.validate_dialog_values("data", values)
 
 

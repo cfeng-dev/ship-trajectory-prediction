@@ -44,6 +44,7 @@ MAIN_DATA_FIELDS = (
 )
 DATA_OPTION_FIELDS = (
     "start_index",
+    "observation_interval_seconds",
     "maximum_observation_count",
     "position_noise_std_m",
     "position_noise_seed",
@@ -70,6 +71,7 @@ LABELS = {
     "run_id": "Run ID",
     "inference_method": "Inference method",
     "start_index": "Start index (from 0)",
+    "observation_interval_seconds": "Observation interval [s]",
     "maximum_observation_count": "Maximum observations (empty = all)",
     "position_noise_std_m": "Additional position noise [m]",
     "position_noise_seed": "Position-noise seed",
@@ -137,6 +139,7 @@ def _defaults():
             "run_id": 102,
             "inference_method": "rbpf",
             "start_index": 0,
+            "observation_interval_seconds": 10.0,
             "maximum_observation_count": "",
             "prediction_count": DEFAULT_PREDICTION_COUNT,
             "prediction_sample_count": DEFAULT_PREDICTION_SAMPLE_COUNT,
@@ -235,6 +238,11 @@ def _validate_data_options(fields):
     for key in ("prediction_count", "prediction_sample_count"):
         if key in fields:
             _minimum(fields, key, 0)
+    if (
+        "observation_interval_seconds" in fields
+        and fields["observation_interval_seconds"] <= 0
+    ):
+        raise ValueError("Observation interval must be greater than 0.")
     for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
         if key in fields:
             _minimum(fields, key, 0)

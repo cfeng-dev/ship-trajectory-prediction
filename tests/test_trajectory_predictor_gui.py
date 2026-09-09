@@ -383,8 +383,9 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
         "run_id",
         "inference_method",
     )
-    assert DATA_OPTION_FIELDS[:4] == (
+    assert DATA_OPTION_FIELDS[:5] == (
         "start_index",
+        "observation_interval_seconds",
         "maximum_observation_count",
         "position_noise_std_m",
         "position_noise_seed",

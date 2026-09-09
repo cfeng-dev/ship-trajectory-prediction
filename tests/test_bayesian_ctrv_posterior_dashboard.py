@@ -783,6 +783,20 @@ def _dashboard_trajectory_data(count=4):
     )
 
 
+def test_time_interval_selection_uses_actual_timestamps():
+    dashboard = _load_dashboard_module()
+    data = pd.DataFrame(
+        {
+            "time": pd.Timestamp("2026-01-01T00:00:00Z")
+            + pd.to_timedelta([0.0, 0.05, 0.99, 1.0, 1.01, 2.0], unit="s")
+        }
+    )
+
+    selected = dashboard._select_trajectory_rows_at_interval(data, 1.0)
+
+    assert selected.index.tolist() == [0, 3, 5]
+
+
 def test_dashboard_preparation_preserves_raw_csv_state_despite_gui_noise():
     """Reference status data stays separate from the optional GUI perturbation."""
     dashboard = _load_dashboard_module()
