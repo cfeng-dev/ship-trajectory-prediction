@@ -147,6 +147,24 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.posterior_state_values["time"].get() == "12.5 s"
 
 
+def test_help_documents_analysis_setup_options():
+    from trajectory_predictor.dialogs import POSTERIOR_HELP_SECTIONS
+
+    sections = dict(POSTERIOR_HELP_SECTIONS)
+
+    assert [control for control, _description in sections["Analysis setup"]] == [
+        "Start index",
+        "Observation interval",
+        "Maximum observations",
+        "Additional position noise",
+        "Position-noise seed",
+        "Forecast steps",
+        "Future trajectories",
+        "Inference seed",
+        "Playback interval",
+    ]
+
+
 @pytest.fixture
 def root():
     try:
@@ -717,6 +735,8 @@ def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
     dialogs.add_help_description_rows(object(), (("Space", "Play"),))
 
     assert options[0]["width"] == dialogs.HELP_DESCRIPTION_COLUMN_WIDTH
+    assert options[1]["wraplength"] == dialogs.HELP_DESCRIPTION_WRAP_LENGTH
+    assert dialogs.HELP_DESCRIPTION_WRAP_LENGTH == 300
 
 
 def test_help_window_uses_ship_simulator_content_height_and_top_left_position():

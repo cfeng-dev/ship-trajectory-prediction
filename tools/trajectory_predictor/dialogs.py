@@ -22,6 +22,7 @@ PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
 HELP_WINDOW_WIDTH = 660
 HELP_DESCRIPTION_COLUMN_WIDTH = 24
+HELP_DESCRIPTION_WRAP_LENGTH = 300
 HELP_CONTENT_MAX_SCREEN_RATIO = 0.65
 
 POSTERIOR_HELP_SECTIONS = (
@@ -51,6 +52,35 @@ POSTERIOR_HELP_SECTIONS = (
             ("Inference method", "Select RBPF, SMC, VI, or MCMC for the next analysis"),
             ("Follow ship", "Center the plot on the current ship position"),
             ("N slider", "Show the prior at N = 0 and posterior updates afterward"),
+        ),
+    ),
+    (
+        "Analysis setup",
+        (
+            ("Start index", "First CSV position to include; counting begins at 0"),
+            (
+                "Observation interval",
+                "Use positions separated by at least this many seconds",
+            ),
+            ("Maximum observations", "Limit selected positions; leave empty for all"),
+            (
+                "Additional position noise",
+                "Add reproducible local-position noise before inference; 0 keeps positions unchanged",
+            ),
+            ("Position-noise seed", "Seed used for the additional position noise"),
+            (
+                "Forecast steps",
+                "Number of steps predicted after each position; 0 disables forecasts",
+            ),
+            (
+                "Future trajectories",
+                "Number of posterior forecast samples to draw; 0 hides them",
+            ),
+            ("Inference seed", "Seed used to make stochastic inference reproducible"),
+            (
+                "Playback interval",
+                "Minimum wait before requesting the next N; computation can take longer",
+            ),
         ),
     ),
     (
@@ -88,7 +118,7 @@ def add_help_description_rows(parent, rows):
             fg=TEXT_COLOR,
             anchor="nw",
             justify="left",
-            wraplength=330,
+            wraplength=HELP_DESCRIPTION_WRAP_LENGTH,
         ).grid(row=row, column=1, sticky="nw", pady=3)
 
 
