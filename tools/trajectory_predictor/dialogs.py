@@ -20,6 +20,42 @@ DATA_DIALOG_WIDTH = 560
 WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
+PRIOR_FIELD_GROUPS = (
+    (
+        "Speed — half-normal distribution",
+        ("speed_prior_upper_mps", "speed_prior_tail_probability"),
+    ),
+    ("Heading — uniform distribution (−180° to 180°)", ()),
+    (
+        "Turn rate — normal distribution around 0",
+        (
+            "turn_rate_prior_abs_heading_change_deg",
+            "turn_rate_prior_reference_interval_seconds",
+            "turn_rate_prior_tail_probability",
+        ),
+    ),
+    (
+        "Observation noise — exponential distribution",
+        (
+            "sigma_position_observation_prior_upper_m",
+            "sigma_position_observation_prior_tail_probability",
+        ),
+    ),
+    (
+        "Speed process noise — exponential distribution",
+        (
+            "sigma_speed_process_prior_upper_mps",
+            "sigma_speed_process_prior_tail_probability",
+        ),
+    ),
+    (
+        "Turn-rate process noise — exponential distribution",
+        (
+            "sigma_turn_rate_process_prior_upper_deg_s",
+            "sigma_turn_rate_process_prior_tail_probability",
+        ),
+    ),
+)
 
 
 def dialog_height_for_content(content_height, screen_height):
@@ -124,20 +160,23 @@ class SettingsDialog(tk.Toplevel):
         self.title(title)
         width = dialog_width_for_group(group, parent.winfo_screenwidth())
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-        self._header = tk.Label(
-            self,
-            text="Apply updates these settings.\n"
-            "A running analysis remains unchanged until “Start analysis”.",
-            font=FONT,
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-            justify="left",
-            wraplength=width - 50,
-            padx=14,
-            pady=12,
-        )
-        self._header.grid(row=0, column=0, sticky="ew")
+        form_row = 0 if group == "priors" else 1
+        self.rowconfigure(form_row, weight=1)
+        self._header = None
+        if group != "priors":
+            self._header = tk.Label(
+                self,
+                text="Apply updates these settings.\n"
+                "A running analysis remains unchanged until “Start analysis”.",
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+                wraplength=width - 50,
+                padx=14,
+                pady=12,
+            )
+            self._header.grid(row=0, column=0, sticky="ew")
         fields = panel.values()["data"] if group == "plot" else panel.values()[group]
         if group == "data":
             fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
@@ -145,7 +184,7 @@ class SettingsDialog(tk.Toplevel):
             fields = {key: fields[key] for key in DISPLAY_OPTION_FIELDS}
         self.variables = create_variables(self, fields)
         self._form = ScrollableForm(self, width=max(360, width - 70))
-        self._form.grid(row=1, column=0, sticky="nsew")
+        self._form.grid(row=form_row, column=0, sticky="nsew")
         if group == "data":
             data_section = tk.LabelFrame(
                 self._form.body,
@@ -163,6 +202,33 @@ class SettingsDialog(tk.Toplevel):
                 self.variables,
                 choose_file=self.panel.choose_file,
             )
+        elif group == "priors":
+            for title, field_names in PRIOR_FIELD_GROUPS:
+                if not field_names:
+                    tk.Label(
+                        self._form.body,
+                        text=title,
+                        font=("Arial", 10, "bold"),
+                        bg=CONTROL_BACKGROUND,
+                        fg=TEXT_COLOR,
+                        anchor="w",
+                    ).pack(fill="x", pady=(0, 8), padx=4)
+                    continue
+                prior_section = tk.LabelFrame(
+                    self._form.body,
+                    text=title,
+                    font=("Arial", 10, "bold"),
+                    bg=CONTROL_BACKGROUND,
+                    fg=TEXT_COLOR,
+                    padx=10,
+                    pady=8,
+                )
+                prior_section.pack(fill="x", pady=(0, 8))
+                prior_section.columnconfigure(1, weight=1)
+                populate_fields(
+                    prior_section,
+                    {name: self.variables[name] for name in field_names},
+                )
         else:
             populate_fields(self._form.body, self.variables)
         self._form.bind_mouse_wheel()
@@ -180,7 +246,7 @@ class SettingsDialog(tk.Toplevel):
         self.bind("<Map>", self._on_map, add="+")
         self.update_idletasks()
         content_height = (
-            self._header.winfo_reqheight()
+            (self._header.winfo_reqheight() if self._header is not None else 0)
             + self._form.body.winfo_reqheight()
             + self._actions.winfo_reqheight()
             + DIALOG_CONTENT_PADDING

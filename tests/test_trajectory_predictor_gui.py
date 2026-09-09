@@ -492,6 +492,40 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
         dialog.cancel()
 
 
+def test_priors_dialog_explains_the_configured_distribution_families(root):
+    from trajectory_predictor.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = SettingsDialog(root, panel, "priors")
+    try:
+        assert dialog._header is None
+        section_labels = [
+            section.cget("text")
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+        ]
+
+        assert section_labels == [
+            "Speed — half-normal distribution",
+            "Turn rate — normal distribution around 0",
+            "Observation noise — exponential distribution",
+            "Speed process noise — exponential distribution",
+            "Turn-rate process noise — exponential distribution",
+        ]
+        assert any(
+            child.cget("text") == "Heading — uniform distribution (−180° to 180°)"
+            for child in dialog._form.body.winfo_children()
+            if child.winfo_class() == "Label"
+        )
+        assert all(
+            "bold" in section.cget("font").lower()
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+        )
+    finally:
+        dialog.cancel()
+
+
 def test_plot_dialog_contains_display_options(root):
     from trajectory_predictor.dialogs import SettingsDialog
 
