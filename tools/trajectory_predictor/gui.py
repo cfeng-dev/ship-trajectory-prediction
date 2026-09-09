@@ -5,7 +5,8 @@ from tkinter import messagebox
 
 from . import view
 from .controls import SettingsPanel
-from .dialogs import PlotDisplayWindow, PosteriorHelpWindow, SettingsDialog
+from .dialogs import PlotDisplayWindow, SettingsDialog
+from .help import PosteriorHelpWindow
 from .plot_view import PosteriorPlotView
 from .session import PosteriorAnalysisWorker
 from .settings import (

@@ -148,7 +148,7 @@ def test_settings_panel_displays_reference_csv_state(root):
 
 
 def test_help_documents_analysis_setup_options():
-    from trajectory_predictor.dialogs import POSTERIOR_HELP_SECTIONS
+    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
 
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
@@ -782,7 +782,7 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
 
 def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
     """Every help section starts descriptions at the same horizontal position."""
-    from trajectory_predictor import dialogs
+    from trajectory_predictor import help as predictor_help
 
     options = []
 
@@ -793,18 +793,18 @@ def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
         def grid(self, **_kwargs):
             pass
 
-    monkeypatch.setattr(dialogs.tk, "Label", Label)
+    monkeypatch.setattr(predictor_help.tk, "Label", Label)
 
-    dialogs.add_help_description_rows(object(), (("Space", "Play"),))
+    predictor_help.add_help_description_rows(object(), (("Space", "Play"),))
 
-    assert options[0]["width"] == dialogs.HELP_DESCRIPTION_COLUMN_WIDTH
-    assert options[1]["wraplength"] == dialogs.HELP_DESCRIPTION_WRAP_LENGTH
-    assert dialogs.HELP_DESCRIPTION_WRAP_LENGTH == 300
+    assert options[0]["width"] == predictor_help.HELP_DESCRIPTION_COLUMN_WIDTH
+    assert options[1]["wraplength"] == predictor_help.HELP_DESCRIPTION_WRAP_LENGTH
+    assert predictor_help.HELP_DESCRIPTION_WRAP_LENGTH == 300
 
 
 def test_help_window_uses_ship_simulator_content_height_and_top_left_position():
     """Help stays tall enough for reading and opens at the top-left screen corner."""
-    from trajectory_predictor.dialogs import (
+    from trajectory_predictor.help import (
         help_content_height_for_screen,
         help_window_position,
     )
