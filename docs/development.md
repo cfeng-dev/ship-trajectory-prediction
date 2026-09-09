@@ -54,13 +54,13 @@ Only the first ten runs are shown by default. Show all runs with:
 uv run trajectory_checker path/to/trajectory.csv --all-runs
 ```
 
-### 3. Posterior Explorer
+### 3. Trajectory Predictor
 
 Inspect the ship's trajectory and Bayesian CTRV posterior updates in one desktop
 window. Run from the project root after synchronizing the environment:
 
 ```bash
-uv run posterior-explorer
+uv run trajectory-predictor
 ```
 
 The built-in **Help** window describes the controls, settings, and keyboard

@@ -37,7 +37,7 @@ POSTERIOR_HELP_SECTIONS = (
         "Menu",
         (
             ("File → Open CSV", "Select the CSV file for analysis"),
-            ("File → Close", "Close Posterior Explorer"),
+            ("File → Close", "Close Trajectory Predictor"),
             ("View", "Show or hide settings; open plot display options"),
             ("Settings", "Configure priors, inference, data, and playback"),
             ("Help", "Open this help window"),
@@ -183,7 +183,7 @@ class PlotDisplayWindow(tk.Toplevel):
 
 
 class PosteriorHelpWindow(tk.Toplevel):
-    """Non-modal, scrollable instructions for the posterior explorer."""
+    """Non-modal, scrollable instructions for the trajectory predictor."""
 
     def __init__(self, parent, *, on_close=None):
         super().__init__(parent)
@@ -199,7 +199,7 @@ class PosteriorHelpWindow(tk.Toplevel):
         main.pack(fill="both", expand=True)
         tk.Label(
             main,
-            text="Posterior Explorer",
+            text="Trajectory Predictor",
             font=("Arial", 13, "bold"),
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,

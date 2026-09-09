@@ -1,4 +1,4 @@
-"""Non-visible Tk integration checks for the embedded posterior explorer."""
+"""Non-visible Tk integration checks for the embedded trajectory predictor."""
 
 from threading import Event
 from time import monotonic
@@ -9,19 +9,19 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 
-from posterior_explorer.controls import (  # noqa: E402
+from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
+from trajectory_predictor.controls import (  # noqa: E402
     CSV_STATE_ROW_KEYS,
     SettingsPanel,
     format_reference_position,
     split_analysis_data_fields,
 )
-from posterior_explorer.gui import PosteriorExplorer  # noqa: E402
-from posterior_explorer.settings import (  # noqa: E402
+from trajectory_predictor.gui import TrajectoryPredictor  # noqa: E402
+from trajectory_predictor.settings import (  # noqa: E402
     DATA_OPTION_FIELDS,
     MAIN_DATA_FIELDS,
 )
-from posterior_explorer.view import centered_window_position  # noqa: E402
-from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
+from trajectory_predictor.view import centered_window_position  # noqa: E402
 
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
     PARAMETER_NAMES,
@@ -99,11 +99,11 @@ def test_status_panels_share_motion_state_row_order():
 
 def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypatch):
     """A running analysis keeps its settings immutable until cancellation."""
-    from posterior_explorer import gui
+    from trajectory_predictor import gui
 
     settings = SimpleNamespace(analysis=object())
     worker_starts, worker_requests, locked_states = [], [], []
-    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
     app._closing = False
     app._analysis_active = False
     app._settings = None
@@ -179,7 +179,7 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
     expected_height,
 ):
     """Short editors stay compact while longer forms remain scrollable."""
-    from posterior_explorer.dialogs import dialog_height_for_content
+    from trajectory_predictor.dialogs import dialog_height_for_content
 
     assert dialog_height_for_content(content_height, screen_height) == expected_height
 
@@ -197,14 +197,14 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
 )
 def test_settings_dialog_width_matches_the_edited_group(group, expected_width):
     """Small inference forms do not use the wider data-editor layout."""
-    from posterior_explorer.dialogs import dialog_width_for_group
+    from trajectory_predictor.dialogs import dialog_width_for_group
 
     assert dialog_width_for_group(group, screen_width=1920) == expected_width
 
 
 def test_settings_dialog_focuses_without_grabbing_the_main_window():
     """The main window close control remains available while a dialog is open."""
-    from posterior_explorer.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog
 
     calls = []
     dialog = SimpleNamespace(
@@ -236,11 +236,11 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
         return trajectory, 4, 1, load
 
     worker = PosteriorAnalysisWorker(prepare)
-    app = PosteriorExplorer(root, worker=worker)
+    app = TrajectoryPredictor(root, worker=worker)
     assert not hasattr(app, "status_label")
     messages = []
     monkeypatch.setattr(
-        "posterior_explorer.gui.messagebox.showerror",
+        "trajectory_predictor.gui.messagebox.showerror",
         lambda *args, **kwargs: messages.append(args),
     )
     data_file = tmp_path / "route.csv"
@@ -371,7 +371,7 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
 
 
 def test_dialog_labels_and_fields_share_vertical_center(root):
-    from posterior_explorer.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
@@ -403,7 +403,7 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
 
 
 def test_data_dialog_contains_only_data_and_replay_options(root):
-    from posterior_explorer.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
@@ -419,7 +419,7 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
 
 
 def test_plot_dialog_contains_display_options(root):
-    from posterior_explorer.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "plot")
@@ -445,7 +445,7 @@ def test_plot_dialog_contains_display_options(root):
 
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     # Keep the parent withdrawn: no visible test window or actual inference.
-    from posterior_explorer.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: pytest.fail("Unexpected analysis start"))
     original = panel.values()
@@ -456,7 +456,7 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     dialog = SettingsDialog(root, panel, "rbpf")
     errors = []
     monkeypatch.setattr(
-        "posterior_explorer.dialogs.messagebox.showerror",
+        "trajectory_predictor.dialogs.messagebox.showerror",
         lambda *args, **kwargs: errors.append(args),
     )
     dialog.variables["particle_count"].set("0")
@@ -512,7 +512,7 @@ class _Value:
 
 
 def test_toggle_settings_switches_posterior_display_mode():
-    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
     app.settings_visible = True
     app.settings_visible_var = _Value(True)
     app.controls = SimpleNamespace(
@@ -534,7 +534,7 @@ def test_toggle_settings_switches_posterior_display_mode():
 def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     # Only native window creation is replaced. Real controller methods handle
     # visibility, method selection, and closing with an open settings editor.
-    from posterior_explorer import view
+    from trajectory_predictor import view
 
     root_options, button_options, closed = {}, {}, []
     dialogs = []
@@ -552,7 +552,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         def cancel(self):
             self.exists = False
 
-    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
     app.root = SimpleNamespace(configure=lambda **options: root_options.update(options))
     app.worker = SimpleNamespace(close=lambda: closed.append(True))
     app.controls = SimpleNamespace(
@@ -588,7 +588,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.show_plot_display = lambda: plot_windows.append(True)
     app.plot_view = None
     monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
-    monkeypatch.setattr("posterior_explorer.gui.SettingsDialog", Dialog)
+    monkeypatch.setattr("trajectory_predictor.gui.SettingsDialog", Dialog)
     view.create_menu_bar(app)
     menu = root_options["menu"]
     view.set_analysis_menu_enabled(app, False)
@@ -655,11 +655,11 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
         def focus_set(self):
             self.focused = True
 
-    app = PosteriorExplorer.__new__(PosteriorExplorer)
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
     app.root = object()
     app._closing = False
     app._help_window = None
-    monkeypatch.setattr("posterior_explorer.gui.PosteriorHelpWindow", HelpWindow)
+    monkeypatch.setattr("trajectory_predictor.gui.PosteriorHelpWindow", HelpWindow)
 
     app.show_help()
     app.show_help()
@@ -673,7 +673,7 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
 
 def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
     """Every help section starts descriptions at the same horizontal position."""
-    from posterior_explorer import dialogs
+    from trajectory_predictor import dialogs
 
     options = []
 
@@ -693,7 +693,7 @@ def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
 
 def test_help_window_uses_ship_simulator_content_height_and_top_left_position():
     """Help stays tall enough for reading and opens at the top-left screen corner."""
-    from posterior_explorer.dialogs import (
+    from trajectory_predictor.dialogs import (
         help_content_height_for_screen,
         help_window_position,
     )

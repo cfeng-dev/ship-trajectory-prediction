@@ -1,4 +1,4 @@
-"""Launch the Bayesian CTRV posterior explorer."""
+"""Launch the Bayesian CTRV trajectory predictor."""
 
 import argparse
 
@@ -14,13 +14,13 @@ def main(argv=None):
             2, f"Tkinter is not available in this Python installation: {error}\n"
         )
 
-    from .gui import PosteriorExplorer
+    from .gui import TrajectoryPredictor
 
     try:
         root = tk.Tk()
     except tk.TclError as error:
         parser.exit(2, f"Das Tk-Fenster konnte nicht gestartet werden: {error}\n")
-    app = PosteriorExplorer(root)
+    app = TrajectoryPredictor(root)
     try:
         root.mainloop()
     finally:

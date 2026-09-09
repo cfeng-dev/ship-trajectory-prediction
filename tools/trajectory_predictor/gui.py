@@ -16,7 +16,7 @@ from .settings import (
 )
 
 
-class PosteriorExplorer:
+class TrajectoryPredictor:
     """One Tk window, with all widget and Matplotlib access on its main thread."""
 
     def __init__(self, root, *, worker=None):

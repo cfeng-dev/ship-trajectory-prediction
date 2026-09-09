@@ -1,15 +1,15 @@
 """GUI settings are validated without creating a window or starting inference."""
 
 import pytest
-from posterior_explorer import settings
-from posterior_explorer.cli import main
+from trajectory_predictor import settings
+from trajectory_predictor.cli import main
 
 
 def test_command_help_does_not_open_a_window(capsys):
     with pytest.raises(SystemExit) as result:
         main(["--help"])
     assert result.value.code == 0
-    assert "posterior explorer" in capsys.readouterr().out
+    assert "trajectory predictor" in capsys.readouterr().out
 
 
 @pytest.fixture
