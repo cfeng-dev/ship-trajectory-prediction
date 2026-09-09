@@ -52,7 +52,7 @@ def prepare_analysis(settings: AnalysisSettings):
     )
     if data.empty:
         raise ValueError(
-            f"Keine Daten für Run-ID {settings.experiment.run_id} gefunden."
+            f"Run ID {settings.experiment.run_id} was not found in the selected CSV file."
         )
     return dashboard.create_posterior_dashboard_loader(
         data,

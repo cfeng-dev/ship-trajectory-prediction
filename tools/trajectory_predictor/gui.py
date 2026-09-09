@@ -296,6 +296,7 @@ class TrajectoryPredictor:
             self._show_error(event.payload)
 
     def _show_error(self, detail):
+        messagebox.showerror("Analysis failed", detail, parent=self.root)
         self._error = detail
         self._computing = None
         self._analysis_active = False

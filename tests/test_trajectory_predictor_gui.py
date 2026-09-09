@@ -307,6 +307,28 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
     assert not worker.is_alive
 
 
+def test_worker_error_is_shown_in_an_analysis_failed_dialog(root, monkeypatch):
+    app = TrajectoryPredictor(root)
+    messages = []
+    monkeypatch.setattr(
+        "trajectory_predictor.gui.messagebox.showerror",
+        lambda *args, **kwargs: messages.append((args, kwargs)),
+    )
+    try:
+        app._show_error("ValueError: Run ID 999 was not found.")
+
+        assert messages == [
+            (
+                ("Analysis failed", "ValueError: Run ID 999 was not found."),
+                {"parent": root},
+            )
+        ]
+    finally:
+        app.close()
+        app.worker.join(5)
+        root.update()
+
+
 def test_settings_panel_scrolls_analysis_and_data_together(root):
     panel = SettingsPanel(root, lambda: None)
     panel.pack(fill="both", expand=True)

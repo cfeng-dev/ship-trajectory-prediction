@@ -1542,7 +1542,9 @@ def _prepare_posterior_dashboard_trajectory(
     available_observation_count = len(trajectory_data) - start_index
     if available_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
         raise ValueError(
-            "The selected trajectory must provide at least four consecutive positions."
+            f"Start index {start_index} is too large: the selected trajectory has "
+            f"{len(trajectory_data)} positions, but at least four consecutive "
+            "positions are required."
         )
     maximum_supported_count = available_observation_count - int(reserve_prediction)
     maximum_observation_count = experiment.maximum_observation_count
