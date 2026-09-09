@@ -52,6 +52,34 @@ def test_dashboard_labels_clear_adjacent_panels_and_controls(figure_size, dpi):
         navigator.disconnect()
 
 
+def test_dashboard_keeps_the_trajectory_plot_box_and_linear_speed_axis():
+    dashboard = _load_dashboard_module()
+    figure = Figure(figsize=(15, 8.5), dpi=100)
+    canvas = FigureCanvasAgg(figure)
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 50.0],
+        reference_y=[0.0, 20.0],
+        observed_x=[0.0, 50.0],
+        observed_y=[0.0, 20.0],
+    )
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(count, _dashboard_samples()),
+        maximum_observation_count=2,
+        figure=figure,
+    )
+    try:
+        canvas.draw()
+
+        assert navigator.posterior_axes[0].get_xscale() == "linear"
+        assert navigator.trajectory_axis.get_position().bounds == pytest.approx(
+            navigator.trajectory_axis.get_subplotspec().get_position(figure).bounds
+        )
+    finally:
+        navigator.disconnect()
+
+
 def _assert_dashboard_vertical_spacing(navigator, renderer):
     minimum_gap = renderer.points_to_pixels(6)
     for upper, lower in zip(

@@ -36,6 +36,7 @@ PARAMETER_GROUPS = {
         "turn_rate_process_noise",
     ),
 }
+NOISE_PARAMETER_NAMES = frozenset(PARAMETER_GROUPS["noise"])
 PARAMETER_POSTERIOR_MINIMUM_OBSERVATION_COUNTS = {
     "current_speed": 2,
     "current_heading": 2,
@@ -888,7 +889,7 @@ class PosteriorDashboardNavigator:
         axis.set_ylabel(y_label, fontsize=11)
         axis.grid(alpha=0.25, linewidth=0.8)
         axis.tick_params(labelsize=10)
-        axis.set_aspect(spatial_aspect, adjustable="box")
+        axis.set_aspect(spatial_aspect, adjustable="datalim")
         if self.coordinate_display_mode == "gps":
             axis.ticklabel_format(style="plain", useOffset=False)
         if view_limits is not None:
@@ -1234,7 +1235,7 @@ class PosteriorDashboardNavigator:
         axis.set_title(title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Density", fontsize=10)
-        if spec.support == "positive":
+        if parameter_name in NOISE_PARAMETER_NAMES:
             axis.set_xscale("log")
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))
         if spec.support == "circular":
