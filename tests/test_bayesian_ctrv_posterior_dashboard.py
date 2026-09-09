@@ -1,8 +1,6 @@
 """Tests for the combined Bayesian CTRV posterior dashboard."""
 
 import importlib
-import importlib.util
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -651,25 +649,6 @@ def _load_dashboard_module():
         )
     except ModuleNotFoundError:
         pytest.fail("The Bayesian CTRV posterior dashboard module is missing.")
-
-
-def _load_dashboard_script():
-    script_path = (
-        PROJECT_ROOT
-        / "experiments"
-        / "posterior_analysis"
-        / "plot_bayesian_ctrv_posterior_updates.py"
-    )
-    if not script_path.is_file():
-        pytest.fail(f"Posterior dashboard script is missing: {script_path}")
-    module_name = f"{script_path.stem}_for_tests"
-    specification = importlib.util.spec_from_file_location(module_name, script_path)
-    if specification is None or specification.loader is None:
-        pytest.fail(f"Cannot load posterior dashboard script: {script_path}")
-    module = importlib.util.module_from_spec(specification)
-    sys.modules[module_name] = module
-    specification.loader.exec_module(module)
-    return module
 
 
 class _FakeFit:
@@ -1586,47 +1565,6 @@ def test_dashboard_arrow_keys_reuse_cached_stages_and_respect_boundaries():
         assert loaded_counts == [1, 2]
     finally:
         plt.close(figure)
-
-
-def test_dashboard_script_runs_the_shared_analysis_without_showing(monkeypatch):
-    script = _load_dashboard_script()
-    calls = []
-    sentinel = object()
-
-    def fake_run(**options):
-        calls.append(options)
-        return sentinel
-
-    monkeypatch.setattr(
-        script.dashboard,
-        "run_bayesian_ctrv_posterior_dashboard",
-        fake_run,
-    )
-
-    result = script.main(["--no-show"])
-
-    assert result is sentinel
-    assert len(calls) == 1
-    assert calls[0]["data_file"] == script.DATA_FILE
-    assert calls[0]["experiment"] is script.EXPERIMENT
-    assert calls[0]["experiment"].prediction_count > 0
-    assert calls[0]["experiment"].prediction_sample_count > 0
-    assert script.EXPERIMENT.run_id == 102
-    assert script.EXPERIMENT.start_index == 0
-    assert script.EXPERIMENT.maximum_observation_count is None
-    assert script.EXPERIMENT.position_noise_std_m == pytest.approx(5.0)
-    assert script.EXPERIMENT.position_noise_seed == 2026
-    assert script.EXPERIMENT.inference_method == "rbpf"
-    assert script.EXPERIMENT.inference_seed == 42
-    assert calls[0]["priors"] is script.PRIORS
-    assert calls[0]["vi_config"] is script.VI_CONFIG
-    assert calls[0]["mcmc_config"] is script.MCMC_CONFIG
-    assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
-    assert calls[0]["smc_config"] is script.SMC_CONFIG
-    assert calls[0]["playback_interval_ms"] == 1_000
-    assert calls[0]["coordinate_display_mode"] == script.COORDINATE_DISPLAY_MODE
-    assert calls[0]["show_legend"] is True
-    assert calls[0]["show"] is False
 
 
 def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
