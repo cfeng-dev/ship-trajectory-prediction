@@ -16,7 +16,6 @@ from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
     COORDINATE_DISPLAY_MODES as _COORDINATE_DISPLAY_MODES,
 )
 from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
-    DEFAULT_PLAYBACK_INTERVAL_MS,
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
@@ -51,7 +50,7 @@ DATA_OPTION_FIELDS = (
     "prediction_count",
     "prediction_sample_count",
     "inference_seed",
-    "playback_interval_ms",
+    "playback_interval_seconds",
 )
 DISPLAY_OPTION_FIELDS = (
     "show_legend",
@@ -76,7 +75,7 @@ LABELS = {
     "position_noise_std_m": "Additional position noise [m]",
     "position_noise_seed": "Position-noise seed",
     "inference_seed": "Inference seed",
-    "playback_interval_ms": "Playback interval [ms]",
+    "playback_interval_seconds": "Playback interval [s]",
     "show_legend": "Show legend",
     "show_reference_trajectory": "Show recorded trajectory",
     "show_observed_trajectory": "Show observations through N",
@@ -146,7 +145,7 @@ def _defaults():
             "position_noise_std_m": 5.0,
             "position_noise_seed": 2026,
             "inference_seed": 42,
-            "playback_interval_ms": DEFAULT_PLAYBACK_INTERVAL_MS,
+            "playback_interval_seconds": 1.0,
             "coordinate_display_mode": "m",
             "show_legend": True,
             "show_reference_trajectory": True,
@@ -246,8 +245,11 @@ def _validate_data_options(fields):
     for key in ("position_noise_std_m", "position_noise_seed", "inference_seed"):
         if key in fields:
             _minimum(fields, key, 0)
-    if "playback_interval_ms" in fields:
-        _minimum(fields, "playback_interval_ms", 1)
+    if (
+        "playback_interval_seconds" in fields
+        and fields["playback_interval_seconds"] <= 0
+    ):
+        raise ValueError("Playback interval must be greater than 0.")
     if "coordinate_display_mode" in fields:
         fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
             fields["coordinate_display_mode"]
@@ -302,7 +304,8 @@ def parse_settings(values) -> ExplorerSettings:
     for key in ("run_id", "start_index"):
         _minimum(data, key, 0)
     _validate_data_options(data)
-    interval = data.pop("playback_interval_ms")
+    playback_interval_seconds = data.pop("playback_interval_seconds")
+    interval = max(1, round(playback_interval_seconds * 1_000))
     coordinate_display_mode = data.pop("coordinate_display_mode")
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))

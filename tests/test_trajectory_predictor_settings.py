@@ -49,7 +49,7 @@ def test_inference_method_display_labels_normalize_to_internal_values():
         ("data", "run_id", "1.2"),
         ("data", "maximum_observation_count", "2"),
         ("data", "position_noise_std_m", "nan"),
-        ("data", "playback_interval_ms", "0"),
+        ("data", "playback_interval_seconds", "0"),
         ("priors", "speed_prior_tail_probability", "1"),
         ("rbpf", "posterior_draw_count", "1"),
         ("rbpf", "resample_ess_fraction", "1.1"),
@@ -127,7 +127,7 @@ def test_inference_dialog_validates_the_method_being_edited(method):
         settings.validate_dialog_values(method, values)
 
 
-def test_data_options_dialog_preserves_units_and_validates_interval():
+def test_data_options_dialog_preserves_seconds_and_validates_intervals():
     values = {
         "start_index": "2",
         "observation_interval_seconds": "10",
@@ -137,7 +137,7 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "prediction_count": "8",
         "prediction_sample_count": "0",
         "inference_seed": "456",
-        "playback_interval_ms": "1500",
+        "playback_interval_seconds": "1.5",
     }
     result = settings.validate_dialog_values("data", values)
     assert result == {
@@ -149,15 +149,23 @@ def test_data_options_dialog_preserves_units_and_validates_interval():
         "prediction_count": 8,
         "prediction_sample_count": 0,
         "inference_seed": 456,
-        "playback_interval_ms": 1500,
+        "playback_interval_seconds": 1.5,
     }
-    values["playback_interval_ms"] = "0"
+    values["playback_interval_seconds"] = "0"
     with pytest.raises(ValueError):
         settings.validate_dialog_values("data", values)
-    values["playback_interval_ms"] = "1500"
+    values["playback_interval_seconds"] = "1.5"
     values["observation_interval_seconds"] = "0"
     with pytest.raises(ValueError, match="Observation interval"):
         settings.validate_dialog_values("data", values)
+
+
+def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
+    form["data"]["playback_interval_seconds"] = "1.5"
+
+    result = settings.parse_settings(form)
+
+    assert result.playback_interval_ms == 1500
 
 
 def test_plot_options_dialog_validates_display_switches_independently():
