@@ -672,9 +672,7 @@ def test_async_playback_stops_after_final_result_not_when_requested():
 
 def _load_dashboard_module():
     try:
-        return importlib.import_module(
-            "bayestraj.validation.bayesian_ctrv_posterior_dashboard"
-        )
+        return importlib.import_module("trajectory_predictor.dashboard")
     except ModuleNotFoundError:
         pytest.fail("The Bayesian CTRV posterior dashboard module is missing.")
 

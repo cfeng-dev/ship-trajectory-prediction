@@ -16,6 +16,11 @@ from trajectory_predictor.controls import (  # noqa: E402
     format_reference_position,
     split_analysis_data_fields,
 )
+from trajectory_predictor.dashboard import (  # noqa: E402
+    PARAMETER_NAMES,
+    PosteriorDashboardTrajectory,
+    PosteriorDashboardUpdate,
+)
 from trajectory_predictor.gui import TrajectoryPredictor  # noqa: E402
 from trajectory_predictor.session import PosteriorAnalysisWorker  # noqa: E402
 from trajectory_predictor.settings import (  # noqa: E402
@@ -23,12 +28,6 @@ from trajectory_predictor.settings import (  # noqa: E402
     MAIN_DATA_FIELDS,
 )
 from trajectory_predictor.view import centered_window_position  # noqa: E402
-
-from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (  # noqa: E402
-    PARAMETER_NAMES,
-    PosteriorDashboardTrajectory,
-    PosteriorDashboardUpdate,
-)
 
 
 def pump_until(root, predicate):

@@ -13,10 +13,11 @@ from queue import Empty, Queue
 from threading import Condition, Thread
 
 import bayestraj.observations.io as observations_io
-import bayestraj.validation.bayesian_ctrv_posterior_dashboard as dashboard
 from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+
+from . import dashboard
 
 
 @dataclass(frozen=True)

@@ -17,12 +17,13 @@ import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
-import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
+
+from . import coordinates
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
 PARAMETER_GROUPS = {

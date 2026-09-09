@@ -5,10 +5,9 @@ import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
-from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
+from .dashboard import (
     create_sequential_posterior_dashboard_figure,
 )
-
 from .view import PLOT_BACKGROUND
 
 

@@ -12,16 +12,16 @@ from bayestraj.inference.configuration import (
 )
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.paths import data_path
-from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
+
+from .dashboard import (
     COORDINATE_DISPLAY_MODES as _COORDINATE_DISPLAY_MODES,
 )
-from bayestraj.validation.bayesian_ctrv_posterior_dashboard import (
+from .dashboard import (
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
     normalize_coordinate_display_mode,
 )
-
 from .session import AnalysisSettings
 
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
