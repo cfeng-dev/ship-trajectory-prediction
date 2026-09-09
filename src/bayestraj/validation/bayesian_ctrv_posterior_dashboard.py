@@ -1234,6 +1234,8 @@ class PosteriorDashboardNavigator:
         axis.set_title(title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)
         axis.set_ylabel("Density", fontsize=10)
+        if spec.support == "positive":
+            axis.set_xscale("log")
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))
         if spec.support == "circular":
             axis.set_xticks([-180.0, -90.0, 0.0, 90.0, 180.0])

@@ -20,12 +20,11 @@ dependencies = [
 
 [project.scripts]
 ship-simulator = "ship_simulator.cli:main"
-trajectory_checker = "trajectory_checker.cli:main"
 trajectory-predictor = "trajectory_predictor.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "tools"]
-include = ["bayestraj*", "ship_simulator*", "trajectory_checker*", "trajectory_predictor*"]
+include = ["bayestraj*", "ship_simulator*", "trajectory_predictor*"]
 
 [tool.ruff]
 line-length = 88

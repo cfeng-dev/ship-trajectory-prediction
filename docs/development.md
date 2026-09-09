@@ -38,23 +38,7 @@ when recorded trajectory data are unavailable. Run it from the project root:
 uv run ship-simulator
 ```
 
-### 2. Trajectory Data Checker
-
-Run the checker from the project root. It verifies that a CSV follows the
-project's trajectory-data format and basic quality requirements before it is
-used by the models.
-
-```bash
-uv run trajectory_checker path/to/trajectory.csv
-```
-
-Only the first ten runs are shown by default. Show all runs with:
-
-```bash
-uv run trajectory_checker path/to/trajectory.csv --all-runs
-```
-
-### 3. Trajectory Predictor
+### 2. Trajectory Predictor
 
 Inspect the ship's trajectory and Bayesian CTRV posterior updates in one desktop
 window. Run from the project root after synchronizing the environment:

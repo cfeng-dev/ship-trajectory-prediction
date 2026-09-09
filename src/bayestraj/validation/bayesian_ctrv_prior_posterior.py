@@ -766,10 +766,21 @@ def _build_density_grid(spec, priors, updates):
         prior_upper = -np.log(PLOT_TAIL_PROBABILITY) / rates[spec.parameter_name]
 
     posterior_upper = 0.0
+    posterior_values = np.array((), dtype=float)
     if updates:
         posterior_values = np.concatenate([update.samples for update in updates])
         posterior_upper = float(np.quantile(np.abs(posterior_values), 0.995)) * 1.1
     upper = max(float(prior_upper), posterior_upper, np.finfo(float).eps)
+    if spec.support == "positive":
+        positive_posterior_values = posterior_values[posterior_values > 0.0]
+        if positive_posterior_values.size:
+            lower = max(
+                float(np.quantile(positive_posterior_values, 0.005)) * 0.5,
+                np.finfo(float).tiny,
+            )
+        else:
+            lower = upper * 1e-5
+        return np.geomspace(lower, upper, DENSITY_POINT_COUNT)
     lower = -upper if spec.support == "real" else 0.0
     return np.linspace(lower, upper, DENSITY_POINT_COUNT)
 

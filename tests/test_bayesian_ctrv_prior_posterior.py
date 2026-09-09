@@ -167,6 +167,22 @@ def test_prior_densities_follow_the_configured_distributions_and_units():
     )[0] == pytest.approx(priors.sigma_turn_rate_process_prior_rate * np.pi / 180.0)
 
 
+def test_positive_density_grid_resolves_a_near_zero_posterior():
+    analysis = _load_analysis_module()
+    priors = bayesian_model.BayesianCTRVPriors()
+    spec = analysis.build_parameter_spec("position_observation_noise", priors)
+    samples = np.linspace(1e-6, 2e-6, 20)
+    update = analysis.PosteriorUpdate(1, samples)
+
+    x_values = analysis._build_density_grid(spec, priors, (update,))
+
+    positive_x_values = x_values[x_values > 0.0]
+    closest_log_distance = np.min(
+        np.abs(np.log(positive_x_values / np.median(samples)))
+    )
+    assert closest_log_distance < 0.1
+
+
 def test_terminal_prior_descriptions_are_ascii_safe():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
