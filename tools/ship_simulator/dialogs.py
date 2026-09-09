@@ -213,7 +213,6 @@ def save_csv(gui):
 
     trajectory_df = simulation_io.create_simulation_dataframe(
         simulator=gui.simulator,
-        random_seed=42,
         start_time=gui.simulation_start_time,
         reference_longitude=gui.reference_longitude,
         reference_latitude=gui.reference_latitude,

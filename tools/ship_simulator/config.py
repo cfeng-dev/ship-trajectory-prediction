@@ -33,7 +33,6 @@ class GUIConfig:
     # Initial simulation values
     # ==================================================
     initial_speed: float = 5.0
-    observation_noise_sigma: float = 0.2
 
     # ==================================================
     # Steering slider settings in degrees per second [°/s]

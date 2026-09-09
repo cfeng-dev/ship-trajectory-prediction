@@ -35,7 +35,6 @@ class ShipTrajectoryGUI:
         # ==================================================
         self.simulator = core.ShipSimulator(
             v=self.initial_speed,
-            sigma=self.observation_noise_sigma,
             dt=self.simulation_dt,
         )
 

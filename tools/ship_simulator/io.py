@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import coordinates, core, paths
+from . import coordinates, paths
 
 METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6
 DATA_DIR = paths.default_simulation_data_directory()
@@ -98,7 +98,6 @@ def _get_next_run_id(output_path, expected_columns):
 
 def create_simulation_dataframe(
     simulator,
-    random_seed=42,
     start_time=None,
     *,
     reference_longitude,
@@ -111,8 +110,6 @@ def create_simulation_dataframe(
     ----------
     simulator : ShipSimulator
         Simulator instance containing stored trajectory data.
-    random_seed : int, optional
-        Random seed for reproducible observation noise.
     start_time : datetime-like or None, optional
         UTC time corresponding to ``t = 0``. The current UTC time is used if
         no start time is provided.
@@ -122,13 +119,13 @@ def create_simulation_dataframe(
     Returns
     -------
     trajectory_df : pd.DataFrame
-        Simulated trajectory data including true positions, noisy GPS-like
-        observations, GPS speed in km/h, and simulated speed in m/s.
+        Simulated trajectory data including GPS positions, GPS speed in km/h,
+        and simulated motion values.
     """
-    x_true = np.array(simulator.x_all)
-    y_true = np.array(simulator.y_all)
-    elapsed_time = np.array(simulator.t_all)
-    speed_mps = np.array(simulator.v_all)
+    x_positions = np.asarray(simulator.x_all, dtype=float)
+    y_positions = np.asarray(simulator.y_all, dtype=float)
+    elapsed_time = np.asarray(simulator.t_all, dtype=float)
+    speed_mps = np.asarray(simulator.v_all, dtype=float)
 
     if start_time is None:
         start_timestamp = pd.Timestamp.now(tz="UTC").floor("s")
@@ -141,20 +138,13 @@ def create_simulation_dataframe(
 
     timestamps = start_timestamp + pd.to_timedelta(elapsed_time, unit="s")
 
-    x_obs, y_obs = core.add_observation_noise(
-        x=x_true,
-        y=y_true,
-        sigma=simulator.sigma,
-        random_seed=random_seed,
-    )
-
-    if len(x_obs) == 0:
-        gps_longitude = np.array([])
-        gps_latitude = np.array([])
+    if len(x_positions) == 0:
+        gps_longitude = np.asarray([])
+        gps_latitude = np.asarray([])
     else:
         gps_longitude, gps_latitude = coordinates.local_to_gps_coordinates(
-            x_obs,
-            y_obs,
+            x_positions,
+            y_positions,
             reference_longitude=reference_longitude,
             reference_latitude=reference_latitude,
         )
@@ -166,16 +156,10 @@ def create_simulation_dataframe(
             "gps_longitude": gps_longitude,
             "gps_speed": (speed_mps * METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR),
             "t": elapsed_time,
-            "x_true": x_true,
-            "y_true": y_true,
-            "x_obs": x_obs,
-            "y_obs": y_obs,
-            "theta": np.array(simulator.theta_all),
-            "omega": np.array(simulator.omega_all),
-            "radius": np.array(simulator.radius_all),
+            "theta": np.asarray(simulator.theta_all, dtype=float),
+            "omega": np.asarray(simulator.omega_all, dtype=float),
             "v": speed_mps,
-            "sigma": simulator.sigma,
-            "simulation_running": np.array(simulator.motor_state_all),
+            "simulation_running": np.asarray(simulator.motor_state_all, dtype=bool),
         }
     )
 

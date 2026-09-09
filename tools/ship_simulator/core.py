@@ -67,36 +67,6 @@ def simulate_curved_trajectory(t, x0, y0, v, radius, theta):
     return x, y
 
 
-def add_observation_noise(x, y, sigma, random_seed=None):
-    """
-    Add Gaussian observation noise to simulated trajectory positions.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        True x-positions.
-    y : np.ndarray
-        True y-positions.
-    sigma : float
-        Standard deviation of the Gaussian observation noise.
-    random_seed : int, optional
-        Random seed for reproducible results.
-
-    Returns
-    -------
-    x_obs : np.ndarray
-        Noisy observed x-positions.
-    y_obs : np.ndarray
-        Noisy observed y-positions.
-    """
-    rng = np.random.default_rng(random_seed)
-
-    x_obs = x + rng.normal(0, sigma, size=len(x))
-    y_obs = y + rng.normal(0, sigma, size=len(y))
-
-    return x_obs, y_obs
-
-
 class ShipSimulator:
     """
     Step-based simulator for a simple 2D ship trajectory.
@@ -108,7 +78,6 @@ class ShipSimulator:
     def __init__(
         self,
         v=0.5,
-        sigma=0.2,
         dt=0.05,
     ):
         """
@@ -118,13 +87,10 @@ class ShipSimulator:
         ----------
         v : float
             Initial ship speed.
-        sigma : float
-            Observation noise standard deviation.
         dt : float
             Simulation time step in seconds.
         """
         self.v = v
-        self.sigma = sigma
         self.dt = dt
 
         self.reset()
