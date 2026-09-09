@@ -36,20 +36,29 @@ PARAMETER_GROUPS = {
         "turn_rate_process_noise",
     ),
 }
-MOTION_POSTERIOR_MINIMUM_OBSERVATION_COUNTS = {
+PARAMETER_POSTERIOR_MINIMUM_OBSERVATION_COUNTS = {
     "current_speed": 2,
     "current_heading": 2,
     "current_turn_rate": 3,
+    "position_observation_noise": 2,
+    "speed_process_noise": 2,
+    "turn_rate_process_noise": 2,
 }
-MOTION_PRIOR_TITLES = {
+PARAMETER_PRIOR_TITLES = {
     "current_speed": "Initial speed prior",
     "current_heading": "Initial heading prior",
     "current_turn_rate": "Initial turn-rate prior",
+    "position_observation_noise": "Initial position-observation-noise prior",
+    "speed_process_noise": "Initial speed-process-noise prior",
+    "turn_rate_process_noise": "Initial turn-rate-process-noise prior",
 }
-MOTION_POSTERIOR_TITLES = {
+PARAMETER_POSTERIOR_TITLES = {
     "current_speed": "Speed posterior",
     "current_heading": "Heading posterior",
     "current_turn_rate": "Turn-rate posterior",
+    "position_observation_noise": "Position-observation-noise posterior",
+    "speed_process_noise": "Speed-process-noise posterior",
+    "turn_rate_process_noise": "Turn-rate-process-noise posterior",
 }
 PARAMETER_GROUP_LABELS = {
     "motion": "Motion state",
@@ -1177,7 +1186,7 @@ class PosteriorDashboardNavigator:
         )
         minimum_posterior_observation_count = max(
             self.minimum_posterior_observation_count,
-            MOTION_POSTERIOR_MINIMUM_OBSERVATION_COUNTS.get(parameter_name, 0),
+            PARAMETER_POSTERIOR_MINIMUM_OBSERVATION_COUNTS.get(parameter_name, 0),
         )
         posterior_available = (
             self.observation_count >= minimum_posterior_observation_count
@@ -1216,11 +1225,11 @@ class PosteriorDashboardNavigator:
                 color="0.35",
             )
         title = spec.title
-        if parameter_name in MOTION_PRIOR_TITLES:
+        if parameter_name in PARAMETER_PRIOR_TITLES:
             title = (
-                MOTION_POSTERIOR_TITLES[parameter_name]
+                PARAMETER_POSTERIOR_TITLES[parameter_name]
                 if posterior_available
-                else MOTION_PRIOR_TITLES[parameter_name]
+                else PARAMETER_PRIOR_TITLES[parameter_name]
             )
         axis.set_title(title, fontsize=11, pad=6)
         axis.set_xlabel(spec.x_label, fontsize=10)

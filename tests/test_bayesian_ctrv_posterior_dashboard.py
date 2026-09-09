@@ -332,7 +332,11 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     assert motion_axes[0].get_title() == "Initial speed prior"
     assert motion_axes[1].get_title() == "Initial heading prior"
     assert motion_axes[2].get_title() == "Initial turn-rate prior"
-    assert noise_axes[0].get_title() == "Position observation noise"
+    assert [axis.get_title() for axis in noise_axes] == [
+        "Initial position-observation-noise prior",
+        "Initial speed-process-noise prior",
+        "Initial turn-rate-process-noise prior",
+    ]
     assert motion_axes[0].get_position().x1 < noise_axes[0].get_position().x0
     assert navigator.trajectory_axis.get_position().width == pytest.approx(
         compact_trajectory_position.width
@@ -349,6 +353,10 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
         [line.get_label() for line in axis.lines] == ["Initial prior"]
         for axis in motion_axes
     )
+    assert all(
+        [line.get_label() for line in axis.lines] == ["Initial prior"]
+        for axis in noise_axes
+    )
 
     navigator.slider.set_val(2)
     navigator.show_selected_observation_count(None)
@@ -358,6 +366,11 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
         "Initial turn-rate prior",
     ]
     assert [line.get_label() for line in motion_axes[2].lines] == ["Initial prior"]
+    assert [axis.get_title() for axis in noise_axes] == [
+        "Position-observation-noise posterior",
+        "Speed-process-noise posterior",
+        "Turn-rate-process-noise posterior",
+    ]
 
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
