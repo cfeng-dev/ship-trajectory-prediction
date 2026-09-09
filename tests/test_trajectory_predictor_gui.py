@@ -112,6 +112,7 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
     app.controls = SimpleNamespace(
         values=lambda: {},
         show_reference_state=lambda _state: None,
+        show_analysis_metrics=lambda _metrics: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
     app.placeholder = SimpleNamespace(
@@ -134,16 +135,29 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
 
 
 def test_settings_panel_displays_reference_csv_state(root):
-    """The sidebar presents unmodified trajectory values, not posterior draws."""
+    """The sidebar presents reference values and the displayed forecast metrics."""
     panel = SettingsPanel(root, lambda: None, lambda: None)
 
     panel.show_reference_state((11.0, -3.0, 2.0, 2.0, 2.0, "m", 12.5))
+    panel.show_analysis_metrics(
+        SimpleNamespace(
+            ade_m=2.5,
+            fde_m=4.0,
+            joint_coverage_count=7,
+            joint_coverage_total=8,
+            inference_time_seconds=0.125,
+        )
+    )
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"
     assert panel.posterior_state_values["heading"].get() == "2.00°"
     assert panel.posterior_state_values["turn_rate"].get() == "2.00°/s"
     assert panel.posterior_state_values["time"].get() == "12.5 s"
+    assert panel.analysis_metric_values["forecast_ade"].get() == "2.50 m"
+    assert panel.analysis_metric_values["forecast_fde"].get() == "4.00 m"
+    assert panel.analysis_metric_values["joint_coverage"].get() == "87.5% (7/8)"
+    assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
 
 
 def test_help_documents_analysis_setup_options():

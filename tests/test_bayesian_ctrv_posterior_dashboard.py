@@ -749,6 +749,89 @@ def test_dashboard_trajectory_reveals_reference_state_when_informative():
     assert third_position[6] == pytest.approx(25.0)
 
 
+def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable():
+    """A one-position prior forecast does not receive trajectory metrics."""
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 3.0],
+        reference_y=[0.0, 0.0, 0.0],
+        observed_x=[0.0, 1.0, 3.0],
+        observed_y=[0.0, 0.0, 0.0],
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[1.0, 2.0],
+        median_positions=[[1.0, 0.0], [4.0, 0.0]],
+        sample_positions=np.asarray(
+            [
+                [[0.9, -0.1], [3.9, -0.1]],
+                [[0.9, 0.1], [3.9, 0.1]],
+                [[1.1, -0.1], [4.1, -0.1]],
+                [[1.1, 0.1], [4.1, 0.1]],
+            ]
+        ),
+    )
+    update = dashboard.PosteriorDashboardUpdate(
+        1,
+        _dashboard_samples(),
+        inference_time_seconds=0.25,
+        forecast=forecast,
+    )
+
+    metrics = dashboard.analysis_metrics_at(trajectory, {1: update}, 1)
+
+    assert metrics.ade_m is None
+    assert metrics.fde_m is None
+    assert metrics.joint_coverage_count == 0
+    assert metrics.joint_coverage_total == 0
+    assert metrics.inference_time_seconds is None
+
+
+def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
+    """Metrics use the current median forecast and 2D 90% forecast regions."""
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 3.0, 5.0],
+        reference_y=[0.0, 0.0, 0.0, 0.0],
+        observed_x=[0.0, 1.0, 3.0, 5.0],
+        observed_y=[0.0, 0.0, 0.0, 0.0],
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[1.0, 2.0],
+        median_positions=[[3.0, 0.0], [6.0, 0.0]],
+        sample_positions=np.asarray(
+            [
+                [[2.9, -0.1], [5.9, -0.1]],
+                [[2.9, 0.1], [5.9, 0.1]],
+                [[3.1, -0.1], [6.1, -0.1]],
+                [[3.1, 0.1], [6.1, 0.1]],
+            ]
+        ),
+    )
+    update = dashboard.PosteriorDashboardUpdate(
+        2,
+        _dashboard_samples(),
+        inference_time_seconds=0.25,
+        forecast=forecast,
+    )
+    prior_update = dashboard.PosteriorDashboardUpdate(
+        1,
+        _dashboard_samples(),
+        forecast=forecast,
+    )
+
+    metrics = dashboard.analysis_metrics_at(
+        trajectory,
+        {1: prior_update, 2: update},
+        2,
+    )
+
+    assert metrics.ade_m == pytest.approx(0.5)
+    assert metrics.fde_m == pytest.approx(1.0)
+    assert metrics.joint_coverage_count == 1
+    assert metrics.joint_coverage_total == 2
+    assert metrics.inference_time_seconds == pytest.approx(0.25)
+
+
 def _dashboard_fit_variables():
     return {
         "speed_at_origin": np.asarray([2.0, 3.0]),

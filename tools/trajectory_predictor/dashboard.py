@@ -20,6 +20,7 @@ import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
+import bayestraj.validation.metrics as validation_metrics
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 
@@ -71,6 +72,7 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
+ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
 
@@ -282,6 +284,17 @@ class PosteriorDashboardForecast:
 
 
 @dataclass(frozen=True, slots=True)
+class DashboardAnalysisMetrics:
+    """Forecast accuracy and computation diagnostics for one displayed stage."""
+
+    ade_m: float | None
+    fde_m: float | None
+    joint_coverage_count: int
+    joint_coverage_total: int
+    inference_time_seconds: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class PosteriorDashboardUpdate:
     """All parameter draws and diagnostics after one inference stage."""
 
@@ -291,12 +304,18 @@ class PosteriorDashboardUpdate:
     particle_count: int | None = None
     resample_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
+    inference_time_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
             raise TypeError("forecast must be a PosteriorDashboardForecast or None.")
+        if self.inference_time_seconds is not None and (
+            not np.isfinite(self.inference_time_seconds)
+            or self.inference_time_seconds < 0
+        ):
+            raise ValueError("inference_time_seconds must be finite and non-negative.")
         if (
             isinstance(self.observation_count, bool)
             or not isinstance(self.observation_count, int)
@@ -325,6 +344,81 @@ class PosteriorDashboardUpdate:
             "samples_by_parameter",
             MappingProxyType(samples_by_parameter),
         )
+
+
+def analysis_metrics_at(trajectory, updates_by_count, observation_count):
+    """Evaluate the displayed forecast and all available 90% 2D regions to date."""
+    if observation_count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT:
+        return DashboardAnalysisMetrics(
+            ade_m=None,
+            fde_m=None,
+            joint_coverage_count=0,
+            joint_coverage_total=0,
+            inference_time_seconds=None,
+        )
+    update = updates_by_count.get(observation_count)
+    forecast = None if update is None else update.forecast
+    ade_m, fde_m = None, None
+    if forecast is not None:
+        actual_positions = _forecast_reference_positions(trajectory, update)
+        if actual_positions.size:
+            errors_m = np.linalg.norm(
+                forecast.median_positions[: len(actual_positions)] - actual_positions,
+                axis=1,
+            )
+            ade_m = float(np.mean(errors_m))
+            fde_m = float(errors_m[-1])
+
+    covered_count, total_count = 0, 0
+    for count, cached_update in updates_by_count.items():
+        if (
+            count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT
+            or count > observation_count
+            or cached_update.forecast is None
+        ):
+            continue
+        forecast = cached_update.forecast
+        actual_positions = _forecast_reference_positions(trajectory, cached_update)
+        sample_count = min(
+            len(actual_positions),
+            forecast.sample_positions.shape[1],
+        )
+        if forecast.sample_positions.shape[0] < 2:
+            continue
+        for index in range(sample_count):
+            region = validation_metrics.empirical_covariance_regions(
+                forecast.sample_positions[:, index, 0],
+                forecast.sample_positions[:, index, 1],
+                probabilities=(0.9,),
+            )[0.9]
+            covered_count += region.contains(*actual_positions[index])
+            total_count += 1
+    return DashboardAnalysisMetrics(
+        ade_m=ade_m,
+        fde_m=fde_m,
+        joint_coverage_count=covered_count,
+        joint_coverage_total=total_count,
+        inference_time_seconds=(
+            None if update is None else update.inference_time_seconds
+        ),
+    )
+
+
+def _forecast_reference_positions(trajectory, update):
+    """Return held-out reference positions aligned with one forecast update."""
+    forecast = update.forecast
+    if forecast is None:
+        return np.empty((0, 2))
+    start_index = update.observation_count
+    stop_index = min(
+        start_index + len(forecast.median_positions), len(trajectory.reference_x)
+    )
+    return np.column_stack(
+        (
+            trajectory.reference_x[start_index:stop_index],
+            trajectory.reference_y[start_index:stop_index],
+        )
+    )
 
 
 class _PosteriorDashboardLayout(LayoutEngine):
@@ -470,6 +564,7 @@ class PosteriorDashboardNavigator:
         show_prediction_region_50=True,
         show_prediction_region_90=True,
         on_state_change=None,
+        on_metrics_change=None,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -483,7 +578,6 @@ class PosteriorDashboardNavigator:
         self.priors = priors
         self._update_loader = update_loader
         self._request_update = request_update
-        self._on_state_change = on_state_change
         self._requested_observation_count = 0
         self._density_grids_dirty = False
         self.maximum_observation_count = maximum_observation_count
@@ -502,6 +596,8 @@ class PosteriorDashboardNavigator:
         )
         self._reset_trajectory_view_for_coordinate_change = False
         self._validate_coordinate_display_mode()
+        self._on_state_change = on_state_change
+        self._on_metrics_change = on_metrics_change
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -842,6 +938,14 @@ class PosteriorDashboardNavigator:
                 self.trajectory.reference_state_at(
                     self.observation_count,
                     coordinate_display_mode=self.coordinate_display_mode,
+                )
+            )
+        if self._on_metrics_change is not None:
+            self._on_metrics_change(
+                analysis_metrics_at(
+                    self.trajectory,
+                    self._updates_by_count,
+                    self.observation_count,
                 )
             )
 
@@ -1281,6 +1385,7 @@ def create_sequential_posterior_dashboard_figure(
     show_prediction_region_50=True,
     show_prediction_region_90=True,
     on_state_change=None,
+    on_metrics_change=None,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -1363,6 +1468,7 @@ def create_sequential_posterior_dashboard_figure(
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
         on_state_change=on_state_change,
+        on_metrics_change=on_metrics_change,
     )
     return figure, navigator
 

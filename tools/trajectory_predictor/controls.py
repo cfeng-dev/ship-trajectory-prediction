@@ -22,6 +22,12 @@ from .view import (
 )
 
 CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
+ANALYSIS_METRIC_ROW_KEYS = (
+    "forecast_ade",
+    "forecast_fde",
+    "joint_coverage",
+    "inference_time",
+)
 
 
 def format_reference_position(x, y, *, coordinate_display_mode="m"):
@@ -190,6 +196,41 @@ class SettingsPanel(tk.Frame):
                 fg=TEXT_COLOR,
                 justify="left",
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
+        self.analysis_metrics_section = tk.LabelFrame(
+            body,
+            text="Analysis metrics",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        self.analysis_metrics_section.pack(fill="x", pady=(8, 0))
+        self.analysis_metric_values = {
+            key: tk.StringVar(self, value="—") for key in ANALYSIS_METRIC_ROW_KEYS
+        }
+        metric_labels_by_key = {
+            "forecast_ade": "Forecast ADE",
+            "forecast_fde": "Forecast FDE",
+            "joint_coverage": "Joint 2D 90% coverage",
+            "inference_time": "Inference time",
+        }
+        for row, key in enumerate(ANALYSIS_METRIC_ROW_KEYS):
+            tk.Label(
+                self.analysis_metrics_section,
+                text=f"{metric_labels_by_key[key]}:",
+                font=("Arial", 9, "bold"),
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
+            tk.Label(
+                self.analysis_metrics_section,
+                textvariable=self.analysis_metric_values[key],
+                font="TkFixedFont",
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+            ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
 
     def show_reference_state(self, state):
@@ -215,6 +256,30 @@ class SettingsPanel(tk.Frame):
         )
         self.posterior_state_values["time"].set(
             f"{time_seconds:.1f} s" if np.isfinite(time_seconds) else "—"
+        )
+
+    def show_analysis_metrics(self, metrics):
+        """Show forecast metrics for the currently displayed posterior stage."""
+        if metrics is None:
+            for variable in self.analysis_metric_values.values():
+                variable.set("—")
+            return
+        self.analysis_metric_values["forecast_ade"].set(
+            f"{metrics.ade_m:.2f} m" if metrics.ade_m is not None else "—"
+        )
+        self.analysis_metric_values["forecast_fde"].set(
+            f"{metrics.fde_m:.2f} m" if metrics.fde_m is not None else "—"
+        )
+        self.analysis_metric_values["joint_coverage"].set(
+            f"{100 * metrics.joint_coverage_count / metrics.joint_coverage_total:.1f}% "
+            f"({metrics.joint_coverage_count}/{metrics.joint_coverage_total})"
+            if metrics.joint_coverage_total
+            else "—"
+        )
+        self.analysis_metric_values["inference_time"].set(
+            f"{metrics.inference_time_seconds:.3f} s"
+            if metrics.inference_time_seconds is not None
+            else "—"
         )
 
     def choose_file(self):

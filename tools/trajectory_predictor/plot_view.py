@@ -23,6 +23,7 @@ class PosteriorPlotView(tk.Frame):
         minimum,
         request_update,
         on_state_change=None,
+        on_metrics_change=None,
     ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
@@ -49,6 +50,7 @@ class PosteriorPlotView(tk.Frame):
             show_prediction_region_50=settings.show_prediction_region_50,
             show_prediction_region_90=settings.show_prediction_region_90,
             on_state_change=on_state_change,
+            on_metrics_change=on_metrics_change,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()

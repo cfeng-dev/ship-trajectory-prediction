@@ -7,10 +7,11 @@ Closing or replacing a session lets the current fit finish, then discards its re
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Condition, Thread
+from time import perf_counter
 
 import bayestraj.observations.io as observations_io
 from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
@@ -158,10 +159,15 @@ class PosteriorAnalysisWorker:
                     self._emit(generation, "ready", (trajectory, maximum, next_count))
                     continue
                 self._emit(generation, "computing", next_count)
+                started_at = perf_counter()
                 update = loader(next_count)
                 if update.observation_count != next_count:
                     raise ValueError("The loader returned the wrong observation count.")
-                self._emit(generation, "update", update)
+                self._emit(
+                    generation,
+                    "update",
+                    replace(update, inference_time_seconds=perf_counter() - started_at),
+                )
                 next_count += 1
             except Exception as error:
                 loader = None
