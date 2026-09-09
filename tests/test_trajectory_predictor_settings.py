@@ -1,7 +1,9 @@
 """GUI settings are validated without creating a window or starting inference."""
 
+import argparse
+
 import pytest
-from trajectory_predictor import settings
+from trajectory_predictor import cli, settings
 from trajectory_predictor.cli import main
 
 
@@ -10,6 +12,21 @@ def test_command_help_does_not_open_a_window(capsys):
         main(["--help"])
     assert result.value.code == 0
     assert "trajectory predictor" in capsys.readouterr().out
+
+
+def test_missing_shared_bayestraj_package_has_a_clear_startup_error(
+    monkeypatch, capsys
+):
+    def missing_predictor_gui():
+        raise ModuleNotFoundError("No module named 'bayestraj'", name="bayestraj")
+
+    monkeypatch.setattr(cli, "_import_trajectory_predictor", missing_predictor_gui)
+
+    with pytest.raises(SystemExit) as result:
+        cli._load_trajectory_predictor(argparse.ArgumentParser())
+
+    assert result.value.code == 2
+    assert "requires the shared bayestraj package" in capsys.readouterr().err
 
 
 @pytest.fixture
