@@ -119,7 +119,7 @@ def create_menu_bar(gui):
         label="Inference parameters…", command=gui.show_inference_settings
     )
     settings_menu.add_command(
-        label="Data and display…", command=lambda: gui.show_settings_dialog("data")
+        label="Analysis setup…", command=lambda: gui.show_settings_dialog("data")
     )
     menu_bar.add_cascade(label="Settings", menu=settings_menu)
     settings_menu_index = menu_bar.index("end")

@@ -39,7 +39,7 @@ POSTERIOR_HELP_SECTIONS = (
             ("File → Open CSV", "Select the CSV file for analysis"),
             ("File → Close", "Close Trajectory Predictor"),
             ("View", "Show or hide settings; open plot display options"),
-            ("Settings", "Configure priors, inference, data, and playback"),
+            ("Settings", "Configure priors, inference, and analysis setup"),
             ("Help", "Open this help window"),
         ),
     ),
@@ -264,7 +264,7 @@ class SettingsDialog(tk.Toplevel):
         self.configure(bg=CONTROL_BACKGROUND)
         title = {
             "priors": "Priors",
-            "data": "Data and playback",
+            "data": "Analysis setup",
             "plot": "Plot display",
         }.get(group, f"Inference parameters — {group.upper()}")
         self.title(title)
@@ -295,7 +295,7 @@ class SettingsDialog(tk.Toplevel):
         if group == "data":
             data_section = tk.LabelFrame(
                 self._form.body,
-                text="Data and playback",
+                text="Analysis setup",
                 font=FONT,
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,

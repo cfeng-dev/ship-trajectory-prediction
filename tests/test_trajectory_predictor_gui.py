@@ -436,7 +436,7 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
             for section in dialog._form.body.winfo_children()
             if section.winfo_class() == "Labelframe"
         }
-        assert section_labels == {"Data and playback"}
+        assert section_labels == {"Analysis setup"}
     finally:
         dialog.cancel()
 
@@ -628,6 +628,11 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     ]
     assert [entry["label"] for entry in menu.entry("Help")["menu"].entries] == [
         "Show Help"
+    ]
+    assert [entry["label"] for entry in menu.entry("Settings")["menu"].entries] == [
+        "Priors…",
+        "Inference parameters…",
+        "Analysis setup…",
     ]
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
