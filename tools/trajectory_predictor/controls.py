@@ -396,9 +396,9 @@ def populate_fields(
             )
             entry.grid(row=0, column=0, sticky="ew")
             browse_button = create_styled_button(
-                file_frame, text="…", width=2, command=choose_file
+                file_frame, text="…", width=0, padx=4, pady=1, command=choose_file
             )
-            browse_button.grid(row=0, column=1, padx=(5, 0))
+            browse_button.grid(row=0, column=1, sticky="ns", padx=(5, 0))
             if editable_widgets is not None:
                 editable_widgets.extend((entry, browse_button))
             continue

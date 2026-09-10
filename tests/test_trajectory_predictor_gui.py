@@ -578,6 +578,37 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
         dialog.cancel()
 
 
+def test_data_file_browse_button_is_compact_and_matches_entry_height(root):
+    """The file chooser leaves room for the CSV path and aligns to its field."""
+    from trajectory_predictor.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = SettingsDialog(root, panel, "data")
+    try:
+        dialog.update_idletasks()
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
+        browse_button = next(
+            child
+            for child in descendants(dialog._form.body)
+            if child.winfo_class() == "Button" and child.cget("text") == "…"
+        )
+        data_file_entry = next(
+            child
+            for child in descendants(dialog._form.body)
+            if child.winfo_class() == "TEntry"
+            and child.cget("textvariable") == str(dialog.variables["data_file"])
+        )
+        assert browse_button.winfo_reqwidth() <= 30
+        assert browse_button.winfo_height() == data_file_entry.winfo_height()
+    finally:
+        dialog.cancel()
+
+
 def test_data_dialog_contains_only_data_and_replay_options(root):
     from trajectory_predictor.dialogs import SettingsDialog
 

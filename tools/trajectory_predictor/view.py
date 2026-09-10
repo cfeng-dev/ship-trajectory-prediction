@@ -69,7 +69,7 @@ def configure_plot_toolbar(toolbar):
             child.configure(bg=PLOT_BACKGROUND)
 
 
-def create_styled_button(parent, *, text, command, width=18):
+def create_styled_button(parent, *, text, command, width=18, padx=10, pady=3):
     """Use the simulator's white buttons with blue hover feedback."""
     button = tk.Button(
         parent,
@@ -85,8 +85,8 @@ def create_styled_button(parent, *, text, command, width=18):
         relief=tk.SOLID,
         borderwidth=1,
         highlightthickness=0,
-        padx=10,
-        pady=3,
+        padx=padx,
+        pady=pady,
     )
     button.bind("<Enter>", lambda _: button.configure(bg="#b8d8e8"))
     button.bind("<Leave>", lambda _: button.configure(bg="#ffffff"))
