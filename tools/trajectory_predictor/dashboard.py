@@ -1552,7 +1552,6 @@ def create_posterior_dashboard_loader(
             initialize_online_filter = filter_type.initialize
         if not callable(initialize_online_filter):
             raise TypeError("initialize_online_filter must be callable.")
-        print(f"Initialisiere {inference_method.upper()} mit N = 1 ...")
         online_filter = initialize_online_filter(
             time_seconds[:1],
             trajectory.observed_x[:1],
@@ -1572,10 +1571,6 @@ def create_posterior_dashboard_loader(
                 raise ValueError("The online update loader cannot move backward.")
             while online_filter.processed_observation_count < observation_count:
                 index = online_filter.processed_observation_count
-                print(
-                    f"Aktualisiere {inference_method.upper()} mit "
-                    f"Messpunkt N = {index + 1} ..."
-                )
                 online_filter.update(
                     time_seconds[index],
                     trajectory.observed_x[index],
@@ -1618,10 +1613,6 @@ def create_posterior_dashboard_loader(
             observation_count,
             minimum=bayesian_model.MIN_OBSERVATION_COUNT,
             maximum=maximum_observation_count,
-        )
-        print(
-            f"Computing {inference_method.upper()} posterior with "
-            f"N = {observation_count} ..."
         )
         window = observation_window.prepare_trajectory_window(
             trajectory_data,
@@ -1933,33 +1924,6 @@ def run_bayesian_ctrv_posterior_dashboard(
         rbpf_config=rbpf_config,
         smc_config=smc_config,
     )
-    print("=" * 72)
-    print("Bayesian CTRV posterior update with ship movement")
-    print("=" * 72)
-    print(f"Run ID                : {experiment.run_id}")
-    print(f"Start index           : {experiment.start_index}")
-    print(f"Inference method      : {experiment.inference_method.upper()}")
-    print(
-        "Observation stages    : Prior, "
-        f"N=1 to N={maximum_observation_count} (step size 1)"
-    )
-    if minimum_posterior_observation_count > 1:
-        print(f"First posterior       : N={minimum_posterior_observation_count}")
-        print("Batch window          : expanding from the start index")
-    print("Posterior groups      : Motion state, uncertainties")
-    print(f"Forecast steps        : {experiment.prediction_count} (to recorded end)")
-    print(
-        "Coordinate display    : "
-        f"{normalize_coordinate_display_mode(coordinate_display_mode)}"
-    )
-    print("Navigation            : Start/Pause, Space, slider, or arrow keys")
-    if experiment.inference_method in inference.CTRV_ONLINE_INFERENCE_METHODS:
-        particle_filter_config = (
-            rbpf_config if experiment.inference_method == "rbpf" else smc_config
-        )
-        print(f"Particles             : {particle_filter_config.particle_count}")
-        print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
-
     figure, navigator = create_sequential_posterior_dashboard_figure(
         trajectory,
         priors,

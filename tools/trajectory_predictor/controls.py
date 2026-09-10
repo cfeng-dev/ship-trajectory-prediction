@@ -211,7 +211,7 @@ class SettingsPanel(tk.Frame):
         metric_labels_by_key = {
             "forecast_ade": "Forecast ADE",
             "forecast_fde": "Forecast FDE",
-            "joint_coverage": "Joint 2D 90% coverage",
+            "joint_coverage": "Joint 90% coverage",
             "inference_time": "Inference time",
         }
         for row, key in enumerate(ANALYSIS_METRIC_ROW_KEYS):
