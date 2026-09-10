@@ -52,11 +52,18 @@ def test_settings_preserve_selected_method_and_units(form, method):
 def test_inference_method_display_labels_normalize_to_internal_values():
     assert (
         settings.METHOD_DISPLAY_LABELS["rbpf"]
-        == "RBPF – Rao-Blackwellized particle filter (online)"
+        == "RBPF – Rao-Blackwellized particle filter"
     )
     for method, label in settings.METHOD_DISPLAY_LABELS.items():
         assert settings.normalize_inference_method(label) == method
         assert settings.normalize_inference_method(method) == method
+
+
+def test_gui_inference_method_options_are_limited_to_online_filters():
+    assert settings.METHOD_DISPLAY_OPTIONS == (
+        settings.METHOD_DISPLAY_LABELS["rbpf"],
+        settings.METHOD_DISPLAY_LABELS["smc"],
+    )
 
 
 @pytest.mark.parametrize(

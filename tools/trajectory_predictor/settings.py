@@ -27,13 +27,16 @@ from .session import AnalysisSettings
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
+GUI_INFERENCE_METHODS = ("rbpf", "smc")
 METHOD_DISPLAY_LABELS = {
-    "rbpf": "RBPF – Rao-Blackwellized particle filter (online)",
-    "smc": "SMC – Sequential Monte Carlo (Online)",
+    "rbpf": "RBPF – Rao-Blackwellized particle filter",
+    "smc": "SMC – Sequential Monte Carlo",
     "vi": "VI – Variational inference (batch)",
     "mcmc": "MCMC – Markov chain Monte Carlo (batch)",
 }
-METHOD_DISPLAY_OPTIONS = tuple(METHOD_DISPLAY_LABELS.values())
+METHOD_DISPLAY_OPTIONS = tuple(
+    METHOD_DISPLAY_LABELS[method] for method in GUI_INFERENCE_METHODS
+)
 METHOD_DISPLAY_TO_VALUE = {
     label: method for method, label in METHOD_DISPLAY_LABELS.items()
 }
