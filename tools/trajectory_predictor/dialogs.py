@@ -58,6 +58,15 @@ PRIOR_FIELD_GROUPS = (
 )
 
 
+def prior_label_width():
+    """Return one shared character width for every prior-field label."""
+    return max(
+        len(LABELS[field_name])
+        for _title, field_names in PRIOR_FIELD_GROUPS
+        for field_name in field_names
+    )
+
+
 def dialog_height_for_content(content_height, screen_height):
     """Fit a short editor to its content within the available screen height."""
     available_height = max(DIALOG_MINIMUM_HEIGHT, screen_height - DIALOG_SCREEN_MARGIN)
@@ -203,6 +212,7 @@ class SettingsDialog(tk.Toplevel):
                 choose_file=self.panel.choose_file,
             )
         elif group == "priors":
+            label_width = prior_label_width()
             for title, field_names in PRIOR_FIELD_GROUPS:
                 if not field_names:
                     tk.Label(
@@ -228,6 +238,7 @@ class SettingsDialog(tk.Toplevel):
                 populate_fields(
                     prior_section,
                     {name: self.variables[name] for name in field_names},
+                    label_width=label_width,
                 )
         else:
             populate_fields(self._form.body, self.variables)

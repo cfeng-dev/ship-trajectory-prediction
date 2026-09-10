@@ -341,7 +341,13 @@ def create_variables(parent, fields):
 
 
 def populate_fields(
-    parent, variables, *, choose_file=None, stacked=False, editable_widgets=None
+    parent,
+    variables,
+    *,
+    choose_file=None,
+    stacked=False,
+    editable_widgets=None,
+    label_width=None,
 ):
     """Render common sidebar or dialog fields with their existing units and types."""
     for index, (key, variable) in enumerate(variables.items()):
@@ -365,15 +371,20 @@ def populate_fields(
             if editable_widgets is not None:
                 editable_widgets.append(widget)
             continue
-        tk.Label(
-            parent,
-            text=label,
-            wraplength=280,
-            justify="left",
-            font=FONT,
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-        ).grid(row=row, column=0, sticky="w", pady=label_pady, padx=(0, 8))
+        label_options = {
+            "text": label,
+            "wraplength": 280,
+            "justify": "left",
+            "anchor": "w",
+            "font": FONT,
+            "bg": CONTROL_BACKGROUND,
+            "fg": TEXT_COLOR,
+        }
+        if label_width is not None:
+            label_options["width"] = label_width
+        tk.Label(parent, **label_options).grid(
+            row=row, column=0, sticky="w", pady=label_pady, padx=(0, 8)
+        )
         if key == "data_file":
             file_frame = tk.Frame(parent, bg=CONTROL_BACKGROUND)
             file_frame.grid(row=field_row, column=column, sticky="ew", pady=field_pady)

@@ -507,7 +507,7 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
 
 
 def test_priors_dialog_explains_the_configured_distribution_families(root):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from trajectory_predictor.dialogs import SettingsDialog, prior_label_width
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "priors")
@@ -535,6 +535,30 @@ def test_priors_dialog_explains_the_configured_distribution_families(root):
             "bold" in section.cget("font").lower()
             for section in dialog._form.body.winfo_children()
             if section.winfo_class() == "Labelframe"
+        )
+        dialog.update_idletasks()
+        entry_x_positions = {
+            child.winfo_x()
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+            for child in section.winfo_children()
+            if child.winfo_class() == "TEntry"
+        }
+        assert len(entry_x_positions) == 1
+        label_widths = {
+            child.cget("width")
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+            for child in section.winfo_children()
+            if child.winfo_class() == "Label"
+        }
+        assert label_widths == {prior_label_width()}
+        assert all(
+            child.cget("anchor") == "w"
+            for section in dialog._form.body.winfo_children()
+            if section.winfo_class() == "Labelframe"
+            for child in section.winfo_children()
+            if child.winfo_class() == "Label"
         )
     finally:
         dialog.cancel()
