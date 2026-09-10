@@ -43,7 +43,8 @@ def input_style_settings():
 def configure_input_styles(root):
     """Keep themed inputs aligned with the application's light palette."""
     style = ttk.Style(root)
-    style.theme_use("clam")
+    if root.tk.call("tk", "windowingsystem") == "aqua":
+        style.theme_use("clam")
     for style_name, settings in input_style_settings().items():
         style.configure(style_name, **settings["configure"])
         style.map(style_name, **settings["map"])

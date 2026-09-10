@@ -84,8 +84,14 @@ def test_input_styles_keep_fields_light_in_all_widget_states():
         ]
 
 
-def test_input_styles_use_the_clam_theme_to_override_macos_aqua(monkeypatch):
-    """Aqua ignores custom field colours when macOS uses its dark appearance."""
+@pytest.mark.parametrize(
+    ("windowing_system", "uses_clam"),
+    (("aqua", True), ("win32", False)),
+)
+def test_input_styles_use_clam_only_to_override_macos_aqua(
+    monkeypatch, windowing_system, uses_clam
+):
+    """Only Aqua needs a non-native theme to keep fields light."""
     from trajectory_predictor import view
 
     calls = []
@@ -104,9 +110,12 @@ def test_input_styles_use_the_clam_theme_to_override_macos_aqua(monkeypatch):
             calls.append(("map", style_name, settings))
 
     monkeypatch.setattr(view.ttk, "Style", Style)
-    view.configure_input_styles(object())
+    root = SimpleNamespace(
+        tk=SimpleNamespace(call=lambda *_: windowing_system),
+    )
+    view.configure_input_styles(root)
 
-    assert calls[1] == ("theme_use", "clam")
+    assert (("theme_use", "clam") in calls) is uses_clam
 
 
 def test_plot_toolbar_uses_the_application_light_palette():
