@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 from .dashboard import (
     create_sequential_posterior_dashboard_figure,
 )
-from .view import PLOT_BACKGROUND
+from .view import PLOT_BACKGROUND, configure_plot_toolbar
 
 
 class PosteriorPlotView(tk.Frame):
@@ -29,6 +29,7 @@ class PosteriorPlotView(tk.Frame):
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
+        configure_plot_toolbar(self.toolbar)
         self.toolbar.pack(side="bottom", fill="x")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         _, self.navigator = create_sequential_posterior_dashboard_figure(

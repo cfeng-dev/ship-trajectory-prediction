@@ -27,7 +27,12 @@ from trajectory_predictor.settings import (  # noqa: E402
     DATA_OPTION_FIELDS,
     MAIN_DATA_FIELDS,
 )
-from trajectory_predictor.view import centered_window_position  # noqa: E402
+from trajectory_predictor.view import (  # noqa: E402
+    DISABLED_INPUT_BACKGROUND,
+    INPUT_BACKGROUND,
+    centered_window_position,
+    input_style_settings,
+)
 
 
 def pump_until(root, predicate):
@@ -65,6 +70,88 @@ def test_main_window_position_supports_small_upward_offset():
         260,
         150,
     )
+
+
+def test_input_styles_keep_fields_light_in_all_widget_states():
+    """The light application palette must not inherit macOS dark input fields."""
+    settings = input_style_settings()
+
+    for style_name in ("Predictor.TEntry", "Predictor.TCombobox"):
+        assert settings[style_name]["configure"]["fieldbackground"] == INPUT_BACKGROUND
+        assert settings[style_name]["map"]["fieldbackground"] == [
+            ("disabled", DISABLED_INPUT_BACKGROUND),
+            ("readonly", INPUT_BACKGROUND),
+        ]
+
+
+def test_input_styles_use_the_clam_theme_to_override_macos_aqua(monkeypatch):
+    """Aqua ignores custom field colours when macOS uses its dark appearance."""
+    from trajectory_predictor import view
+
+    calls = []
+
+    class Style:
+        def __init__(self, root):
+            calls.append(("create", root))
+
+        def theme_use(self, theme_name):
+            calls.append(("theme_use", theme_name))
+
+        def configure(self, style_name, **settings):
+            calls.append(("configure", style_name, settings))
+
+        def map(self, style_name, **settings):
+            calls.append(("map", style_name, settings))
+
+    monkeypatch.setattr(view.ttk, "Style", Style)
+    view.configure_input_styles(object())
+
+    assert calls[1] == ("theme_use", "clam")
+
+
+def test_plot_toolbar_uses_the_application_light_palette():
+    """The embedded Matplotlib controls must not inherit system dark colours."""
+    from trajectory_predictor.view import (
+        PLOT_BACKGROUND,
+        configure_plot_toolbar,
+    )
+
+    class Widget:
+        def __init__(self, widget_class="Label"):
+            self.options = {}
+            self.widget_class = widget_class
+
+        def configure(self, **options):
+            self.options.update(options)
+
+        def winfo_class(self):
+            return self.widget_class
+
+    class Toolbar(Widget):
+        def __init__(self):
+            super().__init__()
+            self.button = Widget("Button")
+            self.toggle_button = Widget("Checkbutton")
+            self.label = Widget()
+            self.spacer = Widget("Frame")
+            self._buttons = {"Home": self.button, "Pan": self.toggle_button}
+            self.recoloured_buttons = []
+
+        def winfo_children(self):
+            return (self.button, self.toggle_button, self.label, self.spacer)
+
+        def _set_image_for_button(self, button):
+            self.recoloured_buttons.append(button)
+
+    toolbar = Toolbar()
+    configure_plot_toolbar(toolbar)
+
+    assert toolbar.options["bg"] == PLOT_BACKGROUND
+    assert toolbar.button.options["bg"] == INPUT_BACKGROUND
+    assert "selectcolor" not in toolbar.button.options
+    assert toolbar.toggle_button.options["selectcolor"] == "#b8d8e8"
+    assert toolbar.label.options["bg"] == PLOT_BACKGROUND
+    assert toolbar.recoloured_buttons == [toolbar.button, toolbar.toggle_button]
 
 
 def test_reference_position_uses_ship_simulator_style_two_line_value():
@@ -178,8 +265,8 @@ def test_help_documents_analysis_setup_options():
     ]
 
 
-def test_main_window_title_identifies_the_ship_trajectory_predictor():
-    from trajectory_predictor.view import configure_window
+def test_main_window_title_identifies_the_ship_trajectory_predictor(monkeypatch):
+    from trajectory_predictor import view
 
     class Window:
         def title(self, value):
@@ -207,7 +294,8 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor():
             pass
 
     window = Window()
-    configure_window(window)
+    monkeypatch.setattr(view, "configure_input_styles", lambda _root: None)
+    view.configure_window(window)
 
     assert window.title_value == "Bayesian CTRV — Ship Trajectory Predictor"
 

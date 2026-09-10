@@ -388,7 +388,12 @@ def populate_fields(
             file_frame = tk.Frame(parent, bg=CONTROL_BACKGROUND)
             file_frame.grid(row=field_row, column=column, sticky="ew", pady=field_pady)
             file_frame.columnconfigure(0, weight=1)
-            entry = ttk.Entry(file_frame, textvariable=variable, width=16)
+            entry = ttk.Entry(
+                file_frame,
+                textvariable=variable,
+                width=16,
+                style="Predictor.TEntry",
+            )
             entry.grid(row=0, column=0, sticky="ew")
             browse_button = create_styled_button(
                 file_frame, text="…", width=2, command=choose_file
@@ -412,9 +417,15 @@ def populate_fields(
                 values=choices,
                 state="readonly",
                 width=14,
+                style="Predictor.TCombobox",
             )
             if choices
-            else ttk.Entry(parent, textvariable=variable, width=14)
+            else ttk.Entry(
+                parent,
+                textvariable=variable,
+                width=14,
+                style="Predictor.TEntry",
+            )
         )
         widget.grid(row=field_row, column=column, sticky="ew", pady=field_pady)
         if editable_widgets is not None:

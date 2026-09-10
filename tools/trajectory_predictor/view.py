@@ -1,16 +1,72 @@
 """Desktop presentation matching the ship simulator, without coupling the tools."""
 
 import tkinter as tk
+from tkinter import ttk
 
 APP_BACKGROUND = "#eef7fb"
 CONTROL_BACKGROUND = "#e3eef4"
 PLOT_BACKGROUND = "#f4f9fc"
 TEXT_COLOR = "#1f2933"
+INPUT_BACKGROUND = "#ffffff"
+DISABLED_INPUT_BACKGROUND = "#e7edf1"
+DISABLED_INPUT_TEXT_COLOR = "#687783"
 FONT = ("Arial", 10)
 
 MAIN_WINDOW_WIDTH = 1400
 MAIN_WINDOW_HEIGHT = 700
 MAIN_WINDOW_VERTICAL_OFFSET = 40
+
+
+def input_style_settings():
+    """Return the light input palette, including macOS disabled states."""
+    return {
+        style_name: {
+            "configure": {
+                "fieldbackground": INPUT_BACKGROUND,
+                "foreground": TEXT_COLOR,
+            },
+            "map": {
+                "fieldbackground": [
+                    ("disabled", DISABLED_INPUT_BACKGROUND),
+                    ("readonly", INPUT_BACKGROUND),
+                ],
+                "foreground": [
+                    ("disabled", DISABLED_INPUT_TEXT_COLOR),
+                    ("!disabled", TEXT_COLOR),
+                ],
+            },
+        }
+        for style_name in ("Predictor.TEntry", "Predictor.TCombobox")
+    }
+
+
+def configure_input_styles(root):
+    """Keep themed inputs aligned with the application's light palette."""
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    for style_name, settings in input_style_settings().items():
+        style.configure(style_name, **settings["configure"])
+        style.map(style_name, **settings["map"])
+
+
+def configure_plot_toolbar(toolbar):
+    """Apply the application's light palette to Matplotlib's Tk toolbar."""
+    toolbar.configure(bg=PLOT_BACKGROUND)
+    buttons = tuple(toolbar._buttons.values())
+    for child in toolbar.winfo_children():
+        if child in buttons:
+            child.configure(
+                bg=INPUT_BACKGROUND,
+                fg=TEXT_COLOR,
+                activebackground="#b8d8e8",
+                activeforeground=TEXT_COLOR,
+                highlightthickness=0,
+            )
+            if child.winfo_class() == "Checkbutton":
+                child.configure(selectcolor="#b8d8e8")
+            toolbar._set_image_for_button(child)
+        else:
+            child.configure(bg=PLOT_BACKGROUND)
 
 
 def create_styled_button(parent, *, text, command, width=18):
@@ -79,6 +135,7 @@ def configure_window(root):
     root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}+{left}+{top}")
     root.minsize(1000, 620)
     root.configure(bg=APP_BACKGROUND)
+    configure_input_styles(root)
     root.columnconfigure(1, weight=1)
     root.rowconfigure(0, weight=1)
 
