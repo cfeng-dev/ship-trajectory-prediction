@@ -19,7 +19,7 @@ MAIN_WINDOW_VERTICAL_OFFSET = 40
 
 def input_style_settings():
     """Return the light input palette, including macOS disabled states."""
-    return {
+    settings = {
         style_name: {
             "configure": {
                 "fieldbackground": INPUT_BACKGROUND,
@@ -38,6 +38,24 @@ def input_style_settings():
         }
         for style_name in ("Predictor.TEntry", "Predictor.TCombobox")
     }
+    settings["Predictor.TButton"] = {
+        "configure": {
+            "background": INPUT_BACKGROUND,
+            "foreground": TEXT_COLOR,
+            "padding": (4, 0),
+        },
+        "map": {
+            "background": [
+                ("disabled", DISABLED_INPUT_BACKGROUND),
+                ("active", "#b8d8e8"),
+            ],
+            "foreground": [
+                ("disabled", DISABLED_INPUT_TEXT_COLOR),
+                ("!disabled", TEXT_COLOR),
+            ],
+        },
+    }
+    return settings
 
 
 def configure_input_styles(root):

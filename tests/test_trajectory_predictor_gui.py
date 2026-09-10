@@ -72,6 +72,24 @@ def test_main_window_position_supports_small_upward_offset():
     )
 
 
+def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
+    """The predictor sidebar follows the Ship Simulator scrollbar implementation."""
+    from trajectory_predictor import controls
+
+    calls = []
+
+    class Scrollbar:
+        def __init__(self, parent, **options):
+            calls.append((parent, options))
+
+    canvas = SimpleNamespace(yview=object())
+    monkeypatch.setattr(controls.tk, "Scrollbar", Scrollbar)
+
+    controls.create_form_scrollbar("parent", canvas)
+
+    assert calls == [("parent", {"orient": "vertical", "command": canvas.yview})]
+
+
 def test_input_styles_keep_fields_light_in_all_widget_states():
     """The light application palette must not inherit macOS dark input fields."""
     settings = input_style_settings()
@@ -82,6 +100,9 @@ def test_input_styles_keep_fields_light_in_all_widget_states():
             ("disabled", DISABLED_INPUT_BACKGROUND),
             ("readonly", INPUT_BACKGROUND),
         ]
+    assert settings["Predictor.TButton"]["configure"]["background"] == (
+        INPUT_BACKGROUND
+    )
 
 
 @pytest.mark.parametrize(
@@ -587,8 +608,8 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
         dialog.cancel()
 
 
-def test_data_file_browse_button_is_compact_and_matches_entry_height(root):
-    """The file chooser leaves room for the CSV path and aligns to its field."""
+def test_data_file_browse_button_matches_windows_width_and_entry_height(root):
+    """The file chooser remains a regular small button across platforms."""
     from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
@@ -604,7 +625,7 @@ def test_data_file_browse_button_is_compact_and_matches_entry_height(root):
         browse_button = next(
             child
             for child in descendants(dialog._form.body)
-            if child.winfo_class() == "Button" and child.cget("text") == "…"
+            if child.winfo_class() == "TButton" and child.cget("text") == "…"
         )
         data_file_entry = next(
             child
@@ -612,7 +633,8 @@ def test_data_file_browse_button_is_compact_and_matches_entry_height(root):
             if child.winfo_class() == "TEntry"
             and child.cget("textvariable") == str(dialog.variables["data_file"])
         )
-        assert browse_button.winfo_reqwidth() <= 30
+        assert 35 <= browse_button.winfo_reqwidth() <= 60
+        assert browse_button.cget("style") == "Predictor.TButton"
         assert browse_button.winfo_height() == data_file_entry.winfo_height()
     finally:
         dialog.cancel()

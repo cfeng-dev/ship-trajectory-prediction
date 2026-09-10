@@ -40,6 +40,11 @@ def format_reference_position(x, y, *, coordinate_display_mode="m"):
     return f"x = {x:.2f} {unit}\ny = {y:.2f} {unit}"
 
 
+def create_form_scrollbar(parent, canvas):
+    """Match the Ship Simulator's native scrollbar on every platform."""
+    return tk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+
+
 class ScrollableForm(tk.Frame):
     """A form that remains accessible when the settings pane is small."""
 
@@ -48,7 +53,7 @@ class ScrollableForm(tk.Frame):
         canvas = self.canvas = tk.Canvas(
             self, highlightthickness=0, width=width, bg=CONTROL_BACKGROUND
         )
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollbar = create_form_scrollbar(self, canvas)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
@@ -395,8 +400,12 @@ def populate_fields(
                 style="Predictor.TEntry",
             )
             entry.grid(row=0, column=0, sticky="ew")
-            browse_button = create_styled_button(
-                file_frame, text="…", width=0, padx=4, pady=1, command=choose_file
+            browse_button = ttk.Button(
+                file_frame,
+                text="…",
+                width=3,
+                command=choose_file,
+                style="Predictor.TButton",
             )
             browse_button.grid(row=0, column=1, sticky="ns", padx=(5, 0))
             if editable_widgets is not None:
