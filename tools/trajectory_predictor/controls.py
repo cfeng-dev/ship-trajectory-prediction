@@ -28,6 +28,7 @@ ANALYSIS_METRIC_ROW_KEYS = (
     "joint_coverage",
     "inference_time",
 )
+CSV_BROWSE_BUTTON_WIDTH = 2
 
 
 def format_reference_position(x, y, *, coordinate_display_mode="m"):
@@ -35,7 +36,7 @@ def format_reference_position(x, y, *, coordinate_display_mode="m"):
     if not np.isfinite(x) or not np.isfinite(y):
         return "—"
     if coordinate_display_mode == "gps":
-        return f"longitude = {x:.6f}°\nlatitude = {y:.6f}°"
+        return f"lon = {x:.4f}°\nlat = {y:.4f}°"
     unit = "km" if coordinate_display_mode == "km" else "m"
     return f"x = {x:.2f} {unit}\ny = {y:.2f} {unit}"
 
@@ -403,7 +404,7 @@ def populate_fields(
             browse_button = ttk.Button(
                 file_frame,
                 text="…",
-                width=3,
+                width=CSV_BROWSE_BUTTON_WIDTH,
                 command=choose_file,
                 style="Predictor.TButton",
             )

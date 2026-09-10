@@ -11,6 +11,7 @@ tk = pytest.importorskip("tkinter")
 
 from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
 from trajectory_predictor.controls import (  # noqa: E402
+    CSV_BROWSE_BUTTON_WIDTH,
     CSV_STATE_ROW_KEYS,
     SettingsPanel,
     format_reference_position,
@@ -88,6 +89,10 @@ def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
     controls.create_form_scrollbar("parent", canvas)
 
     assert calls == [("parent", {"orient": "vertical", "command": canvas.yview})]
+
+
+def test_csv_browse_button_uses_a_two_character_width():
+    assert CSV_BROWSE_BUTTON_WIDTH == 2
 
 
 def test_input_styles_keep_fields_light_in_all_widget_states():
@@ -209,7 +214,7 @@ def test_status_panels_share_motion_state_row_order():
     )
     assert "Turn Radius:" not in STATUS_ROW_LABELS
     assert format_reference_position(8.31, 47.05, coordinate_display_mode="gps") == (
-        "longitude = 8.310000°\nlatitude = 47.050000°"
+        "lon = 8.3100°\nlat = 47.0500°"
     )
 
 
