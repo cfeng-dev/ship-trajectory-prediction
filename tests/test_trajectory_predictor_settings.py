@@ -107,6 +107,15 @@ def test_coordinate_display_mode_is_a_presentation_setting(form):
     assert not hasattr(result.analysis.experiment, "coordinate_display_mode")
 
 
+def test_follow_ship_view_span_is_a_presentation_setting(form):
+    form["data"]["follow_ship_view_span_m"] = "250"
+
+    result = settings.parse_settings(form)
+
+    assert result.follow_ship_view_span_m == 250.0
+    assert not hasattr(result.analysis.experiment, "follow_ship_view_span_m")
+
+
 def test_batch_options_are_forwarded_without_hidden_overrides(form):
     form["data"]["inference_method"] = "vi"
     form["vi"]["algorithm"] = "fullrank"

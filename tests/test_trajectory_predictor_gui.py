@@ -598,6 +598,7 @@ def test_plot_display_window_closes_from_its_ok_button(root):
             "data": {
                 key: tk.BooleanVar(root, value=True) for key in DISPLAY_OPTION_FIELDS
             }
+            | {"follow_ship_view_span_m": tk.StringVar(root, value="600")}
         }
     )
     closed = []

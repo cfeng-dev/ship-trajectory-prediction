@@ -11,6 +11,7 @@ from .plot_view import PosteriorPlotView
 from .session import PosteriorAnalysisWorker
 from .settings import (
     DISPLAY_OPTION_FIELDS,
+    PLOT_DISPLAY_FIELDS,
     normalize_inference_method,
     parse_settings,
 )
@@ -37,7 +38,7 @@ class TrajectoryPredictor:
         self.controls.variables["data"]["coordinate_display_mode"].trace_add(
             "write", self._update_coordinate_display_mode
         )
-        for key in DISPLAY_OPTION_FIELDS:
+        for key in PLOT_DISPLAY_FIELDS:
             self.controls.variables["data"][key].trace_add(
                 "write", self._update_display_options
             )
@@ -162,6 +163,12 @@ class TrajectoryPredictor:
             key: self.controls.variables["data"][key].get()
             for key in DISPLAY_OPTION_FIELDS
         }
+        try:
+            display_options["follow_ship_view_span_m"] = float(
+                self.controls.variables["data"]["follow_ship_view_span_m"].get()
+            )
+        except ValueError:
+            return
         self.plot_view.set_display_options(display_options)
 
     def show_inference_settings(self):

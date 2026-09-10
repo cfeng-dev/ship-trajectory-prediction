@@ -63,6 +63,7 @@ DISPLAY_OPTION_FIELDS = (
     "show_prediction_region_50",
     "show_prediction_region_90",
 )
+PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + ("follow_ship_view_span_m",)
 LABELS = {
     "coordinate_display_mode": "Coordinate display",
     "prediction_count": "Forecast steps (0 = off)",
@@ -85,6 +86,7 @@ LABELS = {
     "show_median_forecast": "Show forecast (median)",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
+    "follow_ship_view_span_m": "Follow-ship view span [m]",
     "speed_prior_upper_mps": "Speed: upper threshold [m/s]",
     "speed_prior_tail_probability": "Speed: tail probability",
     "turn_rate_prior_abs_heading_change_deg": "Turn rate: heading change [°]",
@@ -125,6 +127,7 @@ class ExplorerSettings:
     show_median_forecast: bool
     show_prediction_region_50: bool
     show_prediction_region_90: bool
+    follow_ship_view_span_m: float
 
 
 def _defaults():
@@ -156,6 +159,7 @@ def _defaults():
             "show_median_forecast": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
+            "follow_ship_view_span_m": 600.0,
         },
         "priors": asdict(BayesianCTRVPriors()),
         "rbpf": asdict(create_default_ctrv_rbpf_config()),
@@ -251,6 +255,8 @@ def _validate_data_options(fields):
         and fields["playback_interval_seconds"] <= 0
     ):
         raise ValueError("Playback interval must be greater than 0.")
+    if "follow_ship_view_span_m" in fields and fields["follow_ship_view_span_m"] <= 0:
+        raise ValueError("Follow-ship view span must be greater than 0.")
     if "coordinate_display_mode" in fields:
         fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
             fields["coordinate_display_mode"]
@@ -263,7 +269,7 @@ def validate_dialog_values(group, values):
     if group != "plot" and group not in defaults:
         raise ValueError(f"Unbekannter Einstellungsbereich: {group}")
     if group == "plot":
-        fields = {key: defaults["data"][key] for key in DISPLAY_OPTION_FIELDS}
+        fields = {key: defaults["data"][key] for key in PLOT_DISPLAY_FIELDS}
     else:
         fields = defaults[group]
     if group == "data":
@@ -272,7 +278,7 @@ def validate_dialog_values(group, values):
     if group == "data":
         _validate_data_options(parsed)
     elif group == "plot":
-        pass
+        _validate_data_options(parsed)
     elif group == "priors":
         BayesianCTRVPriors(**parsed)
     elif group == "rbpf":
@@ -308,6 +314,7 @@ def parse_settings(values) -> ExplorerSettings:
     playback_interval_seconds = data.pop("playback_interval_seconds")
     interval = max(1, round(playback_interval_seconds * 1_000))
     coordinate_display_mode = data.pop("coordinate_display_mode")
+    follow_ship_view_span_m = data.pop("follow_ship_view_span_m")
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
@@ -326,5 +333,6 @@ def parse_settings(values) -> ExplorerSettings:
         ),
         playback_interval_ms=interval,
         coordinate_display_mode=coordinate_display_mode,
+        follow_ship_view_span_m=follow_ship_view_span_m,
         **display_options,
     )

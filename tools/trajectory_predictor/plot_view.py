@@ -49,6 +49,7 @@ class PosteriorPlotView(tk.Frame):
             show_median_forecast=settings.show_median_forecast,
             show_prediction_region_50=settings.show_prediction_region_50,
             show_prediction_region_90=settings.show_prediction_region_90,
+            follow_ship_view_span_m=settings.follow_ship_view_span_m,
             on_state_change=on_state_change,
             on_metrics_change=on_metrics_change,
         )

@@ -82,6 +82,19 @@ def normalize_coordinate_display_mode(coordinate_display_mode):
     return prediction_plotting.normalize_plot_coordinate_mode(coordinate_display_mode)
 
 
+def _validate_follow_ship_view_span_m(value):
+    """Return a finite positive follow-ship viewport span in metres."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "follow_ship_view_span_m must be a finite positive number."
+        ) from error
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError("follow_ship_view_span_m must be a finite positive number.")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class PosteriorDashboardConfig:
     """Configuration of one Bayesian CTRV posterior-update dashboard."""
@@ -563,6 +576,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
+        follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         on_state_change=None,
         on_metrics_change=None,
     ):
@@ -590,6 +604,9 @@ class PosteriorDashboardNavigator:
         self.show_median_forecast = show_median_forecast
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
+        self.follow_ship_view_span_m = _validate_follow_ship_view_span_m(
+            follow_ship_view_span_m
+        )
         self.prediction_count = prediction_count
         self.coordinate_display_mode = normalize_coordinate_display_mode(
             coordinate_display_mode
@@ -1060,7 +1077,7 @@ class PosteriorDashboardNavigator:
 
     def _set_focused_ship_view(self, index) -> None:
         """Show a fixed real-world window around the current ship position."""
-        half_span_meters = FOLLOW_SHIP_VIEW_SPAN_METERS / 2.0
+        half_span_meters = self.follow_ship_view_span_m / 2.0
         current_x = self.trajectory.observed_x[index]
         current_y = self.trajectory.observed_y[index]
         x_values, _ = self._display_coordinates(
@@ -1195,6 +1212,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast,
         show_prediction_region_50,
         show_prediction_region_90,
+        follow_ship_view_span_m=None,
     ) -> None:
         """Apply presentation-only toggles without loading another update."""
         options = {
@@ -1211,6 +1229,12 @@ class PosteriorDashboardNavigator:
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
             setattr(self, name, bool(value))
+        if follow_ship_view_span_m is not None:
+            self.follow_ship_view_span_m = _validate_follow_ship_view_span_m(
+                follow_ship_view_span_m
+            )
+            if self.follow_checkbox.get_status()[0]:
+                self._follow_ship_view_needs_focus = True
         self._draw()
 
     def set_coordinate_display_mode(self, coordinate_display_mode) -> None:
@@ -1384,6 +1408,7 @@ def create_sequential_posterior_dashboard_figure(
     show_median_forecast=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
+    follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     on_state_change=None,
     on_metrics_change=None,
 ):
@@ -1467,6 +1492,7 @@ def create_sequential_posterior_dashboard_figure(
         show_median_forecast=show_median_forecast,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
+        follow_ship_view_span_m=follow_ship_view_span_m,
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
     )

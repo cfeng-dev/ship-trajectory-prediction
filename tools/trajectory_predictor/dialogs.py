@@ -1,13 +1,14 @@
 """Transactional editors for the explorer's advanced settings."""
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 from .controls import ScrollableForm, create_variables, populate_fields
 from .settings import (
     DATA_OPTION_FIELDS,
     DISPLAY_OPTION_FIELDS,
     LABELS,
+    PLOT_DISPLAY_FIELDS,
     validate_dialog_values,
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
@@ -121,6 +122,20 @@ class PlotDisplayWindow(tk.Toplevel):
                 fg=TEXT_COLOR,
                 anchor="w",
             ).pack(fill="x", pady=3)
+        span_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        span_row.pack(fill="x", pady=(8, 3))
+        tk.Label(
+            span_row,
+            text=LABELS["follow_ship_view_span_m"],
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        ).pack(side="left")
+        ttk.Entry(
+            span_row,
+            textvariable=panel.variables["data"]["follow_ship_view_span_m"],
+            width=12,
+        ).pack(side="right")
         actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         actions.pack(fill="x")
         create_styled_button(actions, text="OK", width=12, command=self.close).pack(
@@ -128,19 +143,17 @@ class PlotDisplayWindow(tk.Toplevel):
         )
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.update_idletasks()
+        window_width = max(PLOT_DISPLAY_WINDOW_WIDTH, self.winfo_reqwidth())
+        window_height = max(PLOT_DISPLAY_WINDOW_HEIGHT, self.winfo_reqheight())
         left = max(
             0,
-            parent.winfo_rootx()
-            + (parent.winfo_width() - PLOT_DISPLAY_WINDOW_WIDTH) // 2,
+            parent.winfo_rootx() + (parent.winfo_width() - window_width) // 2,
         )
         top = max(
             0,
-            parent.winfo_rooty()
-            + (parent.winfo_height() - PLOT_DISPLAY_WINDOW_HEIGHT) // 2,
+            parent.winfo_rooty() + (parent.winfo_height() - window_height) // 2,
         )
-        self.geometry(
-            f"{PLOT_DISPLAY_WINDOW_WIDTH}x{PLOT_DISPLAY_WINDOW_HEIGHT}+{left}+{top}"
-        )
+        self.geometry(f"{window_width}x{window_height}+{left}+{top}")
 
     def close(self):
         """Close the live display panel without changing any selections."""
@@ -190,7 +203,7 @@ class SettingsDialog(tk.Toplevel):
         if group == "data":
             fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
         elif group == "plot":
-            fields = {key: fields[key] for key in DISPLAY_OPTION_FIELDS}
+            fields = {key: fields[key] for key in PLOT_DISPLAY_FIELDS}
         self.variables = create_variables(self, fields)
         self._form = ScrollableForm(self, width=max(360, width - 70))
         self._form.grid(row=form_row, column=0, sticky="nsew")

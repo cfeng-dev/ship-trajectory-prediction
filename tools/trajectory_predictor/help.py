@@ -72,7 +72,10 @@ POSTERIOR_HELP_SECTIONS = (
     (
         "Display",
         (
-            ("Plot display", "Select legend, trajectories, and forecast regions"),
+            (
+                "Plot display",
+                "Select layers, forecast regions, and the follow-ship view span",
+            ),
             ("Motion state", "Posterior for speed, heading, and turn rate"),
             ("Uncertainties", "Posterior for observation and process noise"),
         ),

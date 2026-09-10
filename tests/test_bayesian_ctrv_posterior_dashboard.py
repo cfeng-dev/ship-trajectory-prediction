@@ -1201,8 +1201,10 @@ def test_dashboard_display_options_redraw_without_loading_an_update():
             show_median_forecast=True,
             show_prediction_region_50=True,
             show_prediction_region_90=True,
+            follow_ship_view_span_m=250.0,
         )
         assert calls == loaded_calls
+        assert navigator.follow_ship_view_span_m == pytest.approx(250.0)
         assert not navigator.trajectory_axis.get_legend()
         assert not any(
             line.get_label() == "Recorded trajectory"
