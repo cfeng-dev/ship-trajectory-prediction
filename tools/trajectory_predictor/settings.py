@@ -139,7 +139,7 @@ def _defaults():
                     "2026-02-02T00-00-00+01-00_10.csv"
                 )
             ),
-            "run_id": 102,
+            "run_id": 1,
             "inference_method": "rbpf",
             "start_index": 0,
             "observation_interval_seconds": 10.0,

@@ -151,12 +151,11 @@ class SettingsPanel(tk.Frame):
             pady=8,
         )
         self.data_section.pack(fill="x")
-        self.data_section.columnconfigure(0, weight=1)
+        self.data_section.columnconfigure(1, weight=1)
         populate_fields(
             self.data_section,
             data_values,
             choose_file=self.choose_file,
-            stacked=True,
             editable_widgets=self._analysis_input_widgets,
         )
         self.posterior_state_section = tk.LabelFrame(
