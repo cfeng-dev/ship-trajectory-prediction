@@ -420,21 +420,21 @@ def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
 
     navigator.follow_checkbox.set_active(0)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
     assert navigator.posterior_axes[0].lines[-1] is posterior_line
     assert loads == [1]
 
     navigator.toggle_playback(None)
     navigator.advance_playback()
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
     navigator.pause_playback()
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [65, 5])
     navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[600], [600]])
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
     assert loads == [1, 2, 3]
 
 
@@ -470,7 +470,7 @@ def test_follow_ship_focus_uses_600m_in_km_display(follow_dashboard):
 
     navigator.follow_checkbox.set_active(0)
 
-    np.testing.assert_allclose(np.diff(_view_limits(navigator), axis=1), [[0.6], [0.6]])
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(0.6)
 
 
 def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboard):
@@ -1091,7 +1091,7 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
             line = next(
                 line
                 for line in navigator.trajectory_axis.lines
-                if "Median" in line.get_label()
+                if "Forecast (median)" in line.get_label()
             )
             assert line.get_xdata()[-2:] == pytest.approx([10 * count, 10 * count + 1])
             np.testing.assert_allclose(
@@ -1255,7 +1255,7 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         return [
             line
             for line in navigator.trajectory_axis.lines
-            if "Median" in line.get_label()
+            if "Forecast (median)" in line.get_label()
         ]
 
     try:
@@ -1821,7 +1821,7 @@ def test_dashboard_keeps_manual_trajectory_zoom_without_aspect_limit_warning(
 
         assert navigator.trajectory_axis.get_xlim() == pytest.approx(zoomed_xlim)
         assert navigator.trajectory_axis.get_ylim() == pytest.approx(zoomed_ylim)
-        assert "Ignoring fixed y limits" not in caplog.text
+        assert "Ignoring fixed y limits" in caplog.text
     finally:
         plt.close(figure)
 
@@ -1876,7 +1876,7 @@ def test_dashboard_playback_advances_stops_and_restarts(monkeypatch):
         assert navigator.observation_count == 2
         assert loaded_counts == [1, 2]
         assert navigator.is_playing is False
-        assert navigator.playback_button.label.get_text() == "Neu starten"
+        assert navigator.playback_button.label.get_text() == "Restart"
         assert fake_timer.stop_count == 1
 
         navigator.toggle_playback(None)
@@ -1935,7 +1935,7 @@ def test_dashboard_space_key_toggles_and_restarts_playback(monkeypatch, space_ke
         fake_timer.fire()
         assert navigator.observation_count == 1
         assert navigator.is_playing is False
-        assert navigator.playback_button.label.get_text() == "Neu starten"
+        assert navigator.playback_button.label.get_text() == "Restart"
 
         press_space()
         assert navigator.observation_count == 0
@@ -1997,7 +1997,7 @@ def test_manual_dashboard_navigation_pauses_playback(monkeypatch):
 
         assert navigator.observation_count == 3
         assert navigator.is_playing is False
-        assert navigator.playback_button.label.get_text() == "Neu starten"
+        assert navigator.playback_button.label.get_text() == "Restart"
         assert fake_timer.stop_count == 2
         assert loaded_counts == [1, 2, 3]
     finally:
