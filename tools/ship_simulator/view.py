@@ -5,6 +5,7 @@ import tkinter as tk
 import numpy as np
 
 from . import coordinates
+from .time_format import format_elapsed_time
 
 
 def create_menu_bar(gui):
@@ -65,18 +66,6 @@ def create_menu_bar(gui):
     menu_bar.add_cascade(label="Help", menu=help_menu)
 
     gui.root.config(menu=menu_bar)
-
-
-def format_elapsed_time(seconds):
-    """Format short simulated durations precisely and longer ones readably."""
-    if seconds < 60:
-        return f"{seconds:.1f} s"
-    whole_seconds = round(seconds)
-    minutes, remaining_seconds = divmod(whole_seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours} h {minutes:02d} min {remaining_seconds:02d} s"
-    return f"{minutes} min {remaining_seconds:02d} s"
 
 
 def update_status_display(gui):

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from ship_simulator import coordinates
 from ship_simulator import io as simulation_io
-from ship_simulator.view import format_elapsed_time
+from ship_simulator.time_format import format_elapsed_time
 
 
 @pytest.mark.parametrize(
