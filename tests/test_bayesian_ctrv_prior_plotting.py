@@ -1,5 +1,6 @@
 """Tests for the standalone Bayesian CTRV prior visualization."""
 
+import importlib
 import importlib.util
 import runpy
 import sys
@@ -32,6 +33,8 @@ def _load_prior_plotting_module():
 
 
 prior_plotting = _load_prior_plotting_module()
+prior_plotting_support = importlib.import_module("bayestraj.validation.prior_plotting")
+prior_reporting = importlib.import_module("bayestraj.validation.prior_reporting")
 EXPERIMENT_PRIORS = runpy.run_path(
     PROJECT_ROOT / "experiments" / "trajectory_prediction" / "bayesian_ctrv.py"
 )["PRIORS"]
@@ -41,11 +44,15 @@ def test_visualization_uses_current_experiment_prior_configuration():
     assert prior_plotting.PRIORS == EXPERIMENT_PRIORS
 
 
+def test_prior_plotting_support_is_importable_from_the_validation_package():
+    assert prior_plotting_support.build_prior_curves(EXPERIMENT_PRIORS)
+
+
 def test_prior_curves_use_configured_thresholds_and_derived_parameters():
     priors = prior_plotting.PRIORS
     curves = {
         curve.filename_stem: curve
-        for curve in prior_plotting.build_prior_curves(priors)
+        for curve in prior_plotting_support.build_prior_curves(priors)
     }
 
     assert len(curves) == 6
@@ -68,13 +75,13 @@ def test_prior_curves_use_configured_thresholds_and_derived_parameters():
 
 
 def test_prior_curves_are_normalized_over_the_presentation_range():
-    for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS):
+    for curve in prior_plotting_support.build_prior_curves(prior_plotting.PRIORS):
         integral = np.trapezoid(curve.density, curve.x_values)
         assert 0.998 < integral <= 1.001
 
 
 def test_terminal_report_distinguishes_configuration_calculation_and_result(capsys):
-    prior_plotting.print_prior_report(prior_plotting.PRIORS)
+    prior_reporting.print_prior_report(prior_plotting.PRIORS)
 
     report = capsys.readouterr().out
     assert "Konfiguriert:" in report
@@ -102,7 +109,7 @@ def test_terminal_report_explains_all_prior_calculations_from_configuration(caps
         sigma_turn_rate_process_prior_tail_probability=0.10,
     )
 
-    prior_plotting.print_prior_report(changed_priors)
+    prior_reporting.print_prior_report(changed_priors)
 
     report = capsys.readouterr().out
     assert report.count("Berechnung:") == 6
@@ -115,12 +122,12 @@ def test_terminal_report_explains_all_prior_calculations_from_configuration(caps
 
 
 def test_header_option_controls_prior_legends():
-    curves = prior_plotting.build_prior_curves(prior_plotting.PRIORS)
-    without_legends = prior_plotting.create_individual_figures(
+    curves = prior_plotting_support.build_prior_curves(prior_plotting.PRIORS)
+    without_legends = prior_plotting_support.create_individual_figures(
         curves,
         show_legend=False,
     )
-    with_legends = prior_plotting.create_individual_figures(
+    with_legends = prior_plotting_support.create_individual_figures(
         curves,
         show_legend=True,
     )
@@ -154,11 +161,11 @@ def test_prior_legend_percentages_follow_changed_configuration():
     )
     speed_curve = next(
         curve
-        for curve in prior_plotting.build_prior_curves(changed_priors)
+        for curve in prior_plotting_support.build_prior_curves(changed_priors)
         if curve.filename_stem == "prior_initial_speed"
     )
 
-    figure = prior_plotting.create_prior_figure(speed_curve, show_legend=True)
+    figure = prior_plotting_support.create_prior_figure(speed_curve, show_legend=True)
 
     try:
         legend = figure.axes[0].get_legend()
@@ -173,8 +180,8 @@ def test_prior_legend_percentages_follow_changed_configuration():
 
 
 def test_all_prior_titles_have_visible_spacing_from_axes():
-    figures = prior_plotting.create_individual_figures(
-        prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+    figures = prior_plotting_support.create_individual_figures(
+        prior_plotting_support.build_prior_curves(prior_plotting.PRIORS)
     )
 
     try:
@@ -194,11 +201,11 @@ def test_all_prior_titles_have_visible_spacing_from_axes():
 def test_initial_heading_plot_shows_boundaries_inside_extended_degree_range():
     heading_curve = next(
         curve
-        for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+        for curve in prior_plotting_support.build_prior_curves(prior_plotting.PRIORS)
         if curve.filename_stem == "prior_initial_heading"
     )
 
-    figure = prior_plotting.create_prior_figure(heading_curve)
+    figure = prior_plotting_support.create_prior_figure(heading_curve)
 
     try:
         axis = figure.axes[0]
@@ -224,13 +231,13 @@ def test_initial_heading_plot_shows_boundaries_inside_extended_degree_range():
 def test_all_prior_thresholds_are_shown_as_x_axis_ticks():
     threshold_curves = [
         curve
-        for curve in prior_plotting.build_prior_curves(prior_plotting.PRIORS)
+        for curve in prior_plotting_support.build_prior_curves(prior_plotting.PRIORS)
         if curve.thresholds
     ]
 
     assert len(threshold_curves) == 6
     for curve in threshold_curves:
-        figure = prior_plotting.create_prior_figure(curve)
+        figure = prior_plotting_support.create_prior_figure(curve)
         try:
             ticks = figure.axes[0].get_xticks()
             assert all(
@@ -247,11 +254,11 @@ def test_changed_prior_threshold_is_used_without_fixed_tick_values():
     )
     changed_curve = next(
         curve
-        for curve in prior_plotting.build_prior_curves(changed_priors)
+        for curve in prior_plotting_support.build_prior_curves(changed_priors)
         if curve.filename_stem == "prior_initial_turn_rate"
     )
 
-    figure = prior_plotting.create_prior_figure(changed_curve)
+    figure = prior_plotting_support.create_prior_figure(changed_curve)
 
     try:
         ticks = figure.axes[0].get_xticks()
