@@ -92,10 +92,7 @@ def build_prior_curves(priors: bayesian_model.BayesianCTRVPriors):
     heading_density = np.full_like(heading_x, 1.0 / 360.0)
 
     turn_rate_scale_deg_s = float(np.rad2deg(priors.turn_rate_prior_scale))
-    turn_rate_threshold_deg_s = (
-        priors.turn_rate_prior_abs_heading_change_deg
-        / priors.turn_rate_prior_reference_interval_seconds
-    )
+    turn_rate_threshold_deg_s = priors.turn_rate_prior_abs_rate_deg_s
     turn_rate_limit = _symmetric_normal_absolute_upper_quantile(
         turn_rate_scale_deg_s,
         PLOT_TAIL_PROBABILITY,
@@ -204,10 +201,7 @@ def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
     speed_quantile = NormalDist().inv_cdf(
         1.0 - priors.speed_prior_tail_probability / 2.0
     )
-    turn_threshold_deg_s = (
-        priors.turn_rate_prior_abs_heading_change_deg
-        / priors.turn_rate_prior_reference_interval_seconds
-    )
+    turn_threshold_deg_s = priors.turn_rate_prior_abs_rate_deg_s
     turn_quantile = NormalDist().inv_cdf(
         1.0 - priors.turn_rate_prior_tail_probability / 2.0
     )
@@ -269,9 +263,7 @@ def print_prior_report(priors: bayesian_model.BayesianCTRVPriors) -> None:
     )
     print("  Berechnung:")
     print(
-        f"    omega_max = {priors.turn_rate_prior_abs_heading_change_deg:g} deg / "
-        f"{priors.turn_rate_prior_reference_interval_seconds:g} s "
-        f"= {turn_threshold_deg_s:g} deg/s"
+        f"    omega_max = {turn_threshold_deg_s:g} deg/s"
     )
     print(
         f"    z = Phi^-1(1 - {priors.turn_rate_prior_tail_probability:g} / 2) "

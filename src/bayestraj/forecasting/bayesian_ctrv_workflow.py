@@ -138,9 +138,8 @@ def run_bayesian_ctrv_prediction(
             (
                 "Turn-rate prior",
                 (
-                    "Normal(0, scale); P(|heading change over "
-                    f"{priors.turn_rate_prior_reference_interval_seconds:g} s| > "
-                    f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
+                    "Normal(0, scale); P(|turn rate| > "
+                    f"{priors.turn_rate_prior_abs_rate_deg_s:g} deg/s)="
                     f"{priors.turn_rate_prior_tail_probability:g}"
                 ),
             ),

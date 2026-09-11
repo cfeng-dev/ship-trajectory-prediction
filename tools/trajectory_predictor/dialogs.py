@@ -30,8 +30,7 @@ PRIOR_FIELD_GROUPS = (
     (
         "Turn rate — normal distribution around 0",
         (
-            "turn_rate_prior_abs_heading_change_deg",
-            "turn_rate_prior_reference_interval_seconds",
+            "turn_rate_prior_abs_rate_deg_s",
             "turn_rate_prior_tail_probability",
         ),
     ),

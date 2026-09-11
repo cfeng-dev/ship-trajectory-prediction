@@ -76,6 +76,14 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     assert "gps_speed" not in stan_data
 
 
+def test_turn_rate_prior_uses_a_direct_rate_threshold_in_degrees_per_second():
+    priors = ctrv_model.BayesianCTRVPriors(turn_rate_prior_abs_rate_deg_s=4.5)
+
+    assert priors.turn_rate_prior_scale == pytest.approx(
+        np.deg2rad(4.5) / 1.959963984540054
+    )
+
+
 def test_batch_and_online_code_use_one_process_reference_interval():
     rbpf_config = rbpf.SequentialCTRVFilterConfig()
     update_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.update)

@@ -53,8 +53,7 @@ def test_prior_curves_use_configured_thresholds_and_derived_parameters():
         priors.speed_prior_upper_mps
     )
     assert curves["prior_initial_turn_rate"].central_upper == pytest.approx(
-        priors.turn_rate_prior_abs_heading_change_deg
-        / priors.turn_rate_prior_reference_interval_seconds
+        priors.turn_rate_prior_abs_rate_deg_s
     )
     assert curves["prior_position_observation_noise"].density[0] == pytest.approx(
         priors.sigma_position_observation_prior_rate
@@ -93,8 +92,7 @@ def test_terminal_report_explains_all_prior_calculations_from_configuration(caps
         prior_plotting.PRIORS,
         speed_prior_upper_mps=24.0,
         speed_prior_tail_probability=0.10,
-        turn_rate_prior_abs_heading_change_deg=65.0,
-        turn_rate_prior_reference_interval_seconds=10.0,
+        turn_rate_prior_abs_rate_deg_s=6.5,
         turn_rate_prior_tail_probability=0.10,
         sigma_position_observation_prior_upper_m=12.5,
         sigma_position_observation_prior_tail_probability=0.10,
@@ -110,7 +108,7 @@ def test_terminal_report_explains_all_prior_calculations_from_configuration(caps
     assert report.count("Berechnung:") == 6
     assert "s_v = 24 / Phi^-1(1 - 0.1 / 2)" in report
     assert "p(theta_1) = 1 / (180 - (-180)) = 0.00277778 1/deg" in report
-    assert "omega_max = 65 deg / 10 s = 6.5 deg/s" in report
+    assert "omega_max = 6.5 deg/s" in report
     assert "lambda = -ln(0.1) / 12.5 = " in report
     assert "lambda = -ln(0.1) / 6 = " in report
     assert "3 deg/s * pi / 180 = " in report
@@ -245,7 +243,7 @@ def test_all_prior_thresholds_are_shown_as_x_axis_ticks():
 def test_changed_prior_threshold_is_used_without_fixed_tick_values():
     changed_priors = replace(
         prior_plotting.PRIORS,
-        turn_rate_prior_abs_heading_change_deg=65.0,
+        turn_rate_prior_abs_rate_deg_s=6.5,
     )
     changed_curve = next(
         curve

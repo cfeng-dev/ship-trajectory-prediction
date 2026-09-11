@@ -56,9 +56,7 @@ def run_bayesian_ctrv_evaluation(
     )
     configured_priors = dataclasses.replace(
         priors,
-        turn_rate_prior_abs_heading_change_deg=(
-            options.turn_rate_prior_abs_heading_change_deg
-        ),
+        turn_rate_prior_abs_rate_deg_s=options.turn_rate_prior_abs_rate_deg_s,
     )
     return _run_evaluation(
         data_file=data_file,
@@ -203,9 +201,8 @@ def _run_evaluation(
         f"{priors.speed_prior_tail_probability:g}"
     )
     print(
-        "Turn-rate prior       : Normal(0, scale); P(|heading change over "
-        f"{priors.turn_rate_prior_reference_interval_seconds:g} s| > "
-        f"{priors.turn_rate_prior_abs_heading_change_deg:g} deg)="
+        "Turn-rate prior       : Normal(0, scale); P(|turn rate| > "
+        f"{priors.turn_rate_prior_abs_rate_deg_s:g} deg/s)="
         f"{priors.turn_rate_prior_tail_probability:g}"
     )
     print(

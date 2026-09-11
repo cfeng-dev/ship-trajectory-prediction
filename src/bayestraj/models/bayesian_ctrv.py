@@ -47,8 +47,7 @@ class BayesianCTRVPriors:
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
-    turn_rate_prior_abs_heading_change_deg: float = 45.0
-    turn_rate_prior_reference_interval_seconds: float = 10.0
+    turn_rate_prior_abs_rate_deg_s: float = 4.5
     turn_rate_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
@@ -66,10 +65,6 @@ class BayesianCTRVPriors:
                 value = numeric_validation.validate_finite_scalar(name, value)
                 if not 0.0 < value < 1.0:
                     raise ValueError(f"{name} must be strictly between zero and one.")
-            elif name == "turn_rate_prior_abs_heading_change_deg":
-                value = numeric_validation.validate_positive_finite(name, value)
-                if value > 180.0:
-                    raise ValueError(f"{name} must not exceed 180 degrees.")
             else:
                 value = numeric_validation.validate_positive_finite(name, value)
             object.__setattr__(self, name, float(value))
@@ -84,11 +79,8 @@ class BayesianCTRVPriors:
 
     @property
     def turn_rate_prior_scale(self) -> float:
-        """Return the normal turn-rate scale implied by a heading-change tail."""
-        absolute_upper_rad_s = (
-            np.deg2rad(self.turn_rate_prior_abs_heading_change_deg)
-            / self.turn_rate_prior_reference_interval_seconds
-        )
+        """Return the normal turn-rate scale implied by a rate tail."""
+        absolute_upper_rad_s = np.deg2rad(self.turn_rate_prior_abs_rate_deg_s)
         return _two_sided_normal_scale(
             absolute_upper_rad_s,
             self.turn_rate_prior_tail_probability,
