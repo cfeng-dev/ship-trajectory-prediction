@@ -99,12 +99,39 @@ class ScrollableForm(tk.Frame):
             self.canvas.yview_scroll(direction, "units")
             return "break"
 
+        def scroll_touchpad(event):
+            _delta_x, delta_y = self.canvas.tk.call(
+                "tk::PreciseScrollDeltas",
+                event.delta,
+            )
+            delta_y = float(delta_y)
+            scroll_region = self.canvas.bbox("all")
+
+            if delta_y == 0 or scroll_region is None:
+                return "break"
+
+            content_height = scroll_region[3] - scroll_region[1]
+            first, last = self.canvas.yview()
+
+            if content_height <= 0 or last - first >= 1:
+                return "break"
+
+            max_first = 1 - (last - first)
+            new_first = min(max(first - delta_y / content_height, 0), max_first)
+            self.canvas.yview_moveto(new_first)
+            return "break"
+
         widgets = [self.canvas, self.body]
         while widgets:
             widget = widgets.pop()
             widget.bind("<MouseWheel>", scroll)
             widget.bind("<Button-4>", scroll)
             widget.bind("<Button-5>", scroll)
+            try:
+                widget.bind("<TouchpadScroll>", scroll_touchpad)
+            except tk.TclError:
+                # TouchpadScroll was added in Tk 9.
+                pass
             widgets.extend(widget.winfo_children())
 
 

@@ -13,6 +13,7 @@ from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
 from trajectory_predictor.controls import (  # noqa: E402
     CSV_BROWSE_BUTTON_WIDTH,
     CSV_STATE_ROW_KEYS,
+    ScrollableForm,
     SettingsPanel,
     format_elapsed_time,
     format_reference_position,
@@ -94,6 +95,49 @@ def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
 
 def test_csv_browse_button_uses_a_two_character_width():
     assert CSV_BROWSE_BUTTON_WIDTH == 2
+
+
+def test_scrollable_form_uses_precise_touchpad_scroll_on_tk_9():
+    """Mac trackpads move the sidebar through Tk's TouchpadScroll event."""
+
+    class Widget:
+        def __init__(self, children=()):
+            self.children = children
+            self.bindings = {}
+
+        def bind(self, event_name, callback):
+            self.bindings[event_name] = callback
+
+        def winfo_children(self):
+            return self.children
+
+    class Canvas(Widget):
+        def __init__(self):
+            super().__init__()
+            self.tk = SimpleNamespace(call=lambda *_args: (0, -50))
+            self.positions = []
+
+        def bbox(self, _tag):
+            return (0, 0, 200, 1000)
+
+        def yview(self):
+            return (0.2, 0.6)
+
+        def yview_moveto(self, position):
+            self.positions.append(position)
+
+    canvas = Canvas()
+    form = ScrollableForm.__new__(ScrollableForm)
+    form.canvas = canvas
+    form.body = Widget()
+
+    form.bind_mouse_wheel()
+    result = form.body.bindings["<TouchpadScroll>"](
+        SimpleNamespace(delta=-1)
+    )
+
+    assert result == "break"
+    assert canvas.positions == [pytest.approx(0.25)]
 
 
 def test_input_styles_keep_fields_light_in_all_widget_states():
