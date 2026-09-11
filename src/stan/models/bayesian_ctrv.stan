@@ -1,8 +1,10 @@
 functions {
+  // Normalize an angle to [-pi, pi].
   real wrap_angle(real angle) {
     return atan2(sin(angle), cos(angle));
   }
 
+  // Propagate position with the constant-turn-rate-and-velocity model.
   vector ctrv_position(
       real dt,
       real x,
@@ -12,6 +14,7 @@ functions {
       real turn_rate) {
     vector[2] position;
 
+    // Use the straight-line limit when the turn rate is near zero.
     if (abs(turn_rate) > 1e-6) {
       position[1] = x + speed / turn_rate * (sin(heading + turn_rate * dt) - sin(heading));
       position[2] = y + speed / turn_rate * (-cos(heading + turn_rate * dt) + cos(heading));
@@ -24,24 +27,32 @@ functions {
 }
 
 data {
+  // Recorded local positions used for inference.
   int<lower=3> N_history;
   vector[N_history] time_observed;
   vector[N_history] x_observed;
   vector[N_history] y_observed;
-  real<lower=1e-6> sigma_position_observation_prior_rate;
-  real<lower=1e-6> sigma_speed_process_prior_rate;
-  real<lower=1e-6> sigma_turn_rate_process_prior_rate;
-  real<lower=1e-6> process_reference_interval_seconds;
-  real<lower=0> speed_state_lower_mps;
 
+  // Future timestamps to forecast after the observed history.
   int<lower=1> N_prediction;
   vector[N_prediction] time_prediction;
 
+  // Prior rates for observation and dynamic process noise.
+  real<lower=1e-6> sigma_position_observation_prior_rate;
+  real<lower=1e-6> sigma_speed_process_prior_rate;
+  real<lower=1e-6> sigma_turn_rate_process_prior_rate;
+
+  // Shared dynamic-state scaling and physical speed lower bound.
+  real<lower=1e-6> process_reference_interval_seconds;
+  real<lower=0> speed_state_lower_mps;
+
+  // Prior scales for the initial speed and turn rate.
   real<lower=0> speed_prior_scale;
   real<lower=0> turn_rate_prior_scale;
 }
 
 transformed data {
+  // Require strictly increasing observed and forecast timestamps.
   for (n in 2:N_history) {
     if (time_observed[n] <= time_observed[n - 1]) {
       reject("time_observed must be strictly increasing");
@@ -58,24 +69,33 @@ transformed data {
 }
 
 parameters {
+  // Local position at the first observation.
   real x_initial;
   real y_initial;
+
+  // Latent speed, heading, and turn-rate dynamics over the observation history.
   vector<lower=speed_state_lower_mps>[N_history] speed_state;
   real<lower=-pi(), upper=pi()> heading_initial;
   vector[N_history] turn_rate_state;
+
+  // Inferred observation and dynamic process-noise scales.
   real<lower=1e-6> sigma_position_observation;
   real<lower=1e-6> sigma_speed_process;
   real<lower=1e-6> sigma_turn_rate_process;
 }
 
 transformed parameters {
+  // Position and heading are deterministic consequences of the latent dynamics.
   vector[N_history] x_state;
   vector[N_history] y_state;
   vector[N_history] heading_state;
 
+  // Initialize the trajectory at the first observed state.
   x_state[1] = x_initial;
   y_state[1] = y_initial;
   heading_state[1] = heading_initial;
+
+  // Propagate every later state with the CTRV kinematic model.
   for (n in 2:N_history) {
     real dt = time_observed[n] - time_observed[n - 1];
     vector[2] position = ctrv_position(
@@ -93,6 +113,7 @@ transformed parameters {
 }
 
 model {
+  // Priors for the initial motion state and uncertainty scales.
   speed_state[1] ~ normal(0, speed_prior_scale);
   heading_initial ~ uniform(-pi(), pi());
   turn_rate_state[1] ~ normal(0, turn_rate_prior_scale);
@@ -100,31 +121,33 @@ model {
   sigma_speed_process ~ exponential(sigma_speed_process_prior_rate);
   sigma_turn_rate_process ~ exponential(sigma_turn_rate_process_prior_rate);
 
-  // Position is deterministic conditional on the latent kinematic states.
-  // There is no independent additive Cartesian position-process noise.
+  // Position observations are noisy measurements of the deterministic CTRV path.
   x_observed ~ normal(x_state, sigma_position_observation);
   y_observed ~ normal(y_state, sigma_position_observation);
 
-  // Dynamic speed and turn-rate processes retain reference-time scaling.
+  // Scale process noise from the reference interval to each observed time gap.
   for (n in 2:N_history) {
     real dt = time_observed[n] - time_observed[n - 1];
     real process_time_scale = sqrt(dt / process_reference_interval_seconds);
     real speed_process_scale = sigma_speed_process * process_time_scale;
     real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
 
-    // Speed is non-negative: add the probability of Gaussian proposals mirrored
-    // from negative speeds at zero to the positive speed_state[n] value.
+    // Fold negative Gaussian speed proposals at zero.
     target += log_sum_exp(normal_lpdf(speed_state[n] | speed_state[n - 1], speed_process_scale), normal_lpdf(-speed_state[n] | speed_state[n - 1], speed_process_scale));
     turn_rate_state[n] ~ normal(turn_rate_state[n - 1], turn_rate_process_scale);
   }
 }
 
 generated quantities {
+  // Latent future positions and corresponding noisy sensor predictions.
   vector[N_prediction] x_prediction;
   vector[N_prediction] y_prediction;
   vector[N_prediction] x_observation_prediction;
   vector[N_prediction] y_observation_prediction;
+  // Per-coordinate observation log likelihood for model diagnostics.
   vector[2 * N_history] log_likelihood;
+
+  // Posterior endpoint initializes the future simulation.
   real speed_at_origin = speed_state[N_history];
   real heading_at_origin = heading_state[N_history];
   real turn_rate_at_origin = turn_rate_state[N_history];
@@ -136,11 +159,13 @@ generated quantities {
   real turn_rate_previous = turn_rate_at_origin;
   real time_previous = time_observed[N_history];
 
+  // Evaluate the fitted observation likelihood at every historical position.
   for (n in 1:N_history) {
     log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_observation);
     log_likelihood[N_history + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_observation);
   }
 
+  // Simulate future CTRV states and predictions one time step at a time.
   for (n in 1:N_prediction) {
     real dt = time_prediction[n] - time_previous;
     real process_time_scale = sqrt(dt / process_reference_interval_seconds);
@@ -148,7 +173,7 @@ generated quantities {
     vector[2] expected_position;
     turn_rate_previous = normal_rng(turn_rate_previous, sigma_turn_rate_process * process_time_scale);
 
-    // Reflect at zero without changing the vessel's direction of travel.
+    // Keep speed non-negative after stochastic propagation.
     speed_previous = fmax(abs(speed_proposal), speed_state_lower_mps);
 
     expected_position = ctrv_position(
@@ -159,11 +184,11 @@ generated quantities {
         heading_previous,
         turn_rate_previous);
 
-    // Latent positions are conditional CTRV consequences of stochastic states.
+    // Store the latent CTRV position.
     x_prediction[n] = expected_position[1];
     y_prediction[n] = expected_position[2];
 
-    // Future sensor observations additionally include inferred measurement noise.
+    // Add inferred measurement noise for future sensor observations.
     x_observation_prediction[n] = normal_rng(x_prediction[n], sigma_position_observation);
     y_observation_prediction[n] = normal_rng(y_prediction[n], sigma_position_observation);
 
