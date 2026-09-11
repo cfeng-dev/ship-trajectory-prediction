@@ -49,6 +49,18 @@ def format_reference_position(x, y, *, coordinate_display_mode="m"):
     return f"x = {x:.2f} {unit}\ny = {y:.2f} {unit}"
 
 
+def format_elapsed_time(seconds):
+    """Format short simulated durations precisely and longer ones readably."""
+    if seconds < 60:
+        return f"{seconds:.1f} s"
+    whole_seconds = round(seconds)
+    minutes, remaining_seconds = divmod(whole_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {minutes:02d} min {remaining_seconds:02d} s"
+    return f"{minutes} min {remaining_seconds:02d} s"
+
+
 def create_form_scrollbar(parent, canvas):
     """Match the Ship Simulator's native scrollbar on every platform."""
     return tk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
@@ -305,7 +317,7 @@ class SettingsPanel(tk.Frame):
             f"{turn_rate:.2f}°/s" if np.isfinite(turn_rate) else "—"
         )
         self.posterior_state_values["time"].set(
-            f"{time_seconds:.1f} s" if np.isfinite(time_seconds) else "—"
+            format_elapsed_time(time_seconds) if np.isfinite(time_seconds) else "—"
         )
 
     def show_analysis_metrics(self, metrics):

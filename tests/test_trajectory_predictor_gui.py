@@ -14,6 +14,7 @@ from trajectory_predictor.controls import (  # noqa: E402
     CSV_BROWSE_BUTTON_WIDTH,
     CSV_STATE_ROW_KEYS,
     SettingsPanel,
+    format_elapsed_time,
     format_reference_position,
     split_analysis_data_fields,
 )
@@ -238,6 +239,7 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
         show_posterior_medians=lambda _medians: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
+
     app.placeholder = SimpleNamespace(
         configure=lambda **_options: None, pack=lambda **_options: None
     )
@@ -255,6 +257,14 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
     assert worker_requests == [0]
     assert locked_states == [True, False]
     assert not app._analysis_active
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    ((20.0, "20.0 s"), (80.0, "1 min 20 s"), (3_735.0, "1 h 02 min 15 s")),
+)
+def test_reference_time_uses_adaptive_elapsed_format(seconds, expected):
+    assert format_elapsed_time(seconds) == expected
 
 
 def test_settings_panel_displays_reference_csv_state(root):

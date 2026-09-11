@@ -67,6 +67,18 @@ def create_menu_bar(gui):
     gui.root.config(menu=menu_bar)
 
 
+def format_elapsed_time(seconds):
+    """Format short simulated durations precisely and longer ones readably."""
+    if seconds < 60:
+        return f"{seconds:.1f} s"
+    whole_seconds = round(seconds)
+    minutes, remaining_seconds = divmod(whole_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {minutes:02d} min {remaining_seconds:02d} s"
+    return f"{minutes} min {remaining_seconds:02d} s"
+
+
 def update_status_display(gui):
     """Update the simulation status labels."""
     heading_deg = np.rad2deg(gui.simulator.theta_current)
@@ -112,4 +124,4 @@ def update_status_display(gui):
     gui.heading_value_label.config(text=f"{heading_deg:.1f}°")
     gui.omega_value_label.config(text=f"{omega_deg:.1f}°/s")
     gui.speed_value_label.config(text=f"{speed:.2f} m/s")
-    gui.time_value_label.config(text=f"{gui.simulator.current_time:.1f} s")
+    gui.time_value_label.config(text=format_elapsed_time(gui.simulator.current_time))

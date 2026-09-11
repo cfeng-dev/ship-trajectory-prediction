@@ -6,6 +6,15 @@ import numpy as np
 import pytest
 from ship_simulator import coordinates
 from ship_simulator import io as simulation_io
+from ship_simulator.view import format_elapsed_time
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    ((20.0, "20.0 s"), (80.0, "1 min 20 s"), (3_735.0, "1 h 02 min 15 s")),
+)
+def test_status_time_uses_adaptive_elapsed_format(seconds, expected):
+    assert format_elapsed_time(seconds) == expected
 
 
 def test_csv_export_contains_unnoised_gps_and_motion_values_only():
