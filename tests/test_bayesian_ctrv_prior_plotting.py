@@ -280,7 +280,7 @@ def test_main_shows_individual_priors_sequentially(monkeypatch):
 
     monkeypatch.setattr(plt, "show", record_show)
 
-    figures = prior_plotting.main([])
+    figures = prior_plotting.main()
 
     assert set(figures) == {
         "prior_initial_speed",
