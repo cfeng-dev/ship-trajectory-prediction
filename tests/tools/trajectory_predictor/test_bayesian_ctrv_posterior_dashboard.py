@@ -24,7 +24,7 @@ import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.coordinates as coordinates
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize("figure_size", [(11, 8), (10, 6), (9.5, 5.5)])

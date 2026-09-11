@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PARAMETERS = {
     "plot_initial_speed_prior_update.py": "current_speed",
     "plot_initial_heading_prior_update.py": "current_heading",

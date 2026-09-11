@@ -54,6 +54,6 @@ def test_csv_export_contains_unnoised_gps_and_motion_values_only():
         "v",
         "simulation_running",
     ]
-    assert data["gps_longitude"] == pytest.approx(expected_longitude)
-    assert data["gps_latitude"] == pytest.approx(expected_latitude)
-    assert data["gps_speed"] == pytest.approx([18.0, 21.6])
+    np.testing.assert_allclose(data["gps_longitude"], expected_longitude)
+    np.testing.assert_allclose(data["gps_latitude"], expected_latitude)
+    np.testing.assert_allclose(data["gps_speed"], [18.0, 21.6])

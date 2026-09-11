@@ -3,13 +3,20 @@
 from dataclasses import replace
 from threading import Event, get_ident
 from time import monotonic
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
+from trajectory_predictor.dashboard import PARAMETER_NAMES, PosteriorDashboardUpdate
 from trajectory_predictor.session import PosteriorAnalysisWorker
 from trajectory_predictor.settings import default_form_values, parse_settings
+
+
+def _update(observation_count):
+    return PosteriorDashboardUpdate(
+        observation_count=observation_count,
+        samples_by_parameter={name: np.array([0.0, 0.0]) for name in PARAMETER_NAMES},
+    )
 
 
 @pytest.fixture
@@ -18,6 +25,7 @@ def analysis(tmp_path):
     data_file = tmp_path / "route.csv"
     data_file.touch()
     values["data"]["data_file"] = str(data_file)
+    values["data"]["run_id"] = "102"
     return parse_settings(values).analysis
 
 
@@ -46,6 +54,7 @@ def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
     ).to_csv(data_file, index=False)
     values = default_form_values()
     values["data"]["data_file"] = str(data_file)
+    values["data"]["run_id"] = "102"
     values["data"]["inference_method"] = method
     values[method]["particle_count"] = "32"
     values[method]["posterior_draw_count"] = "20"
@@ -83,7 +92,7 @@ def test_pause_lowers_target_without_repeating_an_inflight_fit(analysis):
         calls.append(count)
         entered.set()
         assert release.wait(5)
-        return SimpleNamespace(observation_count=count)
+        return _update(count)
 
     worker = PosteriorAnalysisWorker(lambda _: (None, 4, 1, load))
     try:
@@ -116,7 +125,7 @@ def test_worker_owns_loader_and_computes_prefix_only_once(analysis):
             thread_ids.append(get_ident())
             if count == 4:
                 completed.set()
-            return SimpleNamespace(observation_count=count)
+            return _update(count)
 
         return None, 4, 1, load
 
@@ -150,7 +159,7 @@ def test_replacement_discards_old_fit_and_snapshots_mutable_options(analysis):
         def load(count):
             entered.set()
             assert release.wait(5)
-            return SimpleNamespace(observation_count=count)
+            return _update(count)
 
         return None, 4, 1, load
 
@@ -182,7 +191,7 @@ def test_close_is_nonblocking_and_finishes_only_inflight_fit(analysis):
         calls.append(count)
         entered.set()
         assert release.wait(5)
-        return SimpleNamespace(observation_count=count)
+        return _update(count)
 
     worker = PosteriorAnalysisWorker(lambda _: (None, 4, 1, load))
     try:
@@ -210,7 +219,7 @@ def test_error_stops_generation_but_allows_new_analysis(analysis):
         calls.append(1)
         if len(calls) == 1:
             raise ValueError("bad CSV")
-        return None, 4, 3, lambda count: SimpleNamespace(observation_count=count)
+        return None, 4, 3, _update
 
     worker = PosteriorAnalysisWorker(prepare)
     try:

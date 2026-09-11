@@ -211,6 +211,7 @@ def test_plot_options_dialog_validates_display_switches_independently():
         "show_median_forecast": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
+        "follow_ship_view_span_m": 600.0,
     }
 
     result = settings.validate_dialog_values("plot", values)
