@@ -78,7 +78,7 @@ def _draw_prior(axis, curve: PriorCurve, *, show_legend=True) -> None:
     axis.plot(curve.x_values, curve.density, color=CURVE_COLOR, linewidth=2.2, label="Prior-Dichte")
     axis.fill_between(curve.x_values, curve.density, where=central, color=CENTRAL_COLOR, alpha=0.20, label=curve.central_legend_label or f"{_format_percentage(curve.central_probability)} innerhalb der Grenze")
     if np.any(~central):
-        axis.fill_between(curve.x_values, curve.density, where=~central, color=TAIL_COLOR, alpha=0.22, label=f"{_format_percentage(1.0 - curve.central_probability)} au?erhalb der Grenze")
+        axis.fill_between(curve.x_values, curve.density, where=~central, color=TAIL_COLOR, alpha=0.22, label=f"{_format_percentage(1.0 - curve.central_probability)} außerhalb der Grenze")
     for index, threshold in enumerate(curve.thresholds):
         axis.axvline(threshold, color=TAIL_COLOR, linestyle="--", linewidth=1.6, label=curve.threshold_legend_label if index == 0 else "_nolegend_", zorder=3)
     axis.set_title(curve.title, fontsize=16, pad=TITLE_PAD_POINTS)
