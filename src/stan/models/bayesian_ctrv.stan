@@ -13,10 +13,8 @@ functions {
     vector[2] position;
 
     if (abs(turn_rate) > 1e-6) {
-      position[1] = x + speed / turn_rate
-          * (sin(heading + turn_rate * dt) - sin(heading));
-      position[2] = y + speed / turn_rate
-          * (-cos(heading + turn_rate * dt) + cos(heading));
+      position[1] = x + speed / turn_rate * (sin(heading + turn_rate * dt) - sin(heading));
+      position[2] = y + speed / turn_rate * (-cos(heading + turn_rate * dt) + cos(heading));
     } else {
       position[1] = x + speed * dt * cos(heading);
       position[2] = y + speed * dt * sin(heading);
@@ -90,8 +88,7 @@ transformed parameters {
 
     x_state[n] = position[1];
     y_state[n] = position[2];
-    heading_state[n] = wrap_angle(
-        heading_state[n - 1] + turn_rate_state[n] * dt);
+    heading_state[n] = wrap_angle(heading_state[n - 1] + turn_rate_state[n] * dt);
   }
 }
 
@@ -99,8 +96,7 @@ model {
   speed_state[1] ~ normal(0, speed_prior_scale);
   heading_initial ~ uniform(-pi(), pi());
   turn_rate_state[1] ~ normal(0, turn_rate_prior_scale);
-  sigma_position_observation ~ exponential(
-      sigma_position_observation_prior_rate);
+  sigma_position_observation ~ exponential(sigma_position_observation_prior_rate);
   sigma_speed_process ~ exponential(sigma_speed_process_prior_rate);
   sigma_turn_rate_process ~ exponential(sigma_turn_rate_process_prior_rate);
 
@@ -112,19 +108,14 @@ model {
   // Dynamic speed and turn-rate processes retain reference-time scaling.
   for (n in 2:N_history) {
     real dt = time_observed[n] - time_observed[n - 1];
-    real process_time_scale = sqrt(
-        dt / process_reference_interval_seconds);
+    real process_time_scale = sqrt(dt / process_reference_interval_seconds);
     real speed_process_scale = sigma_speed_process * process_time_scale;
     real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
 
-    // Reflect Gaussian speed proposals at the physical zero-speed boundary.
-    target += log_sum_exp(
-        normal_lpdf(
-            speed_state[n] | speed_state[n - 1], speed_process_scale),
-        normal_lpdf(
-            -speed_state[n] | speed_state[n - 1], speed_process_scale));
-    turn_rate_state[n] ~ normal(
-        turn_rate_state[n - 1], turn_rate_process_scale);
+    // Speed is non-negative: add the probability of Gaussian proposals mirrored
+    // from negative speeds at zero to the positive speed_state[n] value.
+    target += log_sum_exp(normal_lpdf(speed_state[n] | speed_state[n - 1], speed_process_scale), normal_lpdf(-speed_state[n] | speed_state[n - 1], speed_process_scale));
+    turn_rate_state[n] ~ normal(turn_rate_state[n - 1], turn_rate_process_scale);
   }
 }
 
@@ -146,21 +137,16 @@ generated quantities {
   real time_previous = time_observed[N_history];
 
   for (n in 1:N_history) {
-    log_likelihood[n] = normal_lpdf(
-        x_observed[n] | x_state[n], sigma_position_observation);
-    log_likelihood[N_history + n] = normal_lpdf(
-        y_observed[n] | y_state[n], sigma_position_observation);
+    log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_observation);
+    log_likelihood[N_history + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_observation);
   }
 
   for (n in 1:N_prediction) {
     real dt = time_prediction[n] - time_previous;
-    real process_time_scale = sqrt(
-        dt / process_reference_interval_seconds);
-    real speed_proposal = normal_rng(
-        speed_previous, sigma_speed_process * process_time_scale);
+    real process_time_scale = sqrt(dt / process_reference_interval_seconds);
+    real speed_proposal = normal_rng(speed_previous, sigma_speed_process * process_time_scale);
     vector[2] expected_position;
-    turn_rate_previous = normal_rng(
-        turn_rate_previous, sigma_turn_rate_process * process_time_scale);
+    turn_rate_previous = normal_rng(turn_rate_previous, sigma_turn_rate_process * process_time_scale);
 
     // Reflect at zero without changing the vessel's direction of travel.
     speed_previous = fmax(abs(speed_proposal), speed_state_lower_mps);
@@ -178,15 +164,12 @@ generated quantities {
     y_prediction[n] = expected_position[2];
 
     // Future sensor observations additionally include inferred measurement noise.
-    x_observation_prediction[n] = normal_rng(
-        x_prediction[n], sigma_position_observation);
-    y_observation_prediction[n] = normal_rng(
-        y_prediction[n], sigma_position_observation);
+    x_observation_prediction[n] = normal_rng(x_prediction[n], sigma_position_observation);
+    y_observation_prediction[n] = normal_rng(y_prediction[n], sigma_position_observation);
 
     x_previous = x_prediction[n];
     y_previous = y_prediction[n];
-    heading_previous = wrap_angle(
-        heading_previous + turn_rate_previous * dt);
+    heading_previous = wrap_angle(heading_previous + turn_rate_previous * dt);
     time_previous = time_prediction[n];
   }
 }
