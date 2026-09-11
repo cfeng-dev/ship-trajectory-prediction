@@ -77,6 +77,7 @@ class TrajectoryPredictor:
             self.plot_view = None
         self.controls.show_reference_state(None)
         self.controls.show_analysis_metrics(None)
+        self.controls.show_posterior_medians(None)
         self._settings = settings
         self._error = None
         self._computing = None
@@ -103,6 +104,7 @@ class TrajectoryPredictor:
         self._computing = None
         self.controls.show_reference_state(None)
         self.controls.show_analysis_metrics(None)
+        self.controls.show_posterior_medians(None)
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
@@ -294,6 +296,7 @@ class TrajectoryPredictor:
                 self.worker.request,
                 self.controls.show_reference_state,
                 self.controls.show_analysis_metrics,
+                self.controls.show_posterior_medians,
             )
             self.plot_view.set_settings_visible(self.settings_visible)
             self.plot_view.pack(fill="both", expand=True)

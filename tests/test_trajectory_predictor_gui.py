@@ -235,6 +235,7 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
         values=lambda: {},
         show_reference_state=lambda _state: None,
         show_analysis_metrics=lambda _metrics: None,
+        show_posterior_medians=lambda _medians: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
     app.placeholder = SimpleNamespace(
@@ -270,6 +271,16 @@ def test_settings_panel_displays_reference_csv_state(root):
             inference_time_seconds=0.125,
         )
     )
+    panel.show_posterior_medians(
+        {
+            "current_speed": 2.0,
+            "current_heading": 3.0,
+            "current_turn_rate": None,
+            "position_observation_noise": 4.0,
+            "speed_process_noise": 5.0,
+            "turn_rate_process_noise": 6.0,
+        }
+    )
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"
@@ -280,6 +291,12 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.analysis_metric_values["forecast_fde"].get() == "4.00 m"
     assert panel.analysis_metric_values["joint_coverage"].get() == "87.5% (7/8)"
     assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
+    assert panel.posterior_median_values["current_speed"].get() == "2.00 m/s"
+    assert panel.posterior_median_values["current_heading"].get() == "3.00°"
+    assert panel.posterior_median_values["current_turn_rate"].get() == "—"
+    assert panel.posterior_median_values["position_observation_noise"].get() == "4.00 m"
+    assert panel.posterior_median_values["speed_process_noise"].get() == "5.00 m/s"
+    assert panel.posterior_median_values["turn_rate_process_noise"].get() == "6.00°/s"
 
 
 def test_help_documents_analysis_setup_options():

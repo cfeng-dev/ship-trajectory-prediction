@@ -24,6 +24,7 @@ class PosteriorPlotView(tk.Frame):
         request_update,
         on_state_change=None,
         on_metrics_change=None,
+        on_medians_change=None,
     ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
@@ -53,6 +54,7 @@ class PosteriorPlotView(tk.Frame):
             follow_ship_view_span_m=settings.follow_ship_view_span_m,
             on_state_change=on_state_change,
             on_metrics_change=on_metrics_change,
+            on_medians_change=on_medians_change,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()

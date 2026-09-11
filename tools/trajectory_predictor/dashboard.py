@@ -359,6 +359,22 @@ class PosteriorDashboardUpdate:
         )
 
 
+def posterior_medians_at(updates_by_count, observation_count):
+    """Return only posterior medians identifiable at one display stage."""
+    update = updates_by_count.get(observation_count)
+    if update is None:
+        return None
+    return {
+        parameter_name: (
+            float(np.median(update.samples_by_parameter[parameter_name]))
+            if observation_count
+            >= PARAMETER_POSTERIOR_MINIMUM_OBSERVATION_COUNTS[parameter_name]
+            else None
+        )
+        for parameter_name in PARAMETER_NAMES
+    }
+
+
 def analysis_metrics_at(trajectory, updates_by_count, observation_count):
     """Evaluate the displayed forecast and all available 90% 2D regions to date."""
     if observation_count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT:
@@ -579,6 +595,7 @@ class PosteriorDashboardNavigator:
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         on_state_change=None,
         on_metrics_change=None,
+        on_medians_change=None,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -615,6 +632,7 @@ class PosteriorDashboardNavigator:
         self._validate_coordinate_display_mode()
         self._on_state_change = on_state_change
         self._on_metrics_change = on_metrics_change
+        self._on_medians_change = on_medians_change
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -964,6 +982,10 @@ class PosteriorDashboardNavigator:
                     self._updates_by_count,
                     self.observation_count,
                 )
+            )
+        if self._on_medians_change is not None:
+            self._on_medians_change(
+                posterior_medians_at(self._updates_by_count, self.observation_count)
             )
 
     def _draw_trajectory(self) -> None:
@@ -1411,6 +1433,7 @@ def create_sequential_posterior_dashboard_figure(
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     on_state_change=None,
     on_metrics_change=None,
+    on_medians_change=None,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -1495,6 +1518,7 @@ def create_sequential_posterior_dashboard_figure(
         follow_ship_view_span_m=follow_ship_view_span_m,
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
+        on_medians_change=on_medians_change,
     )
     return figure, navigator
 

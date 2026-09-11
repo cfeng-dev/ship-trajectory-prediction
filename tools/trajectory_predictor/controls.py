@@ -28,6 +28,14 @@ ANALYSIS_METRIC_ROW_KEYS = (
     "joint_coverage",
     "inference_time",
 )
+POSTERIOR_MEDIAN_ROW_KEYS = (
+    "current_speed",
+    "current_heading",
+    "current_turn_rate",
+    "position_observation_noise",
+    "speed_process_noise",
+    "turn_rate_process_noise",
+)
 CSV_BROWSE_BUTTON_WIDTH = 2
 
 
@@ -201,6 +209,43 @@ class SettingsPanel(tk.Frame):
                 fg=TEXT_COLOR,
                 justify="left",
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
+        self.posterior_medians_section = tk.LabelFrame(
+            body,
+            text="Posterior medians",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        self.posterior_medians_section.pack(fill="x", pady=(8, 0))
+        self.posterior_median_values = {
+            key: tk.StringVar(self, value="—") for key in POSTERIOR_MEDIAN_ROW_KEYS
+        }
+        median_labels_by_key = {
+            "current_speed": "Speed",
+            "current_heading": "Heading",
+            "current_turn_rate": "Turn rate",
+            "position_observation_noise": "Position-observation noise",
+            "speed_process_noise": "Speed-process noise",
+            "turn_rate_process_noise": "Turn-rate-process noise",
+        }
+        for row, key in enumerate(POSTERIOR_MEDIAN_ROW_KEYS):
+            tk.Label(
+                self.posterior_medians_section,
+                text=f"{median_labels_by_key[key]}:",
+                font=("Arial", 9, "bold"),
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
+            tk.Label(
+                self.posterior_medians_section,
+                textvariable=self.posterior_median_values[key],
+                font="TkFixedFont",
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+            ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.analysis_metrics_section = tk.LabelFrame(
             body,
             text="Analysis metrics",
@@ -286,6 +331,24 @@ class SettingsPanel(tk.Frame):
             if metrics.inference_time_seconds is not None
             else "—"
         )
+
+    def show_posterior_medians(self, medians):
+        """Show only posterior medians identified by the selected observations."""
+        if medians is None:
+            for variable in self.posterior_median_values.values():
+                variable.set("—")
+            return
+        units_by_key = {
+            "current_speed": "m/s",
+            "current_heading": "°",
+            "current_turn_rate": "°/s",
+            "position_observation_noise": "m",
+            "speed_process_noise": "m/s",
+            "turn_rate_process_noise": "°/s",
+        }
+        for key, variable in self.posterior_median_values.items():
+            value = medians[key]
+            variable.set(f"{value:.2f} {units_by_key[key]}" if value is not None else "—")
 
     def choose_file(self):
         """Choose a CSV without starting or replacing an analysis."""
