@@ -1284,7 +1284,8 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         )
         assert not median_lines()
         assert any(
-            "keine weiteren Prognosezeitpunkte" in text.get_text()
+                "End of recorded trajectory: no further forecast times."
+                in text.get_text()
             for text in navigator.trajectory_axis.texts
         )
     finally:
