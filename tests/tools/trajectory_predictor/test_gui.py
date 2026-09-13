@@ -33,6 +33,7 @@ from trajectory_predictor.settings import (  # noqa: E402
 from trajectory_predictor.view import (  # noqa: E402
     DISABLED_INPUT_BACKGROUND,
     INPUT_BACKGROUND,
+    TEXT_COLOR,
     centered_window_position,
     input_style_settings,
 )
@@ -148,6 +149,8 @@ def test_input_styles_keep_fields_light_in_all_widget_states():
             ("disabled", DISABLED_INPUT_BACKGROUND),
             ("readonly", INPUT_BACKGROUND),
         ]
+    assert settings["Predictor.TEntry"]["configure"]["insertcolor"] == TEXT_COLOR
+    assert settings["Predictor.TEntry"]["configure"]["insertwidth"] == 2
     assert settings["Predictor.TButton"]["configure"]["background"] == (
         INPUT_BACKGROUND
     )

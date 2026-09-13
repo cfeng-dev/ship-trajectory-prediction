@@ -38,6 +38,10 @@ def input_style_settings():
         }
         for style_name in ("Predictor.TEntry", "Predictor.TCombobox")
     }
+    settings["Predictor.TEntry"]["configure"].update(
+        insertcolor=TEXT_COLOR,
+        insertwidth=2,
+    )
     settings["Predictor.TButton"] = {
         "configure": {
             "background": INPUT_BACKGROUND,

@@ -138,6 +138,7 @@ class PlotDisplayWindow(tk.Toplevel):
             span_row,
             textvariable=self.variables["follow_ship_view_span_m"],
             width=12,
+            style="Predictor.TEntry",
         ).pack(side="right")
         actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         actions.pack(fill="x")
