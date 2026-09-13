@@ -18,7 +18,6 @@ import bayestraj.observations.window as observation_window
 import bayestraj.stan as stan_resources
 from bayestraj.models.ctrv import (
     PROCESS_REFERENCE_INTERVAL_SECONDS,
-    SPEED_STATE_LOWER_MPS,
 )
 
 STAN_FILE = stan_resources.stan_path("models/bayesian_ctrv.stan")
@@ -159,6 +158,8 @@ def build_stan_data(
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
+        "speed_prior_scale": priors.speed_prior_scale,
+        "turn_rate_prior_scale": priors.turn_rate_prior_scale,
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
         ),
@@ -167,11 +168,8 @@ def build_stan_data(
             priors.sigma_turn_rate_process_prior_rate
         ),
         "process_reference_interval_seconds": PROCESS_REFERENCE_INTERVAL_SECONDS,
-        "speed_state_lower_mps": SPEED_STATE_LOWER_MPS,
         "N_prediction": window.prediction_count,
         "time_prediction": time_prediction,
-        "speed_prior_scale": priors.speed_prior_scale,
-        "turn_rate_prior_scale": priors.turn_rate_prior_scale,
     }
 
 

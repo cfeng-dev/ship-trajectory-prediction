@@ -136,7 +136,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "y_initial": float(y_true[0]),
         "speed_state": np.maximum(
             speed + generator.normal(0.0, speed_jitter, x_true.size),
-            float(stan_data["speed_state_lower_mps"]),
+            0.0,
         ),
         "heading_initial": float(
             np.clip(

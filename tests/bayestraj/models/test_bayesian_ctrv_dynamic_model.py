@@ -72,7 +72,7 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     assert stan_data["process_reference_interval_seconds"] == pytest.approx(
         ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS
     )
-    assert stan_data["speed_state_lower_mps"] == 0.0
+    assert "speed_state_lower_mps" not in stan_data
     assert "gps_speed" not in stan_data
 
 
@@ -173,7 +173,7 @@ def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():
     assert "target += log_sum_exp(" in stan_source
     assert "-speed_state[n] | speed_state[n - 1]" in stan_source
     assert "normal_lccdf" not in stan_source
-    assert "fmax(abs(speed_proposal), speed_state_lower_mps)" in stan_source
+    assert "speed_previous = abs(speed_proposal)" in stan_source
     assert "heading_previous + pi()" not in stan_source
     assert "heading_for_transition" not in stan_source
 
@@ -242,7 +242,7 @@ def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
     assert "x_true" not in initial_values
     assert "y_true" not in initial_values
     assert "sigma_motion_process" not in initial_values
-    assert np.all(initial_values["speed_state"] >= ctrv_model.SPEED_STATE_LOWER_MPS)
+    assert np.all(initial_values["speed_state"] >= ctrv_dynamics.SPEED_STATE_LOWER_MPS)
     assert initial_values["sigma_speed_process"] > 0
     assert initial_values["sigma_turn_rate_process"] > 0
 
