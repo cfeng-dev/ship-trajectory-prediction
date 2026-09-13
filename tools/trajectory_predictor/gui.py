@@ -171,7 +171,10 @@ class TrajectoryPredictor:
             )
         except ValueError:
             return
-        self.plot_view.set_display_options(display_options)
+        try:
+            self.plot_view.set_display_options(display_options)
+        except ValueError as error:
+            messagebox.showerror("Plot display", str(error), parent=self.root)
 
     def show_inference_settings(self):
         """Edit options for the method currently selected in the sidebar."""

@@ -132,9 +132,7 @@ def test_scrollable_form_uses_precise_touchpad_scroll_on_tk_9():
     form.body = Widget()
 
     form.bind_mouse_wheel()
-    result = form.body.bindings["<TouchpadScroll>"](
-        SimpleNamespace(delta=-1)
-    )
+    result = form.body.bindings["<TouchpadScroll>"](SimpleNamespace(delta=-1))
 
     assert result == "break"
     assert canvas.positions == [pytest.approx(0.25)]
@@ -369,6 +367,19 @@ def test_help_documents_analysis_setup_options():
         "Inference seed",
         "Playback interval",
     ]
+
+
+def test_help_explains_analysis_metrics():
+    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
+
+    sections = dict(POSTERIOR_HELP_SECTIONS)
+
+    assert dict(sections["Analysis metrics"]) == {
+        "Forecast ADE": "Mean position error across all forecast steps in meters; lower is better.",
+        "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
+        "Joint 90% coverage": "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
+        "Inference time": "Time required for inference; measures computation speed, not forecast accuracy.",
+    }
 
 
 def test_main_window_title_identifies_the_ship_trajectory_predictor(monkeypatch):
@@ -815,7 +826,7 @@ def test_plot_dialog_contains_display_options(root):
         dialog.cancel()
 
 
-def test_plot_display_window_closes_from_its_ok_button(root):
+def test_plot_display_window_closes_from_its_cancel_button(root):
     from trajectory_predictor.dialogs import PlotDisplayWindow
     from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
 
@@ -830,19 +841,82 @@ def test_plot_display_window_closes_from_its_ok_button(root):
     closed = []
     window = PlotDisplayWindow(root, panel, on_close=lambda: closed.append(True))
     try:
-        ok_button = next(
+        button_labels = {
+            child.cget("text")
+            for frame in window.winfo_children()
+            for child in frame.winfo_children()
+            if isinstance(child, tk.Button)
+        }
+        assert button_labels == {"Apply", "Cancel"}
+        cancel_button = next(
             child
             for frame in window.winfo_children()
             for child in frame.winfo_children()
-            if isinstance(child, tk.Button) and child.cget("text") == "OK"
+            if isinstance(child, tk.Button) and child.cget("text") == "Cancel"
         )
-        ok_button.invoke()
+        cancel_button.invoke()
 
         assert closed == [True]
         assert not window.winfo_exists()
     finally:
         if window.winfo_exists():
             window.close()
+
+
+def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeypatch):
+    from trajectory_predictor.gui import TrajectoryPredictor
+    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+
+    def reject_display_options(_options):
+        raise ValueError("follow_ship_view_span_m must be a finite positive number.")
+
+    errors = []
+    plot_view = SimpleNamespace(set_display_options=reject_display_options)
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app.root = object()
+    app._closing = False
+    app.plot_view = plot_view
+    app.controls = SimpleNamespace(
+        variables={
+            "data": {
+                key: SimpleNamespace(get=lambda: True) for key in DISPLAY_OPTION_FIELDS
+            }
+            | {"follow_ship_view_span_m": SimpleNamespace(get=lambda: "nan")}
+        }
+    )
+    monkeypatch.setattr(
+        "trajectory_predictor.gui.messagebox.showerror",
+        lambda *args, **_kwargs: errors.append(args),
+    )
+
+    app._update_display_options()
+
+    assert errors == [
+        ("Plot display", "follow_ship_view_span_m must be a finite positive number.")
+    ]
+
+
+def test_plot_display_apply_commits_the_local_draft_and_closes():
+    from trajectory_predictor.dialogs import PlotDisplayWindow
+    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+
+    draft_variables = {
+        key: _Value(key != "show_legend") for key in DISPLAY_OPTION_FIELDS
+    } | {"follow_ship_view_span_m": _Value("250")}
+    shared_variables = {key: _Value(True) for key in DISPLAY_OPTION_FIELDS} | {
+        "follow_ship_view_span_m": _Value("600")
+    }
+    window = PlotDisplayWindow.__new__(PlotDisplayWindow)
+    window.variables = draft_variables
+    window.panel = SimpleNamespace(variables={"data": shared_variables})
+    closed = []
+    window.close = lambda: closed.append(True)
+
+    window.apply()
+
+    assert shared_variables["show_legend"].get() is False
+    assert shared_variables["follow_ship_view_span_m"].get() == 250.0
+    assert closed == [True]
 
 
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):

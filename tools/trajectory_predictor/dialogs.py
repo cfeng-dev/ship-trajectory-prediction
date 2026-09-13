@@ -87,7 +87,7 @@ def dialog_width_for_group(group, screen_width):
 
 
 class PlotDisplayWindow(tk.Toplevel):
-    """Non-modal live controls for the frequently changed plot layers."""
+    """Non-modal editor that applies validated plot-display changes on demand."""
 
     def __init__(self, parent, panel, *, on_close=None):
         super().__init__(parent)
@@ -98,9 +98,13 @@ class PlotDisplayWindow(tk.Toplevel):
         self.title("Plot display")
         self.configure(bg=CONTROL_BACKGROUND)
         self.resizable(False, False)
+        self.variables = create_variables(
+            self,
+            {key: panel.variables["data"][key].get() for key in PLOT_DISPLAY_FIELDS},
+        )
         tk.Label(
             self,
-            text="Changes are applied to the plot immediately.",
+            text="Changes are applied only after selecting Apply.",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -114,7 +118,7 @@ class PlotDisplayWindow(tk.Toplevel):
             tk.Checkbutton(
                 body,
                 text=LABELS[key],
-                variable=panel.variables["data"][key],
+                variable=self.variables[key],
                 bg=CONTROL_BACKGROUND,
                 activebackground=CONTROL_BACKGROUND,
                 font=FONT,
@@ -132,12 +136,15 @@ class PlotDisplayWindow(tk.Toplevel):
         ).pack(side="left")
         ttk.Entry(
             span_row,
-            textvariable=panel.variables["data"]["follow_ship_view_span_m"],
+            textvariable=self.variables["follow_ship_view_span_m"],
             width=12,
         ).pack(side="right")
         actions = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         actions.pack(fill="x")
-        create_styled_button(actions, text="OK", width=12, command=self.close).pack(
+        create_styled_button(actions, text="Apply", width=12, command=self.apply).pack(
+            side="right", padx=(8, 0)
+        )
+        create_styled_button(actions, text="Cancel", width=12, command=self.close).pack(
             side="right"
         )
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -154,8 +161,22 @@ class PlotDisplayWindow(tk.Toplevel):
         )
         self.geometry(f"{window_width}x{window_height}+{left}+{top}")
 
+    def apply(self):
+        """Validate and commit the local display draft without closing the editor."""
+        try:
+            values = validate_dialog_values(
+                "plot",
+                {key: variable.get() for key, variable in self.variables.items()},
+            )
+        except (TypeError, ValueError) as error:
+            messagebox.showerror("Plot display", str(error), parent=self)
+            return
+        for key, value in values.items():
+            self.panel.variables["data"][key].set(value)
+        self.close()
+
     def close(self):
-        """Close the live display panel without changing any selections."""
+        """Discard the local display draft and close the editor."""
         if self._closed:
             return
         self._closed = True

@@ -70,6 +70,27 @@ POSTERIOR_HELP_SECTIONS = (
         ),
     ),
     (
+        "Analysis metrics",
+        (
+            (
+                "Forecast ADE",
+                "Mean position error across all forecast steps in meters; lower is better.",
+            ),
+            (
+                "Forecast FDE",
+                "Position error at the final forecast step in meters; lower is better.",
+            ),
+            (
+                "Joint 90% coverage",
+                "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
+            ),
+            (
+                "Inference time",
+                "Time required for inference; measures computation speed, not forecast accuracy.",
+            ),
+        ),
+    ),
+    (
         "Display",
         (
             (
