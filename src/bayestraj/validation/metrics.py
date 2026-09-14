@@ -19,6 +19,8 @@ class PositionEvaluation:
     radial_coverage: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
+    elpd: float
+    mean_log_predictive_density: float
     credible_interval: float
 
 
@@ -144,6 +146,11 @@ def evaluate_position_predictions(
         raise ValueError("window must contain at least one held-out prediction.")
     x_samples = _prediction_samples(fit, x_variable_name, prediction_count)
     y_samples = _prediction_samples(fit, y_variable_name, prediction_count)
+    position_observation_noise_samples = _posterior_scalar_samples(
+        fit,
+        "sigma_position_observation",
+        draw_count=x_samples.shape[0],
+    )
     if x_samples.shape != y_samples.shape:
         raise ValueError("Position prediction variables must have matching shapes.")
 
@@ -165,6 +172,13 @@ def evaluate_position_predictions(
     y_upper = np.quantile(y_samples, upper_probability, axis=0)
 
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
+    log_predictive_density = _joint_log_predictive_density(
+        x_actual,
+        y_actual,
+        x_samples,
+        y_samples,
+        position_observation_noise_samples,
+    )
     prediction_regions = tuple(
         empirical_covariance_regions(
             x_samples[:, time_index],
@@ -233,6 +247,7 @@ def evaluate_position_predictions(
             "y_lower": y_lower,
             "y_upper": y_upper,
             "position_error_m": errors_m,
+            "log_predictive_density": log_predictive_density,
             "prediction_radius_m": prediction_radius_m,
             "squared_mahalanobis_distance": squared_mahalanobis_distance,
             "squared_mahalanobis_radius": squared_mahalanobis_radius,
@@ -249,6 +264,8 @@ def evaluate_position_predictions(
         radial_coverage=float(np.mean(covered)),
         mean_prediction_radius_m=float(np.mean(prediction_radius_m)),
         mean_marginal_interval_width_m=float(np.mean(mean_marginal_interval_width_m)),
+        elpd=float(np.sum(log_predictive_density)),
+        mean_log_predictive_density=float(np.mean(log_predictive_density)),
         credible_interval=credible_interval,
     )
 
@@ -282,6 +299,11 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
     metric_rows = [
         ("ADE", f"{evaluation.ade_m:.2f} m"),
         ("FDE", f"{evaluation.fde_m:.2f} m"),
+        ("ELPD", f"{evaluation.elpd:.3f}"),
+        (
+            "Mean log predictive density",
+            f"{evaluation.mean_log_predictive_density:.3f}",
+        ),
         (
             f"Joint 2D {interval_percent:g}% coverage",
             f"{evaluation.radial_coverage:.1%}",
@@ -329,6 +351,43 @@ def _prediction_samples(fit, variable_name, prediction_count):
             f"Posterior variable {variable_name!r} must contain finite draws."
         )
     return samples
+
+
+def _posterior_scalar_samples(fit, variable_name, *, draw_count):
+    """Extract one finite positive scalar posterior draw vector."""
+    samples = reporting.posterior_variable_samples(fit, variable_name)
+    if samples.ndim != 1 or samples.shape != (draw_count,):
+        raise ValueError(
+            f"Posterior variable {variable_name!r} has an unexpected shape."
+        )
+    if not np.all(np.isfinite(samples)) or np.any(samples <= 0):
+        raise ValueError(
+            f"Posterior variable {variable_name!r} must contain finite positive draws."
+        )
+    return samples
+
+
+def _joint_log_predictive_density(
+    x_actual,
+    y_actual,
+    x_samples,
+    y_samples,
+    observation_noise_samples,
+):
+    """Return the held-out 2D observation log density at each horizon.
+
+    The posterior predictive density is a Monte-Carlo mixture over draws of
+    the latent future state and the inferred isotropic observation noise.
+    """
+    squared_error = (x_samples - x_actual) ** 2 + (y_samples - y_actual) ** 2
+    log_component_density = (
+        -np.log(2 * np.pi * observation_noise_samples[:, np.newaxis] ** 2)
+        - 0.5 * squared_error / observation_noise_samples[:, np.newaxis] ** 2
+    )
+    maximum_log_density = np.max(log_component_density, axis=0)
+    return maximum_log_density + np.log(
+        np.mean(np.exp(log_component_density - maximum_log_density), axis=0)
+    )
 
 
 def _validate_credible_interval(credible_interval):

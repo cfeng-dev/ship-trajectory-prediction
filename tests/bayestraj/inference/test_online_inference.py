@@ -261,6 +261,7 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
             "prediction_radius_m": [3.0, 4.0],
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
+            "log_predictive_density": [-2.0, -3.0],
             "inference_mode": ["online", "online"],
             "inference_method": ["rbpf", "rbpf"],
             "converged": [None, None],
@@ -275,6 +276,8 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
     assert summary.inference_method == "rbpf"
     assert summary.vi_convergence_rate is None
     assert summary.mcmc_diagnostics_pass_rate is None
+    assert summary.elpd == pytest.approx(-5.0)
+    assert summary.mean_log_predictive_density == pytest.approx(-2.5)
 
 
 def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
@@ -287,6 +290,7 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
             "prediction_radius_m": [3.0, 4.0],
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
+            "log_predictive_density": [-2.0, -3.0],
             "inference_mode": ["online", "online"],
             "inference_method": ["smc", "smc"],
             "converged": [None, None],
@@ -320,6 +324,8 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         radial_coverage=0.955,
         mean_prediction_radius_m=0.0,
         mean_marginal_interval_width_m=0.0,
+        elpd=-10.0,
+        mean_log_predictive_density=-2.5,
         vi_convergence_rate=None,
         mcmc_diagnostics_pass_rate=None,
         per_horizon_table=pd.DataFrame(),
@@ -333,5 +339,5 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         for index, line in enumerate(output_lines)
         if line.startswith("Mean maximum-horizon FDE")
     )
-    assert output_lines[fde_line + 1].startswith("Joint 2D 90% coverage")
-    assert output_lines[fde_line + 2].startswith("Mean window runtime")
+    assert output_lines[fde_line + 1].startswith("ELPD")
+    assert output_lines[fde_line + 3].startswith("Joint 2D 90% coverage")

@@ -38,6 +38,8 @@ class RollingPositionSummary:
     radial_coverage: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
+    elpd: float
+    mean_log_predictive_density: float
     vi_convergence_rate: float | None
     mcmc_diagnostics_pass_rate: float | None
     per_horizon_table: pd.DataFrame
@@ -104,6 +106,7 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "radial_coverage": "Coverage",
             "mean_prediction_radius_m": "Radius[m]",
             "mean_marginal_interval_width_m": "Width[m]",
+            "mean_log_predictive_density": "Mean LogPD",
         }
     )
     return display_table.to_string(
@@ -115,6 +118,7 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "Coverage": lambda value: f"{value:.1%}",
             "Radius[m]": lambda value: f"{value:.3f}",
             "Width[m]": lambda value: f"{value:.3f}",
+            "Mean LogPD": lambda value: f"{value:.3f}",
         },
     )
 
@@ -256,6 +260,7 @@ def summarize_rolling_predictions(
         "prediction_radius_m",
         "radial_covered",
         "mean_marginal_interval_width_m",
+        "log_predictive_density",
         "inference_mode",
         "inference_method",
         "converged",
@@ -273,6 +278,7 @@ def summarize_rolling_predictions(
         "position_error_m",
         "prediction_radius_m",
         "mean_marginal_interval_width_m",
+        "log_predictive_density",
     )
     for column in numeric_columns:
         values = prediction_table[column].to_numpy(dtype=float)
@@ -300,6 +306,7 @@ def summarize_rolling_predictions(
                 "mean_marginal_interval_width_m",
                 "mean",
             ),
+            mean_log_predictive_density=("log_predictive_density", "mean"),
         )
         .reset_index(drop=True)
     )
@@ -353,6 +360,10 @@ def summarize_rolling_predictions(
         mean_prediction_radius_m=float(prediction_table["prediction_radius_m"].mean()),
         mean_marginal_interval_width_m=float(
             prediction_table["mean_marginal_interval_width_m"].mean()
+        ),
+        elpd=float(prediction_table["log_predictive_density"].sum()),
+        mean_log_predictive_density=float(
+            prediction_table["log_predictive_density"].mean()
         ),
         vi_convergence_rate=vi_convergence_rate,
         mcmc_diagnostics_pass_rate=mcmc_diagnostics_pass_rate,

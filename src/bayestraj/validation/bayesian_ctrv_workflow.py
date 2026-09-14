@@ -756,6 +756,11 @@ def _print_summary(summary, *, credible_interval):
         ("Forecasted positions", str(summary.forecast_count)),
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
+        ("ELPD", f"{summary.elpd:.3f}"),
+        (
+            "Mean log predictive density",
+            f"{summary.mean_log_predictive_density:.3f}",
+        ),
         (
             f"Joint 2D {100 * credible_interval:g}% coverage",
             f"{summary.radial_coverage:.1%}",
