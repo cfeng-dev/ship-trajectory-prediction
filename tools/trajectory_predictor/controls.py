@@ -25,7 +25,9 @@ CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
 ANALYSIS_METRIC_ROW_KEYS = (
     "forecast_ade",
     "forecast_fde",
-    "joint_coverage",
+    "energy_score",
+    "joint_coverage_50",
+    "joint_coverage_90",
     "inference_time",
 )
 POSTERIOR_MEDIAN_ROW_KEYS = (
@@ -301,7 +303,9 @@ class SettingsPanel(tk.Frame):
         metric_labels_by_key = {
             "forecast_ade": "Forecast ADE",
             "forecast_fde": "Forecast FDE",
-            "joint_coverage": "Joint 90% coverage",
+            "energy_score": "Forecast Energy Score",
+            "joint_coverage_50": "Joint 50% coverage",
+            "joint_coverage_90": "Joint 90% coverage",
             "inference_time": "Inference time",
         }
         for row, key in enumerate(ANALYSIS_METRIC_ROW_KEYS):
@@ -359,9 +363,20 @@ class SettingsPanel(tk.Frame):
         self.analysis_metric_values["forecast_fde"].set(
             f"{metrics.fde_m:.2f} m" if metrics.fde_m is not None else "—"
         )
-        self.analysis_metric_values["joint_coverage"].set(
-            f"{100 * metrics.joint_coverage_count / metrics.joint_coverage_total:.1f}% "
-            f"({metrics.joint_coverage_count}/{metrics.joint_coverage_total})"
+        self.analysis_metric_values["energy_score"].set(
+            f"{metrics.energy_score_m:.2f} m"
+            if metrics.energy_score_m is not None
+            else "—"
+        )
+        self.analysis_metric_values["joint_coverage_50"].set(
+            f"{100 * metrics.joint_coverage_50_count / metrics.joint_coverage_total:.1f}% "
+            f"({metrics.joint_coverage_50_count}/{metrics.joint_coverage_total})"
+            if metrics.joint_coverage_total
+            else "—"
+        )
+        self.analysis_metric_values["joint_coverage_90"].set(
+            f"{100 * metrics.joint_coverage_90_count / metrics.joint_coverage_total:.1f}% "
+            f"({metrics.joint_coverage_90_count}/{metrics.joint_coverage_total})"
             if metrics.joint_coverage_total
             else "—"
         )
@@ -387,7 +402,9 @@ class SettingsPanel(tk.Frame):
         }
         for key, variable in self.posterior_median_values.items():
             value = medians[key]
-            variable.set(f"{value:.2f} {units_by_key[key]}" if value is not None else "—")
+            variable.set(
+                f"{value:.2f} {units_by_key[key]}" if value is not None else "—"
+            )
 
     def choose_file(self):
         """Choose a CSV without starting or replacing an analysis."""

@@ -46,3 +46,19 @@ def test_position_evaluation_reports_joint_held_out_log_predictive_density():
     ].tolist() == pytest.approx([-np.log(2 * np.pi)])
     assert evaluation.prediction_table["joint_covered_50"].tolist() == [True]
     assert evaluation.prediction_table["joint_covered_90"].tolist() == [True]
+
+    report_lines = metrics.format_position_evaluation(
+        evaluation,
+        computation_time_seconds=0.1,
+    ).splitlines()
+    computation_time_line = next(
+        index
+        for index, line in enumerate(report_lines)
+        if line.startswith("Computation time")
+    )
+    interval_width_line = next(
+        index
+        for index, line in enumerate(report_lines)
+        if line.startswith("Mean marginal interval width")
+    )
+    assert computation_time_line == interval_width_line + 1

@@ -302,7 +302,9 @@ class DashboardAnalysisMetrics:
 
     ade_m: float | None
     fde_m: float | None
-    joint_coverage_count: int
+    energy_score_m: float | None
+    joint_coverage_50_count: int
+    joint_coverage_90_count: int
     joint_coverage_total: int
     inference_time_seconds: float | None
 
@@ -376,18 +378,20 @@ def posterior_medians_at(updates_by_count, observation_count):
 
 
 def analysis_metrics_at(trajectory, updates_by_count, observation_count):
-    """Evaluate the displayed forecast and all available 90% 2D regions to date."""
+    """Evaluate the displayed forecast and all available 50%/90% regions."""
     if observation_count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT:
         return DashboardAnalysisMetrics(
             ade_m=None,
             fde_m=None,
-            joint_coverage_count=0,
+            energy_score_m=None,
+            joint_coverage_50_count=0,
+            joint_coverage_90_count=0,
             joint_coverage_total=0,
             inference_time_seconds=None,
         )
     update = updates_by_count.get(observation_count)
     forecast = None if update is None else update.forecast
-    ade_m, fde_m = None, None
+    ade_m, fde_m, energy_score_m = None, None, None
     if forecast is not None:
         actual_positions = _forecast_reference_positions(trajectory, update)
         if actual_positions.size:
@@ -397,8 +401,16 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             )
             ade_m = float(np.mean(errors_m))
             fde_m = float(errors_m[-1])
+            energy_score_m = _forecast_energy_score(
+                forecast.sample_positions[:, : len(actual_positions), :].transpose(
+                    1,
+                    0,
+                    2,
+                ),
+                actual_positions,
+            )
 
-    covered_count, total_count = 0, 0
+    covered_50_count, covered_90_count, total_count = 0, 0, 0
     for count, cached_update in updates_by_count.items():
         if (
             count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT
@@ -418,19 +430,40 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             region = validation_metrics.empirical_covariance_regions(
                 forecast.sample_positions[:, index, 0],
                 forecast.sample_positions[:, index, 1],
-                probabilities=(0.9,),
-            )[0.9]
-            covered_count += region.contains(*actual_positions[index])
+                probabilities=(0.5, 0.9),
+            )
+            covered_50_count += region[0.5].contains(*actual_positions[index])
+            covered_90_count += region[0.9].contains(*actual_positions[index])
             total_count += 1
     return DashboardAnalysisMetrics(
         ade_m=ade_m,
         fde_m=fde_m,
-        joint_coverage_count=covered_count,
+        energy_score_m=energy_score_m,
+        joint_coverage_50_count=covered_50_count,
+        joint_coverage_90_count=covered_90_count,
         joint_coverage_total=total_count,
         inference_time_seconds=(
             None if update is None else update.inference_time_seconds
         ),
     )
+
+
+def _forecast_energy_score(sample_positions, actual_positions):
+    """Return the mean joint 2D energy score of one displayed forecast."""
+    energy_scores = []
+    for samples, actual_position in zip(
+        sample_positions, actual_positions, strict=True
+    ):
+        distance_to_actual = np.linalg.norm(samples - actual_position, axis=1)
+        pairwise_distances = np.linalg.norm(
+            samples[:, np.newaxis, :] - samples[np.newaxis, :, :],
+            axis=2,
+        )
+        energy_scores.append(
+            float(np.mean(distance_to_actual))
+            - 0.5 * float(np.mean(pairwise_distances))
+        )
+    return float(np.mean(energy_scores))
 
 
 def _forecast_reference_positions(trajectory, update):

@@ -321,7 +321,9 @@ def test_settings_panel_displays_reference_csv_state(root):
         SimpleNamespace(
             ade_m=2.5,
             fde_m=4.0,
-            joint_coverage_count=7,
+            energy_score_m=3.25,
+            joint_coverage_50_count=3,
+            joint_coverage_90_count=7,
             joint_coverage_total=8,
             inference_time_seconds=0.125,
         )
@@ -344,7 +346,9 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.posterior_state_values["time"].get() == "12.5 s"
     assert panel.analysis_metric_values["forecast_ade"].get() == "2.50 m"
     assert panel.analysis_metric_values["forecast_fde"].get() == "4.00 m"
-    assert panel.analysis_metric_values["joint_coverage"].get() == "87.5% (7/8)"
+    assert panel.analysis_metric_values["energy_score"].get() == "3.25 m"
+    assert panel.analysis_metric_values["joint_coverage_50"].get() == "37.5% (3/8)"
+    assert panel.analysis_metric_values["joint_coverage_90"].get() == "87.5% (7/8)"
     assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
     assert panel.posterior_median_values["current_speed"].get() == "2.00 m/s"
     assert panel.posterior_median_values["current_heading"].get() == "3.00°"
@@ -380,6 +384,8 @@ def test_help_explains_analysis_metrics():
     assert dict(sections["Analysis metrics"]) == {
         "Forecast ADE": "Mean position error across all forecast steps in meters; lower is better.",
         "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
+        "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
+        "Joint 50% coverage": "Share of future position points inside their joint 50% prediction regions; close to 50% is well calibrated.",
         "Joint 90% coverage": "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
         "Inference time": "Time required for inference; measures computation speed, not forecast accuracy.",
     }

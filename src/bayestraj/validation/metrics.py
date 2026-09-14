@@ -351,10 +351,7 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
             ),
         )
     if computation_time_seconds is not None:
-        metric_rows.insert(
-            2,
-            ("Computation time", f"{computation_time_seconds:.3f} s"),
-        )
+        metric_rows.append(("Computation time", f"{computation_time_seconds:.3f} s"))
     return reporting.format_evaluation_report(metric_rows, table)
 
 

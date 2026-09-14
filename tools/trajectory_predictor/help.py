@@ -81,6 +81,14 @@ POSTERIOR_HELP_SECTIONS = (
                 "Position error at the final forecast step in meters; lower is better.",
             ),
             (
+                "Forecast Energy Score",
+                "Joint 2D probabilistic forecast error; lower is better.",
+            ),
+            (
+                "Joint 50% coverage",
+                "Share of future position points inside their joint 50% prediction regions; close to 50% is well calibrated.",
+            ),
+            (
                 "Joint 90% coverage",
                 "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
             ),

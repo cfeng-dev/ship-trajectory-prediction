@@ -781,7 +781,9 @@ def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable()
 
     assert metrics.ade_m is None
     assert metrics.fde_m is None
-    assert metrics.joint_coverage_count == 0
+    assert metrics.energy_score_m is None
+    assert metrics.joint_coverage_50_count == 0
+    assert metrics.joint_coverage_90_count == 0
     assert metrics.joint_coverage_total == 0
     assert metrics.inference_time_seconds is None
 
@@ -827,7 +829,9 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
 
     assert metrics.ade_m == pytest.approx(0.5)
     assert metrics.fde_m == pytest.approx(1.0)
-    assert metrics.joint_coverage_count == 1
+    assert metrics.energy_score_m == pytest.approx(0.487874)
+    assert metrics.joint_coverage_50_count == 1
+    assert metrics.joint_coverage_90_count == 1
     assert metrics.joint_coverage_total == 2
     assert metrics.inference_time_seconds == pytest.approx(0.25)
 
@@ -1284,8 +1288,7 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         )
         assert not median_lines()
         assert any(
-                "End of recorded trajectory: no further forecast times."
-                in text.get_text()
+            "End of recorded trajectory: no further forecast times." in text.get_text()
             for text in navigator.trajectory_axis.texts
         )
     finally:
