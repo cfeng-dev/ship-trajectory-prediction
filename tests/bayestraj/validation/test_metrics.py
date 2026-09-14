@@ -38,6 +38,11 @@ def test_position_evaluation_reports_joint_held_out_log_predictive_density():
 
     assert evaluation.elpd == pytest.approx(-np.log(2 * np.pi))
     assert evaluation.mean_log_predictive_density == pytest.approx(-np.log(2 * np.pi))
+    assert evaluation.energy_score_m == pytest.approx(0.0)
+    assert evaluation.joint_coverage_50 == pytest.approx(1.0)
+    assert evaluation.joint_coverage_90 == pytest.approx(1.0)
     assert evaluation.prediction_table[
         "log_predictive_density"
     ].tolist() == pytest.approx([-np.log(2 * np.pi)])
+    assert evaluation.prediction_table["joint_covered_50"].tolist() == [True]
+    assert evaluation.prediction_table["joint_covered_90"].tolist() == [True]

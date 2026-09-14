@@ -262,6 +262,9 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
             "log_predictive_density": [-2.0, -3.0],
+            "energy_score_m": [1.0, 2.0],
+            "joint_covered_50": [True, False],
+            "joint_covered_90": [True, True],
             "inference_mode": ["online", "online"],
             "inference_method": ["rbpf", "rbpf"],
             "converged": [None, None],
@@ -278,6 +281,9 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
     assert summary.mcmc_diagnostics_pass_rate is None
     assert summary.elpd == pytest.approx(-5.0)
     assert summary.mean_log_predictive_density == pytest.approx(-2.5)
+    assert summary.mean_energy_score_m == pytest.approx(1.5)
+    assert summary.joint_coverage_50 == pytest.approx(0.5)
+    assert summary.joint_coverage_90 == pytest.approx(1.0)
 
 
 def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
@@ -291,6 +297,9 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
             "log_predictive_density": [-2.0, -3.0],
+            "energy_score_m": [1.0, 2.0],
+            "joint_covered_50": [True, False],
+            "joint_covered_90": [True, True],
             "inference_mode": ["online", "online"],
             "inference_method": ["smc", "smc"],
             "converged": [None, None],
@@ -326,6 +335,9 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         mean_marginal_interval_width_m=0.0,
         elpd=-10.0,
         mean_log_predictive_density=-2.5,
+        mean_energy_score_m=15.0,
+        joint_coverage_50=0.5,
+        joint_coverage_90=0.95,
         vi_convergence_rate=None,
         mcmc_diagnostics_pass_rate=None,
         per_horizon_table=pd.DataFrame(),
@@ -339,5 +351,7 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         for index, line in enumerate(output_lines)
         if line.startswith("Mean maximum-horizon FDE")
     )
-    assert output_lines[fde_line + 1].startswith("ELPD")
-    assert output_lines[fde_line + 3].startswith("Joint 2D 90% coverage")
+    assert output_lines[fde_line + 1].startswith("Mean Energy Score")
+    assert output_lines[fde_line + 2].startswith("ELPD")
+    assert output_lines[fde_line + 4].startswith("Joint 2D 50% coverage")
+    assert output_lines[fde_line + 5].startswith("Joint 2D 90% coverage")

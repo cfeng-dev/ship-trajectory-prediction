@@ -16,7 +16,10 @@ class PositionEvaluation:
     errors_m: np.ndarray
     ade_m: float
     fde_m: float
+    energy_score_m: float
     radial_coverage: float
+    joint_coverage_50: float
+    joint_coverage_90: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
     elpd: float
@@ -172,6 +175,7 @@ def evaluate_position_predictions(
     y_upper = np.quantile(y_samples, upper_probability, axis=0)
 
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
+    energy_score_m = _joint_energy_scores(x_actual, y_actual, x_samples, y_samples)
     log_predictive_density = _joint_log_predictive_density(
         x_actual,
         y_actual,
@@ -179,13 +183,17 @@ def evaluate_position_predictions(
         y_samples,
         position_observation_noise_samples,
     )
-    prediction_regions = tuple(
+    coverage_probabilities = tuple(sorted({0.5, 0.9, credible_interval}))
+    prediction_region_sets = tuple(
         empirical_covariance_regions(
             x_samples[:, time_index],
             y_samples[:, time_index],
-            probabilities=(credible_interval,),
-        )[credible_interval]
+            probabilities=coverage_probabilities,
+        )
         for time_index in range(prediction_count)
+    )
+    prediction_regions = tuple(
+        regions[credible_interval] for regions in prediction_region_sets
     )
     prediction_radius_m = np.asarray(
         [region.equivalent_radius for region in prediction_regions],
@@ -219,6 +227,18 @@ def evaluate_position_predictions(
         ],
         dtype=bool,
     )
+    joint_covered_50 = _joint_region_coverage(
+        prediction_region_sets,
+        probability=0.5,
+        x_actual=x_actual,
+        y_actual=y_actual,
+    )
+    joint_covered_90 = _joint_region_coverage(
+        prediction_region_sets,
+        probability=0.9,
+        x_actual=x_actual,
+        y_actual=y_actual,
+    )
     mean_marginal_interval_width_m = 0.5 * ((x_upper - x_lower) + (y_upper - y_lower))
 
     prediction_times = np.asarray(window.time_seconds[prediction], dtype=float)
@@ -248,10 +268,13 @@ def evaluate_position_predictions(
             "y_upper": y_upper,
             "position_error_m": errors_m,
             "log_predictive_density": log_predictive_density,
+            "energy_score_m": energy_score_m,
             "prediction_radius_m": prediction_radius_m,
             "squared_mahalanobis_distance": squared_mahalanobis_distance,
             "squared_mahalanobis_radius": squared_mahalanobis_radius,
             "radial_covered": covered,
+            "joint_covered_50": joint_covered_50,
+            "joint_covered_90": joint_covered_90,
             "mean_marginal_interval_width_m": mean_marginal_interval_width_m,
         }
     )
@@ -261,7 +284,10 @@ def evaluate_position_predictions(
         errors_m=errors_m,
         ade_m=float(np.mean(errors_m)),
         fde_m=float(errors_m[-1]),
+        energy_score_m=float(np.mean(energy_score_m)),
         radial_coverage=float(np.mean(covered)),
+        joint_coverage_50=float(np.mean(joint_covered_50)),
+        joint_coverage_90=float(np.mean(joint_covered_90)),
         mean_prediction_radius_m=float(np.mean(prediction_radius_m)),
         mean_marginal_interval_width_m=float(np.mean(mean_marginal_interval_width_m)),
         elpd=float(np.sum(log_predictive_density)),
@@ -299,15 +325,14 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
     metric_rows = [
         ("ADE", f"{evaluation.ade_m:.2f} m"),
         ("FDE", f"{evaluation.fde_m:.2f} m"),
+        ("Energy Score", f"{evaluation.energy_score_m:.2f} m"),
         ("ELPD", f"{evaluation.elpd:.3f}"),
         (
             "Mean log predictive density",
             f"{evaluation.mean_log_predictive_density:.3f}",
         ),
-        (
-            f"Joint 2D {interval_percent:g}% coverage",
-            f"{evaluation.radial_coverage:.1%}",
-        ),
+        ("Joint 2D 50% coverage", f"{evaluation.joint_coverage_50:.1%}"),
+        ("Joint 2D 90% coverage", f"{evaluation.joint_coverage_90:.1%}"),
         (
             "Mean equivalent region radius",
             f"{evaluation.mean_prediction_radius_m:.2f} m",
@@ -317,6 +342,14 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
             f"{evaluation.mean_marginal_interval_width_m:.2f} m",
         ),
     ]
+    if evaluation.credible_interval not in {0.5, 0.9}:
+        metric_rows.insert(
+            6,
+            (
+                f"Joint 2D {interval_percent:g}% coverage",
+                f"{evaluation.radial_coverage:.1%}",
+            ),
+        )
     if computation_time_seconds is not None:
         metric_rows.insert(
             2,
@@ -387,6 +420,46 @@ def _joint_log_predictive_density(
     maximum_log_density = np.max(log_component_density, axis=0)
     return maximum_log_density + np.log(
         np.mean(np.exp(log_component_density - maximum_log_density), axis=0)
+    )
+
+
+def _joint_energy_scores(x_actual, y_actual, x_samples, y_samples):
+    """Return the joint 2D energy score at each prediction horizon."""
+    distance_to_actual = np.hypot(x_samples - x_actual, y_samples - y_actual)
+    energy_scores = []
+    for time_index in range(x_samples.shape[1]):
+        x_values = x_samples[:, time_index]
+        y_values = y_samples[:, time_index]
+        pairwise_distances = np.hypot(
+            x_values[:, np.newaxis] - x_values,
+            y_values[:, np.newaxis] - y_values,
+        )
+        energy_scores.append(
+            float(np.mean(distance_to_actual[:, time_index]))
+            - 0.5 * float(np.mean(pairwise_distances))
+        )
+    return np.asarray(energy_scores, dtype=float)
+
+
+def _joint_region_coverage(
+    prediction_region_sets,
+    *,
+    probability,
+    x_actual,
+    y_actual,
+):
+    """Return membership of held-out positions in one joint region level."""
+    return np.asarray(
+        [
+            regions[probability].contains(actual_x, actual_y)
+            for regions, actual_x, actual_y in zip(
+                prediction_region_sets,
+                x_actual,
+                y_actual,
+                strict=True,
+            )
+        ],
+        dtype=bool,
     )
 
 

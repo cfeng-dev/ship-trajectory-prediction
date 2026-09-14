@@ -32,10 +32,13 @@ class RollingPositionSummary:
     forecast_count: int
     ade_m: float
     fde_m: float
+    mean_energy_score_m: float
     mean_window_runtime_seconds: float
     median_window_runtime_seconds: float
     total_computation_time_seconds: float
     radial_coverage: float
+    joint_coverage_50: float
+    joint_coverage_90: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
     elpd: float
@@ -103,7 +106,10 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "mean_horizon_seconds": "Horizon[s]",
             "ade_m": "ADE[m]",
             "median_error_m": "Median[m]",
+            "mean_energy_score_m": "Energy[m]",
             "radial_coverage": "Coverage",
+            "joint_coverage_50": "Joint 50%",
+            "joint_coverage_90": "Joint 90%",
             "mean_prediction_radius_m": "Radius[m]",
             "mean_marginal_interval_width_m": "Width[m]",
             "mean_log_predictive_density": "Mean LogPD",
@@ -115,7 +121,10 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "Horizon[s]": lambda value: f"{value:.1f}",
             "ADE[m]": lambda value: f"{value:.3f}",
             "Median[m]": lambda value: f"{value:.3f}",
+            "Energy[m]": lambda value: f"{value:.3f}",
             "Coverage": lambda value: f"{value:.1%}",
+            "Joint 50%": lambda value: f"{value:.1%}",
+            "Joint 90%": lambda value: f"{value:.1%}",
             "Radius[m]": lambda value: f"{value:.3f}",
             "Width[m]": lambda value: f"{value:.3f}",
             "Mean LogPD": lambda value: f"{value:.3f}",
@@ -257,8 +266,11 @@ def summarize_rolling_predictions(
         "horizon_step",
         "horizon_seconds",
         "position_error_m",
+        "energy_score_m",
         "prediction_radius_m",
         "radial_covered",
+        "joint_covered_50",
+        "joint_covered_90",
         "mean_marginal_interval_width_m",
         "log_predictive_density",
         "inference_mode",
@@ -276,6 +288,7 @@ def summarize_rolling_predictions(
     numeric_columns = (
         "horizon_seconds",
         "position_error_m",
+        "energy_score_m",
         "prediction_radius_m",
         "mean_marginal_interval_width_m",
         "log_predictive_density",
@@ -300,7 +313,10 @@ def summarize_rolling_predictions(
             mean_horizon_seconds=("horizon_seconds", "mean"),
             ade_m=("position_error_m", "mean"),
             median_error_m=("position_error_m", "median"),
+            mean_energy_score_m=("energy_score_m", "mean"),
             radial_coverage=("radial_covered", "mean"),
+            joint_coverage_50=("joint_covered_50", "mean"),
+            joint_coverage_90=("joint_covered_90", "mean"),
             mean_prediction_radius_m=("prediction_radius_m", "mean"),
             mean_marginal_interval_width_m=(
                 "mean_marginal_interval_width_m",
@@ -353,10 +369,13 @@ def summarize_rolling_predictions(
         forecast_count=len(prediction_table),
         ade_m=float(prediction_table["position_error_m"].mean()),
         fde_m=float(per_horizon.iloc[-1]["ade_m"]),
+        mean_energy_score_m=float(prediction_table["energy_score_m"].mean()),
         mean_window_runtime_seconds=runtime_summary.mean_seconds,
         median_window_runtime_seconds=runtime_summary.median_seconds,
         total_computation_time_seconds=runtime_summary.total_seconds,
         radial_coverage=float(prediction_table["radial_covered"].mean()),
+        joint_coverage_50=float(prediction_table["joint_covered_50"].mean()),
+        joint_coverage_90=float(prediction_table["joint_covered_90"].mean()),
         mean_prediction_radius_m=float(prediction_table["prediction_radius_m"].mean()),
         mean_marginal_interval_width_m=float(
             prediction_table["mean_marginal_interval_width_m"].mean()
