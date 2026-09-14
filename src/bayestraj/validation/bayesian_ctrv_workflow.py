@@ -172,6 +172,10 @@ def _run_evaluation(
     effective_stride = (
         experiment.prediction_count if experiment.stride is None else experiment.stride
     )
+    show_rolling_plot = _should_plot_rolling_predictions(
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+    )
     print("=" * 72)
     print("Parametric Bayesian CTRV Rolling Evaluation")
     print("=" * 72)
@@ -393,6 +397,9 @@ def _run_evaluation(
     )
     _print_summary(summary, credible_interval=credible_interval)
     _print_parameter_summary(predictions)
+    if not show_rolling_plot:
+        print("\nRolling plot skipped because forecast origins overlap.")
+        return predictions, summary
     plotting.plot_bayesian_rolling_predictions(
         route_x,
         route_y,
@@ -414,6 +421,12 @@ def _run_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _should_plot_rolling_predictions(*, prediction_count, stride):
+    """Return whether rolling forecast origins do not overlap."""
+    effective_stride = prediction_count if stride is None else stride
+    return effective_stride == prediction_count
 
 
 def _advance_online_filter(

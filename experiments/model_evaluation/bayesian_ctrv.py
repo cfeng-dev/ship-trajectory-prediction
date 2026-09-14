@@ -20,7 +20,7 @@ EXPERIMENT = config.RollingExperimentConfig(
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
-    stride=None,
+    stride=1,  # Start a new three-step forecast after every observed position.
     inference_method="smc",
     inference_seed=42,
 )
