@@ -496,6 +496,72 @@ def test_settings_dialog_focuses_without_grabbing_the_main_window():
     assert calls == ["focus"]
 
 
+def test_settings_dialog_is_positioned_before_it_is_shown(root):
+    """A settings dialog must not visibly move from Tk's default position."""
+    from trajectory_predictor.dialogs import SettingsDialog
+
+    calls = []
+
+    class ProbeDialog(SettingsDialog):
+        def withdraw(self):
+            calls.append("withdraw")
+            return super().withdraw()
+
+        def update_idletasks(self):
+            calls.append("layout")
+            return super().update_idletasks()
+
+        def geometry(self, value):
+            calls.append("geometry")
+            return super().geometry(value)
+
+        def deiconify(self):
+            calls.append("deiconify")
+            return super().deiconify()
+
+    panel = SettingsPanel(root, lambda: None)
+    dialog = ProbeDialog(root, panel, "priors")
+    try:
+        assert calls.index("withdraw") < calls.index("layout")
+        assert calls.index("layout") < calls.index("geometry")
+        assert calls.index("geometry") < calls.index("deiconify")
+    finally:
+        dialog.cancel()
+
+
+def test_plot_display_window_is_positioned_before_it_is_shown(root):
+    """The plot-display window must not visibly move from Tk's default position."""
+    from trajectory_predictor.dialogs import PlotDisplayWindow
+
+    calls = []
+
+    class ProbeWindow(PlotDisplayWindow):
+        def withdraw(self):
+            calls.append("withdraw")
+            return super().withdraw()
+
+        def update_idletasks(self):
+            calls.append("layout")
+            return super().update_idletasks()
+
+        def geometry(self, value):
+            calls.append("geometry")
+            return super().geometry(value)
+
+        def deiconify(self):
+            calls.append("deiconify")
+            return super().deiconify()
+
+    panel = SettingsPanel(root, lambda: None)
+    window = ProbeWindow(root, panel)
+    try:
+        assert calls.index("withdraw") < calls.index("layout")
+        assert calls.index("layout") < calls.index("geometry")
+        assert calls.index("geometry") < calls.index("deiconify")
+    finally:
+        window.close()
+
+
 def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatch):
     entered, release = Event(), Event()
     prepares = []

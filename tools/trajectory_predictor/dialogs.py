@@ -91,6 +91,7 @@ class PlotDisplayWindow(tk.Toplevel):
 
     def __init__(self, parent, panel, *, on_close=None):
         super().__init__(parent)
+        self.withdraw()
         self.panel = panel
         self._on_close = on_close
         self._closed = False
@@ -161,6 +162,7 @@ class PlotDisplayWindow(tk.Toplevel):
             parent.winfo_rooty() + (parent.winfo_height() - window_height) // 2,
         )
         self.geometry(f"{window_width}x{window_height}+{left}+{top}")
+        self.deiconify()
 
     def apply(self):
         """Validate and commit the local display draft without closing the editor."""
@@ -191,6 +193,7 @@ class SettingsDialog(tk.Toplevel):
 
     def __init__(self, parent, panel, group):
         super().__init__(parent)
+        self.withdraw()
         self.panel = panel
         self.group = group
         self.transient(parent)
@@ -301,6 +304,7 @@ class SettingsDialog(tk.Toplevel):
         top = max(0, parent.winfo_rooty() + (parent.winfo_height() - height) // 2)
         self.geometry(f"{width}x{height}+{left}+{top}")
         self.minsize(min(520, width), min(DIALOG_MINIMUM_HEIGHT, height))
+        self.deiconify()
 
     def _on_map(self, event):
         if event.widget is self:
