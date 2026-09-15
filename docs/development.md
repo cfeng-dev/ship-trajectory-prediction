@@ -65,3 +65,44 @@ To apply Ruff formatting automatically:
 ```bash
 uv run ruff format .
 ```
+
+## Final Thesis Benchmark
+
+The final benchmark evaluates the deterministic CTRV baseline, Bayesian VI with
+expanding history, online RBPF/SMC, and optionally MCMC. It writes CSV files to
+`results/thesis_benchmark/`, which is intentionally ignored because it can
+contain results from the external recorded trajectory data.
+
+Run a small development smoke benchmark with one short trajectory segment:
+
+```bash
+uv run python experiments/model_evaluation/final_benchmark.py --run-ids 102 --methods deterministic --prediction-counts 1 --noise-levels 0 --max-windows 2
+```
+
+Select multiple runs and the main inference methods:
+
+```bash
+uv run python experiments/model_evaluation/final_benchmark.py --run-ids 101,102,103 --methods deterministic,vi_expanding,rbpf,smc --prediction-counts 1,3,6 --noise-levels 0,2,5,10
+```
+
+Run the configured benchmark dimensions from the script's configuration section:
+
+```bash
+uv run python experiments/model_evaluation/final_benchmark.py
+```
+
+For an MCMC reference subset, include `mcmc_expanding` and restrict its runs,
+horizons, and forecast origins explicitly:
+
+```bash
+uv run python experiments/model_evaluation/final_benchmark.py --run-ids 102 --methods vi_expanding,mcmc_expanding --prediction-counts 1,3 --noise-levels 5 --mcmc-run-ids 102 --mcmc-prediction-counts 3 --mcmc-window-indices 0,5,10
+```
+
+`predictions.csv` contains one row per held-out position and the detailed
+workflow metrics. `runs.csv` contains one status record per run/method/horizon/
+noise combination, including runtime and any captured error. `summary.csv`
+aggregates successful combinations over trajectories, while `per_horizon.csv`
+aggregates them separately for each actual timestamp-derived horizon. Coverage
+columns describe joint 2D positional coverage at each horizon, not simultaneous
+coverage of a complete future trajectory. Deterministic rows intentionally leave
+probabilistic metrics empty rather than using substitute metrics.

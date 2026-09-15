@@ -42,6 +42,8 @@ def run_bayesian_ctrv_evaluation(
     sample_trajectories_per_forecast,
     options: validation_cli.BayesianCTRVEvaluationOptions,
     show_time_labels=False,
+    selected_window_indices=None,
+    show_plot=True,
 ):
     """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
     configured_experiment = dataclasses.replace(
@@ -74,6 +76,8 @@ def run_bayesian_ctrv_evaluation(
         max_windows=options.max_windows,
         plot_each_window=options.plot_each_window,
         show_time_labels=show_time_labels,
+        selected_window_indices=selected_window_indices,
+        show_plot=show_plot,
     )
 
 
@@ -94,6 +98,8 @@ def _run_evaluation(
     max_windows,
     plot_each_window,
     show_time_labels,
+    selected_window_indices,
+    show_plot,
 ):
     """Run one configured rolling evaluation."""
     inference_mode, inference_method, window_mode = (
@@ -157,6 +163,7 @@ def _run_evaluation(
             stride=experiment.stride,
             window_mode=window_mode,
         )
+    windows = _select_window_specs(windows, selected_window_indices)
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
             raise ValueError("max_windows must be a positive integer or None.")
@@ -172,7 +179,8 @@ def _run_evaluation(
     effective_stride = (
         experiment.prediction_count if experiment.stride is None else experiment.stride
     )
-    show_rolling_plot = _should_plot_rolling_predictions(
+    show_rolling_plot = _should_show_rolling_plot(
+        show_plot=show_plot,
         prediction_count=experiment.prediction_count,
         stride=experiment.stride,
     )
@@ -335,6 +343,10 @@ def _run_evaluation(
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
+        if online_mode:
+            diagnostics.update(
+                _online_filter_diagnostics(online_filter, particle_filter_config)
+            )
         table = _build_route_prediction_table(
             evaluation.prediction_table,
             specification=specification,
@@ -427,6 +439,60 @@ def _should_plot_rolling_predictions(*, prediction_count, stride):
     """Return whether rolling forecast origins do not overlap."""
     effective_stride = prediction_count if stride is None else stride
     return effective_stride == prediction_count
+
+
+def _should_show_rolling_plot(*, show_plot, prediction_count, stride):
+    """Return whether the caller and rolling cadence both allow plotting."""
+    return show_plot and _should_plot_rolling_predictions(
+        prediction_count=prediction_count,
+        stride=stride,
+    )
+
+
+def _select_window_specs(windows, selected_window_indices):
+    """Return requested rolling windows in chronology-preserving order."""
+    if selected_window_indices is None:
+        return windows
+    try:
+        selected = tuple(selected_window_indices)
+    except TypeError as error:
+        raise ValueError(
+            "selected_window_indices must be an iterable of indices."
+        ) from error
+    if not selected:
+        return windows
+    if any(
+        isinstance(index, bool) or not isinstance(index, (int, np.integer))
+        for index in selected
+    ):
+        raise ValueError("selected_window_indices must contain integer indices.")
+    selected_set = set(selected)
+    available = {specification.window_index for specification in windows}
+    unknown = sorted(selected_set.difference(available))
+    if unknown:
+        raise ValueError(
+            f"selected_window_indices contains unavailable indices: {unknown}"
+        )
+    return tuple(
+        specification
+        for specification in windows
+        if specification.window_index in selected_set
+    )
+
+
+def _online_filter_diagnostics(online_filter, particle_filter_config):
+    """Return current particle-filter diagnostics for each forecast row."""
+    effective_sample_size = online_filter.last_effective_sample_size
+    if effective_sample_size is None:
+        effective_sample_size = online_filter.effective_sample_size
+    return {
+        "particle_effective_sample_size": float(effective_sample_size),
+        "particle_resample_count": int(online_filter.resample_count),
+        "particle_processed_observation_count": int(
+            online_filter.processed_observation_count
+        ),
+        "particle_count": int(particle_filter_config.particle_count),
+    }
 
 
 def _advance_online_filter(
