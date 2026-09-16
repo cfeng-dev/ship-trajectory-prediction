@@ -4,7 +4,7 @@ import pandas as pd
 
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.rolling as rolling
-from experiments.model_evaluation import bayesian_ctrv as experiment
+import bayestraj.validation.runtime_plotting as runtime_plotting
 
 
 def test_rolling_plot_is_hidden_only_for_overlapping_forecast_origins():
@@ -128,13 +128,13 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     axis = Axis()
     figure = type("Figure", (), {"tight_layout": lambda _self: None})()
     monkeypatch.setattr(
-        experiment.plt,
+        runtime_plotting.plt,
         "subplots",
         lambda *, figsize: (figure, axis),
     )
-    monkeypatch.setattr(experiment.plt, "show", lambda: None)
+    monkeypatch.setattr(runtime_plotting.plt, "show", lambda: None)
 
-    returned_figure, returned_axis = experiment.plot_fit_runtime(
+    returned_figure, returned_axis = runtime_plotting.plot_bayesian_ctrv_inference_runtime(
         predictions,
         inference_selection="vi_expanding",
     )
@@ -143,7 +143,10 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert returned_axis is axis
     assert axis.plot_arguments == ([5, 7], [1.0, 2.0])
     assert axis.plot_keywords["label"] == "Inferenzzeit pro Vorhersagefenster"
-    assert axis.plot_keywords["color"] == experiment.RUNTIME_PLOT_STYLE.derived_data_color
+    assert (
+        axis.plot_keywords["color"]
+        == runtime_plotting.RUNTIME_PLOT_STYLE.derived_data_color
+    )
     assert axis.plot_keywords["markersize"] == 3
     assert axis.xlabel == "Anzahl bisher beobachteter Positionen"
     assert axis.ylabel == "Inferenzzeit pro Vorhersagefenster [s]"
