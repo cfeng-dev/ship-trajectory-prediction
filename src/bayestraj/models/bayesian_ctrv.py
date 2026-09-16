@@ -42,7 +42,31 @@ PARAMETER_NAMES = (
 
 @dataclass(frozen=True, slots=True)
 class BayesianCTRVPriors:
-    """Ship-independent priors for Bayesian CTRV state dynamics."""
+    """Ship-independent priors for Bayesian CTRV state dynamics.
+
+    Each ``*_upper_*`` value defines a physically plausible threshold, while the corresponding ``*_tail_probability`` specifies the prior probability of exceeding it. Derived scales and rates are calculated from these settings and are not configured directly.
+
+    Attributes:
+        speed_prior_upper_mps: Initial-speed threshold in m/s.
+
+        speed_prior_tail_probability: P(speed > speed_prior_upper_mps).
+
+        turn_rate_prior_abs_rate_deg_s: Absolute initial turn-rate threshold in deg/s.
+
+        turn_rate_prior_tail_probability: P(|turn rate| > turn_rate_prior_abs_rate_deg_s).
+
+        sigma_position_observation_prior_upper_m: Position-observation-noise threshold per local x/y coordinate in m.
+
+        sigma_position_observation_prior_tail_probability: P(position-observation noise > sigma_position_observation_prior_upper_m).
+
+        sigma_speed_process_prior_upper_mps: Speed process-noise threshold in m/s.
+
+        sigma_speed_process_prior_tail_probability: P(speed process noise > sigma_speed_process_prior_upper_mps).
+
+        sigma_turn_rate_process_prior_upper_deg_s: Turn-rate process-noise threshold in deg/s.
+
+        sigma_turn_rate_process_prior_tail_probability: P(turn-rate process noise > sigma_turn_rate_process_prior_upper_deg_s).
+    """
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
