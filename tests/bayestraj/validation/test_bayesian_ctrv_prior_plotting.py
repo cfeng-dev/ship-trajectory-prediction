@@ -36,7 +36,7 @@ prior_plotting = _load_prior_plotting_module()
 prior_plotting_support = importlib.import_module("bayestraj.validation.prior_plotting")
 prior_reporting = importlib.import_module("bayestraj.validation.prior_reporting")
 EXPERIMENT_PRIORS = runpy.run_path(
-    PROJECT_ROOT / "experiments" / "trajectory_prediction" / "bayesian_ctrv.py"
+    PROJECT_ROOT / "experiments" / "single_run" / "bayesian_ctrv.py"
 )["PRIORS"]
 
 
