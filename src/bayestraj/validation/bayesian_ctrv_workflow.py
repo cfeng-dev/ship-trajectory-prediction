@@ -283,6 +283,7 @@ def _run_evaluation(
             f"predictions={specification.prediction_count}, seed={window_seed}"
         )
         runtime_started = time.perf_counter()
+        fit_runtime_started = time.perf_counter()
         if online_mode:
             online_filter = _advance_online_filter(
                 online_filter,
@@ -314,6 +315,7 @@ def _run_evaluation(
                 inference_config=inference_config,
                 initial_seed=window_seed,
             )
+        fit_runtime_seconds = time.perf_counter() - fit_runtime_started
         if inference_method == "vi":
             converged = cmdstan_inference.variational_converged(fit)
             mcmc_diagnostics_ok = None
@@ -375,6 +377,7 @@ def _run_evaluation(
             )
         )
         window_runtime_seconds = time.perf_counter() - runtime_started
+        table["fit_runtime_seconds"] = fit_runtime_seconds
         table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
         print(
