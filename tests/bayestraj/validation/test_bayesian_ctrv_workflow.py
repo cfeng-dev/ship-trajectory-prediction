@@ -80,6 +80,17 @@ def test_online_filter_diagnostics_are_available_for_benchmark_records():
     }
 
 
+def test_inference_configs_default_to_source_owned_factories():
+    vi_config, mcmc_config, rbpf_config, smc_config = (
+        workflow._resolve_inference_configs(None, None, None, None)
+    )
+
+    assert vi_config["algorithm"] == "meanfield"
+    assert mcmc_config["chains"] >= 1
+    assert rbpf_config.particle_count > 0
+    assert smc_config.particle_count > 0
+
+
 def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     predictions = pd.DataFrame(
         {

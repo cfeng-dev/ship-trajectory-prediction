@@ -20,15 +20,29 @@ import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 
 
+def _resolve_inference_configs(vi_config, mcmc_config, rbpf_config, smc_config):
+    """Return explicit inference settings or the source-owned defaults."""
+    return (
+        inference.create_default_vi_config() if vi_config is None else vi_config,
+        inference.create_default_mcmc_config()
+        if mcmc_config is None
+        else mcmc_config,
+        inference.create_default_ctrv_rbpf_config()
+        if rbpf_config is None
+        else rbpf_config,
+        inference.create_default_ctrv_smc_config() if smc_config is None else smc_config,
+    )
+
+
 def run_bayesian_ctrv_prediction(
     *,
     data_file,
     experiment: forecasting.ExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
-    vi_config: Mapping[str, Any],
-    mcmc_config: Mapping[str, Any],
-    rbpf_config: rbpf_model.SequentialCTRVFilterConfig,
-    smc_config: smc_model.SequentialMonteCarloCTRVConfig,
+    vi_config: Mapping[str, Any] | None = None,
+    mcmc_config: Mapping[str, Any] | None = None,
+    rbpf_config: rbpf_model.SequentialCTRVFilterConfig | None = None,
+    smc_config: smc_model.SequentialMonteCarloCTRVConfig | None = None,
     fullrank_grad_samples: int,
     credible_interval: float,
     inference_method: str,
@@ -42,6 +56,12 @@ def run_bayesian_ctrv_prediction(
     sample_trajectories_per_forecast=prediction_plotting.MAX_SAMPLE_TRAJECTORIES,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
+    vi_config, mcmc_config, rbpf_config, smc_config = _resolve_inference_configs(
+        vi_config,
+        mcmc_config,
+        rbpf_config,
+        smc_config,
+    )
     inference_mode, inference_method = inference.normalize_inference_method(
         inference_method,
         online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,

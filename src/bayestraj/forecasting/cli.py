@@ -14,11 +14,13 @@ def parse_bayesian_ctrv_prediction_arguments(
     *,
     description: str | None,
     experiment: bayesian_forecasting.ExperimentConfig,
-    vi_config: Mapping[str, Any],
+    vi_config: Mapping[str, Any] | None = None,
     plot_coordinate_mode: str,
     argv: Sequence[str] | None = None,
 ) -> argparse.Namespace:
     """Parse CLI options for one parametric Bayesian CTRV prediction."""
+    if vi_config is None:
+        vi_config = inference.create_default_vi_config()
     return _parse_bayesian_prediction_arguments(
         description=description,
         experiment=experiment,

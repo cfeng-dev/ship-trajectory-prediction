@@ -28,15 +28,29 @@ import bayestraj.validation.rolling as rolling_validation
 VI_EXECUTION_RETRIES = 2
 
 
+def _resolve_inference_configs(vi_config, mcmc_config, rbpf_config, smc_config):
+    """Return explicit inference settings or the source-owned defaults."""
+    return (
+        inference.create_default_vi_config() if vi_config is None else vi_config,
+        inference.create_default_mcmc_config()
+        if mcmc_config is None
+        else mcmc_config,
+        inference.create_default_ctrv_rbpf_config()
+        if rbpf_config is None
+        else rbpf_config,
+        inference.create_default_ctrv_smc_config() if smc_config is None else smc_config,
+    )
+
+
 def run_bayesian_ctrv_evaluation(
     *,
     data_file,
     experiment: forecasting.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
-    vi_config,
-    mcmc_config,
-    rbpf_config,
-    smc_config,
+    vi_config=None,
+    mcmc_config=None,
+    rbpf_config=None,
+    smc_config=None,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -46,6 +60,12 @@ def run_bayesian_ctrv_evaluation(
     show_plot=True,
 ):
     """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
+    vi_config, mcmc_config, rbpf_config, smc_config = _resolve_inference_configs(
+        vi_config,
+        mcmc_config,
+        rbpf_config,
+        smc_config,
+    )
     configured_experiment = dataclasses.replace(
         experiment,
         observation_count=options.observation_count,

@@ -317,13 +317,13 @@ def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
     arguments = forecasting_cli.parse_bayesian_ctrv_prediction_arguments(
         description=None,
         experiment=experiment,
-        vi_config=inference.create_default_vi_config(),
         plot_coordinate_mode="m",
         argv=["--inference-method", online_method],
     )
 
     assert not hasattr(arguments, "inference_mode")
     assert arguments.inference_method == online_method
+    assert arguments.vi_algorithm == inference.create_default_vi_config()["algorithm"]
 
 
 @pytest.mark.parametrize(
@@ -344,7 +344,6 @@ def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
         description=None,
         experiment=experiment,
         priors=ctrv_model.BayesianCTRVPriors(),
-        vi_config=inference.create_default_vi_config(),
         max_windows=None,
         plot_each_window=False,
         argv=["--inference-method", inference_method],
@@ -353,6 +352,7 @@ def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
     assert not hasattr(options, "inference_mode")
     assert not hasattr(options, "window_mode")
     assert options.inference_method == inference_method
+    assert options.vi_algorithm == inference.create_default_vi_config()["algorithm"]
 
 
 def test_ctrv_rolling_cli_accepts_turn_rate_prior_threshold_in_degrees_per_second():

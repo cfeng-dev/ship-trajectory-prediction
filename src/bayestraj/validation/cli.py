@@ -60,12 +60,14 @@ def parse_bayesian_ctrv_evaluation_arguments(
     description: str | None,
     experiment: forecasting.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
-    vi_config: Mapping[str, Any],
+    vi_config: Mapping[str, Any] | None = None,
     max_windows: int | None,
     plot_each_window: bool,
     argv: Sequence[str] | None = None,
 ) -> BayesianCTRVEvaluationOptions:
     """Parse options for one parametric Bayesian CTRV rolling evaluation."""
+    if vi_config is None:
+        vi_config = inference.create_default_vi_config()
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--observations",

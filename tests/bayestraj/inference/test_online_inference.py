@@ -28,6 +28,17 @@ class _FakeOnlineFilter:
         self.processed_observation_count += len(new_values)
 
 
+def test_single_window_inference_configs_default_to_source_owned_factories():
+    vi_config, mcmc_config, rbpf_config, smc_config = (
+        single_ctrv_workflow._resolve_inference_configs(None, None, None, None)
+    )
+
+    assert vi_config["algorithm"] == "meanfield"
+    assert mcmc_config["chains"] >= 1
+    assert rbpf_config.particle_count > 0
+    assert smc_config.particle_count > 0
+
+
 @pytest.mark.parametrize("inference_method", ("rbpf", "smc"))
 def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     monkeypatch,
