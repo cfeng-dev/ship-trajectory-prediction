@@ -39,6 +39,7 @@ def run_bayesian_ctrv_prediction(
     require_converged: bool,
     plot_coordinate_mode: str,
     show_time_labels: bool,
+    sample_trajectories_per_forecast=prediction_plotting.MAX_SAMPLE_TRAJECTORIES,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
     inference_mode, inference_method = inference.normalize_inference_method(
@@ -292,6 +293,7 @@ def run_bayesian_ctrv_prediction(
         coordinate_mode=plot_coordinate_mode,
         forecast_label="Median der latenten CTRV-Trajektorie",
         sample_label="Latente CTRV-Trajektorienprognosen",
+        max_sample_trajectories=sample_trajectories_per_forecast,
         show_time_labels=show_time_labels,
     )
     return {

@@ -42,6 +42,7 @@ RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
 SMC_CONFIG = inference.create_default_ctrv_smc_config()
 CREDIBLE_INTERVAL = 0.9
 PLOT_COORDINATE_MODE = "m"
+SAMPLE_TRAJECTORIES_PER_FORECAST = 15
 SHOW_TIME_LABELS = True
 
 
@@ -72,6 +73,7 @@ def main(argv=None):
         require_converged=arguments.require_converged,
         plot_coordinate_mode=arguments.plot_coordinates,
         show_time_labels=SHOW_TIME_LABELS,
+        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
     )
 
 

@@ -49,6 +49,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
             "gps_speed": np.full(row_count, 3.6),
         }
     )
+    plot_keywords = {}
     monkeypatch.setattr(
         single_ctrv_workflow.observations_io,
         "read_ship_data",
@@ -57,7 +58,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     monkeypatch.setattr(
         single_ctrv_workflow.prediction_plotting,
         "plot_prediction",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: plot_keywords.update(kwargs),
     )
     experiment = ctrv_forecasting.ExperimentConfig(
         run_id=102,
@@ -94,6 +95,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         require_converged=False,
         plot_coordinate_mode="m",
         show_time_labels=False,
+        sample_trajectories_per_forecast=4,
     )
 
     fit = result["fit"]
@@ -101,6 +103,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     assert fit.stan_variable("x_prediction").shape == (16, 3)
     assert fit.stan_variable("y_prediction").shape == (16, 3)
     assert result["converged"] is None
+    assert plot_keywords["max_sample_trajectories"] == 4
     assert f"{inference_method.upper()} diagnostics:" in capsys.readouterr().out
 
 
