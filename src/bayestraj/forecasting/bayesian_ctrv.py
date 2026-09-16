@@ -7,7 +7,25 @@ import bayestraj.inference.configuration as inference
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfig:
-    """Configuration of one single-window parametric CTRV experiment."""
+    """Configuration of one single-window parametric CTRV experiment.
+
+    Attributes:
+        run_id: Identifier of the ship trajectory to evaluate.
+
+        start_index: Index of the first observed position in the selected run.
+
+        observation_count: Number of observed positions used for inference.
+
+        prediction_count: Number of future positions forecast after inference.
+
+        position_noise_std_m: Gaussian position-noise standard deviation per local x/y coordinate in metres; 0 disables artificial noise.
+
+        position_noise_seed: Random seed for reproducible position noise.
+
+        inference_method: ``vi``, ``mcmc``, ``rbpf``, or ``smc``.
+
+        inference_seed: Random seed for reproducible inference.
+    """
 
     run_id: int
     start_index: int
@@ -29,7 +47,25 @@ class ExperimentConfig:
 
 @dataclass(frozen=True, slots=True)
 class RollingExperimentConfig:
-    """Configuration of one rolling parametric CTRV experiment."""
+    """Configuration of one rolling parametric CTRV experiment.
+
+    Attributes:
+        run_id: Identifier of the ship trajectory to evaluate.
+
+        observation_count: Initial number of observed positions. For a sliding window, this is also the fixed window size.
+
+        prediction_count: Number of future positions forecast per window.
+
+        position_noise_std_m: Gaussian position-noise standard deviation per local x/y coordinate in metres; 0 disables artificial noise.
+
+        position_noise_seed: Random seed for reproducible position noise.
+
+        stride: Number of newly observed positions between forecast origins.
+
+        inference_method: ``vi_sliding``, ``vi_expanding``, ``mcmc_sliding``, ``mcmc_expanding``, ``rbpf``, or ``smc``.
+
+        inference_seed: Random seed for reproducible inference.
+    """
 
     run_id: int
     observation_count: int
