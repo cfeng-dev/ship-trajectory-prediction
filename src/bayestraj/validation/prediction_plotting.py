@@ -11,7 +11,7 @@ import bayestraj.observations.coordinates as coordinates
 import bayestraj.validation.metrics as metrics
 import bayestraj.validation.reporting as reporting
 
-MAX_SAMPLE_TRAJECTORIES = 15
+DEFAULT_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
 PLOT_COORDINATE_MODES = ("m", "km", "gps")
 # Plot typography
@@ -348,7 +348,7 @@ def plot_prediction(
     *,
     plot_mode="evaluation",
     show_sample_trajectories=True,
-    max_sample_trajectories=MAX_SAMPLE_TRAJECTORIES,
+    max_sample_trajectories=DEFAULT_SAMPLE_TRAJECTORIES,
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
@@ -442,7 +442,7 @@ def plot_operational_prediction(
     fit,
     *,
     show_sample_trajectories=True,
-    max_sample_trajectories=MAX_SAMPLE_TRAJECTORIES,
+    max_sample_trajectories=DEFAULT_SAMPLE_TRAJECTORIES,
     sample_seed=42,
     state_prediction_variable_names=("x_prediction_mean", "y_prediction_mean"),
     observed_position_values=None,
@@ -769,14 +769,14 @@ def _posterior_draw_arrays(posterior_draws):
 
 
 def _sample_trajectory_indices(draw_count, requested_count, seed):
-    """Select at most 15 posterior paths reproducibly without replacement."""
+    """Select the requested posterior paths reproducibly without replacement."""
     if isinstance(requested_count, bool) or not isinstance(requested_count, Integral):
         raise ValueError("max_sample_trajectories must be a non-negative integer.")
     if requested_count < 0:
         raise ValueError("max_sample_trajectories must be a non-negative integer.")
     if isinstance(seed, bool) or not isinstance(seed, Integral):
         raise ValueError("sample_seed must be an integer.")
-    sample_count = min(requested_count, MAX_SAMPLE_TRAJECTORIES, draw_count)
+    sample_count = min(requested_count, draw_count)
     if sample_count == 0:
         return np.asarray([], dtype=int)
     random_generator = np.random.default_rng(int(seed))
@@ -836,14 +836,11 @@ def _timing_annotation(
     *,
     position_noise_std_m,
 ):
-    """Format timing and optional noise settings as one compact line."""
+    """Format timing information as one compact line."""
     parts = [
         f"Beobachtungsdauer: {observation_duration:g} s",
         f"Prognosehorizont: {prediction_horizon:g} s",
     ]
-    if position_noise_std_m is not None:
-        noise_std_m = _format_general_decimal_comma(position_noise_std_m)
-        parts.append(f"Positionsrauschen: σ = {noise_std_m} m je Achse")
     return " | ".join(parts)
 
 
