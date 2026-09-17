@@ -1,0 +1,13 @@
+benchmark_case_id,run_id,method,inference_mode,inference_method,window_mode,observation_count,prediction_count,position_noise_std_m,position_noise_seed,inference_seed,selected_window_indices,status,forecast_origin_count,predicted_position_count,computation_time_seconds,mean_window_runtime_seconds,vi_convergence_rate,mcmc_diagnostics_pass_rate,mean_particle_effective_sample_size,final_particle_resample_count,error_message
+run-1__deterministic__p-1__noise-0__noise-seed-2026__inference-seed-42,1,deterministic,deterministic,deterministic,expanding,20,1,0.000,2026,42,,success,341,341,38.447,0.108,,,,,
+run-1__rbpf__p-1__noise-0__noise-seed-2026__inference-seed-42,1,rbpf,online,rbpf,,20,1,0.000,2026,42,,success,341,341,27.574,0.076,,,3313.622,18.000,
+run-1__smc__p-1__noise-0__noise-seed-2026__inference-seed-42,1,smc,online,smc,,20,1,0.000,2026,42,,success,341,341,10.408,0.026,,,654.023,327.000,
+run-1__deterministic__p-1__noise-5__noise-seed-2026__inference-seed-42,1,deterministic,deterministic,deterministic,expanding,20,1,5.000,2026,42,,success,341,341,31.912,0.090,,,,,
+run-1__rbpf__p-1__noise-5__noise-seed-2026__inference-seed-42,1,rbpf,online,rbpf,,20,1,5.000,2026,42,,success,341,341,28.911,0.080,,,2879.217,11.000,
+run-1__smc__p-1__noise-5__noise-seed-2026__inference-seed-42,1,smc,online,smc,,20,1,5.000,2026,42,,success,341,341,12.024,0.030,,,1069.106,354.000,
+run-1__deterministic__p-3__noise-0__noise-seed-2026__inference-seed-42,1,deterministic,deterministic,deterministic,expanding,20,3,0.000,2026,42,,success,341,1020,37.276,0.105,,,,,
+run-1__rbpf__p-3__noise-0__noise-seed-2026__inference-seed-42,1,rbpf,online,rbpf,,20,3,0.000,2026,42,,success,341,1020,36.667,0.104,,,3312.754,18.000,
+run-1__smc__p-3__noise-0__noise-seed-2026__inference-seed-42,1,smc,online,smc,,20,3,0.000,2026,42,,success,341,1020,25.391,0.070,,,645.368,327.000,
+run-1__deterministic__p-3__noise-5__noise-seed-2026__inference-seed-42,1,deterministic,deterministic,deterministic,expanding,20,3,5.000,2026,42,,success,341,1020,35.501,0.100,,,,,
+run-1__rbpf__p-3__noise-5__noise-seed-2026__inference-seed-42,1,rbpf,online,rbpf,,20,3,5.000,2026,42,,success,341,1020,39.122,0.110,,,2879.763,11.000,
+run-1__smc__p-3__noise-5__noise-seed-2026__inference-seed-42,1,smc,online,smc,,20,3,5.000,2026,42,,success,341,1020,20.525,0.056,,,1068.249,354.000,

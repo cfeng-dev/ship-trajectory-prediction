@@ -38,6 +38,3 @@ data/**
 !data/README.md
 !data/simulated/
 !data/simulated/example_simulated_trajectory.csv
-
-# Generated final thesis benchmark tables
-results/thesis_benchmark/
