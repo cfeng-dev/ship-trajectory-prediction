@@ -10,9 +10,9 @@ DATA_FILE = paths.data_path(
 )
 
 EXPERIMENT = config.DeterministicRollingExperimentConfig(
-    run_id=102,  # Trajectory run to evaluate.
+    run_id=1,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
-    observation_count=5,  # Position points used for the first estimate.
+    observation_count=20,  # Position points used for the first estimate.
     prediction_count=3,  # Held-out future points per rolling forecast.
     position_noise_std_m=5.0,  # Per x/y axis [m]; 0 disables.
     position_noise_seed=2026,  # Reproduces route-wide added position noise.

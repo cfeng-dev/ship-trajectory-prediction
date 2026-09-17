@@ -27,25 +27,44 @@ def plot_bayesian_ctrv_inference_runtime(predictions, *, inference_selection=Non
     inference_title = _format_inference_title(
         inference_selection or str(inference_methods[0])
     )
+    return _plot_window_runtime(
+        predictions,
+        runtime_column="fit_runtime_seconds",
+        title=f"Bayesian-CTRV ({inference_title})",
+        label="Inferenzzeit pro Vorhersagefenster",
+        y_axis_label="Inferenzzeit pro Vorhersagefenster [s]",
+    )
+
+
+def _plot_window_runtime(
+    predictions,
+    *,
+    runtime_column,
+    title,
+    label,
+    y_axis_label,
+):
+    """Draw one consistently styled per-window runtime series."""
+    windows = predictions.groupby("window_index", sort=True).first()
     figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
     axis.plot(
         windows["observation_count"].tolist(),
-        windows["fit_runtime_seconds"].tolist(),
+        windows[runtime_column].tolist(),
         marker="o",
         markersize=3,
         color=RUNTIME_PLOT_STYLE.derived_data_color,
-        label="Inferenzzeit pro Vorhersagefenster",
+        label=label,
     )
     axis.set_xlabel(
         "Anzahl bisher beobachteter Positionen",
         fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
     )
     axis.set_ylabel(
-        "Inferenzzeit pro Vorhersagefenster [s]",
+        y_axis_label,
         fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
     )
     axis.set_title(
-        f"Bayesian-CTRV ({inference_title})",
+        title,
         pad=RUNTIME_PLOT_STYLE.title_pad,
         fontsize=RUNTIME_PLOT_STYLE.title_font_size,
         fontweight=RUNTIME_PLOT_STYLE.title_font_weight,

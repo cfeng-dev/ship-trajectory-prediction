@@ -115,6 +115,7 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     assert fit.stan_variable("y_prediction").shape == (16, 3)
     assert result["converged"] is None
     assert plot_keywords["max_sample_trajectories"] == 4
+    assert plot_keywords["title"] == f"Bayesian-CTRV ({inference_method.upper()})"
     assert f"{inference_method.upper()} diagnostics:" in capsys.readouterr().out
 
 

@@ -15,9 +15,9 @@ DATA_FILE = paths.data_path(
 # - Batch: "vi" or "mcmc".
 # - Online: "rbpf" or "smc".
 EXPERIMENT = config.ExperimentConfig(
-    run_id=102,
+    run_id=1,
     start_index=0,
-    observation_count=5,
+    observation_count=20,
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
@@ -38,7 +38,7 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
 )
 CREDIBLE_INTERVAL = 0.9
 PLOT_COORDINATE_MODE = "m"
-SAMPLE_TRAJECTORIES_PER_FORECAST = 15
+SAMPLE_TRAJECTORIES_PER_FORECAST = 100
 SHOW_TIME_LABELS = True
 
 

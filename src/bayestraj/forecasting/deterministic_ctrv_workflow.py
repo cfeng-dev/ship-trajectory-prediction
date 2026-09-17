@@ -131,7 +131,7 @@ def plot_deterministic_ctrv_prediction(
         reference_path=(held_out_x, held_out_y),
         forecast_paths=((predicted_x, predicted_y),),
         prediction_origins=([start_x], [start_y]),
-        title=None,
+        title="Deterministic-CTRV",
         observed_label=observed_label,
         reference_label="Referenztrajektorie",
         forecast_label="Deterministische CTRV-Vorhersage",

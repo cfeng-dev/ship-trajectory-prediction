@@ -22,7 +22,7 @@ AXIS_LABEL_FONT_SIZE = 13
 AXIS_TICK_FONT_SIZE = 11
 
 # Plot layout
-PLOT_FIGURE_SIZE = (11, 9)
+PLOT_FIGURE_SIZE = (9, 7)
 PLOT_MAX_WIDTH_TO_HEIGHT_RATIO = 2.0
 PLOT_UPPER_PADDING_FRACTION = 0.85
 GRID_ALPHA = 0.2
@@ -363,7 +363,6 @@ def plot_prediction(
     """Plot an evaluation or operational posterior-predictive trajectory."""
     plot_mode = _validate_plot_mode(plot_mode)
     coordinate_mode = normalize_plot_coordinate_mode(coordinate_mode)
-    position_noise_std_m = _validate_position_noise_std_m(position_noise_std_m)
     plot_data = _prepare_prediction_plot_data(
         window,
         fit,
@@ -376,17 +375,7 @@ def plot_prediction(
         coordinate_mode=coordinate_mode,
     )
     reference_path = None
-    annotation_text = _operational_annotation(
-        window,
-        position_noise_std_m=position_noise_std_m,
-    )
     if plot_mode == "evaluation":
-        evaluation = metrics.evaluate_position_predictions(
-            fit,
-            window,
-            credible_interval=0.9,
-            position_variable_names=plot_data["variable_names"],
-        )
         held_out_x_meters = np.concatenate(
             (
                 [plot_data["prediction_start_meters"][0]],
@@ -405,12 +394,6 @@ def plot_prediction(
             held_out_y_meters,
             coordinate_mode=coordinate_mode,
         )
-        annotation_text = _evaluation_annotation(
-            window,
-            evaluation,
-            position_noise_std_m=position_noise_std_m,
-        )
-
     figure, axis = plot_trajectory_paths(
         observed_path=plot_data["observed_path"],
         context_path=plot_data["context_path"],
@@ -421,7 +404,6 @@ def plot_prediction(
         posterior_draws=plot_data["posterior_draws"],
         forecast_time_seconds=plot_data["forecast_time_seconds"],
         annotate_prediction_regions=show_time_labels,
-        annotation_text=annotation_text,
         title=title,
         observed_label=plot_data["observed_label"],
         forecast_label=forecast_label,
@@ -783,83 +765,6 @@ def _sample_trajectory_indices(draw_count, requested_count, seed):
     return np.sort(random_generator.choice(draw_count, sample_count, replace=False))
 
 
-def _evaluation_annotation(
-    window,
-    evaluation,
-    *,
-    position_noise_std_m,
-):
-    """Format evaluation timing and accuracy for the figure footer."""
-    observation_duration, prediction_horizon = _window_durations(window)
-    covered_count = int(evaluation.prediction_table["radial_covered"].sum())
-    prediction_count = len(evaluation.prediction_table)
-    ade_m = _format_decimal_comma(evaluation.ade_m, decimal_places=2)
-    fde_m = _format_decimal_comma(evaluation.fde_m, decimal_places=2)
-    coverage_percent = _format_decimal_comma(
-        100 * evaluation.radial_coverage,
-        decimal_places=1,
-    )
-    interval_percent = _format_general_decimal_comma(100 * evaluation.credible_interval)
-    return "\n".join(
-        (
-            _timing_annotation(
-                observation_duration,
-                prediction_horizon,
-                position_noise_std_m=position_noise_std_m,
-            ),
-            " | ".join(
-                (
-                    f"ADE: {ade_m} m",
-                    f"FDE: {fde_m} m",
-                    f"Empirische 2D-Abdeckung ({interval_percent} %): "
-                    f"{coverage_percent} % "
-                    f"({covered_count}/{prediction_count} Punkte)",
-                )
-            ),
-        )
-    )
-
-
-def _operational_annotation(window, *, position_noise_std_m):
-    """Format operationally available timing for the figure footer."""
-    observation_duration, prediction_horizon = _window_durations(window)
-    return _timing_annotation(
-        observation_duration,
-        prediction_horizon,
-        position_noise_std_m=position_noise_std_m,
-    )
-
-
-def _timing_annotation(
-    observation_duration,
-    prediction_horizon,
-    *,
-    position_noise_std_m,
-):
-    """Format timing information as one compact line."""
-    parts = [
-        f"Beobachtungsdauer: {observation_duration:g} s",
-        f"Prognosehorizont: {prediction_horizon:g} s",
-    ]
-    return " | ".join(parts)
-
-
-def _validate_position_noise_std_m(value):
-    """Return one optional finite non-negative plotting noise value."""
-    if value is None:
-        return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, Real)
-        or not np.isfinite(value)
-        or value < 0
-    ):
-        raise ValueError(
-            "position_noise_std_m must be a finite non-negative number or None."
-        )
-    return float(value) if value > 0 else None
-
-
 def _format_decimal_comma(value, *, decimal_places):
     """Format a decimal number using the German decimal separator."""
     return f"{value:.{decimal_places}f}".replace(".", ",")
@@ -868,15 +773,6 @@ def _format_decimal_comma(value, *, decimal_places):
 def _format_general_decimal_comma(value):
     """Format a compact number using the German decimal separator."""
     return f"{value:g}".replace(".", ",")
-
-
-def _window_durations(window):
-    """Return observation duration and forecast horizon in seconds."""
-    time_seconds = np.asarray(window.time_seconds, dtype=float)
-    observation_end = window.observation_count - 1
-    observation_duration = time_seconds[observation_end] - time_seconds[0]
-    prediction_horizon = time_seconds[-1] - time_seconds[observation_end]
-    return float(observation_duration), float(prediction_horizon)
 
 
 def _validate_prediction_samples(window, x_samples, y_samples):

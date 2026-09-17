@@ -166,3 +166,4 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.title_keywords == {"pad": 16, "fontsize": 13, "fontweight": "bold"}
     assert axis.tick_parameters == {"axis": "both", "labelsize": 11}
     assert axis.legend_location == "upper right"
+

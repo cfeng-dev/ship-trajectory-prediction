@@ -16,9 +16,9 @@ DATA_FILE = paths.data_path(
 # - Batch: "vi_sliding", "vi_expanding", "mcmc_sliding", or "mcmc_expanding".
 # - Online: "rbpf" or "smc".
 EXPERIMENT = config.RollingExperimentConfig(
-    run_id=102,
-    observation_count=5,
-    prediction_count=3,
+    run_id=1,
+    observation_count=20,
+    prediction_count=10,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=1,  # Start a new three-step forecast after every observed position.
