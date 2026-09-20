@@ -38,6 +38,14 @@ POSTERIOR_MEDIAN_ROW_KEYS = (
     "speed_process_noise",
     "turn_rate_process_noise",
 )
+POSTERIOR_MEDIAN_LABELS_BY_KEY = {
+    "current_speed": "Speed",
+    "current_heading": "Heading",
+    "current_turn_rate": "Turn rate",
+    "position_observation_noise": "Position-observation noise",
+    "speed_process_noise": "Speed-process noise",
+    "turn_rate_process_noise": "Turn-rate-process noise",
+}
 CSV_BROWSE_BUTTON_WIDTH = 2
 
 
@@ -263,18 +271,10 @@ class SettingsPanel(tk.Frame):
         self.posterior_median_values = {
             key: tk.StringVar(self, value="—") for key in POSTERIOR_MEDIAN_ROW_KEYS
         }
-        median_labels_by_key = {
-            "current_speed": "Speed",
-            "current_heading": "Heading",
-            "current_turn_rate": "Turn rate",
-            "position_observation_noise": "Position-observation noise",
-            "speed_process_noise": "Speed-process noise",
-            "turn_rate_process_noise": "Turn-rate-process noise",
-        }
         for row, key in enumerate(POSTERIOR_MEDIAN_ROW_KEYS):
             tk.Label(
                 self.posterior_medians_section,
-                text=f"{median_labels_by_key[key]}:",
+                text=f"{POSTERIOR_MEDIAN_LABELS_BY_KEY[key]}:",
                 font=("Arial", 9, "bold"),
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,

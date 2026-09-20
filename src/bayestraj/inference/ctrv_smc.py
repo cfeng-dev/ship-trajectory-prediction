@@ -204,9 +204,7 @@ class SequentialMonteCarloCTRVFilter:
             self.parameter_particles
         )
         dt = time_seconds - self.last_observation_time_seconds
-        process_time_scale = np.sqrt(
-            dt / ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
-        )
+        process_time_scale = ctrv_dynamics.process_time_scale(dt)
         proposed_states = self.state_particles.copy()
         proposed_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
             0.0,
@@ -321,9 +319,7 @@ class SequentialMonteCarloCTRVFilter:
         current_time = self.last_observation_time_seconds
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
-            process_time_scale = np.sqrt(
-                dt / ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
-            )
+            process_time_scale = ctrv_dynamics.process_time_scale(dt)
             states[:, _STATE_SPEED_INDEX] += generator.normal(
                 0.0,
                 speed_process * process_time_scale,

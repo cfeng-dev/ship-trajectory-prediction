@@ -7,7 +7,7 @@ import numpy as np
 
 SMALL_TURN_ANGLE = 1e-4
 SPEED_STATE_LOWER_MPS = 0.0
-PROCESS_REFERENCE_INTERVAL_SECONDS = 10.0
+PROCESS_REFERENCE_INTERVAL_SECONDS = 1.0
 
 STATE_X_INDEX = 0
 STATE_Y_INDEX = 1
@@ -15,6 +15,12 @@ STATE_SPEED_INDEX = 2
 STATE_HEADING_INDEX = 3
 STATE_TURN_RATE_INDEX = 4
 STATE_COUNT = 5
+
+
+def process_time_scale(dt: float) -> float:
+    """Scale a process-noise standard deviation to a time interval."""
+    dt = _positive_finite_float(dt, name="dt")
+    return float(np.sqrt(dt / PROCESS_REFERENCE_INTERVAL_SECONDS))
 
 
 @dataclass(frozen=True, slots=True)

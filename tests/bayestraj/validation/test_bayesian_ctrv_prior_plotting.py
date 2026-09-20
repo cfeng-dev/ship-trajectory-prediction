@@ -38,10 +38,20 @@ prior_reporting = importlib.import_module("bayestraj.validation.prior_reporting"
 EXPERIMENT_PRIORS = runpy.run_path(
     PROJECT_ROOT / "experiments" / "single_run" / "bayesian_ctrv.py"
 )["PRIORS"]
+EVALUATION_PRIORS = runpy.run_path(
+    PROJECT_ROOT / "experiments" / "model_evaluation" / "bayesian_ctrv.py"
+)["PRIORS"]
 
 
 def test_visualization_uses_current_experiment_prior_configuration():
     assert prior_plotting.PRIORS == EXPERIMENT_PRIORS
+
+
+def test_experiments_use_shared_bayesian_ctrv_prior_defaults():
+    expected = prior_plotting.bayesian_model.BayesianCTRVPriors()
+
+    assert EXPERIMENT_PRIORS == expected
+    assert EVALUATION_PRIORS == expected
 
 
 def test_prior_plotting_support_is_importable_from_the_validation_package():
@@ -68,6 +78,14 @@ def test_prior_curves_use_configured_thresholds_and_derived_parameters():
     assert curves["prior_speed_process_noise"].density[0] == pytest.approx(
         priors.sigma_speed_process_prior_rate
     )
+    assert (
+        curves["prior_speed_process_noise"].title
+        == "Prior: Geschwindigkeits-Prozessrauschen"
+    )
+    assert (
+        curves["prior_turn_rate_process_noise"].title
+        == "Prior: Drehraten-Prozessrauschen"
+    )
     assert curves["prior_initial_heading"].title == "Prior: Anfangskurswinkel"
     assert curves["prior_initial_speed"].central_probability == pytest.approx(
         1.0 - priors.speed_prior_tail_probability
@@ -92,6 +110,7 @@ def test_terminal_report_distinguishes_configuration_calculation_and_result(caps
         f"{prior_plotting.PRIORS.sigma_position_observation_prior_rate:.6g} 1/m"
         in report
     )
+    assert "Referenzintervall: 1 s" in report
 
 
 def test_terminal_report_explains_all_prior_calculations_from_configuration(capsys):

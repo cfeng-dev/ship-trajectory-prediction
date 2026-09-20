@@ -53,6 +53,15 @@ def test_parameter_specs_map_all_six_priors_to_posterior_variables():
             spec.display_unit,
         ) == expected_values
 
+    assert (
+        analysis.build_parameter_spec("speed_process_noise", priors).title
+        == "Speed process noise"
+    )
+    assert (
+        analysis.build_parameter_spec("turn_rate_process_noise", priors).title
+        == "Turn-rate process noise"
+    )
+
 
 class _FakeFit:
     def __init__(self, variables):

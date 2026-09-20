@@ -10,6 +10,7 @@ import pytest
 
 import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.ctrv as ctrv_dynamics
 import bayestraj.observations.window as observation_window
@@ -76,22 +77,89 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     assert "gps_speed" not in stan_data
 
 
+def test_process_noise_uses_one_second_reference_interval():
+    priors = ctrv_model.BayesianCTRVPriors()
+    stan_data = ctrv_model.build_stan_data(_dynamic_ctrv_window(), priors=priors)
+
+    assert ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
+    assert ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
+    assert rbpf.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
+    assert smc.ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
+    assert stan_data["process_reference_interval_seconds"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("dt_seconds", "expected_scale"),
+    ((1.0, 1.0), (10.0, np.sqrt(10.0))),
+)
+def test_process_time_scale_uses_one_second_reference(dt_seconds, expected_scale):
+    assert ctrv_dynamics.process_time_scale(dt_seconds) == pytest.approx(expected_scale)
+
+
+def test_default_priors_match_ship_independent_configuration():
+    priors = ctrv_model.BayesianCTRVPriors()
+
+    assert priors.speed_prior_upper_mps == 20.0
+    assert priors.turn_rate_prior_abs_rate_deg_s == 10.0
+    assert priors.sigma_position_observation_prior_upper_m == 20.0
+    assert priors.sigma_speed_process_prior_upper_mps == 5.0
+    assert priors.sigma_turn_rate_process_prior_upper_deg_s == 5.0
+    assert {
+        priors.speed_prior_tail_probability,
+        priors.turn_rate_prior_tail_probability,
+        priors.sigma_position_observation_prior_tail_probability,
+        priors.sigma_speed_process_prior_tail_probability,
+        priors.sigma_turn_rate_process_prior_tail_probability,
+    } == {0.05}
+
+
+def test_default_prior_distribution_parameters_match_tail_statements():
+    priors = ctrv_model.BayesianCTRVPriors()
+    normal_975_quantile = 1.959963984540054
+
+    assert priors.speed_prior_scale == pytest.approx(20.0 / normal_975_quantile)
+    assert priors.turn_rate_prior_scale == pytest.approx(
+        np.deg2rad(10.0) / normal_975_quantile
+    )
+    assert priors.sigma_position_observation_prior_rate == pytest.approx(
+        -np.log(0.05) / 20.0
+    )
+    assert priors.sigma_speed_process_prior_rate == pytest.approx(-np.log(0.05) / 5.0)
+    assert priors.sigma_turn_rate_process_prior_rate == pytest.approx(
+        -np.log(0.05) / np.deg2rad(5.0)
+    )
+    assert 1.0 - np.exp(-priors.sigma_speed_process_prior_rate * 5.0) == (
+        pytest.approx(0.95)
+    )
+    assert 1.0 - np.exp(
+        -priors.sigma_turn_rate_process_prior_rate * np.deg2rad(5.0)
+    ) == pytest.approx(0.95)
+
+
+def test_initial_turn_rate_prior_uses_ten_degrees_per_second():
+    priors = ctrv_model.BayesianCTRVPriors()
+
+    assert priors.turn_rate_prior_abs_rate_deg_s == 10.0
+
+
 def test_turn_rate_prior_uses_a_direct_rate_threshold_in_degrees_per_second():
-    priors = ctrv_model.BayesianCTRVPriors(turn_rate_prior_abs_rate_deg_s=4.5)
+    priors = ctrv_model.BayesianCTRVPriors()
 
     assert priors.turn_rate_prior_scale == pytest.approx(
-        np.deg2rad(4.5) / 1.959963984540054
+        np.deg2rad(10.0) / 1.959963984540054
     )
 
 
-def test_batch_and_online_code_use_one_process_reference_interval():
+def test_batch_and_online_code_use_one_process_time_scale():
     rbpf_config = rbpf.SequentialCTRVFilterConfig()
-    update_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.update)
-    forecast_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.forecast)
+    rbpf_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter)
+    smc_source = inspect.getsource(smc.SequentialMonteCarloCTRVFilter)
+    stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
 
     assert not hasattr(rbpf_config, "process_reference_interval_seconds")
-    assert "PROCESS_REFERENCE_INTERVAL_SECONDS" in update_source
-    assert "PROCESS_REFERENCE_INTERVAL_SECONDS" in forecast_source
+    assert "ctrv_dynamics.process_time_scale" in rbpf_source
+    assert "ctrv_dynamics.process_time_scale" in smc_source
+    assert "sqrt(dt / process_reference_interval_seconds)" in stan_source
 
 
 def test_stan_model_contains_dynamic_speed_and_turn_rate_states():

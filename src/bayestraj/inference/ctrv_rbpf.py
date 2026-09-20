@@ -245,7 +245,7 @@ class SequentialBayesianCTRVFilter:
             _sequential_parameter_values(self.parameter_particles)
         )
         dt = time_seconds - self.last_observation_time_seconds
-        process_variance_scale = dt / PROCESS_REFERENCE_INTERVAL_SECONDS
+        process_variance_scale = ctrv_dynamics.process_time_scale(dt) ** 2
         pre_transition_covariances = self.state_covariances.copy()
         pre_transition_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
             speed_process**2 * process_variance_scale
@@ -398,7 +398,7 @@ class SequentialBayesianCTRVFilter:
         current_time = self.last_observation_time_seconds
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
-            process_time_scale = np.sqrt(dt / PROCESS_REFERENCE_INTERVAL_SECONDS)
+            process_time_scale = ctrv_dynamics.process_time_scale(dt)
             states[:, _STATE_SPEED_INDEX] += generator.normal(
                 0.0,
                 speed_process * process_time_scale,

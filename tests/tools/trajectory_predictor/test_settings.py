@@ -66,6 +66,32 @@ def test_gui_inference_method_options_are_limited_to_online_filters():
     )
 
 
+def test_process_noise_labels_use_compact_units():
+    assert (
+        settings.LABELS["sigma_speed_process_prior_upper_mps"]
+        == "Speed process: threshold [m/s]"
+    )
+    assert (
+        settings.LABELS["sigma_turn_rate_process_prior_upper_deg_s"]
+        == "Turn-rate process: threshold [°/s]"
+    )
+
+
+def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
+    assert settings.default_form_values()["priors"] == {
+        "speed_prior_upper_mps": "20.0",
+        "speed_prior_tail_probability": "0.05",
+        "turn_rate_prior_abs_rate_deg_s": "10.0",
+        "turn_rate_prior_tail_probability": "0.05",
+        "sigma_position_observation_prior_upper_m": "20.0",
+        "sigma_position_observation_prior_tail_probability": "0.05",
+        "sigma_speed_process_prior_upper_mps": "5.0",
+        "sigma_speed_process_prior_tail_probability": "0.05",
+        "sigma_turn_rate_process_prior_upper_deg_s": "5.0",
+        "sigma_turn_rate_process_prior_tail_probability": "0.05",
+    }
+
+
 @pytest.mark.parametrize(
     ("group", "field", "value"),
     [

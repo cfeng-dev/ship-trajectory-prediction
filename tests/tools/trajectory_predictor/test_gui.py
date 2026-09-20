@@ -10,6 +10,7 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
+from trajectory_predictor import controls as predictor_controls  # noqa: E402
 from trajectory_predictor.controls import (  # noqa: E402
     CSV_BROWSE_BUTTON_WIDTH,
     CSV_STATE_ROW_KEYS,
@@ -338,6 +339,11 @@ def test_settings_panel_displays_reference_csv_state(root):
             "turn_rate_process_noise": 6.0,
         }
     )
+    posterior_median_labels = {
+        child.cget("text")
+        for child in panel.posterior_medians_section.winfo_children()
+        if child.winfo_class() == "Label"
+    }
 
     assert panel.posterior_state_values["position"].get() == "x = 11.00 m\ny = -3.00 m"
     assert panel.posterior_state_values["speed"].get() == "2.00 m/s"
@@ -356,6 +362,19 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.posterior_median_values["position_observation_noise"].get() == "4.00 m"
     assert panel.posterior_median_values["speed_process_noise"].get() == "5.00 m/s"
     assert panel.posterior_median_values["turn_rate_process_noise"].get() == "6.00°/s"
+    assert "Speed-process noise:" in posterior_median_labels
+    assert "Turn-rate-process noise:" in posterior_median_labels
+
+
+def test_posterior_median_process_noise_labels_are_compact():
+    assert (
+        predictor_controls.POSTERIOR_MEDIAN_LABELS_BY_KEY["speed_process_noise"]
+        == "Speed-process noise"
+    )
+    assert (
+        predictor_controls.POSTERIOR_MEDIAN_LABELS_BY_KEY["turn_rate_process_noise"]
+        == "Turn-rate-process noise"
+    )
 
 
 def test_help_documents_analysis_setup_options():

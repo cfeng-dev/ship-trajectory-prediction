@@ -70,13 +70,13 @@ class BayesianCTRVPriors:
 
     speed_prior_upper_mps: float = 20.0
     speed_prior_tail_probability: float = 0.05
-    turn_rate_prior_abs_rate_deg_s: float = 4.5
+    turn_rate_prior_abs_rate_deg_s: float = 10.0
     turn_rate_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
     sigma_speed_process_prior_upper_mps: float = 5.0
     sigma_speed_process_prior_tail_probability: float = 0.05
-    sigma_turn_rate_process_prior_upper_deg_s: float = 4.5
+    sigma_turn_rate_process_prior_upper_deg_s: float = 5.0
     sigma_turn_rate_process_prior_tail_probability: float = 0.05
 
     def __post_init__(self) -> None:
