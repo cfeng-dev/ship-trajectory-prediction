@@ -469,6 +469,44 @@ def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
     assert loads == [1, 2, 3]
 
 
+def test_show_settings_checkbox_sits_beside_follow_ship_and_reports_changes():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    visibility_changes = []
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+        settings_visible=True,
+        on_settings_visibility_change=visibility_changes.append,
+    )
+    try:
+        figure.canvas.draw()
+        follow_position = navigator.follow_checkbox.ax.get_position()
+        settings_position = navigator.settings_checkbox.ax.get_position()
+
+        assert navigator.settings_checkbox.labels[0].get_text() == "Show settings"
+        assert navigator.settings_checkbox.get_status() == [True]
+        assert settings_position.x0 >= follow_position.x1
+        assert settings_position.y0 == pytest.approx(follow_position.y0)
+
+        navigator.settings_checkbox.set_active(0)
+        assert visibility_changes == [False]
+
+        navigator.set_settings_visible(True)
+        assert navigator.settings_checkbox.get_status() == [True]
+        assert visibility_changes == [False]
+    finally:
+        navigator.disconnect()
+
+
 def test_follow_ship_preserves_manual_zoom_and_resets_when_disabled(follow_dashboard):
     figure, navigator, loads = follow_dashboard
     navigator.slider.set_val(1)

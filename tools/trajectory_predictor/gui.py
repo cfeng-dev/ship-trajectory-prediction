@@ -118,7 +118,11 @@ class TrajectoryPredictor:
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
-        self.settings_visible = not self.settings_visible
+        self.set_settings_visible(not self.settings_visible)
+
+    def set_settings_visible(self, visible):
+        """Synchronize settings visibility across the sidebar, menu and dashboard."""
+        self.settings_visible = bool(visible)
         if self.settings_visible:
             self.controls.grid()
         else:
@@ -300,8 +304,9 @@ class TrajectoryPredictor:
                 self.controls.show_reference_state,
                 self.controls.show_analysis_metrics,
                 self.controls.show_posterior_medians,
+                settings_visible=self.settings_visible,
+                on_settings_visibility_change=self.set_settings_visible,
             )
-            self.plot_view.set_settings_visible(self.settings_visible)
             self.plot_view.pack(fill="both", expand=True)
         elif event.kind == "computing":
             self._computing = event.payload

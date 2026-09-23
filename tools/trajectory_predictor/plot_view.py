@@ -25,6 +25,8 @@ class PosteriorPlotView(tk.Frame):
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
+        settings_visible=True,
+        on_settings_visibility_change=None,
     ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
@@ -55,6 +57,8 @@ class PosteriorPlotView(tk.Frame):
             on_state_change=on_state_change,
             on_metrics_change=on_metrics_change,
             on_medians_change=on_medians_change,
+            settings_visible=settings_visible,
+            on_settings_visibility_change=on_settings_visibility_change,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
@@ -71,17 +75,20 @@ class PosteriorPlotView(tk.Frame):
 
     def set_settings_visible(self, visible):
         """Switch between compact and six-panel posterior presentation."""
-        self.navigator.set_posterior_display_mode("compact" if visible else "expanded")
+        self.navigator.set_settings_visible(visible)
 
     def disable_navigation(self):
         """Keep the last valid plot visible after an inference error."""
         self.navigator.pause_playback()
         self.navigator.disconnect()
-        for widget in (
+        widgets = [
             self.navigator.playback_button,
             self.navigator.slider,
             self.navigator.group_selector,
-        ):
+        ]
+        if self.navigator.settings_checkbox is not None:
+            widgets.append(self.navigator.settings_checkbox)
+        for widget in widgets:
             widget.set_active(False)
 
     def destroy(self):

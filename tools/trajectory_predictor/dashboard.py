@@ -503,6 +503,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
         slider_axis,
         selector_axis,
         follow_axis,
+        settings_axis=None,
     ):
         super().__init__()
         self.trajectory_axis = trajectory_axis
@@ -511,6 +512,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.slider_axis = slider_axis
         self.selector_axis = selector_axis
         self.follow_axis = follow_axis
+        self.settings_axis = settings_axis
         self.display_mode = "compact"
         self.active_group = "motion"
 
@@ -591,9 +593,24 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.playback_axis.set_position(
             (0.025, 18.0 / height_points, playback_width, 28.0 / height_points)
         )
+        follow_width_points = 95.0 if self.settings_axis is not None else 165.0
         self.follow_axis.set_position(
-            (0.025, 54.0 / height_points, 165.0 / width_points, 24.0 / height_points)
+            (
+                0.025,
+                54.0 / height_points,
+                follow_width_points / width_points,
+                24.0 / height_points,
+            )
         )
+        if self.settings_axis is not None:
+            self.settings_axis.set_position(
+                (
+                    0.025 + 100.0 / width_points,
+                    54.0 / height_points,
+                    110.0 / width_points,
+                    24.0 / height_points,
+                )
+            )
         self.slider_axis.set_position(
             (
                 slider_left,
@@ -635,6 +652,8 @@ class PosteriorDashboardNavigator:
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
+        settings_visible=True,
+        on_settings_visibility_change=None,
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
@@ -672,6 +691,7 @@ class PosteriorDashboardNavigator:
         self._on_state_change = on_state_change
         self._on_metrics_change = on_metrics_change
         self._on_medians_change = on_medians_change
+        self._on_settings_visibility_change = on_settings_visibility_change
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -723,6 +743,20 @@ class PosteriorDashboardNavigator:
             frame_props={"s": [196], "linewidth": [1.2]},
             check_props={"s": [196], "linewidth": [1.5]},
         )
+        settings_axis = None
+        self.settings_checkbox = None
+        if on_settings_visibility_change is not None:
+            settings_axis = figure.add_axes((0.13, 0.08, 0.2, 0.04))
+            settings_axis.set_frame_on(False)
+            self.settings_checkbox = CheckButtons(
+                settings_axis,
+                ("Show settings",),
+                (bool(settings_visible),),
+                useblit=False,
+                label_props={"fontsize": [10]},
+                frame_props={"s": [196], "linewidth": [1.2]},
+                check_props={"s": [196], "linewidth": [1.5]},
+            )
         self._slider_press_connection = figure.canvas.mpl_connect(
             "button_press_event",
             self._handle_mouse_press,
@@ -738,6 +772,8 @@ class PosteriorDashboardNavigator:
         self.playback_button.on_clicked(self.toggle_playback)
         self.group_selector.on_clicked(self._select_parameter_group)
         self.follow_checkbox.on_clicked(self._follow_ship_changed)
+        if self.settings_checkbox is not None:
+            self.settings_checkbox.on_clicked(self._settings_visibility_changed)
         layout = _PosteriorDashboardLayout(
             trajectory_axis,
             self.posterior_axes_by_group,
@@ -745,10 +781,12 @@ class PosteriorDashboardNavigator:
             slider_axis,
             selector_axis,
             follow_axis,
+            settings_axis,
         )
         self._layout = layout
         figure.set_layout_engine(layout)
         layout.execute(figure)
+        self.set_settings_visible(settings_visible)
         self._draw()
 
     @property
@@ -779,6 +817,23 @@ class PosteriorDashboardNavigator:
         self._set_group_selector_visible(mode == "compact")
         self._draw()
         self.figure.canvas.draw_idle()
+
+    def set_settings_visible(self, visible) -> None:
+        """Synchronize the settings checkbox and posterior-panel layout."""
+        if not isinstance(visible, (bool, np.bool_)):
+            raise ValueError("visible must be a boolean value.")
+        visible = bool(visible)
+        if (
+            self.settings_checkbox is not None
+            and self.settings_checkbox.get_status()[0] != visible
+        ):
+            eventson = self.settings_checkbox.eventson
+            self.settings_checkbox.eventson = False
+            try:
+                self.settings_checkbox.set_active(0)
+            finally:
+                self.settings_checkbox.eventson = eventson
+        self.set_posterior_display_mode("compact" if visible else "expanded")
 
     def _set_group_selector_visible(self, visible) -> None:
         """Hide every artist of the compact-only posterior-group selector."""
@@ -841,12 +896,15 @@ class PosteriorDashboardNavigator:
             self._key_press_connection,
         ):
             self.figure.canvas.mpl_disconnect(connection)
-        for widget in (
+        widgets = [
             self.playback_button,
             self.slider,
             self.group_selector,
             self.follow_checkbox,
-        ):
+        ]
+        if self.settings_checkbox is not None:
+            widgets.append(self.settings_checkbox)
+        for widget in widgets:
             widget.disconnect_events()
 
     def toggle_playback(self, _event) -> None:
@@ -1113,6 +1171,12 @@ class PosteriorDashboardNavigator:
             self._trajectory_has_been_drawn = False
             self._draw_trajectory()
         self.figure.canvas.draw_idle()
+
+    def _settings_visibility_changed(self, _label) -> None:
+        """Apply and report the settings visibility selected in the footer."""
+        visible = self.settings_checkbox.get_status()[0]
+        self.set_posterior_display_mode("compact" if visible else "expanded")
+        self._on_settings_visibility_change(visible)
 
     def _center_trajectory_on_ship(self) -> None:
         """Translate the current viewport; preserve its spans and axis directions."""
@@ -1474,6 +1538,8 @@ def create_sequential_posterior_dashboard_figure(
     on_state_change=None,
     on_metrics_change=None,
     on_medians_change=None,
+    settings_visible=True,
+    on_settings_visibility_change=None,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -1512,6 +1578,12 @@ def create_sequential_posterior_dashboard_figure(
     ):
         raise ValueError("playback_interval_ms must be a positive integer.")
     playback_interval_ms = int(playback_interval_ms)
+    if not isinstance(settings_visible, (bool, np.bool_)):
+        raise ValueError("settings_visible must be a boolean value.")
+    if on_settings_visibility_change is not None and not callable(
+        on_settings_visibility_change
+    ):
+        raise TypeError("on_settings_visibility_change must be callable or None.")
     prediction_count = numeric_validation.validate_non_negative_integer(
         "prediction_count",
         prediction_count,
@@ -1559,6 +1631,8 @@ def create_sequential_posterior_dashboard_figure(
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,
+        settings_visible=bool(settings_visible),
+        on_settings_visibility_change=on_settings_visibility_change,
     )
     return figure, navigator
 

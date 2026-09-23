@@ -1101,6 +1101,29 @@ def test_toggle_settings_switches_posterior_display_mode():
     assert app.settings_visible_var.get() is True
 
 
+def test_set_settings_visible_synchronizes_sidebar_menu_and_dashboard():
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app.settings_visible = True
+    app.settings_visible_var = _Value(True)
+    sidebar_changes = []
+    app.controls = SimpleNamespace(
+        grid=lambda: sidebar_changes.append("shown"),
+        grid_remove=lambda: sidebar_changes.append("hidden"),
+    )
+    dashboard_changes = []
+    app.plot_view = SimpleNamespace(
+        set_settings_visible=lambda visible: dashboard_changes.append(visible)
+    )
+
+    app.set_settings_visible(False)
+    app.set_settings_visible(True)
+
+    assert sidebar_changes == ["hidden", "shown"]
+    assert dashboard_changes == [False, True]
+    assert app.settings_visible is True
+    assert app.settings_visible_var.get() is True
+
+
 def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     # Only native window creation is replaced. Real controller methods handle
     # visibility, method selection, and closing with an open settings editor.

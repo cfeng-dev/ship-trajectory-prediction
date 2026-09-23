@@ -142,7 +142,7 @@ def _defaults():
                 )
             ),
             "run_id": 1,
-            "inference_method": "rbpf",
+            "inference_method": "smc",
             "start_index": 0,
             "observation_interval_seconds": 10.0,
             "maximum_observation_count": "",

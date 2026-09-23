@@ -66,6 +66,10 @@ def test_gui_inference_method_options_are_limited_to_online_filters():
     )
 
 
+def test_trajectory_predictor_defaults_to_smc():
+    assert settings.default_form_values()["data"]["inference_method"] == "smc"
+
+
 def test_process_noise_labels_use_compact_units():
     assert (
         settings.LABELS["sigma_speed_process_prior_upper_mps"]
@@ -107,6 +111,8 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
     ],
 )
 def test_invalid_settings_are_rejected(form, group, field, value):
+    if group in settings.METHODS:
+        form["data"]["inference_method"] = group
     form[group][field] = value
     with pytest.raises(ValueError):
         settings.parse_settings(form)
