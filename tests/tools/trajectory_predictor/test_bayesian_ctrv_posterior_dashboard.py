@@ -80,6 +80,37 @@ def test_dashboard_keeps_the_trajectory_plot_box_and_linear_speed_axis():
         navigator.disconnect()
 
 
+def test_noise_axes_use_decimal_labels_on_logarithmic_scales():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    figure = Figure(figsize=(15, 8.5), dpi=100)
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        navigator.group_selector.set_active(1)
+
+        for axis in navigator.posterior_axes:
+            formatter = axis.xaxis.get_major_formatter()
+            assert axis.get_xscale() == "log"
+            assert [formatter(value) for value in (0.01, 0.1, 1.0, 10.0)] == [
+                "0.01",
+                "0.1",
+                "1",
+                "10",
+            ]
+    finally:
+        navigator.disconnect()
+
+
 def _assert_dashboard_vertical_spacing(navigator, renderer):
     minimum_gap = renderer.points_to_pixels(6)
     for upper, lower in zip(

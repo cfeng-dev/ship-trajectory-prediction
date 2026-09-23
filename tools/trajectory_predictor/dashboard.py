@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.layout_engine import LayoutEngine
+from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 
 import bayestraj.inference.configuration as inference
@@ -75,6 +76,11 @@ DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
+
+
+def _format_decimal_log_tick(value, _position):
+    """Format a positive logarithmic tick without exponent notation."""
+    return np.format_float_positional(value, trim="-")
 
 
 def normalize_coordinate_display_mode(coordinate_display_mode):
@@ -1431,6 +1437,7 @@ class PosteriorDashboardNavigator:
         axis.set_ylabel("Density", fontsize=10)
         if parameter_name in NOISE_PARAMETER_NAMES:
             axis.set_xscale("log")
+            axis.xaxis.set_major_formatter(FuncFormatter(_format_decimal_log_tick))
         axis.set_xlim(float(x_values[0]), float(x_values[-1]))
         if spec.support == "circular":
             axis.set_xticks([-180.0, -90.0, 0.0, 90.0, 180.0])
