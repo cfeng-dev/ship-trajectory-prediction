@@ -66,12 +66,20 @@ def simulate_position_observations(
 
     observed = window.observed_slice
     time_seconds = np.asarray(window.time_seconds[observed], dtype=float).copy()
-    x_meters = np.asarray(window.x_meters[observed], dtype=float).copy()
-    y_meters = np.asarray(window.y_meters[observed], dtype=float).copy()
+    x_reference = np.asarray(window.x_meters[observed], dtype=float).copy()
+    y_reference = np.asarray(window.y_meters[observed], dtype=float).copy()
+    x_meters = x_reference
+    y_meters = y_reference
     if position_noise_std_m > 0:
         generator = np.random.default_rng(seed)
-        x_meters += generator.normal(0.0, position_noise_std_m, x_meters.size)
-        y_meters += generator.normal(0.0, position_noise_std_m, y_meters.size)
+        x_meters = generator.normal(
+            loc=x_reference,
+            scale=position_noise_std_m,
+        )
+        y_meters = generator.normal(
+            loc=y_reference,
+            scale=position_noise_std_m,
+        )
 
     return PositionObservations(
         time_seconds=time_seconds,
