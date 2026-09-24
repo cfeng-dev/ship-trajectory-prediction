@@ -205,8 +205,8 @@ def test_stan_positions_are_conditional_transitions_with_no_cartesian_jitter():
     assert "real y_initial;" in history_source
     assert "vector[N_history] x_state;" in history_source
     assert "vector[N_history] y_state;" in history_source
-    assert "x_state[n] = position[1];" in history_source
-    assert "y_state[n] = position[2];" in history_source
+    assert "x_state[n + 1] = position[1];" in history_source
+    assert "y_state[n + 1] = position[2];" in history_source
     assert "x_state[n] ~ normal" not in history_source
     assert "y_state[n] ~ normal" not in history_source
     assert "x_observed ~ normal(x_state, sigma_position_observation);" in history_source
@@ -217,6 +217,87 @@ def test_stan_positions_are_conditional_transitions_with_no_cartesian_jitter():
     assert "sigma_position_observation * process_time_scale" not in stan_source
     assert "x_prediction[n], sigma_position_observation" in forecast_source
     assert "y_prediction[n], sigma_position_observation" in forecast_source
+
+
+def test_stan_history_uses_current_motion_state_for_each_observed_interval():
+    stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
+    history_source, forecast_source = stan_source.split("generated quantities", 1)
+
+    assert "vector<lower=0>[N_history - 1] speed_state;" in history_source
+    assert "vector[N_history - 1] turn_rate_state;" in history_source
+    assert "for (n in 1:(N_history - 1))" in history_source
+    assert "speed_state[n]," in history_source
+    assert "heading_state[n]," in history_source
+    assert "turn_rate_state[n]);" in history_source
+    assert "x_state[n + 1] = position[1];" in history_source
+    assert "y_state[n + 1] = position[2];" in history_source
+    assert "heading_state[n + 1] = wrap_angle(" in history_source
+    assert "speed_state[N_history]" not in stan_source
+    assert "turn_rate_state[N_history]" not in stan_source
+    assert "speed_at_origin = speed_state[N_history - 1];" in forecast_source
+    assert "turn_rate_at_origin = turn_rate_state[N_history - 1];" in forecast_source
+
+
+def test_stan_forecast_propagates_before_evolving_motion_variables():
+    forecast_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8").split(
+        "generated quantities", 1
+    )[1]
+
+    position_index = forecast_source.index("expected_position = ctrv_position(")
+    speed_innovation_index = forecast_source.index("speed_proposal = normal_rng(")
+    turn_innovation_index = forecast_source.index("turn_rate_previous = normal_rng(")
+
+    assert position_index < speed_innovation_index
+    assert position_index < turn_innovation_index
+
+
+def test_ctrv_step_uses_current_motion_for_nonzero_turn_rate():
+    state = ctrv_dynamics.CTRVState(
+        x=12.0,
+        y=-4.0,
+        speed=6.0,
+        heading=0.3,
+        turn_rate=0.2,
+    )
+    dt = 2.0
+
+    transitioned = ctrv_dynamics.ctrv_step(state, dt)
+    heading_next = state.heading + state.turn_rate * dt
+
+    assert transitioned.x == pytest.approx(
+        state.x
+        + state.speed / state.turn_rate * (np.sin(heading_next) - np.sin(state.heading))
+    )
+    assert transitioned.y == pytest.approx(
+        state.y
+        + state.speed
+        / state.turn_rate
+        * (-np.cos(heading_next) + np.cos(state.heading))
+    )
+    assert transitioned.heading == pytest.approx(heading_next)
+    assert transitioned.speed == state.speed
+    assert transitioned.turn_rate == state.turn_rate
+
+
+def test_ctrv_step_uses_current_motion_in_straight_line_limit():
+    state = ctrv_dynamics.CTRVState(
+        x=12.0,
+        y=-4.0,
+        speed=6.0,
+        heading=0.3,
+        turn_rate=0.0,
+    )
+    dt = 2.0
+
+    transitioned = ctrv_dynamics.ctrv_step(state, dt)
+
+    assert transitioned.x == pytest.approx(
+        state.x + state.speed * np.cos(state.heading) * dt
+    )
+    assert transitioned.y == pytest.approx(
+        state.y + state.speed * np.sin(state.heading) * dt
+    )
+    assert transitioned.heading == state.heading
 
 
 def test_rbpf_propagates_kinematic_process_noise_without_cartesian_q():
@@ -303,8 +384,9 @@ def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
     stan_data = ctrv_model.build_stan_data(window)
     initial_values = batch_inference._default_initial_values(stan_data, seed=42)
 
-    assert initial_values["speed_state"].shape == (window.observation_count,)
-    assert initial_values["turn_rate_state"].shape == (window.observation_count,)
+    transition_count = window.observation_count - 1
+    assert initial_values["speed_state"].shape == (transition_count,)
+    assert initial_values["turn_rate_state"].shape == (transition_count,)
     assert np.isfinite(initial_values["x_initial"])
     assert np.isfinite(initial_values["y_initial"])
     assert "x_true" not in initial_values
@@ -392,6 +474,76 @@ def test_rbpf_parameter_particles_contain_only_remaining_noise_scales():
             )
         )
         == 3
+    )
+
+
+def test_rbpf_adds_process_uncertainty_after_the_observation_update():
+    speed_process = 2.0
+    turn_rate_process = 0.03
+    online_filter = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=speed_process,
+        turn_rate_process=turn_rate_process,
+        draw_count=32,
+    )
+    expected_state = ctrv_dynamics.transition_states(
+        online_filter.state_means[:1],
+        10.0,
+    )[0]
+
+    online_filter.update(10.0, expected_state[0], expected_state[1])
+
+    np.testing.assert_allclose(
+        online_filter.state_means,
+        online_filter.forecast_origin_means,
+    )
+    process_covariance = (
+        online_filter.state_covariances - online_filter.forecast_origin_covariances
+    )
+    expected_diagonal = np.array(
+        [
+            0.0,
+            0.0,
+            speed_process**2 * 10.0,
+            0.0,
+            turn_rate_process**2 * 10.0,
+        ]
+    )
+    np.testing.assert_allclose(
+        np.diagonal(process_covariance, axis1=1, axis2=2),
+        np.broadcast_to(expected_diagonal, (128, 5)),
+        atol=1e-12,
+    )
+    off_diagonal = process_covariance.copy()
+    diagonal_indices = np.arange(5)
+    off_diagonal[:, diagonal_indices, diagonal_indices] = 0.0
+    np.testing.assert_allclose(off_diagonal, 0.0, atol=1e-12)
+
+
+def test_rbpf_forecast_evolves_motion_after_the_completed_interval():
+    future_times = np.asarray([10.0, 20.0])
+    low_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=1e-9,
+        turn_rate_process=1e-9,
+    ).forecast(future_times, seed=43)
+    high_fit = _controlled_online_filter(
+        observation_noise=0.1,
+        speed_process=2.0,
+        turn_rate_process=1e-9,
+    ).forecast(future_times, seed=43)
+
+    np.testing.assert_allclose(
+        low_fit.stan_variable("speed_at_origin"),
+        high_fit.stan_variable("speed_at_origin"),
+    )
+    np.testing.assert_allclose(
+        low_fit.stan_variable("x_prediction")[:, 0],
+        high_fit.stan_variable("x_prediction")[:, 0],
+    )
+    assert not np.allclose(
+        low_fit.stan_variable("x_prediction")[:, 1],
+        high_fit.stan_variable("x_prediction")[:, 1],
     )
 
 

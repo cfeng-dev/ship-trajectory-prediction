@@ -58,7 +58,12 @@ class SequentialMonteCarloCTRVConfig:
 
 @dataclass(slots=True)
 class SequentialMonteCarloCTRVFilter:
-    """Approximate online CTRV posterior with full state particles."""
+    """Approximate online CTRV posterior with full state particles.
+
+    ``state_particles`` include motion noise prepared for the next observed
+    interval. ``forecast_origin_particles`` retain the latest state whose
+    motion was informed by an observed displacement.
+    """
 
     config: SequentialMonteCarloCTRVConfig
     parameter_particles: np.ndarray
@@ -69,6 +74,7 @@ class SequentialMonteCarloCTRVFilter:
     processed_observation_count: int
     resample_count: int = 0
     last_effective_sample_size: float | None = None
+    forecast_origin_particles: np.ndarray | None = None
 
     @classmethod
     def initialize(
@@ -144,6 +150,7 @@ class SequentialMonteCarloCTRVFilter:
             generator=generator,
             last_observation_time_seconds=float(time_seconds[0]),
             processed_observation_count=1,
+            forecast_origin_particles=state_particles.copy(),
         )
         online_filter.update_many(
             time_seconds[1:],
@@ -205,19 +212,9 @@ class SequentialMonteCarloCTRVFilter:
         )
         dt = time_seconds - self.last_observation_time_seconds
         process_time_scale = ctrv_dynamics.process_time_scale(dt)
-        proposed_states = self.state_particles.copy()
-        proposed_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
-            0.0,
-            speed_process * process_time_scale,
-        )
-        proposed_states[:, _STATE_TURN_RATE_INDEX] += self.generator.normal(
-            0.0,
-            turn_rate_process * process_time_scale,
-        )
-        ctrv_dynamics.normalize_states(proposed_states)
-        proposed_states = ctrv_dynamics.transition_states(proposed_states, dt)
-        squared_position_error = (x_observed - proposed_states[:, 0]) ** 2 + (
-            y_observed - proposed_states[:, 1]
+        proposed_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
+        squared_position_error = (x_observed - proposed_origins[:, 0]) ** 2 + (
+            y_observed - proposed_origins[:, 1]
         ) ** 2
         log_likelihood = (
             -np.log(2.0 * np.pi)
@@ -240,13 +237,25 @@ class SequentialMonteCarloCTRVFilter:
             self.config.resample_ess_fraction * self.config.particle_count
         )
         if resampled:
-            proposed_states, parameter_particles, weights = self._resampled_population(
-                proposed_states,
+            proposed_origins, parameter_particles, weights = self._resampled_population(
+                proposed_origins,
                 parameter_particles,
                 weights,
             )
 
-        self.state_particles = proposed_states
+        _, speed_process, turn_rate_process = _parameter_values(parameter_particles)
+        next_states = proposed_origins.copy()
+        next_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
+            0.0,
+            speed_process * process_time_scale,
+        )
+        next_states[:, _STATE_TURN_RATE_INDEX] += self.generator.normal(
+            0.0,
+            turn_rate_process * process_time_scale,
+        )
+        ctrv_dynamics.normalize_states(next_states)
+        self.forecast_origin_particles = proposed_origins
+        self.state_particles = next_states
         self.parameter_particles = parameter_particles
         self.weights = weights
         self.last_observation_time_seconds = time_seconds
@@ -269,7 +278,7 @@ class SequentialMonteCarloCTRVFilter:
             replace=True,
             p=self.weights,
         )
-        states = self.state_particles[indices]
+        states = self._forecast_origins()[indices]
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles[indices]
         )
@@ -304,7 +313,7 @@ class SequentialMonteCarloCTRVFilter:
             replace=True,
             p=self.weights,
         )
-        states = self.state_particles[indices].copy()
+        states = self._forecast_origins()[indices].copy()
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles[indices]
         )
@@ -320,15 +329,6 @@ class SequentialMonteCarloCTRVFilter:
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
             process_time_scale = ctrv_dynamics.process_time_scale(dt)
-            states[:, _STATE_SPEED_INDEX] += generator.normal(
-                0.0,
-                speed_process * process_time_scale,
-            )
-            states[:, _STATE_TURN_RATE_INDEX] += generator.normal(
-                0.0,
-                turn_rate_process * process_time_scale,
-            )
-            ctrv_dynamics.normalize_states(states)
             states = ctrv_dynamics.transition_states(states, dt)
             x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]
             y_prediction[:, prediction_index] = states[:, _STATE_Y_INDEX]
@@ -343,6 +343,15 @@ class SequentialMonteCarloCTRVFilter:
             y_observation_prediction[:, prediction_index] = (
                 states[:, _STATE_Y_INDEX] + observation_innovation[:, 1]
             )
+            states[:, _STATE_SPEED_INDEX] += generator.normal(
+                0.0,
+                speed_process * process_time_scale,
+            )
+            states[:, _STATE_TURN_RATE_INDEX] += generator.normal(
+                0.0,
+                turn_rate_process * process_time_scale,
+            )
+            ctrv_dynamics.normalize_states(states)
             current_time = float(prediction_time)
 
         return particle_utils.SequentialCTRVFit(
@@ -359,6 +368,12 @@ class SequentialMonteCarloCTRVFilter:
                 "y_observation_prediction": y_observation_prediction,
             }
         )
+
+    def _forecast_origins(self) -> np.ndarray:
+        """Return the latest transition-informed state at an observation time."""
+        if self.forecast_origin_particles is None:
+            return self.state_particles
+        return self.forecast_origin_particles
 
     def _resampled_population(
         self,

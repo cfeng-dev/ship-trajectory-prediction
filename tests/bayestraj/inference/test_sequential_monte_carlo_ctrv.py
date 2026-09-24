@@ -83,6 +83,70 @@ def test_smc_update_propagates_full_states_and_weights_the_observation():
     assert online_filter.last_observation_time_seconds == 1.0
 
 
+def test_smc_update_propagates_current_motion_before_evolving_next_motion():
+    initial_states = np.array(
+        [
+            [0.0, 0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 4.0, 0.0, 0.0],
+        ]
+    )
+    online_filter = smc.SequentialMonteCarloCTRVFilter(
+        config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=2,
+            posterior_draw_count=2,
+            resample_ess_fraction=0.01,
+        ),
+        parameter_particles=np.log(
+            np.broadcast_to(np.array([100.0, 5.0, 1e-12]), (2, 3)).copy()
+        ),
+        state_particles=initial_states.copy(),
+        weights=np.array([0.5, 0.5]),
+        generator=np.random.default_rng(42),
+        last_observation_time_seconds=0.0,
+        processed_observation_count=1,
+    )
+
+    online_filter.update(1.0, 3.0, 0.0)
+
+    assert online_filter.forecast_origin_particles[:, 0] == pytest.approx([2.0, 4.0])
+    assert online_filter.forecast_origin_particles[:, 2] == pytest.approx([2.0, 4.0])
+    assert online_filter.state_particles[:, 0] == pytest.approx([2.0, 4.0])
+    assert not np.allclose(online_filter.state_particles[:, 2], [2.0, 4.0])
+
+
+def test_smc_forecast_evolves_motion_after_the_completed_interval():
+    particle_count = 64
+    origin_state = np.array([0.0, 0.0, 2.0, 0.0, 0.0])
+    origin_particles = np.broadcast_to(origin_state, (particle_count, 5)).copy()
+    online_filter = smc.SequentialMonteCarloCTRVFilter(
+        config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=particle_count,
+            posterior_draw_count=particle_count,
+        ),
+        parameter_particles=np.log(
+            np.broadcast_to(
+                np.array([1.0, 2.0, 1e-12]),
+                (particle_count, 3),
+            ).copy()
+        ),
+        state_particles=origin_particles.copy(),
+        weights=np.full(particle_count, 1.0 / particle_count),
+        generator=np.random.default_rng(42),
+        last_observation_time_seconds=0.0,
+        processed_observation_count=1,
+        forecast_origin_particles=origin_particles,
+    )
+
+    fit = online_filter.forecast(np.array([1.0, 2.0]), seed=43)
+    x_prediction = fit.stan_variable("x_prediction")
+
+    assert fit.stan_variable("speed_at_origin") == pytest.approx(
+        np.full(particle_count, 2.0)
+    )
+    assert x_prediction[:, 0] == pytest.approx(np.full(particle_count, 2.0))
+    assert np.std(x_prediction[:, 1]) > 0.0
+
+
 def test_smc_observation_updates_parameter_particle_weights():
     online_filter = smc.SequentialMonteCarloCTRVFilter(
         config=smc.SequentialMonteCarloCTRVConfig(

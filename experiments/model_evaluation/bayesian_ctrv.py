@@ -22,7 +22,7 @@ EXPERIMENT = config.RollingExperimentConfig(
     position_noise_std_m=5.0,
     position_noise_seed=2026,
     stride=1,  # Start a new three-step forecast after every observed position.
-    inference_method="rbpf",
+    inference_method="smc",
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

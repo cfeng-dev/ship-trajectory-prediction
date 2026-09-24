@@ -65,7 +65,12 @@ class SequentialCTRVFilterConfig:
 
 @dataclass(slots=True)
 class SequentialBayesianCTRVFilter:
-    """Online Rao-Blackwellized filter for CTRV states and parameters."""
+    """Online Rao-Blackwellized filter for CTRV states and parameters.
+
+    The main Gaussian state includes process variance for the next observed
+    interval. The forecast-origin Gaussian retains the latest state whose
+    motion was informed by an observed displacement.
+    """
 
     config: SequentialCTRVFilterConfig
     parameter_particles: np.ndarray
@@ -77,6 +82,8 @@ class SequentialBayesianCTRVFilter:
     processed_observation_count: int
     resample_count: int = 0
     last_effective_sample_size: float | None = None
+    forecast_origin_means: np.ndarray | None = None
+    forecast_origin_covariances: np.ndarray | None = None
 
     @classmethod
     def initialize(
@@ -185,6 +192,8 @@ class SequentialBayesianCTRVFilter:
             generator=generator,
             last_observation_time_seconds=float(time_seconds[0]),
             processed_observation_count=1,
+            forecast_origin_means=state_means.copy(),
+            forecast_origin_covariances=state_covariances.copy(),
         )
         online_filter.update_many(
             time_seconds[1:],
@@ -246,13 +255,6 @@ class SequentialBayesianCTRVFilter:
         )
         dt = time_seconds - self.last_observation_time_seconds
         process_variance_scale = ctrv_dynamics.process_time_scale(dt) ** 2
-        pre_transition_covariances = self.state_covariances.copy()
-        pre_transition_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
-            speed_process**2 * process_variance_scale
-        )
-        pre_transition_covariances[
-            :, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX
-        ] += turn_rate_process**2 * process_variance_scale
         transition_jacobians = ctrv_dynamics.transition_jacobians(
             self.state_means,
             dt,
@@ -260,7 +262,7 @@ class SequentialBayesianCTRVFilter:
         predicted_means = ctrv_dynamics.transition_states(self.state_means, dt)
         predicted_covariances = (
             transition_jacobians
-            @ pre_transition_covariances
+            @ self.state_covariances
             @ np.swapaxes(transition_jacobians, 1, 2)
         )
         innovation_covariances = predicted_covariances[:, :2, :2].copy()
@@ -298,21 +300,34 @@ class SequentialBayesianCTRVFilter:
         self.weights = weights / weight_sum
         state_observation_cross_covariance = predicted_covariances[:, :, :2]
         kalman_gain = state_observation_cross_covariance @ innovation_inverses
-        self.state_means = predicted_means + np.einsum(
+        forecast_origin_means = predicted_means + np.einsum(
             "nij,nj->ni",
             kalman_gain,
             innovations,
         )
-        self.state_covariances = predicted_covariances - (
+        forecast_origin_covariances = predicted_covariances - (
             kalman_gain @ np.swapaxes(state_observation_cross_covariance, 1, 2)
         )
-        self.state_covariances = 0.5 * (
-            self.state_covariances + np.swapaxes(self.state_covariances, 1, 2)
+        forecast_origin_covariances = 0.5 * (
+            forecast_origin_covariances + np.swapaxes(forecast_origin_covariances, 1, 2)
         )
-        self.state_covariances += (
+        forecast_origin_covariances += (
             _NUMERICAL_VARIANCE_FLOOR * np.eye(_SEQUENTIAL_STATE_COUNT)[None]
         )
-        ctrv_dynamics.normalize_states(self.state_means, self.state_covariances)
+        ctrv_dynamics.normalize_states(
+            forecast_origin_means,
+            forecast_origin_covariances,
+        )
+        self.forecast_origin_means = forecast_origin_means
+        self.forecast_origin_covariances = forecast_origin_covariances
+        self.state_means = forecast_origin_means.copy()
+        self.state_covariances = forecast_origin_covariances.copy()
+        self.state_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
+            speed_process**2 * process_variance_scale
+        )
+        self.state_covariances[:, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX] += (
+            turn_rate_process**2 * process_variance_scale
+        )
         self.last_observation_time_seconds = time_seconds
         self.processed_observation_count += 1
         self.last_effective_sample_size = self.effective_sample_size
@@ -337,9 +352,10 @@ class SequentialBayesianCTRVFilter:
             p=self.weights,
         )
         parameters = self.parameter_particles[indices]
+        origin_means, origin_covariances = self._forecast_origin_distribution()
         states = _sample_gaussian_states(
-            self.state_means[indices],
-            self.state_covariances[indices],
+            origin_means[indices],
+            origin_covariances[indices],
             generator,
         )
         ctrv_dynamics.normalize_states(states)
@@ -378,9 +394,10 @@ class SequentialBayesianCTRVFilter:
             p=self.weights,
         )
         parameters = self.parameter_particles[indices]
+        origin_means, origin_covariances = self._forecast_origin_distribution()
         states = _sample_gaussian_states(
-            self.state_means[indices],
-            self.state_covariances[indices],
+            origin_means[indices],
+            origin_covariances[indices],
             generator,
         )
         ctrv_dynamics.normalize_states(states)
@@ -399,15 +416,6 @@ class SequentialBayesianCTRVFilter:
         for prediction_index, prediction_time in enumerate(future_time_seconds):
             dt = float(prediction_time - current_time)
             process_time_scale = ctrv_dynamics.process_time_scale(dt)
-            states[:, _STATE_SPEED_INDEX] += generator.normal(
-                0.0,
-                speed_process * process_time_scale,
-            )
-            states[:, _STATE_TURN_RATE_INDEX] += generator.normal(
-                0.0,
-                turn_rate_process * process_time_scale,
-            )
-            ctrv_dynamics.normalize_states(states)
             states = ctrv_dynamics.transition_states(states, dt)
             x_prediction[:, prediction_index] = states[:, _STATE_X_INDEX]
             y_prediction[:, prediction_index] = states[:, _STATE_Y_INDEX]
@@ -422,6 +430,15 @@ class SequentialBayesianCTRVFilter:
             y_observation_prediction[:, prediction_index] = (
                 states[:, _STATE_Y_INDEX] + observation_innovation[:, 1]
             )
+            states[:, _STATE_SPEED_INDEX] += generator.normal(
+                0.0,
+                speed_process * process_time_scale,
+            )
+            states[:, _STATE_TURN_RATE_INDEX] += generator.normal(
+                0.0,
+                turn_rate_process * process_time_scale,
+            )
+            ctrv_dynamics.normalize_states(states)
             current_time = float(prediction_time)
 
         return particle_utils.SequentialCTRVFit(
@@ -439,6 +456,15 @@ class SequentialBayesianCTRVFilter:
             }
         )
 
+    def _forecast_origin_distribution(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return the latest transition-informed Gaussian state posterior."""
+        if (
+            self.forecast_origin_means is None
+            or self.forecast_origin_covariances is None
+        ):
+            return self.state_means, self.state_covariances
+        return self.forecast_origin_means, self.forecast_origin_covariances
+
     def _resample_and_rejuvenate(self) -> None:
         """Resample states and apply Liu-West-style parameter rejuvenation."""
         adjusted_parameters, parameter_mean = _sequential_parameter_moments(
@@ -453,6 +479,12 @@ class SequentialBayesianCTRVFilter:
         selected_parameters = adjusted_parameters[indices]
         self.state_means = self.state_means[indices].copy()
         self.state_covariances = self.state_covariances[indices].copy()
+        if self.forecast_origin_means is not None:
+            self.forecast_origin_means = self.forecast_origin_means[indices].copy()
+        if self.forecast_origin_covariances is not None:
+            self.forecast_origin_covariances = self.forecast_origin_covariances[
+                indices
+            ].copy()
         rejuvenation_scale = self.config.rejuvenation_scale
         shrinkage = np.sqrt(1.0 - rejuvenation_scale**2)
         parameter_cholesky = particle_utils.regularized_cholesky(parameter_covariance)

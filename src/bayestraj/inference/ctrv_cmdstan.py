@@ -131,11 +131,12 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     speed_jitter = 0.02 * float(stan_data["speed_prior_scale"])
     turn_jitter = 0.02 * float(stan_data["turn_rate_prior_scale"])
     angle_limit = np.pi - 1e-6
+    transition_count = x_true.size - 1
     return {
         "x_initial": float(x_true[0]),
         "y_initial": float(y_true[0]),
         "speed_state": np.maximum(
-            speed + generator.normal(0.0, speed_jitter, x_true.size),
+            speed + generator.normal(0.0, speed_jitter, transition_count),
             0.0,
         ),
         "heading_initial": float(
@@ -145,7 +146,8 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
                 angle_limit,
             )
         ),
-        "turn_rate_state": turn_rate + generator.normal(0.0, turn_jitter, x_true.size),
+        "turn_rate_state": turn_rate
+        + generator.normal(0.0, turn_jitter, transition_count),
         "sigma_position_observation": float(observation_noise_initial),
         "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
         "sigma_turn_rate_process": float(

@@ -74,10 +74,10 @@ parameters {
   real x_initial;
   real y_initial;
 
-  // Latent speed, heading, and turn-rate dynamics over the observation history.
-  vector<lower=0>[N_history] speed_state;
+  // Motion states at the start of every observed position transition.
+  vector<lower=0>[N_history - 1] speed_state;
   real<lower=-pi(), upper=pi()> heading_initial;
-  vector[N_history] turn_rate_state;
+  vector[N_history - 1] turn_rate_state;
 
   // Inferred observation and dynamic process-noise scales.
   real<lower=1e-6> sigma_position_observation;
@@ -97,20 +97,21 @@ transformed parameters {
   y_state[1] = y_initial;
   heading_state[1] = heading_initial;
 
-  // Propagate every later state with the CTRV kinematic model.
-  for (n in 2:N_history) {
-    real dt = time_observed[n] - time_observed[n - 1];
+  // Propagate n -> n + 1 with the motion variables of state n.
+  for (n in 1:(N_history - 1)) {
+    real dt = time_observed[n + 1] - time_observed[n];
     vector[2] position = ctrv_position(
         dt,
-        x_state[n - 1],
-        y_state[n - 1],
+        x_state[n],
+        y_state[n],
         speed_state[n],
-        heading_state[n - 1],
+        heading_state[n],
         turn_rate_state[n]);
 
-    x_state[n] = position[1];
-    y_state[n] = position[2];
-    heading_state[n] = wrap_angle(heading_state[n - 1] + turn_rate_state[n] * dt);
+    x_state[n + 1] = position[1];
+    y_state[n + 1] = position[2];
+    heading_state[n + 1] = wrap_angle(
+        heading_state[n] + turn_rate_state[n] * dt);
   }
 }
 
@@ -129,7 +130,7 @@ model {
   y_observed ~ normal(y_state, sigma_position_observation);
 
   // Scale process noise from the reference interval to each observed time gap.
-  for (n in 2:N_history) {
+  for (n in 2:(N_history - 1)) {
     real dt = time_observed[n] - time_observed[n - 1];
     real process_time_scale = sqrt(dt / process_reference_interval_seconds);
     real speed_process_scale = sigma_speed_process * process_time_scale;
@@ -156,10 +157,10 @@ generated quantities {
   // Per-coordinate observation log likelihood for model diagnostics.
   vector[2 * N_history] log_likelihood;
 
-  // Extract the final latent state from the fitted posterior trajectory.
-  real speed_at_origin = speed_state[N_history];
+  // Carry the final transition-informed motion state to the forecast origin.
+  real speed_at_origin = speed_state[N_history - 1];
   real heading_at_origin = heading_state[N_history];
-  real turn_rate_at_origin = turn_rate_state[N_history];
+  real turn_rate_at_origin = turn_rate_state[N_history - 1];
 
   // Initialize the state carried through the future simulation.
   real x_previous = x_state[N_history];
@@ -179,12 +180,8 @@ generated quantities {
   for (n in 1:N_prediction) {
     real dt = time_prediction[n] - time_previous;
     real process_time_scale = sqrt(dt / process_reference_interval_seconds);
-    real speed_proposal = normal_rng(speed_previous, sigma_speed_process * process_time_scale);
+    real speed_proposal;
     vector[2] expected_position;
-    turn_rate_previous = normal_rng(turn_rate_previous, sigma_turn_rate_process * process_time_scale);
-
-    // Keep speed non-negative after stochastic propagation.
-    speed_previous = abs(speed_proposal);
 
     expected_position = ctrv_position(
         dt,
@@ -205,6 +202,15 @@ generated quantities {
     x_previous = x_prediction[n];
     y_previous = y_prediction[n];
     heading_previous = wrap_angle(heading_previous + turn_rate_previous * dt);
+
+    // Evolve motion only after it has governed the completed interval.
+    speed_proposal = normal_rng(
+        speed_previous,
+        sigma_speed_process * process_time_scale);
+    turn_rate_previous = normal_rng(
+        turn_rate_previous,
+        sigma_turn_rate_process * process_time_scale);
+    speed_previous = abs(speed_proposal);
     time_previous = time_prediction[n];
   }
 }
