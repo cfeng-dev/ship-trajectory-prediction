@@ -17,11 +17,11 @@ DATA_FILE = paths.data_path(
 EXPERIMENT = config.ExperimentConfig(
     run_id=1,
     start_index=0,
-    observation_count=20,
+    observation_count=10,
     prediction_count=3,
     position_noise_std_m=5.0,
     position_noise_seed=2026,
-    inference_method="smc",
+    inference_method="vi",
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

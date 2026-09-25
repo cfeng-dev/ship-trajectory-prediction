@@ -12,7 +12,15 @@ from cmdstanpy import CmdStanMCMC, CmdStanModel, CmdStanVB
 import bayestraj.numeric_validation as numeric_validation
 
 DEFAULT_MEANFIELD_GRAD_SAMPLES = 2
-DEFAULT_VI_ADAPT_ITER = 100
+DEFAULT_VI_ALGORITHM = "fullrank"
+DEFAULT_VI_ITER = 25_000
+DEFAULT_VI_GRAD_SAMPLES = 20
+DEFAULT_VI_ELBO_SAMPLES = 100
+DEFAULT_VI_ETA = 0.5
+DEFAULT_VI_ADAPT_ITER = 750
+DEFAULT_VI_TOL_REL_OBJ = 0.003
+DEFAULT_VI_EVAL_ELBO = 100
+DEFAULT_VI_DRAWS = 1_000
 
 
 def normalize_inference_method(inference_method: str) -> str:

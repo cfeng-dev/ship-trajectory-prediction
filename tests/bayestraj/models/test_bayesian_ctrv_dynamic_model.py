@@ -8,12 +8,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.ctrv as ctrv_dynamics
+import bayestraj.observations.position as position_observations
 import bayestraj.observations.window as observation_window
+import bayestraj.validation.metrics as metrics
 import bayestraj.validation.reporting as reporting
 
 RUN_CMDSTAN_INTEGRATION = os.environ.get("RUN_CMDSTAN_INTEGRATION") == "1"
@@ -57,6 +60,59 @@ def _dynamic_ctrv_window():
         reference_latitude=47.0,
         gps_speed_mps=np.full(len(time_seconds), np.nan),
         observation_count=5,
+    )
+
+
+def _ten_point_vi_regression_window():
+    time_seconds = np.arange(13, dtype=float) * 10.0
+    x_meters = np.asarray(
+        [
+            0.0,
+            25.047335981863377,
+            56.876702501521876,
+            92.71362797807262,
+            130.93966573647657,
+            170.62997732150617,
+            211.55339488615326,
+            253.09342616174956,
+            294.6335825103842,
+            336.4050407392522,
+            378.1765851844071,
+            420.02529426955994,
+            461.79703990155696,
+        ]
+    )
+    y_meters = np.asarray(
+        [
+            0.0,
+            4.524539397369224,
+            8.144170915406068,
+            10.858894554110531,
+            13.573618192814996,
+            17.19324971085184,
+            19.003065470931247,
+            17.19324971085184,
+            10.858894554110531,
+            2.7147236387044638,
+            -6.334355156033984,
+            -16.288341830812136,
+            -27.147236384922667,
+        ]
+    )
+    return observation_window.TrajectoryWindowData(
+        timestamps=pd.date_range(
+            "2026-01-01",
+            periods=len(time_seconds),
+            freq="10s",
+            tz="UTC",
+        ),
+        time_seconds=time_seconds,
+        x_meters=x_meters,
+        y_meters=y_meters,
+        reference_longitude=8.0,
+        reference_latitude=47.0,
+        gps_speed_mps=np.full(len(time_seconds), np.nan),
+        observation_count=10,
     )
 
 
@@ -675,6 +731,42 @@ def test_dynamic_batch_ctrv_vi_integration():
         fit,
         prediction_count=window.prediction_count,
     )
+
+
+@pytest.mark.skipif(
+    not RUN_CMDSTAN_INTEGRATION,
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run CmdStan VI.",
+)
+def test_ten_point_vi_does_not_collapse_into_observation_noise_mode():
+    window = _ten_point_vi_regression_window()
+    observations = position_observations.simulate_position_observations(
+        window,
+        position_noise_std_m=5.0,
+        seed=2026,
+    )
+    fit = batch_inference.fit_bayesian_ctrv_model(
+        window,
+        position_observations=observations,
+        inference_method="vi",
+        seed=42,
+        **inference.create_default_vi_config(),
+    )
+
+    observation_noise_median = np.median(
+        reporting.posterior_variable_samples(
+            fit,
+            "sigma_position_observation",
+        )
+    )
+    evaluation = metrics.evaluate_position_predictions(
+        fit,
+        window,
+        credible_interval=0.9,
+        position_variable_names=("x_prediction", "y_prediction"),
+    )
+
+    assert observation_noise_median < 20.0
+    assert evaluation.ade_m < 100.0
 
 
 @pytest.mark.skipif(

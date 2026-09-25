@@ -1740,6 +1740,15 @@ def create_posterior_dashboard_loader(
 
         return trajectory, maximum_observation_count, 1, load_online_update
 
+    batch_observation_count = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
+    if maximum_observation_count < batch_observation_count:
+        raise ValueError(
+            f"VI and MCMC require at least {batch_observation_count} observations."
+        )
+    batch_trajectory_data = _select_trajectory_rows_at_interval(
+        trajectory_data.iloc[experiment.start_index :],
+        experiment.observation_interval_seconds,
+    ).reset_index(drop=True)
     selected_config = dict(vi_config if inference_method == "vi" else mcmc_config)
     if fit_batch_model is None:
         fit_batch_model = batch_inference.fit_bayesian_ctrv_model
@@ -1749,22 +1758,23 @@ def create_posterior_dashboard_loader(
     def load_batch_update(observation_count):
         _validate_update_observation_count(
             observation_count,
-            minimum=bayesian_model.MIN_OBSERVATION_COUNT,
+            minimum=batch_observation_count,
             maximum=maximum_observation_count,
         )
+        window_start_index = observation_count - batch_observation_count
         window = observation_window.prepare_trajectory_window(
-            trajectory_data,
-            observation_count=observation_count,
+            batch_trajectory_data,
+            observation_count=batch_observation_count,
             prediction_count=max(
                 1,
                 min(experiment.prediction_count, len(time_seconds) - observation_count),
             ),
-            start_index=experiment.start_index,
+            start_index=window_start_index,
         )
         position_observations = bayesian_model.PositionObservations(
             time_seconds=window.time_seconds[window.observed_slice],
-            x_meters=trajectory.observed_x[:observation_count],
-            y_meters=trajectory.observed_y[:observation_count],
+            x_meters=trajectory.observed_x[window_start_index:observation_count],
+            y_meters=trajectory.observed_y[window_start_index:observation_count],
             position_noise_std_m=experiment.position_noise_std_m,
             noise_seed=experiment.position_noise_seed,
         )
@@ -1783,7 +1793,7 @@ def create_posterior_dashboard_loader(
                 _extract_dashboard_forecast(
                     fit,
                     window.time_seconds[window.prediction_slice]
-                    - window.time_seconds[observation_count - 1],
+                    - window.time_seconds[window.observation_count - 1],
                     experiment.prediction_sample_count,
                 )
                 if experiment.prediction_count
@@ -1794,7 +1804,7 @@ def create_posterior_dashboard_loader(
     return (
         trajectory,
         maximum_observation_count,
-        bayesian_model.MIN_OBSERVATION_COUNT,
+        batch_observation_count,
         load_batch_update,
     )
 

@@ -33,7 +33,7 @@ def test_single_window_inference_configs_default_to_source_owned_factories():
         single_ctrv_workflow._resolve_inference_configs(None, None, None, None)
     )
 
-    assert vi_config["algorithm"] == "meanfield"
+    assert vi_config["algorithm"] == "fullrank"
     assert mcmc_config["chains"] >= 1
     assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0

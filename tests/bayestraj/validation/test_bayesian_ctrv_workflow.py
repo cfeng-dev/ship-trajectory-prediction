@@ -85,7 +85,7 @@ def test_inference_configs_default_to_source_owned_factories():
         workflow._resolve_inference_configs(None, None, None, None)
     )
 
-    assert vi_config["algorithm"] == "meanfield"
+    assert vi_config["algorithm"] == "fullrank"
     assert mcmc_config["chains"] >= 1
     assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0
@@ -145,9 +145,11 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     )
     monkeypatch.setattr(runtime_plotting.plt, "show", lambda: None)
 
-    returned_figure, returned_axis = runtime_plotting.plot_bayesian_ctrv_inference_runtime(
-        predictions,
-        inference_selection="vi_expanding",
+    returned_figure, returned_axis = (
+        runtime_plotting.plot_bayesian_ctrv_inference_runtime(
+            predictions,
+            inference_selection="vi",
+        )
     )
 
     assert returned_figure is figure
@@ -161,9 +163,8 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.plot_keywords["markersize"] == 3
     assert axis.xlabel == "Anzahl bisher beobachteter Positionen"
     assert axis.ylabel == "Inferenzzeit pro Vorhersagefenster [s]"
-    assert axis.title == "Bayesian-CTRV (VI, Expanding Window)"
+    assert axis.title == "Bayesian-CTRV (VI)"
     assert not axis.grid_called
     assert axis.title_keywords == {"pad": 16, "fontsize": 13, "fontweight": "bold"}
     assert axis.tick_parameters == {"axis": "both", "labelsize": 11}
     assert axis.legend_location == "upper right"
-

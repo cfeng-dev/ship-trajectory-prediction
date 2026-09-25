@@ -27,7 +27,7 @@ from .session import AnalysisSettings
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
 METHODS = ("rbpf", "smc", "vi", "mcmc")
-GUI_INFERENCE_METHODS = ("rbpf", "smc")
+GUI_INFERENCE_METHODS = METHODS
 METHOD_DISPLAY_LABELS = {
     "rbpf": "RBPF – Rao-Blackwellized particle filter",
     "smc": "SMC – Sequential Monte Carlo",

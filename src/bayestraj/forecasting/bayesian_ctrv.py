@@ -52,7 +52,7 @@ class RollingExperimentConfig:
     Attributes:
         run_id: Identifier of the ship trajectory to evaluate.
 
-        observation_count: Initial number of observed positions. For a sliding window, this is also the fixed window size.
+        observation_count: Initial number of observed positions. For VI and MCMC, this is also the fixed window size.
 
         prediction_count: Number of future positions forecast per window.
 
@@ -62,28 +62,23 @@ class RollingExperimentConfig:
 
         stride: Number of newly observed positions between forecast origins.
 
-        inference_method: ``vi_sliding``, ``vi_expanding``, ``mcmc_sliding``, ``mcmc_expanding``, ``rbpf``, or ``smc``.
+        inference_method: ``vi``, ``mcmc``, ``rbpf``, or ``smc``. VI and MCMC use a fixed sliding window.
 
         inference_seed: Random seed for reproducible inference.
     """
 
     run_id: int
-    observation_count: int
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int
     stride: int | None
     inference_method: str
     inference_seed: int
+    observation_count: int = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
 
     def __post_init__(self) -> None:
         """Validate the combined rolling inference selection."""
-        _, inference_method, window_mode = (
-            inference.normalize_ctrv_rolling_inference_method(self.inference_method)
+        _, inference_method, _ = inference.normalize_ctrv_rolling_inference_method(
+            self.inference_method
         )
-        normalized_selection = (
-            inference_method
-            if window_mode is None
-            else f"{inference_method}_{window_mode}"
-        )
-        object.__setattr__(self, "inference_method", normalized_selection)
+        object.__setattr__(self, "inference_method", inference_method)

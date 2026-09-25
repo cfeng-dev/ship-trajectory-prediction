@@ -20,7 +20,7 @@ def _ctrv_rolling_config(**overrides):
         "position_noise_std_m": 5.0,
         "position_noise_seed": 2026,
         "stride": None,
-        "inference_method": "vi_sliding",
+        "inference_method": "vi",
         "inference_seed": 42,
     }
     values.update(overrides)
@@ -49,10 +49,8 @@ def test_batch_inference_combinations_are_valid(inference_method, window_mode):
 @pytest.mark.parametrize(
     ("selection", "inference_method", "window_mode"),
     (
-        ("vi_sliding", "vi", "sliding"),
-        ("vi_expanding", "vi", "expanding"),
-        ("mcmc_sliding", "mcmc", "sliding"),
-        ("mcmc_expanding", "mcmc", "expanding"),
+        ("vi", "vi", "sliding"),
+        ("mcmc", "mcmc", "sliding"),
     ),
 )
 def test_ctrv_rolling_batch_selection_derives_method_and_window(
@@ -70,6 +68,33 @@ def test_ctrv_rolling_batch_selection_derives_method_and_window(
     assert not hasattr(config, "inference_mode")
     assert not hasattr(config, "window_mode")
     assert normalized == ("batch", inference_method, window_mode)
+
+
+def test_ctrv_rolling_observation_count_defaults_to_source_owned_value():
+    config = ctrv_config.RollingExperimentConfig(
+        run_id=102,
+        prediction_count=3,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        stride=None,
+        inference_method="vi",
+        inference_seed=42,
+    )
+
+    assert inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT == 10
+    assert config.observation_count == 10
+
+
+def test_default_vi_config_uses_stable_fullrank_optimization():
+    config = inference.create_default_vi_config()
+
+    assert config["algorithm"] == "fullrank"
+    assert config["iter"] == 25_000
+    assert config["grad_samples"] == 20
+    assert config["eta"] == 0.5
+    assert config["adapt_iter"] == 750
+    assert config["tol_rel_obj"] == 0.003
+    assert inference.DEFAULT_FULLRANK_GRAD_SAMPLES == 20
 
 
 def test_online_rbpf_is_valid_without_a_window_mode():
@@ -144,8 +169,10 @@ def test_invalid_inference_combinations_fail_early(
 @pytest.mark.parametrize(
     "inference_method",
     (
-        "vi",
-        "mcmc",
+        "vi_sliding",
+        "vi_expanding",
+        "mcmc_sliding",
+        "mcmc_expanding",
         "sliding_vi",
         "expanding_vi",
         "unsupported",
@@ -276,10 +303,8 @@ def test_single_window_ctrv_derives_mode_from_inference_method(inference_method)
 @pytest.mark.parametrize(
     "inference_method",
     (
-        "vi_sliding",
-        "vi_expanding",
-        "mcmc_sliding",
-        "mcmc_expanding",
+        "vi",
+        "mcmc",
         "rbpf",
         "smc",
     ),
@@ -329,10 +354,8 @@ def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
 @pytest.mark.parametrize(
     "inference_method",
     (
-        "vi_sliding",
-        "vi_expanding",
-        "mcmc_sliding",
-        "mcmc_expanding",
+        "vi",
+        "mcmc",
         "rbpf",
         "smc",
     ),
@@ -353,6 +376,30 @@ def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
     assert not hasattr(options, "window_mode")
     assert options.inference_method == inference_method
     assert options.vi_algorithm == inference.create_default_vi_config()["algorithm"]
+
+
+def test_ctrv_rolling_cli_observations_override_source_owned_default():
+    experiment = ctrv_config.RollingExperimentConfig(
+        run_id=102,
+        prediction_count=3,
+        position_noise_std_m=5.0,
+        position_noise_seed=2026,
+        stride=None,
+        inference_method="vi",
+        inference_seed=42,
+    )
+
+    options = validation_cli.parse_bayesian_ctrv_evaluation_arguments(
+        description=None,
+        experiment=experiment,
+        priors=ctrv_model.BayesianCTRVPriors(),
+        max_windows=None,
+        plot_each_window=False,
+        argv=["--observations", "12"],
+    )
+
+    assert experiment.observation_count == 10
+    assert options.observation_count == 12
 
 
 def test_ctrv_rolling_cli_accepts_turn_rate_prior_threshold_in_degrees_per_second():

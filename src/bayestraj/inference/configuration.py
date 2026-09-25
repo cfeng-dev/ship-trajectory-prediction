@@ -7,17 +7,16 @@ import bayestraj.inference.cmdstan as inference_support
 import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
 
-DEFAULT_FULLRANK_GRAD_SAMPLES = 10
+DEFAULT_FULLRANK_GRAD_SAMPLES = 20
+DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
 ONLINE_INFERENCE_METHODS = ("rbpf",)
 CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc")
 WINDOW_MODES = ("sliding", "expanding")
 _CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
-    "vi_sliding": ("vi", "sliding"),
-    "vi_expanding": ("vi", "expanding"),
-    "mcmc_sliding": ("mcmc", "sliding"),
-    "mcmc_expanding": ("mcmc", "expanding"),
+    "vi": ("vi", "sliding"),
+    "mcmc": ("mcmc", "sliding"),
 }
 CTRV_ROLLING_INFERENCE_METHODS = (
     *_CTRV_ROLLING_BATCH_INFERENCE_METHODS,
@@ -108,7 +107,7 @@ def normalize_rolling_inference_method(
 def normalize_ctrv_rolling_inference_method(
     inference_method: str,
 ) -> tuple[str, str, str | None]:
-    """Split one CTRV rolling selection into mode, method, and window mode."""
+    """Derive the mode and fixed batch window from one CTRV selection."""
     if not isinstance(inference_method, str):
         raise ValueError("rolling inference_method must be a supported value.")
 
@@ -160,15 +159,15 @@ def normalize_rolling_inference_configuration(
 def create_default_vi_config() -> dict[str, Any]:
     """Return independent default CmdStan variational-inference options."""
     return {
-        "algorithm": "meanfield",
-        "iter": 20_000,
-        "grad_samples": inference_support.DEFAULT_MEANFIELD_GRAD_SAMPLES,
-        "elbo_samples": 100,
-        "eta": 1.0,
+        "algorithm": inference_support.DEFAULT_VI_ALGORITHM,
+        "iter": inference_support.DEFAULT_VI_ITER,
+        "grad_samples": inference_support.DEFAULT_VI_GRAD_SAMPLES,
+        "elbo_samples": inference_support.DEFAULT_VI_ELBO_SAMPLES,
+        "eta": inference_support.DEFAULT_VI_ETA,
         "adapt_iter": inference_support.DEFAULT_VI_ADAPT_ITER,
-        "tol_rel_obj": 0.01,
-        "eval_elbo": 100,
-        "draws": 1_000,
+        "tol_rel_obj": inference_support.DEFAULT_VI_TOL_REL_OBJ,
+        "eval_elbo": inference_support.DEFAULT_VI_EVAL_ELBO,
+        "draws": inference_support.DEFAULT_VI_DRAWS,
         "require_converged": False,
     }
 

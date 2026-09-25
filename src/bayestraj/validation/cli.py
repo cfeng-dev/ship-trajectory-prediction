@@ -30,15 +30,10 @@ class BayesianCTRVEvaluationOptions:
 
     def __post_init__(self) -> None:
         """Validate the combined rolling inference selection."""
-        _, inference_method, window_mode = (
-            inference.normalize_ctrv_rolling_inference_method(self.inference_method)
+        _, inference_method, _ = inference.normalize_ctrv_rolling_inference_method(
+            self.inference_method
         )
-        normalized_selection = (
-            inference_method
-            if window_mode is None
-            else f"{inference_method}_{window_mode}"
-        )
-        object.__setattr__(self, "inference_method", normalized_selection)
+        object.__setattr__(self, "inference_method", inference_method)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -91,7 +86,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         dest="inference_method",
         choices=inference.CTRV_ROLLING_INFERENCE_METHODS,
         default=experiment.inference_method,
-        help="Choose windowed VI/MCMC or online RBPF/SMC inference.",
+        help="Choose fixed-window VI/MCMC or online RBPF/SMC inference.",
     )
     parser.add_argument(
         "--vi-algorithm",

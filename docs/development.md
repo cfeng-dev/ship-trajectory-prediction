@@ -48,8 +48,8 @@ uv run trajectory-predictor
 ```
 
 The built-in **Help** window describes the controls, settings, and keyboard
-shortcuts. RBPF and SMC update online; VI and MCMC refit an expanding prefix and
-are slower.
+shortcuts. RBPF and SMC update online; VI and MCMC repeatedly fit the latest 10
+observations and are slower.
 
 ## Code Quality and Tests
 

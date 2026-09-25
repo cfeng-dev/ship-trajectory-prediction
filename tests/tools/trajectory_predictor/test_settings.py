@@ -59,10 +59,12 @@ def test_inference_method_display_labels_normalize_to_internal_values():
         assert settings.normalize_inference_method(method) == method
 
 
-def test_gui_inference_method_options_are_limited_to_online_filters():
+def test_gui_inference_method_options_include_batch_and_online_methods():
     assert settings.METHOD_DISPLAY_OPTIONS == (
         settings.METHOD_DISPLAY_LABELS["rbpf"],
         settings.METHOD_DISPLAY_LABELS["smc"],
+        settings.METHOD_DISPLAY_LABELS["vi"],
+        settings.METHOD_DISPLAY_LABELS["mcmc"],
     )
 
 

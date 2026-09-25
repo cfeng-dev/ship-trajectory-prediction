@@ -1076,7 +1076,7 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         prediction_sample_count=0,
     )
     trajectory, maximum, _, load = dashboard.create_posterior_dashboard_loader(
-        _dashboard_trajectory_data(8),
+        _dashboard_trajectory_data(15),
         experiment=experiment,
         priors=bayesian_model.BayesianCTRVPriors(),
         vi_config={},
@@ -1085,16 +1085,16 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         smc_config=None,
         fit_batch_model=fit_batch,
     )
-    update = load(3)
+    update = load(10)
     assert update.forecast.time_offsets_seconds == pytest.approx([10, 20, 30])
     np.testing.assert_allclose(
         update.forecast.median_positions, [[20, 30], [21, 31], [22, 32]]
     )
     assert update.forecast.sample_positions.shape == (0, 3, 2)
-    assert calls[0]["time_observed"] == pytest.approx([0, 10, 20])
-    assert calls[0]["time_prediction"] == pytest.approx([30, 40, 50])
-    assert calls[0]["x_observed"] == pytest.approx(trajectory.observed_x[:3])
-    assert maximum == 6
+    assert calls[0]["time_observed"] == pytest.approx(np.arange(10) * 10)
+    assert calls[0]["time_prediction"] == pytest.approx([100, 110, 120])
+    assert calls[0]["x_observed"] == pytest.approx(trajectory.observed_x[:10])
+    assert maximum == 13
     assert load(maximum).forecast.time_offsets_seconds == pytest.approx([10])
 
 
@@ -1433,7 +1433,9 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
 
 
 @pytest.mark.parametrize("inference_method", ["vi", "mcmc"])
-def test_dashboard_loader_runs_selected_expanding_batch_fit(inference_method):
+def test_dashboard_loader_runs_selected_ten_observation_sliding_fit(
+    inference_method,
+):
     dashboard = _load_dashboard_module()
     vi_config = inference.create_default_vi_config()
     mcmc_config = inference.create_default_mcmc_config()
@@ -1455,11 +1457,19 @@ def test_dashboard_loader_runs_selected_expanding_batch_fit(inference_method):
         position_noise_seed=2026,
         inference_method=inference_method,
         inference_seed=42,
+        prediction_count=1,
+    )
+    trajectory_data = _dashboard_trajectory_data(27)
+    trajectory_data["time"] = pd.date_range(
+        "2026-01-01",
+        periods=27,
+        freq="5s",
+        tz="UTC",
     )
 
     trajectory, maximum_count, minimum_count, load_update = (
         dashboard.create_posterior_dashboard_loader(
-            _dashboard_trajectory_data(),
+            trajectory_data,
             experiment=experiment,
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=vi_config,
@@ -1470,19 +1480,24 @@ def test_dashboard_loader_runs_selected_expanding_batch_fit(inference_method):
         )
     )
 
-    update = load_update(3)
+    update = load_update(12)
 
-    assert maximum_count == 3
-    assert minimum_count == 3
-    assert trajectory.reference_x.shape == (4,)
+    assert maximum_count == 13
+    assert minimum_count == 10
+    assert trajectory.reference_x.shape == (14,)
     assert len(fit_calls) == 1
     window, options = fit_calls[0]
-    assert window.observation_count == 3
+    assert window.observation_count == 10
+    assert window.timestamps[0] == pd.Timestamp("2026-01-01T00:00:20Z")
+    assert window.timestamps[9] == pd.Timestamp("2026-01-01T00:01:50Z")
     assert options["inference_method"] == inference_method
     assert options["seed"] == 42
     assert options["priors"] == bayesian_model.BayesianCTRVPriors()
     assert options["position_observations"].x_meters == pytest.approx(
-        trajectory.observed_x[:3]
+        trajectory.observed_x[2:12]
+    )
+    assert options["position_observations"].time_seconds == pytest.approx(
+        np.arange(10) * 10.0
     )
     selected_options = {
         name: value
@@ -1496,10 +1511,38 @@ def test_dashboard_loader_runs_selected_expanding_batch_fit(inference_method):
         }
     }
     assert selected_options == expected_config
-    assert update.observation_count == 3
+    assert update.observation_count == 12
     assert update.effective_sample_size is None
     assert update.particle_count is None
     assert update.resample_count is None
+
+
+@pytest.mark.parametrize("inference_method", ["vi", "mcmc"])
+def test_dashboard_loader_rejects_batch_analysis_without_ten_observations(
+    inference_method,
+):
+    dashboard = _load_dashboard_module()
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=9,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=inference_method,
+        inference_seed=42,
+        prediction_count=1,
+    )
+
+    with pytest.raises(ValueError, match="at least 10 observations"):
+        dashboard.create_posterior_dashboard_loader(
+            _dashboard_trajectory_data(12),
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config=inference.create_default_vi_config(),
+            mcmc_config=inference.create_default_mcmc_config(),
+            rbpf_config=inference.create_default_ctrv_rbpf_config(),
+            smc_config=inference.create_default_ctrv_smc_config(),
+        )
 
 
 def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
