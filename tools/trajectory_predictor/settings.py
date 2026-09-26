@@ -31,8 +31,8 @@ GUI_INFERENCE_METHODS = METHODS
 METHOD_DISPLAY_LABELS = {
     "rbpf": "RBPF – Rao-Blackwellized particle filter",
     "smc": "SMC – Sequential Monte Carlo",
-    "vi": "VI – Variational inference (batch)",
-    "mcmc": "MCMC – Markov chain Monte Carlo (batch)",
+    "vi": "VI – Variational inference",
+    "mcmc": "MCMC – Markov chain Monte Carlo",
 }
 METHOD_DISPLAY_OPTIONS = tuple(
     METHOD_DISPLAY_LABELS[method] for method in GUI_INFERENCE_METHODS

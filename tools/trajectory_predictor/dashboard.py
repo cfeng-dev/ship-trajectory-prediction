@@ -71,7 +71,7 @@ PARAMETER_GROUP_LABELS = {
 }
 FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
-DEFAULT_PREDICTION_COUNT = 3
+DEFAULT_PREDICTION_COUNT = 2
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
@@ -264,20 +264,27 @@ class PosteriorDashboardTrajectory:
 
 @dataclass(frozen=True, slots=True)
 class PosteriorDashboardForecast:
-    """Compact, immutable latent forecast for one cached posterior stage.
+    """Immutable latent forecast for one cached posterior stage.
 
     Positions are local metres; offsets are seconds after the last observation.
-    Only the median and a limited set of paired draws are retained for playback.
+    Full paired draws define regions and metrics, while a limited subset is retained
+    separately for displaying sample paths.
     """
 
     time_offsets_seconds: np.ndarray
     median_positions: np.ndarray
     sample_positions: np.ndarray
+    posterior_positions: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         offsets = np.asarray(self.time_offsets_seconds, dtype=float).copy()
         median = np.asarray(self.median_positions, dtype=float).copy()
         samples = np.asarray(self.sample_positions, dtype=float).copy()
+        posterior = (
+            samples.copy()
+            if self.posterior_positions is None
+            else np.asarray(self.posterior_positions, dtype=float).copy()
+        )
         numeric_validation.validate_finite_vector("time_offsets_seconds", offsets)
         if offsets[0] <= 0 or np.any(np.diff(offsets) <= 0):
             raise ValueError(
@@ -287,8 +294,11 @@ class PosteriorDashboardForecast:
             median.shape != (offsets.size, 2)
             or samples.ndim != 3
             or samples.shape[1:] != median.shape
+            or posterior.ndim != 3
+            or posterior.shape[1:] != median.shape
             or not np.all(np.isfinite(median))
             or not np.all(np.isfinite(samples))
+            or not np.all(np.isfinite(posterior))
         ):
             raise ValueError(
                 "Forecast positions must be finite, matching (time, xy) arrays."
@@ -297,6 +307,7 @@ class PosteriorDashboardForecast:
             ("time_offsets_seconds", offsets),
             ("median_positions", median),
             ("sample_positions", samples),
+            ("posterior_positions", posterior),
         ):
             values.setflags(write=False)
             object.__setattr__(self, name, values)
@@ -408,7 +419,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             ade_m = float(np.mean(errors_m))
             fde_m = float(errors_m[-1])
             energy_score_m = _forecast_energy_score(
-                forecast.sample_positions[:, : len(actual_positions), :].transpose(
+                forecast.posterior_positions[:, : len(actual_positions), :].transpose(
                     1,
                     0,
                     2,
@@ -428,14 +439,14 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         actual_positions = _forecast_reference_positions(trajectory, cached_update)
         sample_count = min(
             len(actual_positions),
-            forecast.sample_positions.shape[1],
+            forecast.posterior_positions.shape[1],
         )
-        if forecast.sample_positions.shape[0] < 2:
+        if forecast.posterior_positions.shape[0] < 2:
             continue
         for index in range(sample_count):
             region = validation_metrics.empirical_covariance_regions(
-                forecast.sample_positions[:, index, 0],
-                forecast.sample_positions[:, index, 1],
+                forecast.posterior_positions[:, index, 0],
+                forecast.posterior_positions[:, index, 1],
                 probabilities=(0.5, 0.9),
             )
             covered_50_count += region[0.5].contains(*actual_positions[index])
@@ -1245,9 +1256,7 @@ class PosteriorDashboardNavigator:
                 if enabled
             )
             display_sample_positions = None
-            if forecast.sample_positions.shape[0] >= 2 and (
-                self.show_sample_trajectories or region_probabilities
-            ):
+            if self.show_sample_trajectories and forecast.sample_positions.size:
                 display_sample_positions = np.empty_like(forecast.sample_positions)
                 for time_index in range(forecast.sample_positions.shape[1]):
                     sample_x, sample_y = self._display_coordinates(
@@ -1257,11 +1266,24 @@ class PosteriorDashboardNavigator:
                     display_sample_positions[:, time_index] = np.column_stack(
                         (sample_x, sample_y)
                     )
+
+            if region_probabilities and forecast.posterior_positions.shape[0] >= 2:
+                display_posterior_positions = np.empty_like(
+                    forecast.posterior_positions
+                )
+                for time_index in range(forecast.posterior_positions.shape[1]):
+                    posterior_x, posterior_y = self._display_coordinates(
+                        forecast.posterior_positions[:, time_index, 0],
+                        forecast.posterior_positions[:, time_index, 1],
+                    )
+                    display_posterior_positions[:, time_index] = np.column_stack(
+                        (posterior_x, posterior_y)
+                    )
                 legend_handles = prediction_plotting._draw_prediction_regions(
                     axis,
                     (
-                        display_sample_positions[:, :, 0],
-                        display_sample_positions[:, :, 1],
+                        display_posterior_positions[:, :, 0],
+                        display_posterior_positions[:, :, 1],
                     ),
                     np.concatenate(([0.0], forecast.time_offsets_seconds)),
                     annotate_time=False,
@@ -1960,6 +1982,7 @@ def _extract_dashboard_forecast(fit, time_offsets_seconds, sample_count):
         time_offsets_seconds=time_offsets_seconds,
         median_positions=np.median(positions, axis=0),
         sample_positions=positions[indices],
+        posterior_positions=positions,
     )
 
 

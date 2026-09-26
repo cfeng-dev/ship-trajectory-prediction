@@ -905,6 +905,46 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
     assert metrics.inference_time_seconds == pytest.approx(0.25)
 
 
+def test_dashboard_metrics_use_full_posterior_draws_not_visible_sample_paths():
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 1.0, 3.0, 5.0],
+        reference_y=[0.0, 0.0, 0.0, 0.0],
+        observed_x=[0.0, 1.0, 3.0, 5.0],
+        observed_y=[0.0, 0.0, 0.0, 0.0],
+    )
+    posterior_positions = np.asarray(
+        [
+            [[2.9, -0.1], [4.9, -0.1]],
+            [[2.9, 0.1], [4.9, 0.1]],
+            [[3.1, -0.1], [5.1, -0.1]],
+            [[3.1, 0.1], [5.1, 0.1]],
+        ]
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[10.0, 20.0],
+        median_positions=np.median(posterior_positions, axis=0),
+        sample_positions=np.asarray(
+            [
+                [[99.0, 99.0], [100.0, 100.0]],
+                [[101.0, 101.0], [102.0, 102.0]],
+            ]
+        ),
+        posterior_positions=posterior_positions,
+    )
+    update = dashboard.PosteriorDashboardUpdate(
+        2,
+        _dashboard_samples(),
+        forecast=forecast,
+    )
+
+    metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
+
+    assert metrics.joint_coverage_50_count == 2
+    assert metrics.joint_coverage_90_count == 2
+    assert metrics.joint_coverage_total == 2
+
+
 def _dashboard_fit_variables():
     return {
         "speed_at_origin": np.asarray([2.0, 3.0]),
@@ -1018,6 +1058,7 @@ def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
     assert forecast.time_offsets_seconds == pytest.approx([10, 20])
     assert forecast.median_positions.shape == (2, 2)
     assert forecast.sample_positions.shape == (5, 2, 2)
+    assert forecast.posterior_positions.shape == (30, 2, 2)
     assert forecast.median_positions == pytest.approx(
         loader(changed_future)(2).forecast.median_positions
     )
@@ -1091,6 +1132,7 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         update.forecast.median_positions, [[20, 30], [21, 31], [22, 32]]
     )
     assert update.forecast.sample_positions.shape == (0, 3, 2)
+    assert update.forecast.posterior_positions.shape == (2, 3, 2)
     assert calls[0]["time_observed"] == pytest.approx(np.arange(10) * 10)
     assert calls[0]["time_prediction"] == pytest.approx([100, 110, 120])
     assert calls[0]["x_observed"] == pytest.approx(trajectory.observed_x[:10])
@@ -1181,6 +1223,61 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
             "Median" in line.get_label() for line in navigator.trajectory_axis.lines
         )
         assert not navigator.trajectory_axis.patches
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_regions_are_centered_on_the_full_posterior_median():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    posterior_positions = np.asarray(
+        [
+            [[9.0, 19.0], [14.0, 24.0]],
+            [[9.0, 21.0], [14.0, 26.0]],
+            [[11.0, 19.0], [16.0, 24.0]],
+            [[11.0, 21.0], [16.0, 26.0]],
+        ]
+    )
+    median_positions = np.median(posterior_positions, axis=0)
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[10.0, 20.0],
+        median_positions=median_positions,
+        sample_positions=np.asarray(
+            [
+                [[29.0, 39.0], [34.0, 44.0]],
+                [[31.0, 41.0], [36.0, 46.0]],
+            ]
+        ),
+        posterior_positions=posterior_positions,
+    )
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+            forecast=forecast,
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+        prediction_count=2,
+    )
+
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+
+        region_patches = [
+            patch
+            for patch in navigator.trajectory_axis.patches
+            if patch.get_gid().startswith("posterior-predictive-region-0.9")
+        ]
+        assert len(region_patches) == 2
+        for time_index, patch in enumerate(region_patches):
+            assert patch.center == pytest.approx(median_positions[time_index])
     finally:
         navigator.disconnect()
 
@@ -1709,6 +1806,46 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
             == ["Initial prior", "Posterior density"]
             for axis in navigator.posterior_axes
         )
+    finally:
+        plt.close(figure)
+
+
+def test_dashboard_keeps_narrow_uncertainty_posteriors_visible_at_late_stage():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(181.0)
+
+    def load_update(observation_count):
+        samples = _dashboard_samples()
+        samples.update(
+            {
+                "position_observation_noise": np.linspace(
+                    8.19727683, 8.19729686, 1_000
+                ),
+                "speed_process_noise": np.linspace(0.08197693, 0.08197859, 1_000),
+                "turn_rate_process_noise": np.linspace(0.53273733, 0.53274843, 1_000),
+            }
+        )
+        return dashboard.PosteriorDashboardUpdate(observation_count, samples)
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=181,
+    )
+
+    try:
+        navigator.slider.set_val(181)
+        navigator.show_selected_observation_count(None)
+        navigator.group_selector.set_active(1)
+
+        for axis in navigator.posterior_axes:
+            posterior_line = next(
+                line for line in axis.lines if line.get_label() == "Posterior density"
+            )
+            posterior_density = np.asarray(posterior_line.get_ydata(), dtype=float)
+            assert np.all(np.isfinite(posterior_density))
+            assert np.max(posterior_density) > 0.0
     finally:
         plt.close(figure)
 

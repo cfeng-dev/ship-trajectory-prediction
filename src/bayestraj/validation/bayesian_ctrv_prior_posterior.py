@@ -780,7 +780,19 @@ def _build_density_grid(spec, priors, updates):
             )
         else:
             lower = upper * 1e-5
-        return np.geomspace(lower, upper, DENSITY_POINT_COUNT)
+        x_values = np.geomspace(lower, upper, DENSITY_POINT_COUNT)
+        if updates:
+            posterior_support = np.concatenate(
+                [
+                    np.quantile(update.samples, [0.005, 0.25, 0.5, 0.75, 0.995])
+                    for update in updates
+                ]
+            )
+            posterior_support = posterior_support[
+                (posterior_support >= lower) & (posterior_support <= upper)
+            ]
+            x_values = np.unique(np.concatenate((x_values, posterior_support)))
+        return x_values
     lower = -upper if spec.support == "real" else 0.0
     return np.linspace(lower, upper, DENSITY_POINT_COUNT)
 

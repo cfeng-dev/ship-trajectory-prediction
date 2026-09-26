@@ -192,6 +192,20 @@ def test_positive_density_grid_resolves_a_near_zero_posterior():
     assert closest_log_distance < 0.1
 
 
+def test_positive_density_grid_resolves_an_extremely_narrow_posterior():
+    analysis = _load_analysis_module()
+    priors = bayesian_model.BayesianCTRVPriors()
+    spec = analysis.build_parameter_spec("speed_process_noise", priors)
+    samples = np.linspace(0.08197693, 0.08197859, 1_000)
+    update = analysis.PosteriorUpdate(181, samples)
+
+    x_values = analysis._build_density_grid(spec, priors, (update,))
+    density = analysis.evaluate_posterior_density(spec, samples, x_values)
+
+    assert np.all(np.isfinite(density))
+    assert np.max(density) > 0.0
+
+
 def test_terminal_prior_descriptions_are_ascii_safe():
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()

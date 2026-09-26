@@ -155,11 +155,11 @@ def test_process_time_scale_uses_one_second_reference(dt_seconds, expected_scale
 def test_default_priors_match_ship_independent_configuration():
     priors = ctrv_model.BayesianCTRVPriors()
 
-    assert priors.speed_prior_upper_mps == 20.0
+    assert priors.speed_prior_upper_mps == 10.0
     assert priors.turn_rate_prior_abs_rate_deg_s == 10.0
     assert priors.sigma_position_observation_prior_upper_m == 20.0
-    assert priors.sigma_speed_process_prior_upper_mps == 5.0
-    assert priors.sigma_turn_rate_process_prior_upper_deg_s == 5.0
+    assert priors.sigma_speed_process_prior_upper_mps == 2.0
+    assert priors.sigma_turn_rate_process_prior_upper_deg_s == 2.0
     assert {
         priors.speed_prior_tail_probability,
         priors.turn_rate_prior_tail_probability,
@@ -173,23 +173,35 @@ def test_default_prior_distribution_parameters_match_tail_statements():
     priors = ctrv_model.BayesianCTRVPriors()
     normal_975_quantile = 1.959963984540054
 
-    assert priors.speed_prior_scale == pytest.approx(20.0 / normal_975_quantile)
+    assert priors.speed_prior_scale == pytest.approx(10.0 / normal_975_quantile)
     assert priors.turn_rate_prior_scale == pytest.approx(
         np.deg2rad(10.0) / normal_975_quantile
     )
     assert priors.sigma_position_observation_prior_rate == pytest.approx(
         -np.log(0.05) / 20.0
     )
-    assert priors.sigma_speed_process_prior_rate == pytest.approx(-np.log(0.05) / 5.0)
+    assert priors.sigma_speed_process_prior_rate == pytest.approx(-np.log(0.05) / 2.0)
     assert priors.sigma_turn_rate_process_prior_rate == pytest.approx(
-        -np.log(0.05) / np.deg2rad(5.0)
+        -np.log(0.05) / np.deg2rad(2.0)
     )
-    assert 1.0 - np.exp(-priors.sigma_speed_process_prior_rate * 5.0) == (
+    assert 1.0 - np.exp(-priors.sigma_speed_process_prior_rate * 2.0) == (
         pytest.approx(0.95)
     )
     assert 1.0 - np.exp(
-        -priors.sigma_turn_rate_process_prior_rate * np.deg2rad(5.0)
+        -priors.sigma_turn_rate_process_prior_rate * np.deg2rad(2.0)
     ) == pytest.approx(0.95)
+
+
+def test_default_process_priors_are_slightly_more_permissive_than_old_ten_second_thresholds():
+    priors = ctrv_model.BayesianCTRVPriors()
+    ten_second_scale = ctrv_dynamics.process_time_scale(10.0)
+
+    assert priors.sigma_speed_process_prior_upper_mps * ten_second_scale == (
+        pytest.approx(2.0 * np.sqrt(10.0))
+    )
+    assert priors.sigma_turn_rate_process_prior_upper_deg_s * ten_second_scale == (
+        pytest.approx(2.0 * np.sqrt(10.0))
+    )
 
 
 def test_initial_turn_rate_prior_uses_ten_degrees_per_second():

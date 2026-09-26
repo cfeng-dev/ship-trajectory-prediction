@@ -54,6 +54,8 @@ def test_inference_method_display_labels_normalize_to_internal_values():
         settings.METHOD_DISPLAY_LABELS["rbpf"]
         == "RBPF – Rao-Blackwellized particle filter"
     )
+    assert settings.METHOD_DISPLAY_LABELS["vi"] == "VI – Variational inference"
+    assert settings.METHOD_DISPLAY_LABELS["mcmc"] == "MCMC – Markov chain Monte Carlo"
     for method, label in settings.METHOD_DISPLAY_LABELS.items():
         assert settings.normalize_inference_method(label) == method
         assert settings.normalize_inference_method(method) == method
@@ -72,6 +74,10 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
+def test_trajectory_predictor_defaults_to_two_forecast_steps():
+    assert settings.default_form_values()["data"]["prediction_count"] == "2"
+
+
 def test_process_noise_labels_use_compact_units():
     assert (
         settings.LABELS["sigma_speed_process_prior_upper_mps"]
@@ -85,15 +91,15 @@ def test_process_noise_labels_use_compact_units():
 
 def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
     assert settings.default_form_values()["priors"] == {
-        "speed_prior_upper_mps": "20.0",
+        "speed_prior_upper_mps": "10.0",
         "speed_prior_tail_probability": "0.05",
         "turn_rate_prior_abs_rate_deg_s": "10.0",
         "turn_rate_prior_tail_probability": "0.05",
         "sigma_position_observation_prior_upper_m": "20.0",
         "sigma_position_observation_prior_tail_probability": "0.05",
-        "sigma_speed_process_prior_upper_mps": "5.0",
+        "sigma_speed_process_prior_upper_mps": "2.0",
         "sigma_speed_process_prior_tail_probability": "0.05",
-        "sigma_turn_rate_process_prior_upper_deg_s": "5.0",
+        "sigma_turn_rate_process_prior_upper_deg_s": "2.0",
         "sigma_turn_rate_process_prior_tail_probability": "0.05",
     }
 
