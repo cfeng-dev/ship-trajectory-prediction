@@ -5,6 +5,7 @@ from typing import Any
 
 import bayestraj.inference.cmdstan as inference_support
 import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 20
@@ -12,7 +13,7 @@ DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
 ONLINE_INFERENCE_METHODS = ("rbpf",)
-CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc")
+CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc", "sequential_vi")
 WINDOW_MODES = ("sliding", "expanding")
 _CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
     "vi": ("vi", "sliding"),
@@ -192,6 +193,11 @@ def create_default_ctrv_rbpf_config() -> rbpf_model.SequentialCTRVFilterConfig:
 def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:
     """Return independent default settings for Bayesian CTRV bootstrap SMC."""
     return smc_model.SequentialMonteCarloCTRVConfig()
+
+
+def create_default_sequential_vi_config() -> sequential_vi_model.SequentialVIConfig:
+    """Return independent default settings for online Sequential VI."""
+    return sequential_vi_model.SequentialVIConfig()
 
 
 def select_inference_config(

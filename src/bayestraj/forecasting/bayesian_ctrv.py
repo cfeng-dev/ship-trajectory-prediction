@@ -22,7 +22,7 @@ class ExperimentConfig:
 
         position_noise_seed: Random seed for reproducible position noise.
 
-        inference_method: ``vi``, ``mcmc``, ``rbpf``, or ``smc``.
+        inference_method: ``vi``, ``mcmc``, ``rbpf``, ``smc``, or ``sequential_vi``.
 
         inference_seed: Random seed for reproducible inference.
     """
@@ -62,7 +62,7 @@ class RollingExperimentConfig:
 
         stride: Number of newly observed positions between forecast origins.
 
-        inference_method: ``vi``, ``mcmc``, ``rbpf``, or ``smc``. VI and MCMC use a fixed sliding window.
+        inference_method: ``vi``, ``mcmc``, ``rbpf``, ``smc``, or ``sequential_vi``. VI and MCMC use a fixed sliding window.
 
         inference_seed: Random seed for reproducible inference.
     """

@@ -1,5 +1,7 @@
 """Tests for persistent online particle-filter evaluation state."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,6 +10,7 @@ import bayestraj.forecasting.bayesian_ctrv as ctrv_forecasting
 import bayestraj.forecasting.bayesian_ctrv_workflow as single_ctrv_workflow
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
@@ -15,6 +18,26 @@ import bayestraj.validation.bayesian_ctrv_workflow as ctrv_workflow
 import bayestraj.validation.plotting as plotting
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_sequential_vi_uses_shared_bayesian_ctrv_evaluation_entrypoint():
+    model_evaluation = PROJECT_ROOT / "experiments" / "model_evaluation"
+
+    assert (model_evaluation / "bayesian_ctrv.py").is_file()
+    assert not (model_evaluation / "compare_bayesian_ctrv_sequential_vi.py").exists()
+    assert "sequential_vi" in inference.CTRV_ROLLING_INFERENCE_METHODS
+
+
+def test_sequential_vi_uses_shared_bayesian_ctrv_single_run_entrypoint():
+    single_run = PROJECT_ROOT / "experiments" / "single_run"
+    entrypoint = single_run / "bayesian_ctrv.py"
+
+    assert entrypoint.is_file()
+    assert not (single_run / "sequential_bayesian_ctrv.py").exists()
+    source = entrypoint.read_text(encoding="utf-8")
+    assert '# - Online: "rbpf", "smc", or "sequential_vi".' in source
 
 
 class _FakeOnlineFilter:
@@ -29,7 +52,7 @@ class _FakeOnlineFilter:
 
 
 def test_single_window_inference_configs_default_to_source_owned_factories():
-    vi_config, mcmc_config, rbpf_config, smc_config = (
+    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
         single_ctrv_workflow._resolve_inference_configs(None, None, None, None)
     )
 
@@ -37,6 +60,7 @@ def test_single_window_inference_configs_default_to_source_owned_factories():
     assert mcmc_config["chains"] >= 1
     assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0
+    assert isinstance(sequential_vi_config, sequential_vi_model.SequentialVIConfig)
 
 
 @pytest.mark.parametrize("inference_method", ("rbpf", "smc"))
@@ -119,6 +143,117 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     assert f"{inference_method.upper()} diagnostics:" in capsys.readouterr().out
 
 
+def test_single_window_ctrv_prediction_dispatches_sequential_vi_once(
+    monkeypatch,
+):
+    row_count = 13
+    trajectory = pd.DataFrame(
+        {
+            "time": pd.date_range(
+                "2026-01-01",
+                periods=row_count,
+                freq="2s",
+                tz="UTC",
+            ),
+            "run_id": np.full(row_count, 102),
+            "gps_latitude": 53.0 + np.arange(row_count) * 0.00001,
+            "gps_longitude": 10.0 + np.arange(row_count) * 0.00002,
+            "gps_speed": np.full(row_count, 3.6),
+        }
+    )
+    calls: dict[str, object] = {"initialize_count": 0}
+
+    class FakeSequentialVI:
+        processed_observation_count = 10
+        bootstrap_runtime_seconds = 0.1
+        bootstrap_converged = True
+        updates = ()
+
+        def forecast(self, future_time_seconds, *, seed):
+            calls["future_time_seconds"] = np.asarray(future_time_seconds).copy()
+            calls["forecast_seed"] = seed
+            draw_count = 8
+            prediction_count = len(future_time_seconds)
+            zeros = np.zeros((draw_count, prediction_count))
+            ones = np.ones(draw_count)
+            return particle_utils.SequentialCTRVFit(
+                {
+                    "x_prediction": zeros,
+                    "y_prediction": zeros,
+                    "x_observation_prediction": zeros,
+                    "y_observation_prediction": zeros,
+                    "speed_at_origin": ones,
+                    "heading_at_origin": zeros[:, 0],
+                    "turn_rate_at_origin": zeros[:, 0],
+                    "sigma_position_observation": ones,
+                    "sigma_speed_process": ones,
+                    "sigma_turn_rate_process": ones,
+                }
+            )
+
+    def initialize(time_seconds, x_observed, y_observed, **options):
+        calls["initialize_count"] += 1
+        calls["time_seconds"] = np.asarray(time_seconds).copy()
+        calls["x_observed"] = np.asarray(x_observed).copy()
+        calls["y_observed"] = np.asarray(y_observed).copy()
+        calls["config"] = options["config"]
+        calls["initialize_seed"] = options["seed"]
+        return FakeSequentialVI()
+
+    monkeypatch.setattr(
+        sequential_vi_model.SequentialCTRVVI,
+        "initialize",
+        staticmethod(initialize),
+    )
+    monkeypatch.setattr(
+        single_ctrv_workflow.observations_io,
+        "read_ship_data",
+        lambda *args, **kwargs: trajectory,
+    )
+    monkeypatch.setattr(
+        single_ctrv_workflow.prediction_plotting,
+        "plot_prediction",
+        lambda *args, **kwargs: None,
+    )
+    experiment = ctrv_forecasting.ExperimentConfig(
+        run_id=102,
+        start_index=0,
+        observation_count=10,
+        prediction_count=3,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="sequential_vi",
+        inference_seed=42,
+    )
+    config = sequential_vi_model.SequentialVIConfig(draws=8)
+
+    result = single_ctrv_workflow.run_bayesian_ctrv_prediction(
+        data_file="unused.csv",
+        experiment=experiment,
+        priors=ctrv_model.BayesianCTRVPriors(),
+        sequential_vi_config=config,
+        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        credible_interval=0.9,
+        inference_method="sequential_vi",
+        vi_algorithm="fullrank",
+        seed=42,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        require_converged=False,
+        plot_coordinate_mode="m",
+        show_time_labels=False,
+    )
+
+    assert calls["initialize_count"] == 1
+    assert calls["config"] is config
+    assert calls["initialize_seed"] == 42
+    assert calls["time_seconds"].shape == (10,)
+    np.testing.assert_array_equal(
+        calls["future_time_seconds"], result["stan_data"]["time_prediction"]
+    )
+    assert calls["forecast_seed"] == 42
+
+
 def test_online_rolling_plot_label_is_method_neutral():
     assert plotting._bayesian_evaluation_mode_label("online", None) == (
         "Online-Inferenz"
@@ -158,6 +293,54 @@ def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
             noisy_route_y=-values,
             priors=object(),
             rbpf_config=object(),
+            inference_seed=42,
+        )
+
+    assert initialization_count == 1
+    assert online_filter.processed_values == values[:11].tolist()
+    assert len(set(online_filter.processed_values)) == 11
+
+
+def test_ctrv_sequential_vi_evaluation_initializes_once_and_never_replays(
+    monkeypatch,
+):
+    initialization_count = 0
+
+    def initialize(time_seconds, x_observed, y_observed, **kwargs):
+        nonlocal initialization_count
+        initialization_count += 1
+        assert isinstance(kwargs["config"], sequential_vi_model.SequentialVIConfig)
+        return _FakeOnlineFilter(x_observed)
+
+    monkeypatch.setattr(
+        sequential_vi_model.SequentialCTRVVI,
+        "initialize",
+        staticmethod(initialize),
+    )
+    values = np.arange(12, dtype=float)
+    online_filter = None
+    specifications = rolling.build_online_forecast_specs(
+        len(values),
+        initial_observation_count=5,
+        prediction_count=3,
+        stride=2,
+    )
+
+    for specification in specifications:
+        online_filter = ctrv_workflow._advance_online_filter(
+            online_filter,
+            specification=specification,
+            route_time_seconds=values,
+            noisy_route_x=values,
+            noisy_route_y=-values,
+            priors=ctrv_model.BayesianCTRVPriors(),
+            rbpf_config=object(),
+            smc_config=object(),
+            sequential_vi_config=sequential_vi_model.SequentialVIConfig(
+                n_bootstrap=5,
+                draws=8,
+            ),
+            inference_method="sequential_vi",
             inference_seed=42,
         )
 

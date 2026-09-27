@@ -49,7 +49,9 @@ def _parse_bayesian_prediction_arguments(
             *inference.CTRV_ONLINE_INFERENCE_METHODS,
         ),
         default=experiment.inference_method,
-        help="VI/MCMC use batch inference; RBPF/SMC use online inference.",
+        help=(
+            "VI/MCMC use batch inference; RBPF/SMC/Sequential VI use online inference."
+        ),
     )
     parser.add_argument(
         "--vi-algorithm",

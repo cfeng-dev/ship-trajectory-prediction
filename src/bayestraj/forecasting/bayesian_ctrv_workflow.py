@@ -11,6 +11,7 @@ import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.io as observations_io
@@ -20,17 +21,26 @@ import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 
 
-def _resolve_inference_configs(vi_config, mcmc_config, rbpf_config, smc_config):
+def _resolve_inference_configs(
+    vi_config,
+    mcmc_config,
+    rbpf_config,
+    smc_config,
+    sequential_vi_config=None,
+):
     """Return explicit inference settings or the source-owned defaults."""
     return (
         inference.create_default_vi_config() if vi_config is None else vi_config,
-        inference.create_default_mcmc_config()
-        if mcmc_config is None
-        else mcmc_config,
+        inference.create_default_mcmc_config() if mcmc_config is None else mcmc_config,
         inference.create_default_ctrv_rbpf_config()
         if rbpf_config is None
         else rbpf_config,
-        inference.create_default_ctrv_smc_config() if smc_config is None else smc_config,
+        inference.create_default_ctrv_smc_config()
+        if smc_config is None
+        else smc_config,
+        inference.create_default_sequential_vi_config()
+        if sequential_vi_config is None
+        else sequential_vi_config,
     )
 
 
@@ -43,6 +53,7 @@ def run_bayesian_ctrv_prediction(
     mcmc_config: Mapping[str, Any] | None = None,
     rbpf_config: rbpf_model.SequentialCTRVFilterConfig | None = None,
     smc_config: smc_model.SequentialMonteCarloCTRVConfig | None = None,
+    sequential_vi_config: sequential_vi_model.SequentialVIConfig | None = None,
     fullrank_grad_samples: int,
     credible_interval: float,
     inference_method: str,
@@ -56,11 +67,14 @@ def run_bayesian_ctrv_prediction(
     sample_trajectories_per_forecast=prediction_plotting.DEFAULT_SAMPLE_TRAJECTORIES,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
-    vi_config, mcmc_config, rbpf_config, smc_config = _resolve_inference_configs(
-        vi_config,
-        mcmc_config,
-        rbpf_config,
-        smc_config,
+    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
+        _resolve_inference_configs(
+            vi_config,
+            mcmc_config,
+            rbpf_config,
+            smc_config,
+            sequential_vi_config,
+        )
     )
     inference_mode, inference_method = inference.normalize_inference_method(
         inference_method,
@@ -75,13 +89,23 @@ def run_bayesian_ctrv_prediction(
                 )
             filter_type = rbpf_model.SequentialBayesianCTRVFilter
             particle_filter_config = rbpf_config
-        else:
+        elif inference_method == "smc":
             if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
                 raise TypeError(
                     "smc_config must be a SequentialMonteCarloCTRVConfig instance."
                 )
             filter_type = smc_model.SequentialMonteCarloCTRVFilter
             particle_filter_config = smc_config
+        else:
+            if not isinstance(
+                sequential_vi_config,
+                sequential_vi_model.SequentialVIConfig,
+            ):
+                raise TypeError(
+                    "sequential_vi_config must be a SequentialVIConfig instance."
+                )
+            filter_type = sequential_vi_model.SequentialCTRVVI
+            particle_filter_config = sequential_vi_config
         inference_config = {}
     else:
         inference_method, inference_config = inference.select_inference_config(
@@ -209,10 +233,10 @@ def run_bayesian_ctrv_prediction(
             config=particle_filter_config,
             seed=seed,
         )
-        fit = online_filter.forecast(
-            stan_data["time_prediction"],
-            seed=1_000_000 + seed,
+        forecast_seed = (
+            seed if inference_method == "sequential_vi" else 1_000_000 + seed
         )
+        fit = online_filter.forecast(stan_data["time_prediction"], seed=forecast_seed)
     else:
         fit = batch_inference.fit_bayesian_ctrv_model(
             window,
@@ -237,7 +261,7 @@ def run_bayesian_ctrv_prediction(
         converged = None
         print("\nMCMC diagnostics:")
         print(fit.diagnose())
-    else:
+    elif inference_method in {"rbpf", "smc"}:
         converged = None
         latest_update_ess = online_filter.last_effective_sample_size
         if latest_update_ess is None:
@@ -256,6 +280,28 @@ def run_bayesian_ctrv_prediction(
                         f"{particle_filter_config.particle_count}",
                     ),
                     ("Resamples", online_filter.resample_count),
+                ]
+            )
+        )
+    else:
+        converged = online_filter.bootstrap_converged and all(
+            update.converged for update in online_filter.updates
+        )
+        update_runtime = sum(update.runtime_seconds for update in online_filter.updates)
+        print("\nSequential VI diagnostics:")
+        print(
+            reporting.format_aligned_rows(
+                [
+                    (
+                        "Processed observations",
+                        online_filter.processed_observation_count,
+                    ),
+                    (
+                        "Bootstrap runtime [s]",
+                        f"{online_filter.bootstrap_runtime_seconds:.3f}",
+                    ),
+                    ("Update runtime [s]", f"{update_runtime:.3f}"),
+                    ("All VI steps converged", converged),
                 ]
             )
         )

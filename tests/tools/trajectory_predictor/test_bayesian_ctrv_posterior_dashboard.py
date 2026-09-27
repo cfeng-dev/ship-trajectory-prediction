@@ -20,7 +20,9 @@ from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
+import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.coordinates as coordinates
 
@@ -1461,7 +1463,9 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         navigator.disconnect()
 
 
-@pytest.mark.parametrize("inference_method", ["vi", "mcmc", "rbpf", "smc"])
+@pytest.mark.parametrize(
+    "inference_method", ["vi", "mcmc", "rbpf", "smc", "sequential_vi"]
+)
 def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
     dashboard = _load_dashboard_module()
 
@@ -1527,6 +1531,140 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
         samples.size == expected_config.posterior_draw_count
         for samples in update.samples_by_parameter.values()
     )
+
+
+def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap():
+    dashboard = _load_dashboard_module()
+    initialize_calls = []
+    update_calls = []
+
+    class FakeSequentialVI:
+        processed_observation_count = 5
+
+        def update(self, time_seconds, x_observed, y_observed):
+            update_calls.append((time_seconds, x_observed, y_observed))
+            self.processed_observation_count += 1
+
+        def sample_current_posterior(self, *, seed):
+            values = np.ones(8)
+            return particle_utils.SequentialCTRVFit(
+                {name: values for name in bayesian_model.PARAMETER_NAMES}
+            )
+
+        def forecast(self, future_time_seconds, *, seed):
+            prediction_count = len(future_time_seconds)
+            positions = np.zeros((8, prediction_count))
+            values = np.ones(8)
+            return particle_utils.SequentialCTRVFit(
+                {
+                    **{name: values for name in bayesian_model.PARAMETER_NAMES},
+                    "x_prediction": positions,
+                    "y_prediction": positions,
+                    "x_observation_prediction": positions,
+                    "y_observation_prediction": positions,
+                }
+            )
+
+    def initialize(time_seconds, x_observed, y_observed, **options):
+        initialize_calls.append(
+            (
+                np.asarray(time_seconds).copy(),
+                np.asarray(x_observed).copy(),
+                np.asarray(y_observed).copy(),
+                options,
+            )
+        )
+        return FakeSequentialVI()
+
+    config = sequential_vi.SequentialVIConfig(n_bootstrap=5, draws=8)
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="sequential_vi",
+        inference_seed=42,
+        prediction_count=2,
+    )
+
+    trajectory, maximum_count, minimum_count, load_update = (
+        dashboard.create_posterior_dashboard_loader(
+            _dashboard_trajectory_data(9),
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config=inference.create_default_vi_config(),
+            mcmc_config=inference.create_default_mcmc_config(),
+            rbpf_config=inference.create_default_ctrv_rbpf_config(),
+            smc_config=inference.create_default_ctrv_smc_config(),
+            sequential_vi_config=config,
+            initialize_online_filter=initialize,
+        )
+    )
+
+    first = load_update(5)
+    second = load_update(6)
+    third = load_update(7)
+
+    assert maximum_count == 9
+    assert minimum_count == 5
+    assert trajectory.reference_x.shape == (9,)
+    assert len(initialize_calls) == 1
+    assert initialize_calls[0][0].shape == (5,)
+    assert initialize_calls[0][3]["config"] is config
+    assert [call[0] for call in update_calls] == [50.0, 60.0]
+    assert [
+        first.observation_count,
+        second.observation_count,
+        third.observation_count,
+    ] == [
+        5,
+        6,
+        7,
+    ]
+    assert all(update.particle_count is None for update in (first, second, third))
+    assert all(
+        update.effective_sample_size is None for update in (first, second, third)
+    )
+    with pytest.raises(ValueError, match="cannot move backward"):
+        load_update(6)
+
+
+def test_dashboard_loader_propagates_sequential_vi_update_failure():
+    dashboard = _load_dashboard_module()
+
+    class FailingSequentialVI:
+        processed_observation_count = 5
+
+        def update(self, time_seconds, x_observed, y_observed):
+            raise RuntimeError("Sequential ADVI failed")
+
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="sequential_vi",
+        inference_seed=42,
+    )
+    _, _, _, load_update = dashboard.create_posterior_dashboard_loader(
+        _dashboard_trajectory_data(9),
+        experiment=experiment,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        vi_config=inference.create_default_vi_config(),
+        mcmc_config=inference.create_default_mcmc_config(),
+        rbpf_config=inference.create_default_ctrv_rbpf_config(),
+        smc_config=inference.create_default_ctrv_smc_config(),
+        sequential_vi_config=sequential_vi.SequentialVIConfig(
+            n_bootstrap=5,
+            draws=8,
+        ),
+        initialize_online_filter=lambda *args, **kwargs: FailingSequentialVI(),
+    )
+
+    with pytest.raises(RuntimeError, match="Sequential ADVI failed"):
+        load_update(6)
 
 
 @pytest.mark.parametrize("inference_method", ["vi", "mcmc"])

@@ -15,6 +15,7 @@ from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
@@ -1668,6 +1669,7 @@ def create_posterior_dashboard_loader(
     mcmc_config,
     rbpf_config,
     smc_config,
+    sequential_vi_config=None,
     initialize_online_filter=None,
     fit_batch_model=None,
 ):
@@ -1701,21 +1703,39 @@ def create_posterior_dashboard_loader(
                 )
             filter_type = rbpf.SequentialBayesianCTRVFilter
             particle_filter_config = rbpf_config
-        else:
+            minimum_observation_count = 1
+        elif inference_method == "smc":
             if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
                 raise TypeError(
                     "smc_config must be a SequentialMonteCarloCTRVConfig instance."
                 )
             filter_type = smc.SequentialMonteCarloCTRVFilter
             particle_filter_config = smc_config
+            minimum_observation_count = 1
+        else:
+            if not isinstance(
+                sequential_vi_config,
+                sequential_vi.SequentialVIConfig,
+            ):
+                raise TypeError(
+                    "sequential_vi_config must be a SequentialVIConfig instance."
+                )
+            filter_type = sequential_vi.SequentialCTRVVI
+            particle_filter_config = sequential_vi_config
+            minimum_observation_count = sequential_vi_config.n_bootstrap
+            if maximum_observation_count < minimum_observation_count:
+                raise ValueError(
+                    "Sequential VI requires at least "
+                    f"{minimum_observation_count} observations."
+                )
         if initialize_online_filter is None:
             initialize_online_filter = filter_type.initialize
         if not callable(initialize_online_filter):
             raise TypeError("initialize_online_filter must be callable.")
         online_filter = initialize_online_filter(
-            time_seconds[:1],
-            trajectory.observed_x[:1],
-            trajectory.observed_y[:1],
+            time_seconds[:minimum_observation_count],
+            trajectory.observed_x[:minimum_observation_count],
+            trajectory.observed_y[:minimum_observation_count],
             priors=priors,
             config=particle_filter_config,
             seed=experiment.inference_seed,
@@ -1724,7 +1744,7 @@ def create_posterior_dashboard_loader(
         def load_online_update(observation_count):
             _validate_update_observation_count(
                 observation_count,
-                minimum=1,
+                minimum=minimum_observation_count,
                 maximum=maximum_observation_count,
             )
             if observation_count < online_filter.processed_observation_count:
@@ -1754,13 +1774,30 @@ def create_posterior_dashboard_loader(
             return PosteriorDashboardUpdate(
                 observation_count=observation_count,
                 samples_by_parameter=_extract_dashboard_samples(fit, specs),
-                effective_sample_size=online_filter.effective_sample_size,
-                particle_count=particle_filter_config.particle_count,
-                resample_count=online_filter.resample_count,
+                effective_sample_size=(
+                    None
+                    if inference_method == "sequential_vi"
+                    else online_filter.effective_sample_size
+                ),
+                particle_count=(
+                    None
+                    if inference_method == "sequential_vi"
+                    else particle_filter_config.particle_count
+                ),
+                resample_count=(
+                    None
+                    if inference_method == "sequential_vi"
+                    else online_filter.resample_count
+                ),
                 forecast=forecast,
             )
 
-        return trajectory, maximum_observation_count, 1, load_online_update
+        return (
+            trajectory,
+            maximum_observation_count,
+            minimum_observation_count,
+            load_online_update,
+        )
 
     batch_observation_count = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
     if maximum_observation_count < batch_observation_count:
@@ -2069,6 +2106,7 @@ def run_bayesian_ctrv_posterior_dashboard(
     show_legend,
     coordinate_display_mode="m",
     show=True,
+    sequential_vi_config=None,
 ):
     """Run the interactive trajectory and posterior dashboard."""
     if not isinstance(experiment, PosteriorDashboardConfig):
@@ -2081,6 +2119,16 @@ def run_bayesian_ctrv_posterior_dashboard(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
+    loader_options = {
+        "experiment": experiment,
+        "priors": priors,
+        "vi_config": vi_config,
+        "mcmc_config": mcmc_config,
+        "rbpf_config": rbpf_config,
+        "smc_config": smc_config,
+    }
+    if sequential_vi_config is not None:
+        loader_options["sequential_vi_config"] = sequential_vi_config
     (
         trajectory,
         maximum_observation_count,
@@ -2088,12 +2136,7 @@ def run_bayesian_ctrv_posterior_dashboard(
         load_update,
     ) = create_posterior_dashboard_loader(
         trajectory_data,
-        experiment=experiment,
-        priors=priors,
-        vi_config=vi_config,
-        mcmc_config=mcmc_config,
-        rbpf_config=rbpf_config,
-        smc_config=smc_config,
+        **loader_options,
     )
     figure, navigator = create_sequential_posterior_dashboard_figure(
         trajectory,

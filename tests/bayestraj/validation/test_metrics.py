@@ -16,6 +16,20 @@ class _FakeFit:
         return self._variables[variable_name]
 
 
+def test_public_joint_log_predictive_density_matches_isotropic_normal() -> None:
+    values = metrics.joint_log_predictive_density(
+        np.array([0.0, 1.0]),
+        np.array([0.0, -1.0]),
+        np.array([[0.0, 1.0], [0.0, 1.0]]),
+        np.array([[0.0, -1.0], [0.0, -1.0]]),
+        np.array([1.0, 1.0]),
+    )
+
+    assert values.shape == (2,)
+    assert np.all(np.isfinite(values))
+    assert values == pytest.approx([-np.log(2 * np.pi)] * 2)
+
+
 def test_position_evaluation_reports_joint_held_out_log_predictive_density():
     window = SimpleNamespace(
         prediction_count=1,

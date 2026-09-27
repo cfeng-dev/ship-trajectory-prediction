@@ -6,6 +6,8 @@ import pytest
 from trajectory_predictor import cli, settings
 from trajectory_predictor.cli import main
 
+from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
+
 
 def test_command_help_does_not_open_a_window(capsys):
     with pytest.raises(SystemExit) as result:
@@ -38,7 +40,7 @@ def form(tmp_path):
     return values
 
 
-@pytest.mark.parametrize("method", ["rbpf", "smc", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["rbpf", "smc", "sequential_vi", "vi", "mcmc"])
 def test_settings_preserve_selected_method_and_units(form, method):
     form["data"]["inference_method"] = method
     form["priors"]["sigma_turn_rate_process_prior_upper_deg_s"] = "7.5"
@@ -56,6 +58,10 @@ def test_inference_method_display_labels_normalize_to_internal_values():
     )
     assert settings.METHOD_DISPLAY_LABELS["vi"] == "VI – Variational inference"
     assert settings.METHOD_DISPLAY_LABELS["mcmc"] == "MCMC – Markov chain Monte Carlo"
+    assert (
+        settings.METHOD_DISPLAY_LABELS["sequential_vi"]
+        == "Sequential VI - online variational inference"
+    )
     for method, label in settings.METHOD_DISPLAY_LABELS.items():
         assert settings.normalize_inference_method(label) == method
         assert settings.normalize_inference_method(method) == method
@@ -65,6 +71,7 @@ def test_gui_inference_method_options_include_batch_and_online_methods():
     assert settings.METHOD_DISPLAY_OPTIONS == (
         settings.METHOD_DISPLAY_LABELS["rbpf"],
         settings.METHOD_DISPLAY_LABELS["smc"],
+        settings.METHOD_DISPLAY_LABELS["sequential_vi"],
         settings.METHOD_DISPLAY_LABELS["vi"],
         settings.METHOD_DISPLAY_LABELS["mcmc"],
     )
@@ -72,6 +79,42 @@ def test_gui_inference_method_options_include_batch_and_online_methods():
 
 def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
+
+
+def test_sequential_vi_defaults_and_parsing_preserve_full_config(form):
+    defaults = settings.default_form_values()["sequential_vi"]
+
+    assert defaults["n_bootstrap"] == "10"
+    assert set(defaults) == set(SequentialVIConfig.__dataclass_fields__)
+    form["data"]["inference_method"] = "sequential_vi"
+    form["sequential_vi"]["n_bootstrap"] = "6"
+    first = settings.parse_settings(form).analysis.sequential_vi_config
+    second = settings.parse_settings(form).analysis.sequential_vi_config
+
+    assert isinstance(first, SequentialVIConfig)
+    assert first.n_bootstrap == 6
+    assert first is not second
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("n_bootstrap", "2", "Bootstrap observations"),
+        ("algorithm", "meanfield", "fullrank"),
+        ("draws", "1", "Posterior draws"),
+    ],
+)
+def test_sequential_vi_settings_report_clear_invalid_fields(
+    form,
+    field,
+    value,
+    message,
+):
+    form["data"]["inference_method"] = "sequential_vi"
+    form["sequential_vi"][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        settings.parse_settings(form)
 
 
 def test_trajectory_predictor_defaults_to_two_forecast_steps():
@@ -191,10 +234,14 @@ def test_dialog_validation_is_independent_of_csv_and_other_sections():
     assert values["priors"]["speed_prior_upper_mps"] == "25.5"
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "rbpf", "smc"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "rbpf", "smc", "sequential_vi"])
 def test_inference_dialog_validates_the_method_being_edited(method):
     values = settings.default_form_values()[method]
-    invalid_field = {"vi": "draws", "mcmc": "chains"}.get(method, "particle_count")
+    invalid_field = {
+        "vi": "draws",
+        "mcmc": "chains",
+        "sequential_vi": "draws",
+    }.get(method, "particle_count")
     values[invalid_field] = "0"
     with pytest.raises(ValueError):
         settings.validate_dialog_values(method, values)

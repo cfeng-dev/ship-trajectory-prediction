@@ -8,8 +8,10 @@ from bayestraj.inference.configuration import (
     create_default_ctrv_rbpf_config,
     create_default_ctrv_smc_config,
     create_default_mcmc_config,
+    create_default_sequential_vi_config,
     create_default_vi_config,
 )
+from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.paths import data_path
 
@@ -26,11 +28,12 @@ from .session import AnalysisSettings
 
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 
-METHODS = ("rbpf", "smc", "vi", "mcmc")
+METHODS = ("rbpf", "smc", "sequential_vi", "vi", "mcmc")
 GUI_INFERENCE_METHODS = METHODS
 METHOD_DISPLAY_LABELS = {
     "rbpf": "RBPF – Rao-Blackwellized particle filter",
     "smc": "SMC – Sequential Monte Carlo",
+    "sequential_vi": "Sequential VI - online variational inference",
     "vi": "VI – Variational inference",
     "mcmc": "MCMC – Markov chain Monte Carlo",
 }
@@ -105,6 +108,19 @@ LABELS = {
     "resample_ess_fraction": "Resampling: ESS fraction",
     "rejuvenation_scale": "Rejuvenation scale",
     "require_converged": "Require VI convergence",
+    "n_bootstrap": "Bootstrap observations",
+    "algorithm": "VI algorithm",
+    "iter": "Maximum VI iterations",
+    "grad_samples": "Gradient samples",
+    "elbo_samples": "ELBO samples",
+    "eta": "VI learning rate",
+    "adapt_iter": "VI adaptation iterations",
+    "tol_rel_obj": "Relative ELBO tolerance",
+    "eval_elbo": "ELBO evaluation interval",
+    "draws": "Posterior draws",
+    "show_console": "Show CmdStan console",
+    "covariance_jitter": "Covariance jitter",
+    "regularization_attempts": "Covariance regularization attempts",
 }
 
 
@@ -166,6 +182,7 @@ def _defaults():
         "priors": asdict(BayesianCTRVPriors()),
         "rbpf": asdict(create_default_ctrv_rbpf_config()),
         "smc": asdict(create_default_ctrv_smc_config()),
+        "sequential_vi": asdict(create_default_sequential_vi_config()),
         "vi": create_default_vi_config(),
         "mcmc": create_default_mcmc_config(),
     }
@@ -232,6 +249,16 @@ def _validate_batch(method, fields):
             raise ValueError("parallel_chains must not exceed chains.")
 
 
+def _validate_sequential_vi(fields):
+    if fields["n_bootstrap"] < 3:
+        raise ValueError("Bootstrap observations must be at least 3.")
+    if fields["algorithm"] != "fullrank":
+        raise ValueError("Sequential VI algorithm must be fullrank.")
+    if fields["draws"] < 2:
+        raise ValueError("Posterior draws must be at least 2.")
+    SequentialVIConfig(**fields)
+
+
 def _validate_data_options(fields):
     maximum = fields.get("maximum_observation_count")
     if maximum:
@@ -287,6 +314,8 @@ def validate_dialog_values(group, values):
         type(create_default_ctrv_rbpf_config())(**parsed)
     elif group == "smc":
         type(create_default_ctrv_smc_config())(**parsed)
+    elif group == "sequential_vi":
+        _validate_sequential_vi(parsed)
     else:
         _validate_batch(group, parsed)
     return parsed
@@ -302,7 +331,9 @@ def parse_settings(values) -> ExplorerSettings:
         raise ValueError("Select an existing CSV file.")
     method = data["inference_method"]
     if method not in METHODS:
-        raise ValueError("Inference method must be rbpf, smc, vi, or mcmc.")
+        raise ValueError(
+            "Inference method must be rbpf, smc, sequential_vi, vi, or mcmc."
+        )
     maximum = data["maximum_observation_count"]
     try:
         data["maximum_observation_count"] = int(maximum) if maximum else None
@@ -320,9 +351,13 @@ def parse_settings(values) -> ExplorerSettings:
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
-    _validate_batch(method, defaults[method])
+    if method == "sequential_vi":
+        _validate_sequential_vi(defaults[method])
+    else:
+        _validate_batch(method, defaults[method])
     rbpf = type(create_default_ctrv_rbpf_config())(**defaults["rbpf"])
     smc = type(create_default_ctrv_smc_config())(**defaults["smc"])
+    sequential_vi = SequentialVIConfig(**defaults["sequential_vi"])
     return ExplorerSettings(
         AnalysisSettings(
             data_file=data_file,
@@ -332,6 +367,7 @@ def parse_settings(values) -> ExplorerSettings:
             mcmc_config=defaults["mcmc"],
             rbpf_config=rbpf,
             smc_config=smc,
+            sequential_vi_config=sequential_vi,
         ),
         playback_interval_ms=interval,
         coordinate_display_mode=coordinate_display_mode,

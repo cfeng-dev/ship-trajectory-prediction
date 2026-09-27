@@ -176,7 +176,7 @@ def evaluate_position_predictions(
 
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
     energy_score_m = _joint_energy_scores(x_actual, y_actual, x_samples, y_samples)
-    log_predictive_density = _joint_log_predictive_density(
+    log_predictive_density = joint_log_predictive_density(
         x_actual,
         y_actual,
         x_samples,
@@ -397,7 +397,7 @@ def _posterior_scalar_samples(fit, variable_name, *, draw_count):
     return samples
 
 
-def _joint_log_predictive_density(
+def joint_log_predictive_density(
     x_actual,
     y_actual,
     x_samples,
@@ -409,6 +409,32 @@ def _joint_log_predictive_density(
     The posterior predictive density is a Monte-Carlo mixture over draws of
     the latent future state and the inferred isotropic observation noise.
     """
+    x_actual = np.asarray(x_actual, dtype=float)
+    y_actual = np.asarray(y_actual, dtype=float)
+    x_samples = np.asarray(x_samples, dtype=float)
+    y_samples = np.asarray(y_samples, dtype=float)
+    observation_noise_samples = np.asarray(
+        observation_noise_samples,
+        dtype=float,
+    )
+    if (
+        x_actual.ndim != 1
+        or y_actual.shape != x_actual.shape
+        or x_samples.ndim != 2
+        or y_samples.shape != x_samples.shape
+        or x_samples.shape[1] != x_actual.size
+        or observation_noise_samples.shape != (x_samples.shape[0],)
+        or not np.all(np.isfinite(x_actual))
+        or not np.all(np.isfinite(y_actual))
+        or not np.all(np.isfinite(x_samples))
+        or not np.all(np.isfinite(y_samples))
+        or not np.all(np.isfinite(observation_noise_samples))
+        or np.any(observation_noise_samples <= 0.0)
+    ):
+        raise ValueError(
+            "Actual positions, paired draw matrices, and positive observation "
+            "noise draws must have matching finite shapes."
+        )
     squared_error = (x_samples - x_actual) ** 2 + (y_samples - y_actual) ** 2
     log_component_density = (
         -np.log(2 * np.pi * observation_noise_samples[:, np.newaxis] ** 2)

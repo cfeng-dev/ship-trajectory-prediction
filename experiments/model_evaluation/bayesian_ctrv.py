@@ -14,7 +14,7 @@ DATA_FILE = paths.data_path(
 
 # Rolling inference:
 # - Batch: "vi" or "mcmc" with a fixed sliding window.
-# - Online: "rbpf" or "smc".
+# - Online: "rbpf", "smc", or "sequential_vi".
 EXPERIMENT = config.RollingExperimentConfig(
     run_id=1,
     prediction_count=10,

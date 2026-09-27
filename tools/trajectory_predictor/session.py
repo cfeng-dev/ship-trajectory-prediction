@@ -15,6 +15,7 @@ from time import perf_counter
 
 import bayestraj.observations.io as observations_io
 from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
+from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 
@@ -32,6 +33,7 @@ class AnalysisSettings:
     mcmc_config: dict
     rbpf_config: SequentialCTRVFilterConfig
     smc_config: SequentialMonteCarloCTRVConfig
+    sequential_vi_config: SequentialVIConfig
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ def prepare_analysis(settings: AnalysisSettings):
         mcmc_config=settings.mcmc_config,
         rbpf_config=settings.rbpf_config,
         smc_config=settings.smc_config,
+        sequential_vi_config=settings.sequential_vi_config,
     )
 
 

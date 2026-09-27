@@ -2,9 +2,44 @@
 
 import pandas as pd
 
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
+
+
+def test_online_window_specs_do_not_require_a_batch_window_mode():
+    windows = workflow._build_evaluation_windows(
+        15,
+        online_mode=True,
+        initial_observation_count=10,
+        prediction_count=3,
+        stride=2,
+        window_mode=None,
+    )
+
+    assert windows == rolling.build_online_forecast_specs(
+        15,
+        initial_observation_count=10,
+        prediction_count=3,
+        stride=2,
+    )
+
+
+def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys):
+    config = sequential_vi_model.SequentialVIConfig(n_bootstrap=7, draws=25)
+
+    workflow._print_online_configuration(
+        "sequential_vi",
+        particle_filter_config=None,
+        sequential_vi_config=config,
+    )
+
+    output = capsys.readouterr().out
+    assert "Bootstrap observations: 7" in output
+    assert "Posterior draws       : 25" in output
+    assert "Variational family    : fullrank" in output
+    assert "Particles" not in output
 
 
 def test_rolling_plot_is_hidden_only_for_overlapping_forecast_origins():
@@ -81,7 +116,7 @@ def test_online_filter_diagnostics_are_available_for_benchmark_records():
 
 
 def test_inference_configs_default_to_source_owned_factories():
-    vi_config, mcmc_config, rbpf_config, smc_config = (
+    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
         workflow._resolve_inference_configs(None, None, None, None)
     )
 
@@ -89,6 +124,7 @@ def test_inference_configs_default_to_source_owned_factories():
     assert mcmc_config["chains"] >= 1
     assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0
+    assert isinstance(sequential_vi_config, sequential_vi_model.SequentialVIConfig)
 
 
 def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):

@@ -12,6 +12,7 @@ import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
 import bayestraj.inference.ctrv_rbpf as rbpf_model
+import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
@@ -28,17 +29,26 @@ import bayestraj.validation.rolling as rolling_validation
 VI_EXECUTION_RETRIES = 2
 
 
-def _resolve_inference_configs(vi_config, mcmc_config, rbpf_config, smc_config):
+def _resolve_inference_configs(
+    vi_config,
+    mcmc_config,
+    rbpf_config,
+    smc_config,
+    sequential_vi_config=None,
+):
     """Return explicit inference settings or the source-owned defaults."""
     return (
         inference.create_default_vi_config() if vi_config is None else vi_config,
-        inference.create_default_mcmc_config()
-        if mcmc_config is None
-        else mcmc_config,
+        inference.create_default_mcmc_config() if mcmc_config is None else mcmc_config,
         inference.create_default_ctrv_rbpf_config()
         if rbpf_config is None
         else rbpf_config,
-        inference.create_default_ctrv_smc_config() if smc_config is None else smc_config,
+        inference.create_default_ctrv_smc_config()
+        if smc_config is None
+        else smc_config,
+        inference.create_default_sequential_vi_config()
+        if sequential_vi_config is None
+        else sequential_vi_config,
     )
 
 
@@ -51,6 +61,7 @@ def run_bayesian_ctrv_evaluation(
     mcmc_config=None,
     rbpf_config=None,
     smc_config=None,
+    sequential_vi_config=None,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -60,11 +71,14 @@ def run_bayesian_ctrv_evaluation(
     show_plot=True,
 ):
     """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
-    vi_config, mcmc_config, rbpf_config, smc_config = _resolve_inference_configs(
-        vi_config,
-        mcmc_config,
-        rbpf_config,
-        smc_config,
+    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
+        _resolve_inference_configs(
+            vi_config,
+            mcmc_config,
+            rbpf_config,
+            smc_config,
+            sequential_vi_config,
+        )
     )
     configured_experiment = dataclasses.replace(
         experiment,
@@ -88,6 +102,7 @@ def run_bayesian_ctrv_evaluation(
         mcmc_config=mcmc_config,
         rbpf_config=rbpf_config,
         smc_config=smc_config,
+        sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -110,6 +125,7 @@ def _run_evaluation(
     mcmc_config,
     rbpf_config,
     smc_config,
+    sequential_vi_config,
     fullrank_grad_samples,
     credible_interval,
     sample_trajectories_per_forecast,
@@ -146,6 +162,15 @@ def _run_evaluation(
                     "smc_config must be a SequentialMonteCarloCTRVConfig instance."
                 )
             particle_filter_config = smc_config
+        else:
+            if not isinstance(
+                sequential_vi_config,
+                sequential_vi_model.SequentialVIConfig,
+            ):
+                raise TypeError(
+                    "sequential_vi_config must be a SequentialVIConfig instance."
+                )
+            particle_filter_config = None
     else:
         particle_filter_config = None
         inference_method, inference_config = inference.select_inference_config(
@@ -168,21 +193,14 @@ def _run_evaluation(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
 
-    if online_mode:
-        windows = rolling_validation.build_online_forecast_specs(
-            len(trajectory_data),
-            initial_observation_count=experiment.observation_count,
-            prediction_count=experiment.prediction_count,
-            stride=experiment.stride,
-        )
-    else:
-        windows = rolling_validation.build_rolling_window_specs(
-            len(trajectory_data),
-            initial_observation_count=experiment.observation_count,
-            prediction_count=experiment.prediction_count,
-            stride=experiment.stride,
-            window_mode=window_mode,
-        )
+    windows = _build_evaluation_windows(
+        len(trajectory_data),
+        online_mode=online_mode,
+        initial_observation_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+        window_mode=window_mode,
+    )
     windows = _select_window_specs(windows, selected_window_indices)
     if max_windows is not None:
         if isinstance(max_windows, bool) or max_windows < 1:
@@ -264,15 +282,10 @@ def _run_evaluation(
         f"{priors.sigma_turn_rate_process_prior_tail_probability:g})"
     )
     if online_mode:
-        print(f"Particles             : {particle_filter_config.particle_count}")
-        print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
-        print(
-            "Resampling ESS        : "
-            f"{particle_filter_config.resample_ess_fraction:.0%} of particles"
-        )
-        print(
-            "Parameter rejuvenation: Liu-West scale "
-            f"{particle_filter_config.rejuvenation_scale:g}"
+        _print_online_configuration(
+            inference_method,
+            particle_filter_config=particle_filter_config,
+            sequential_vi_config=sequential_vi_config,
         )
     print(f"Plot each window      : {plot_each_window}")
 
@@ -314,6 +327,7 @@ def _run_evaluation(
                 priors=priors,
                 rbpf_config=rbpf_config,
                 smc_config=smc_config,
+                sequential_vi_config=sequential_vi_config,
                 inference_method=inference_method,
                 inference_seed=experiment.inference_seed,
             )
@@ -344,7 +358,7 @@ def _run_evaluation(
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
-        else:
+        elif inference_method in {"rbpf", "smc"}:
             converged = None
             mcmc_diagnostics_ok = None
             latest_update_ess = online_filter.last_effective_sample_size
@@ -357,6 +371,18 @@ def _run_evaluation(
                 f"{particle_filter_config.particle_count}, "
                 f"resamples={online_filter.resample_count}"
             )
+        else:
+            converged = online_filter.bootstrap_converged and all(
+                update.converged for update in online_filter.updates
+            )
+            mcmc_diagnostics_ok = None
+            inference_status = (
+                "Sequential VI posterior "
+                f"processed={online_filter.processed_observation_count}, "
+                f"bootstrap={online_filter.bootstrap_runtime_seconds:.3f} s, "
+                f"updates={sum(update.runtime_seconds for update in online_filter.updates):.3f} s, "
+                f"converged={converged}"
+            )
 
         evaluation = metrics.evaluate_position_predictions(
             fit,
@@ -366,9 +392,15 @@ def _run_evaluation(
         )
         diagnostics = _posterior_diagnostics(fit)
         if online_mode:
-            diagnostics.update(
-                _online_filter_diagnostics(online_filter, particle_filter_config)
-            )
+            if inference_method in {"rbpf", "smc"}:
+                diagnostics.update(
+                    _online_filter_diagnostics(
+                        online_filter,
+                        particle_filter_config,
+                    )
+                )
+            else:
+                diagnostics.update(_sequential_vi_diagnostics(online_filter))
         table = _build_route_prediction_table(
             evaluation.prediction_table,
             specification=specification,
@@ -458,6 +490,56 @@ def _run_evaluation(
     return predictions, summary
 
 
+def _build_evaluation_windows(
+    row_count,
+    *,
+    online_mode,
+    initial_observation_count,
+    prediction_count,
+    stride,
+    window_mode,
+):
+    """Build persistent-online or batch rolling forecast specifications."""
+    if online_mode:
+        return rolling_validation.build_online_forecast_specs(
+            row_count,
+            initial_observation_count=initial_observation_count,
+            prediction_count=prediction_count,
+            stride=stride,
+        )
+    return rolling_validation.build_rolling_window_specs(
+        row_count,
+        initial_observation_count=initial_observation_count,
+        prediction_count=prediction_count,
+        stride=stride,
+        window_mode=window_mode,
+    )
+
+
+def _print_online_configuration(
+    inference_method,
+    *,
+    particle_filter_config,
+    sequential_vi_config,
+):
+    """Print settings for the selected persistent online approximation."""
+    if inference_method == "sequential_vi":
+        print(f"Bootstrap observations: {sequential_vi_config.n_bootstrap}")
+        print(f"Posterior draws       : {sequential_vi_config.draws}")
+        print("Variational family    : fullrank")
+        return
+    print(f"Particles             : {particle_filter_config.particle_count}")
+    print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
+    print(
+        "Resampling ESS        : "
+        f"{particle_filter_config.resample_ess_fraction:.0%} of particles"
+    )
+    print(
+        "Parameter rejuvenation: Liu-West scale "
+        f"{particle_filter_config.rejuvenation_scale:g}"
+    )
+
+
 def _should_plot_rolling_predictions(*, prediction_count, stride):
     """Return whether rolling forecast origins do not overlap."""
     effective_stride = prediction_count if stride is None else stride
@@ -518,6 +600,28 @@ def _online_filter_diagnostics(online_filter, particle_filter_config):
     }
 
 
+def _sequential_vi_diagnostics(online_filter):
+    """Return bootstrap and incremental VI runtime diagnostics."""
+    latest_runtime = (
+        online_filter.updates[-1].runtime_seconds if online_filter.updates else 0.0
+    )
+    cumulative_update_runtime = sum(
+        update.runtime_seconds for update in online_filter.updates
+    )
+    return {
+        "sequential_vi_bootstrap_runtime_seconds": float(
+            online_filter.bootstrap_runtime_seconds
+        ),
+        "sequential_vi_latest_update_runtime_seconds": float(latest_runtime),
+        "sequential_vi_cumulative_update_runtime_seconds": float(
+            cumulative_update_runtime
+        ),
+        "sequential_vi_processed_observation_count": int(
+            online_filter.processed_observation_count
+        ),
+    }
+
+
 def _advance_online_filter(
     online_filter,
     *,
@@ -529,9 +633,10 @@ def _advance_online_filter(
     rbpf_config,
     inference_seed,
     smc_config=None,
+    sequential_vi_config=None,
     inference_method="rbpf",
 ):
-    """Initialize once or update one persistent CTRV particle filter."""
+    """Initialize once or update one persistent online CTRV approximation."""
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
         if inference_method == "rbpf":
@@ -540,6 +645,9 @@ def _advance_online_filter(
         elif inference_method == "smc":
             filter_type = smc_model.SequentialMonteCarloCTRVFilter
             filter_config = smc_config
+        elif inference_method == "sequential_vi":
+            filter_type = sequential_vi_model.SequentialCTRVVI
+            filter_config = sequential_vi_config
         else:
             raise ValueError(
                 f"Unsupported online inference method: {inference_method!r}."

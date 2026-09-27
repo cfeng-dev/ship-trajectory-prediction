@@ -13,7 +13,7 @@ DATA_FILE = paths.data_path(
 
 # Single-window inference:
 # - Batch: "vi" or "mcmc".
-# - Online: "rbpf" or "smc".
+# - Online: "rbpf", "smc", or "sequential_vi".
 EXPERIMENT = config.ExperimentConfig(
     run_id=1,
     start_index=0,

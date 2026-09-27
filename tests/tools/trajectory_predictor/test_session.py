@@ -237,3 +237,21 @@ def test_error_stops_generation_but_allows_new_analysis(analysis):
     finally:
         worker.close()
         worker.join(5)
+
+
+def test_worker_surfaces_sequential_vi_update_failure(analysis):
+    def prepare(_):
+        def load(_count):
+            raise RuntimeError("Sequential ADVI failed")
+
+        return None, 8, 5, load
+
+    worker = PosteriorAnalysisWorker(prepare)
+    try:
+        worker.start(analysis)
+        worker.request(5)
+        events = wait_for_event(worker, "error")
+        assert "Sequential ADVI failed" in events[-1].payload
+    finally:
+        worker.close()
+        worker.join(5)
