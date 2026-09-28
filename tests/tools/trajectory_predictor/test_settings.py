@@ -84,7 +84,8 @@ def test_trajectory_predictor_defaults_to_smc():
 def test_sequential_vi_defaults_and_parsing_preserve_full_config(form):
     defaults = settings.default_form_values()["sequential_vi"]
 
-    assert defaults["n_bootstrap"] == "10"
+    assert defaults["n_bootstrap"] == "3"
+    assert settings.create_default_sequential_vi_config().n_bootstrap == 10
     assert set(defaults) == set(SequentialVIConfig.__dataclass_fields__)
     form["data"]["inference_method"] = "sequential_vi"
     form["sequential_vi"]["n_bootstrap"] = "6"

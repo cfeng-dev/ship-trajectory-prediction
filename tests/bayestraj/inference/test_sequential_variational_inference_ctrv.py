@@ -8,6 +8,7 @@ import pytest
 
 from bayestraj.inference import cmdstan
 from bayestraj.inference import ctrv_sequential_vi as sequential_vi
+from bayestraj.models import bayesian_ctrv as bayesian_model
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 
 RUN_CMDSTAN_INTEGRATION = os.environ.get("RUN_CMDSTAN_INTEGRATION") == "1"
@@ -618,6 +619,77 @@ def test_sequential_vi_forecast_matches_shared_prediction_contract() -> None:
     assert np.all(first.stan_variable("speed_at_origin") >= 0.0)
     assert online_vi.carry is carry_before
     assert online_vi.processed_observation_count == count_before
+
+
+def test_prior_predictive_forecast_matches_shared_prediction_contract() -> None:
+    priors = bayesian_model.BayesianCTRVPriors()
+    future_times = np.array([12.0, 14.0])
+
+    first = sequential_vi.forecast_ctrv_prior_predictive(
+        x_at_origin=100.0,
+        y_at_origin=-25.0,
+        origin_time_seconds=10.0,
+        future_time_seconds=future_times,
+        priors=priors,
+        draw_count=40,
+        seed=123,
+    )
+    second = sequential_vi.forecast_ctrv_prior_predictive(
+        x_at_origin=100.0,
+        y_at_origin=-25.0,
+        origin_time_seconds=10.0,
+        future_time_seconds=future_times,
+        priors=priors,
+        draw_count=40,
+        seed=123,
+    )
+
+    for name in bayesian_model.PARAMETER_NAMES:
+        values = first.stan_variable(name)
+        assert values.shape == (40,)
+        assert np.all(np.isfinite(values))
+        np.testing.assert_array_equal(values, second.stan_variable(name))
+    for name in (
+        "x_prediction",
+        "y_prediction",
+        "x_observation_prediction",
+        "y_observation_prediction",
+    ):
+        values = first.stan_variable(name)
+        assert values.shape == (40, 2)
+        assert np.all(np.isfinite(values))
+        np.testing.assert_array_equal(values, second.stan_variable(name))
+    assert np.all(first.stan_variable("speed_at_origin") >= 0.0)
+    assert np.all(
+        (-np.pi <= first.stan_variable("heading_at_origin"))
+        & (first.stan_variable("heading_at_origin") <= np.pi)
+    )
+
+
+def test_prior_predictive_observation_noise_is_independent_standard_deviation() -> None:
+    fit = sequential_vi.forecast_ctrv_prior_predictive(
+        x_at_origin=0.0,
+        y_at_origin=0.0,
+        origin_time_seconds=0.0,
+        future_time_seconds=np.array([1.0]),
+        priors=bayesian_model.BayesianCTRVPriors(),
+        draw_count=20_000,
+        seed=321,
+    )
+
+    sigma = fit.stan_variable("sigma_position_observation")
+    x_standardized = (
+        fit.stan_variable("x_observation_prediction")[:, 0]
+        - fit.stan_variable("x_prediction")[:, 0]
+    ) / sigma
+    y_standardized = (
+        fit.stan_variable("y_observation_prediction")[:, 0]
+        - fit.stan_variable("y_prediction")[:, 0]
+    ) / sigma
+
+    assert np.std(x_standardized, ddof=1) == pytest.approx(1.0, abs=0.03)
+    assert np.std(y_standardized, ddof=1) == pytest.approx(1.0, abs=0.03)
+    assert abs(np.corrcoef(x_standardized, y_standardized)[0, 1]) < 0.03
 
 
 @pytest.mark.parametrize(

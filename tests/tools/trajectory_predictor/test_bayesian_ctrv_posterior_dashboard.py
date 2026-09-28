@@ -859,6 +859,37 @@ def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable()
     assert metrics.inference_time_seconds is None
 
 
+def test_dashboard_title_distinguishes_prior_predictive_updates() -> None:
+    dashboard = _load_dashboard_module()
+    prior_update = dashboard.PosteriorDashboardUpdate(
+        1,
+        _dashboard_samples(),
+        is_prior_predictive=True,
+    )
+    posterior_update = dashboard.PosteriorDashboardUpdate(3, _dashboard_samples())
+
+    assert dashboard._posterior_dashboard_title(1, prior_update) == (
+        "Bayesian CTRV prior prediction — N = 1"
+    )
+    assert dashboard._posterior_dashboard_title(3, posterior_update) == (
+        "Bayesian CTRV posterior update — N = 3"
+    )
+    assert dashboard._posterior_dashboard_title(0, None) == (
+        "Bayesian CTRV posterior update — N = 0"
+    )
+
+
+def test_dashboard_update_rejects_non_boolean_prior_predictive_flag() -> None:
+    dashboard = _load_dashboard_module()
+
+    with pytest.raises(TypeError, match="is_prior_predictive"):
+        dashboard.PosteriorDashboardUpdate(
+            1,
+            _dashboard_samples(),
+            is_prior_predictive=1,
+        )
+
+
 def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
     """Metrics use the current median forecast and 2D 90% forecast regions."""
     dashboard = _load_dashboard_module()
@@ -1533,13 +1564,16 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
     )
 
 
-def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap():
+def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap(
+    monkeypatch,
+):
     dashboard = _load_dashboard_module()
     initialize_calls = []
     update_calls = []
+    prior_calls = []
 
     class FakeSequentialVI:
-        processed_observation_count = 5
+        processed_observation_count = 3
 
         def update(self, time_seconds, x_observed, y_observed):
             update_calls.append((time_seconds, x_observed, y_observed))
@@ -1576,7 +1610,28 @@ def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap():
         )
         return FakeSequentialVI()
 
-    config = sequential_vi.SequentialVIConfig(n_bootstrap=5, draws=8)
+    def forecast_prior_predictive(**options):
+        prior_calls.append(options)
+        draw_count = options["draw_count"]
+        prediction_count = len(options["future_time_seconds"])
+        values = np.ones(draw_count)
+        positions = np.zeros((draw_count, prediction_count))
+        return particle_utils.SequentialCTRVFit(
+            {
+                **{name: values for name in bayesian_model.PARAMETER_NAMES},
+                "x_prediction": positions,
+                "y_prediction": positions,
+                "x_observation_prediction": positions,
+                "y_observation_prediction": positions,
+            }
+        )
+
+    monkeypatch.setattr(
+        sequential_vi,
+        "forecast_ctrv_prior_predictive",
+        forecast_prior_predictive,
+    )
+    config = sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=8)
     experiment = dashboard.PosteriorDashboardConfig(
         run_id=102,
         start_index=0,
@@ -1590,7 +1645,7 @@ def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap():
 
     trajectory, maximum_count, minimum_count, load_update = (
         dashboard.create_posterior_dashboard_loader(
-            _dashboard_trajectory_data(9),
+            _dashboard_trajectory_data(12),
             experiment=experiment,
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
@@ -1602,32 +1657,133 @@ def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap():
         )
     )
 
-    first = load_update(5)
-    second = load_update(6)
-    third = load_update(7)
+    first = load_update(1)
+    second = load_update(2)
+    third = load_update(3)
+    tenth = load_update(10)
+    eleventh = load_update(11)
 
-    assert maximum_count == 9
-    assert minimum_count == 5
-    assert trajectory.reference_x.shape == (9,)
+    assert maximum_count == 12
+    assert minimum_count == 1
+    assert trajectory.reference_x.shape == (12,)
+    assert len(prior_calls) == 2
+    assert first.is_prior_predictive
+    assert second.is_prior_predictive
+    assert not third.is_prior_predictive
     assert len(initialize_calls) == 1
-    assert initialize_calls[0][0].shape == (5,)
+    assert initialize_calls[0][0].shape == (3,)
     assert initialize_calls[0][3]["config"] is config
-    assert [call[0] for call in update_calls] == [50.0, 60.0]
+    assert [call[0] for call in update_calls] == list(np.arange(3, 11) * 10.0)
     assert [
         first.observation_count,
         second.observation_count,
         third.observation_count,
+        tenth.observation_count,
+        eleventh.observation_count,
     ] == [
-        5,
-        6,
-        7,
+        1,
+        2,
+        3,
+        10,
+        11,
     ]
-    assert all(update.particle_count is None for update in (first, second, third))
     assert all(
-        update.effective_sample_size is None for update in (first, second, third)
+        update.particle_count is None
+        for update in (first, second, third, tenth, eleventh)
     )
+    assert all(
+        update.effective_sample_size is None
+        for update in (first, second, third, tenth, eleventh)
+    )
+    repeated_first = load_update(1)
+    assert repeated_first.is_prior_predictive
+    assert len(prior_calls) == 3
     with pytest.raises(ValueError, match="cannot move backward"):
-        load_update(6)
+        load_update(10)
+
+
+def test_dashboard_loader_extends_prior_phase_to_configured_sequential_bootstrap(
+    monkeypatch,
+):
+    dashboard = _load_dashboard_module()
+    initialize_calls = []
+
+    class FakeSequentialVI:
+        processed_observation_count = 5
+
+        def sample_current_posterior(self, *, seed):
+            values = np.ones(8)
+            return particle_utils.SequentialCTRVFit(
+                {name: values for name in bayesian_model.PARAMETER_NAMES}
+            )
+
+        def forecast(self, future_time_seconds, *, seed):
+            prediction_count = len(future_time_seconds)
+            values = np.ones(8)
+            positions = np.zeros((8, prediction_count))
+            return particle_utils.SequentialCTRVFit(
+                {
+                    **{name: values for name in bayesian_model.PARAMETER_NAMES},
+                    "x_prediction": positions,
+                    "y_prediction": positions,
+                    "x_observation_prediction": positions,
+                    "y_observation_prediction": positions,
+                }
+            )
+
+    def forecast_prior_predictive(**options):
+        draw_count = options["draw_count"]
+        prediction_count = len(options["future_time_seconds"])
+        values = np.ones(draw_count)
+        positions = np.zeros((draw_count, prediction_count))
+        return particle_utils.SequentialCTRVFit(
+            {
+                **{name: values for name in bayesian_model.PARAMETER_NAMES},
+                "x_prediction": positions,
+                "y_prediction": positions,
+                "x_observation_prediction": positions,
+                "y_observation_prediction": positions,
+            }
+        )
+
+    monkeypatch.setattr(
+        sequential_vi,
+        "forecast_ctrv_prior_predictive",
+        forecast_prior_predictive,
+    )
+    _, _, minimum_count, load_update = dashboard.create_posterior_dashboard_loader(
+        _dashboard_trajectory_data(9),
+        experiment=dashboard.PosteriorDashboardConfig(
+            run_id=102,
+            start_index=0,
+            maximum_observation_count=None,
+            position_noise_std_m=0.0,
+            position_noise_seed=2026,
+            inference_method="sequential_vi",
+            inference_seed=42,
+        ),
+        priors=bayesian_model.BayesianCTRVPriors(),
+        vi_config=inference.create_default_vi_config(),
+        mcmc_config=inference.create_default_mcmc_config(),
+        rbpf_config=inference.create_default_ctrv_rbpf_config(),
+        smc_config=inference.create_default_ctrv_smc_config(),
+        sequential_vi_config=sequential_vi.SequentialVIConfig(
+            n_bootstrap=5,
+            draws=8,
+        ),
+        initialize_online_filter=lambda *args, **kwargs: (
+            initialize_calls.append((args, kwargs)) or FakeSequentialVI()
+        ),
+    )
+
+    fourth = load_update(4)
+    fifth = load_update(5)
+
+    assert minimum_count == 1
+    assert fourth.is_prior_predictive
+    assert not fifth.is_prior_predictive
+    assert len(initialize_calls) == 1
+    assert np.asarray(initialize_calls[0][0][0]).shape == (5,)
 
 
 def test_dashboard_loader_propagates_sequential_vi_update_failure():
@@ -1667,17 +1823,92 @@ def test_dashboard_loader_propagates_sequential_vi_update_failure():
         load_update(6)
 
 
-@pytest.mark.parametrize("inference_method", ["vi", "mcmc"])
-def test_dashboard_loader_runs_selected_ten_observation_sliding_fit(
-    inference_method,
+def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windows(
+    monkeypatch,
 ):
     dashboard = _load_dashboard_module()
     vi_config = inference.create_default_vi_config()
+    fit_calls = []
+    prior_calls = []
+
+    def fit_batch_model(window, **options):
+        fit_calls.append((window, options))
+        return _FakeFit(_dashboard_fit_variables())
+
+    def forecast_prior_predictive(**options):
+        prior_calls.append(options)
+        draw_count = options["draw_count"]
+        prediction_count = len(options["future_time_seconds"])
+        values = np.ones(draw_count)
+        positions = np.zeros((draw_count, prediction_count))
+        return particle_utils.SequentialCTRVFit(
+            {
+                **{name: values for name in bayesian_model.PARAMETER_NAMES},
+                "x_prediction": positions,
+                "y_prediction": positions,
+                "x_observation_prediction": positions,
+                "y_observation_prediction": positions,
+            }
+        )
+
+    monkeypatch.setattr(
+        sequential_vi,
+        "forecast_ctrv_prior_predictive",
+        forecast_prior_predictive,
+    )
+    experiment = dashboard.PosteriorDashboardConfig(
+        run_id=102,
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="vi",
+        inference_seed=42,
+        prediction_count=1,
+    )
+    trajectory, maximum_count, minimum_count, load_update = (
+        dashboard.create_posterior_dashboard_loader(
+            _dashboard_trajectory_data(15),
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            vi_config=vi_config,
+            mcmc_config=inference.create_default_mcmc_config(),
+            rbpf_config=inference.create_default_ctrv_rbpf_config(),
+            smc_config=inference.create_default_ctrv_smc_config(),
+            fit_batch_model=fit_batch_model,
+        )
+    )
+
+    prior_updates = [load_update(1), load_update(2)]
+    fitted_updates = [load_update(count) for count in (3, 9, 10, 11)]
+
+    assert maximum_count == 14
+    assert minimum_count == 1
+    assert trajectory.reference_x.shape == (15,)
+    assert len(prior_calls) == 2
+    assert [call["draw_count"] for call in prior_calls] == [vi_config["draws"]] * 2
+    assert [call["seed"] for call in prior_calls] == [42, 42]
+    assert all(update.is_prior_predictive for update in prior_updates)
+    assert not any(update.is_prior_predictive for update in fitted_updates)
+    assert [call[0].observation_count for call in fit_calls] == [3, 9, 10, 10]
+    assert [call[0].timestamps[0] for call in fit_calls] == [
+        pd.Timestamp("2026-01-01T00:00:00Z"),
+        pd.Timestamp("2026-01-01T00:00:00Z"),
+        pd.Timestamp("2026-01-01T00:00:00Z"),
+        pd.Timestamp("2026-01-01T00:00:10Z"),
+    ]
+    assert [call[0].timestamps[-2] for call in fit_calls] == [
+        pd.Timestamp("2026-01-01T00:00:20Z"),
+        pd.Timestamp("2026-01-01T00:01:20Z"),
+        pd.Timestamp("2026-01-01T00:01:30Z"),
+        pd.Timestamp("2026-01-01T00:01:40Z"),
+    ]
+
+
+def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
+    dashboard = _load_dashboard_module()
+    vi_config = inference.create_default_vi_config()
     mcmc_config = inference.create_default_mcmc_config()
-    expected_config = {
-        "vi": vi_config,
-        "mcmc": mcmc_config,
-    }[inference_method]
     fit_calls = []
 
     def fit_batch_model(window, **options):
@@ -1690,7 +1921,7 @@ def test_dashboard_loader_runs_selected_ten_observation_sliding_fit(
         maximum_observation_count=None,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
-        inference_method=inference_method,
+        inference_method="mcmc",
         inference_seed=42,
         prediction_count=1,
     )
@@ -1725,7 +1956,7 @@ def test_dashboard_loader_runs_selected_ten_observation_sliding_fit(
     assert window.observation_count == 10
     assert window.timestamps[0] == pd.Timestamp("2026-01-01T00:00:20Z")
     assert window.timestamps[9] == pd.Timestamp("2026-01-01T00:01:50Z")
-    assert options["inference_method"] == inference_method
+    assert options["inference_method"] == "mcmc"
     assert options["seed"] == 42
     assert options["priors"] == bayesian_model.BayesianCTRVPriors()
     assert options["position_observations"].x_meters == pytest.approx(
@@ -1745,17 +1976,14 @@ def test_dashboard_loader_runs_selected_ten_observation_sliding_fit(
             "seed",
         }
     }
-    assert selected_options == expected_config
+    assert selected_options == mcmc_config
     assert update.observation_count == 12
     assert update.effective_sample_size is None
     assert update.particle_count is None
     assert update.resample_count is None
 
 
-@pytest.mark.parametrize("inference_method", ["vi", "mcmc"])
-def test_dashboard_loader_rejects_batch_analysis_without_ten_observations(
-    inference_method,
-):
+def test_dashboard_loader_rejects_mcmc_analysis_without_ten_observations():
     dashboard = _load_dashboard_module()
     experiment = dashboard.PosteriorDashboardConfig(
         run_id=102,
@@ -1763,7 +1991,7 @@ def test_dashboard_loader_rejects_batch_analysis_without_ten_observations(
         maximum_observation_count=9,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
-        inference_method=inference_method,
+        inference_method="mcmc",
         inference_seed=42,
         prediction_count=1,
     )

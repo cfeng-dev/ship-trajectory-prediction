@@ -338,8 +338,11 @@ class PosteriorDashboardUpdate:
     resample_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
     inference_time_seconds: float | None = None
+    is_prior_predictive: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.is_prior_predictive, bool):
+            raise TypeError("is_prior_predictive must be a boolean.")
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
@@ -377,6 +380,15 @@ class PosteriorDashboardUpdate:
             "samples_by_parameter",
             MappingProxyType(samples_by_parameter),
         )
+
+
+def _posterior_dashboard_title(observation_count, update) -> str:
+    phase = (
+        "prior prediction"
+        if update is not None and update.is_prior_predictive
+        else "posterior update"
+    )
+    return f"Bayesian CTRV {phase} — N = {observation_count}"
 
 
 def posterior_medians_at(updates_by_count, observation_count):
@@ -1072,7 +1084,10 @@ class PosteriorDashboardNavigator:
             ):
                 self._draw_posterior(axis, parameter_name)
         self.figure.suptitle(
-            f"Bayesian CTRV posterior update — N = {self.observation_count}",
+            _posterior_dashboard_title(
+                self.observation_count,
+                self._updates_by_count.get(self.observation_count),
+            ),
             fontsize=15,
             fontweight="bold",
         )
@@ -1695,6 +1710,40 @@ def create_posterior_dashboard_loader(
         for parameter_name in PARAMETER_NAMES
     )
 
+    def load_prior_predictive_update(observation_count, *, draw_count):
+        origin_time = time_seconds[observation_count - 1]
+        future_times = time_seconds[
+            observation_count : observation_count + experiment.prediction_count
+        ]
+        sampling_times = future_times
+        if sampling_times.size == 0:
+            sampling_times = np.asarray(
+                [origin_time + experiment.observation_interval_seconds]
+            )
+        fit = sequential_vi.forecast_ctrv_prior_predictive(
+            x_at_origin=trajectory.observed_x[observation_count - 1],
+            y_at_origin=trajectory.observed_y[observation_count - 1],
+            origin_time_seconds=origin_time,
+            future_time_seconds=sampling_times,
+            priors=priors,
+            draw_count=draw_count,
+            seed=experiment.inference_seed,
+        )
+        return PosteriorDashboardUpdate(
+            observation_count=observation_count,
+            samples_by_parameter=_extract_dashboard_samples(fit, specs),
+            forecast=(
+                _extract_dashboard_forecast(
+                    fit,
+                    future_times - origin_time,
+                    experiment.prediction_sample_count,
+                )
+                if future_times.size
+                else None
+            ),
+            is_prior_predictive=True,
+        )
+
     if online_mode:
         if inference_method == "rbpf":
             if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
@@ -1722,31 +1771,52 @@ def create_posterior_dashboard_loader(
                 )
             filter_type = sequential_vi.SequentialCTRVVI
             particle_filter_config = sequential_vi_config
-            minimum_observation_count = sequential_vi_config.n_bootstrap
-            if maximum_observation_count < minimum_observation_count:
-                raise ValueError(
-                    "Sequential VI requires at least "
-                    f"{minimum_observation_count} observations."
-                )
+            minimum_observation_count = 1
         if initialize_online_filter is None:
             initialize_online_filter = filter_type.initialize
         if not callable(initialize_online_filter):
             raise TypeError("initialize_online_filter must be callable.")
-        online_filter = initialize_online_filter(
-            time_seconds[:minimum_observation_count],
-            trajectory.observed_x[:minimum_observation_count],
-            trajectory.observed_y[:minimum_observation_count],
-            priors=priors,
-            config=particle_filter_config,
-            seed=experiment.inference_seed,
-        )
+        online_filter = None
+        if inference_method != "sequential_vi":
+            online_filter = initialize_online_filter(
+                time_seconds[:minimum_observation_count],
+                trajectory.observed_x[:minimum_observation_count],
+                trajectory.observed_y[:minimum_observation_count],
+                priors=priors,
+                config=particle_filter_config,
+                seed=experiment.inference_seed,
+            )
 
         def load_online_update(observation_count):
+            nonlocal online_filter
             _validate_update_observation_count(
                 observation_count,
                 minimum=minimum_observation_count,
                 maximum=maximum_observation_count,
             )
+            if (
+                inference_method == "sequential_vi"
+                and observation_count < particle_filter_config.n_bootstrap
+            ):
+                return load_prior_predictive_update(
+                    observation_count,
+                    draw_count=particle_filter_config.draws,
+                )
+            if (
+                online_filter is not None
+                and observation_count < online_filter.processed_observation_count
+            ):
+                raise ValueError("The online update loader cannot move backward.")
+            if online_filter is None:
+                bootstrap_count = particle_filter_config.n_bootstrap
+                online_filter = initialize_online_filter(
+                    time_seconds[:bootstrap_count],
+                    trajectory.observed_x[:bootstrap_count],
+                    trajectory.observed_y[:bootstrap_count],
+                    priors=priors,
+                    config=particle_filter_config,
+                    seed=experiment.inference_seed,
+                )
             if observation_count < online_filter.processed_observation_count:
                 raise ValueError("The online update loader cannot move backward.")
             while online_filter.processed_observation_count < observation_count:
@@ -1800,9 +1870,12 @@ def create_posterior_dashboard_loader(
         )
 
     batch_observation_count = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
-    if maximum_observation_count < batch_observation_count:
+    minimum_observation_count = (
+        1 if inference_method == "vi" else batch_observation_count
+    )
+    if maximum_observation_count < minimum_observation_count:
         raise ValueError(
-            f"VI and MCMC require at least {batch_observation_count} observations."
+            f"MCMC requires at least {batch_observation_count} observations."
         )
     batch_trajectory_data = _select_trajectory_rows_at_interval(
         trajectory_data.iloc[experiment.start_index :],
@@ -1817,13 +1890,23 @@ def create_posterior_dashboard_loader(
     def load_batch_update(observation_count):
         _validate_update_observation_count(
             observation_count,
-            minimum=batch_observation_count,
+            minimum=minimum_observation_count,
             maximum=maximum_observation_count,
         )
-        window_start_index = observation_count - batch_observation_count
+        if (
+            inference_method == "vi"
+            and observation_count < bayesian_model.MIN_OBSERVATION_COUNT
+        ):
+            return load_prior_predictive_update(
+                observation_count,
+                draw_count=selected_config["draws"],
+            )
+
+        fit_observation_count = min(observation_count, batch_observation_count)
+        window_start_index = observation_count - fit_observation_count
         window = observation_window.prepare_trajectory_window(
             batch_trajectory_data,
-            observation_count=batch_observation_count,
+            observation_count=fit_observation_count,
             prediction_count=max(
                 1,
                 min(experiment.prediction_count, len(time_seconds) - observation_count),
@@ -1863,7 +1946,7 @@ def create_posterior_dashboard_loader(
     return (
         trajectory,
         maximum_observation_count,
-        batch_observation_count,
+        minimum_observation_count,
         load_batch_update,
     )
 

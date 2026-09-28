@@ -12,7 +12,7 @@ from bayestraj.inference.configuration import (
     create_default_vi_config,
 )
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
-from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.observations.paths import data_path
 
 from .dashboard import (
@@ -149,6 +149,8 @@ class ExplorerSettings:
 
 
 def _defaults():
+    sequential_vi_defaults = asdict(create_default_sequential_vi_config())
+    sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
             "data_file": str(
@@ -182,7 +184,7 @@ def _defaults():
         "priors": asdict(BayesianCTRVPriors()),
         "rbpf": asdict(create_default_ctrv_rbpf_config()),
         "smc": asdict(create_default_ctrv_smc_config()),
-        "sequential_vi": asdict(create_default_sequential_vi_config()),
+        "sequential_vi": sequential_vi_defaults,
         "vi": create_default_vi_config(),
         "mcmc": create_default_mcmc_config(),
     }

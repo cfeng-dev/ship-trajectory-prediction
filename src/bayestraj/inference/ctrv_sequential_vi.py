@@ -686,6 +686,138 @@ def _variational_fit_converged(fit: object) -> bool:
     return cmdstan.variational_converged(fit)
 
 
+def _forecast_from_origin_draws(
+    draws: dict[str, np.ndarray],
+    *,
+    origin_time_seconds: float,
+    future_time_seconds,
+    generator: np.random.Generator,
+) -> particle_utils.SequentialCTRVFit:
+    future_times = particle_utils.validate_future_times(
+        future_time_seconds,
+        after=origin_time_seconds,
+    )
+    draw_count = draws["speed_at_origin"].size
+    states = np.column_stack(
+        (
+            draws["x_at_origin"],
+            draws["y_at_origin"],
+            draws["speed_at_origin"],
+            draws["heading_at_origin"],
+            draws["turn_rate_at_origin"],
+        )
+    )
+    speed_at_origin = states[:, ctrv_dynamics.STATE_SPEED_INDEX].copy()
+    heading_at_origin = states[:, ctrv_dynamics.STATE_HEADING_INDEX].copy()
+    turn_rate_at_origin = states[:, ctrv_dynamics.STATE_TURN_RATE_INDEX].copy()
+    prediction_count = future_times.size
+    x_prediction = np.empty((draw_count, prediction_count))
+    y_prediction = np.empty_like(x_prediction)
+    x_observation_prediction = np.empty_like(x_prediction)
+    y_observation_prediction = np.empty_like(x_prediction)
+    current_time = origin_time_seconds
+    for prediction_index, prediction_time in enumerate(future_times):
+        interval = float(prediction_time - current_time)
+        states = ctrv_dynamics.transition_states(states, interval)
+        x_prediction[:, prediction_index] = states[:, ctrv_dynamics.STATE_X_INDEX]
+        y_prediction[:, prediction_index] = states[:, ctrv_dynamics.STATE_Y_INDEX]
+        observation_innovation = generator.normal(
+            0.0,
+            draws["sigma_position_observation"][:, None],
+            size=(draw_count, 2),
+        )
+        x_observation_prediction[:, prediction_index] = (
+            states[:, ctrv_dynamics.STATE_X_INDEX] + observation_innovation[:, 0]
+        )
+        y_observation_prediction[:, prediction_index] = (
+            states[:, ctrv_dynamics.STATE_Y_INDEX] + observation_innovation[:, 1]
+        )
+        process_scale = ctrv_dynamics.process_time_scale(interval)
+        states[:, ctrv_dynamics.STATE_SPEED_INDEX] += generator.normal(
+            0.0,
+            draws["sigma_speed_process"] * process_scale,
+        )
+        states[:, ctrv_dynamics.STATE_TURN_RATE_INDEX] += generator.normal(
+            0.0,
+            draws["sigma_turn_rate_process"] * process_scale,
+        )
+        ctrv_dynamics.normalize_states(states)
+        current_time = float(prediction_time)
+
+    return particle_utils.SequentialCTRVFit(
+        {
+            "speed_at_origin": speed_at_origin,
+            "heading_at_origin": heading_at_origin,
+            "turn_rate_at_origin": turn_rate_at_origin,
+            "sigma_position_observation": draws["sigma_position_observation"],
+            "sigma_speed_process": draws["sigma_speed_process"],
+            "sigma_turn_rate_process": draws["sigma_turn_rate_process"],
+            "x_prediction": x_prediction,
+            "y_prediction": y_prediction,
+            "x_observation_prediction": x_observation_prediction,
+            "y_observation_prediction": y_observation_prediction,
+        }
+    )
+
+
+def forecast_ctrv_prior_predictive(
+    *,
+    x_at_origin: float,
+    y_at_origin: float,
+    origin_time_seconds: float,
+    future_time_seconds,
+    priors: bayesian_model.BayesianCTRVPriors,
+    draw_count: int,
+    seed: int,
+) -> particle_utils.SequentialCTRVFit:
+    """Draw a CTRV forecast from the configured priors at one observed origin."""
+    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance.")
+    if (
+        isinstance(draw_count, bool)
+        or not isinstance(draw_count, (int, np.integer))
+        or draw_count < 2
+    ):
+        raise ValueError("draw_count must be an integer greater than or equal to 2.")
+    seed = numeric_validation.validate_non_negative_integer("seed", seed)
+    x_origin = _finite_scalar(x_at_origin, name="x_at_origin")
+    y_origin = _finite_scalar(y_at_origin, name="y_at_origin")
+    origin_time = _finite_scalar(origin_time_seconds, name="origin_time_seconds")
+    generator = np.random.default_rng(seed)
+    draw_count = int(draw_count)
+    draws = {
+        "x_at_origin": np.full(draw_count, x_origin),
+        "y_at_origin": np.full(draw_count, y_origin),
+        "speed_at_origin": np.abs(
+            generator.normal(0.0, priors.speed_prior_scale, draw_count)
+        ),
+        "heading_at_origin": generator.uniform(-np.pi, np.pi, draw_count),
+        "turn_rate_at_origin": generator.normal(
+            0.0,
+            priors.turn_rate_prior_scale,
+            draw_count,
+        ),
+        "sigma_position_observation": generator.exponential(
+            1.0 / priors.sigma_position_observation_prior_rate,
+            draw_count,
+        ),
+        "sigma_speed_process": generator.exponential(
+            1.0 / priors.sigma_speed_process_prior_rate,
+            draw_count,
+        ),
+        "sigma_turn_rate_process": generator.exponential(
+            1.0 / priors.sigma_turn_rate_process_prior_rate,
+            draw_count,
+        ),
+    }
+    return _forecast_from_origin_draws(
+        draws,
+        origin_time_seconds=origin_time,
+        future_time_seconds=future_time_seconds,
+        generator=generator,
+    )
+
+
 @dataclass(slots=True)
 class SequentialCTRVVI:
     """Persistent one-observation-at-a-time variational CTRV approximation."""
@@ -991,10 +1123,6 @@ class SequentialCTRVVI:
         seed: int,
     ) -> particle_utils.SequentialCTRVFit:
         """Draw future latent trajectories and noisy position observations."""
-        future_times = particle_utils.validate_future_times(
-            future_time_seconds,
-            after=self.last_observation_time_seconds,
-        )
         seed = numeric_validation.validate_non_negative_integer("seed", seed)
         generator = np.random.default_rng(seed)
         draws = sample_gaussian_carry(
@@ -1002,65 +1130,11 @@ class SequentialCTRVVI:
             draw_count=self.config.draws,
             generator=generator,
         )
-        states = np.column_stack(
-            (
-                draws["x_at_origin"],
-                draws["y_at_origin"],
-                draws["speed_at_origin"],
-                draws["heading_at_origin"],
-                draws["turn_rate_at_origin"],
-            )
-        )
-        speed_at_origin = states[:, ctrv_dynamics.STATE_SPEED_INDEX].copy()
-        heading_at_origin = states[:, ctrv_dynamics.STATE_HEADING_INDEX].copy()
-        turn_rate_at_origin = states[:, ctrv_dynamics.STATE_TURN_RATE_INDEX].copy()
-        prediction_count = future_times.size
-        x_prediction = np.empty((self.config.draws, prediction_count))
-        y_prediction = np.empty_like(x_prediction)
-        x_observation_prediction = np.empty_like(x_prediction)
-        y_observation_prediction = np.empty_like(x_prediction)
-        current_time = self.last_observation_time_seconds
-        for prediction_index, prediction_time in enumerate(future_times):
-            interval = float(prediction_time - current_time)
-            states = ctrv_dynamics.transition_states(states, interval)
-            x_prediction[:, prediction_index] = states[:, ctrv_dynamics.STATE_X_INDEX]
-            y_prediction[:, prediction_index] = states[:, ctrv_dynamics.STATE_Y_INDEX]
-            observation_innovation = generator.normal(
-                0.0,
-                draws["sigma_position_observation"][:, None],
-                size=(self.config.draws, 2),
-            )
-            x_observation_prediction[:, prediction_index] = (
-                states[:, ctrv_dynamics.STATE_X_INDEX] + observation_innovation[:, 0]
-            )
-            y_observation_prediction[:, prediction_index] = (
-                states[:, ctrv_dynamics.STATE_Y_INDEX] + observation_innovation[:, 1]
-            )
-            process_scale = ctrv_dynamics.process_time_scale(interval)
-            states[:, ctrv_dynamics.STATE_SPEED_INDEX] += generator.normal(
-                0.0,
-                draws["sigma_speed_process"] * process_scale,
-            )
-            states[:, ctrv_dynamics.STATE_TURN_RATE_INDEX] += generator.normal(
-                0.0,
-                draws["sigma_turn_rate_process"] * process_scale,
-            )
-            ctrv_dynamics.normalize_states(states)
-            current_time = float(prediction_time)
-
-        return particle_utils.SequentialCTRVFit(
-            {
-                "speed_at_origin": speed_at_origin,
-                "heading_at_origin": heading_at_origin,
-                "turn_rate_at_origin": turn_rate_at_origin,
-                "sigma_position_observation": draws["sigma_position_observation"],
-                "sigma_speed_process": draws["sigma_speed_process"],
-                "sigma_turn_rate_process": draws["sigma_turn_rate_process"],
-                "x_prediction": x_prediction,
-                "y_prediction": y_prediction,
-                "x_observation_prediction": x_observation_prediction,
-                "y_observation_prediction": y_observation_prediction,
-            }
+        return _forecast_from_origin_draws(
+            draws,
+            origin_time_seconds=self.last_observation_time_seconds,
+            future_time_seconds=future_time_seconds,
+            generator=generator,
         )
 
     def fit(self, time_seconds, x_observed, y_observed) -> SequentialVIResult:
