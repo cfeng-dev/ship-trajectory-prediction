@@ -191,7 +191,7 @@ def create_default_ctrv_rbpf_config() -> rbpf_model.SequentialCTRVFilterConfig:
 
 
 def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:
-    """Return independent default settings for Bayesian CTRV bootstrap SMC."""
+    """Return independent default settings for Bayesian CTRV guided SMC."""
     return smc_model.SequentialMonteCarloCTRVConfig()
 
 

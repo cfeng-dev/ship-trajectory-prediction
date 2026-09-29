@@ -1,4 +1,4 @@
-"""Online CTRV bootstrap filtering without Rao-Blackwellization."""
+"""Observation-guided online CTRV filtering without Rao-Blackwellization."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import bayestraj.numeric_validation as numeric_validation
 _STATE_COUNT = ctrv_dynamics.STATE_COUNT
 _PARAMETER_COUNT = 3
 _MINIMUM_SCALE = 1e-9
+_MOTION_COUNT = 2
 _STATE_X_INDEX = ctrv_dynamics.STATE_X_INDEX
 _STATE_Y_INDEX = ctrv_dynamics.STATE_Y_INDEX
 _STATE_SPEED_INDEX = ctrv_dynamics.STATE_SPEED_INDEX
@@ -212,7 +213,28 @@ class SequentialMonteCarloCTRVFilter:
         )
         dt = time_seconds - self.last_observation_time_seconds
         process_time_scale = ctrv_dynamics.process_time_scale(dt)
-        proposed_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
+        if self.processed_observation_count == 1:
+            proposed_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
+            parameter_particles = self.parameter_particles
+            with np.errstate(divide="ignore"):
+                base_log_weights = np.log(self.weights)
+            log_proposal_correction = np.zeros(self.config.particle_count)
+            auxiliary_resampled = False
+        else:
+            (
+                proposed_origins,
+                parameter_particles,
+                base_log_weights,
+                log_proposal_correction,
+            ) = self._guided_proposal(
+                dt,
+                x_observed,
+                y_observed,
+                speed_process * process_time_scale,
+                turn_rate_process * process_time_scale,
+            )
+            observation_noise, _, _ = _parameter_values(parameter_particles)
+            auxiliary_resampled = True
         squared_position_error = (x_observed - proposed_origins[:, 0]) ** 2 + (
             y_observed - proposed_origins[:, 1]
         ) ** 2
@@ -222,17 +244,9 @@ class SequentialMonteCarloCTRVFilter:
             - 0.5 * squared_position_error / observation_noise**2
         )
         with np.errstate(divide="ignore"):
-            log_weights = np.log(self.weights) + log_likelihood
-        maximum_log_weight = float(np.max(log_weights))
-        if not np.isfinite(maximum_log_weight):
-            raise RuntimeError("Sequential CTRV SMC particle weights collapsed.")
-        unnormalized_weights = np.exp(log_weights - maximum_log_weight)
-        weight_sum = float(np.sum(unnormalized_weights))
-        if not np.isfinite(weight_sum) or weight_sum <= 0.0:
-            raise RuntimeError("Sequential CTRV SMC particle weights collapsed.")
-        weights = unnormalized_weights / weight_sum
+            log_weights = base_log_weights + log_likelihood + log_proposal_correction
+        weights = _normalized_weights(log_weights)
         effective_sample_size = float(1.0 / np.sum(weights**2))
-        parameter_particles = self.parameter_particles
         resampled = effective_sample_size < (
             self.config.resample_ess_fraction * self.config.particle_count
         )
@@ -261,8 +275,157 @@ class SequentialMonteCarloCTRVFilter:
         self.last_observation_time_seconds = time_seconds
         self.processed_observation_count += 1
         self.last_effective_sample_size = effective_sample_size
-        if resampled:
-            self.resample_count += 1
+        self.resample_count += int(auxiliary_resampled) + int(resampled)
+
+    def _guided_proposal(
+        self,
+        dt: float,
+        x_observed: float,
+        y_observed: float,
+        speed_process_scale: np.ndarray,
+        turn_rate_process_scale: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Propose interval motion near the new fix and return log corrections."""
+        base_states = self._forecast_origins().copy()
+        observation_noise, _, _ = _parameter_values(self.parameter_particles)
+        # Position fixes cannot identify heading while translation is below the
+        # observation scale. Restore its circular support before resampling can
+        # turn that numerical ancestry loss into a false physical certainty.
+        if np.median(base_states[:, _STATE_SPEED_INDEX]) * dt <= (
+            2.0 * np.median(observation_noise)
+        ):
+            base_states[:, _STATE_HEADING_INDEX] = self.generator.uniform(
+                -np.pi,
+                np.pi,
+                self.config.particle_count,
+            )
+        prior_motion = base_states[:, [_STATE_SPEED_INDEX, _STATE_TURN_RATE_INDEX]]
+        delta_x = x_observed - base_states[:, _STATE_X_INDEX]
+        delta_y = y_observed - base_states[:, _STATE_Y_INDEX]
+        chord_heading = np.arctan2(delta_y, delta_x)
+        half_turn = ctrv_dynamics.wrap_angles(
+            chord_heading - base_states[:, _STATE_HEADING_INDEX]
+        )
+        observed_turn_rate = 2.0 * half_turn / dt
+        distance = np.hypot(delta_x, delta_y)
+        distance_per_speed = dt * np.sinc(half_turn / np.pi)
+        observed_speed = distance / np.maximum(
+            np.abs(distance_per_speed), _MINIMUM_SCALE
+        )
+        observed_motion = np.column_stack((observed_speed, observed_turn_rate))
+
+        linearization_states = base_states.copy()
+        linearization_states[:, _STATE_SPEED_INDEX] = observed_speed
+        linearization_states[:, _STATE_TURN_RATE_INDEX] = observed_turn_rate
+        position_jacobians = ctrv_dynamics.transition_jacobians(
+            linearization_states,
+            dt,
+        )[:, :2, :][:, :, [_STATE_SPEED_INDEX, _STATE_TURN_RATE_INDEX]]
+        prior_variances = np.column_stack(
+            (speed_process_scale**2, turn_rate_process_scale**2)
+        )
+        observation_variances = observation_noise**2
+        innovation_covariances = np.einsum(
+            "nij,nj,nkj->nik",
+            position_jacobians,
+            prior_variances,
+            position_jacobians,
+        )
+        innovation_covariances[:, 0, 0] += observation_variances
+        innovation_covariances[:, 1, 1] += observation_variances
+        innovation_inverses, _ = _invert_two_by_two_matrices(innovation_covariances)
+        gains = np.einsum(
+            "ni,nji,njk->nik",
+            prior_variances,
+            position_jacobians,
+            innovation_inverses,
+        )
+        proposal_means = prior_motion + np.einsum(
+            "nij,njk,nk->ni",
+            gains,
+            position_jacobians,
+            observed_motion - prior_motion,
+        )
+        proposal_covariances = np.zeros(
+            (self.config.particle_count, _MOTION_COUNT, _MOTION_COUNT),
+            dtype=float,
+        )
+        proposal_covariances[:, 0, 0] = prior_variances[:, 0]
+        proposal_covariances[:, 1, 1] = prior_variances[:, 1]
+        proposal_covariances -= np.einsum(
+            "nij,njk,nkl->nil",
+            gains,
+            position_jacobians,
+            proposal_covariances.copy(),
+        )
+        proposal_covariances = _regularize_two_by_two_covariances(proposal_covariances)
+
+        prior_states = base_states.copy()
+        prior_states[:, _STATE_SPEED_INDEX] = prior_motion[:, 0]
+        prior_states[:, _STATE_TURN_RATE_INDEX] = prior_motion[:, 1]
+        prior_positions = ctrv_dynamics.transition_states(prior_states, dt)[:, :2]
+        prediction_residuals = np.column_stack(
+            (x_observed - prior_positions[:, 0], y_observed - prior_positions[:, 1])
+        )
+        _, innovation_log_determinants = _invert_two_by_two_matrices(
+            innovation_covariances
+        )
+        predictive_log_density = (
+            -np.log(2.0 * np.pi)
+            - 0.5 * innovation_log_determinants
+            - 0.5
+            * np.einsum(
+                "ni,nij,nj->n",
+                prediction_residuals,
+                innovation_inverses,
+                prediction_residuals,
+            )
+        )
+        with np.errstate(divide="ignore"):
+            auxiliary_log_weights = np.log(self.weights) + predictive_log_density
+        auxiliary_weights = _normalized_weights(auxiliary_log_weights)
+        ancestor_indices = particle_utils.systematic_resample(
+            auxiliary_weights,
+            self.generator,
+        )
+        base_states = base_states[ancestor_indices]
+        prior_motion = prior_motion[ancestor_indices]
+        prior_variances = prior_variances[ancestor_indices]
+        proposal_means = proposal_means[ancestor_indices]
+        proposal_covariances = proposal_covariances[ancestor_indices]
+        predictive_log_density = predictive_log_density[ancestor_indices]
+        parameter_particles = self.parameter_particles[ancestor_indices].copy()
+
+        proposed_motion = _sample_two_dimensional_gaussians(
+            proposal_means,
+            proposal_covariances,
+            self.generator,
+        )
+        proposed_motion[:, 0] = np.maximum(
+            np.abs(proposed_motion[:, 0]),
+            ctrv_dynamics.SPEED_STATE_LOWER_MPS,
+        )
+
+        proposal_states = base_states.copy()
+        proposal_states[:, _STATE_SPEED_INDEX] = proposed_motion[:, 0]
+        proposal_states[:, _STATE_TURN_RATE_INDEX] = proposed_motion[:, 1]
+        proposed_origins = ctrv_dynamics.transition_states(proposal_states, dt)
+        log_prior = _folded_motion_log_density(
+            proposed_motion,
+            prior_motion,
+            prior_variances,
+        )
+        log_proposal = _folded_bivariate_log_density(
+            proposed_motion,
+            proposal_means,
+            proposal_covariances,
+        )
+        return (
+            proposed_origins,
+            parameter_particles,
+            np.zeros(self.config.particle_count),
+            log_prior - log_proposal - predictive_log_density,
+        )
 
     def sample_current_posterior(
         self,
@@ -420,3 +583,112 @@ def _parameter_values(parameter_particles: np.ndarray):
     if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
         raise RuntimeError("Sequential CTRV SMC parameters became invalid.")
     return values[:, 0], values[:, 1], values[:, 2]
+
+
+def _normalized_weights(log_weights: np.ndarray) -> np.ndarray:
+    """Normalize log weights or raise when no finite particle remains."""
+    maximum_log_weight = float(np.max(log_weights))
+    if not np.isfinite(maximum_log_weight):
+        raise RuntimeError("Sequential CTRV SMC particle weights collapsed.")
+    unnormalized_weights = np.exp(log_weights - maximum_log_weight)
+    weight_sum = float(np.sum(unnormalized_weights))
+    if not np.isfinite(weight_sum) or weight_sum <= 0.0:
+        raise RuntimeError("Sequential CTRV SMC particle weights collapsed.")
+    return unnormalized_weights / weight_sum
+
+
+def _invert_two_by_two_matrices(
+    matrices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return stable inverses and log determinants for positive 2x2 matrices."""
+    determinant = (
+        matrices[:, 0, 0] * matrices[:, 1, 1] - matrices[:, 0, 1] * matrices[:, 1, 0]
+    )
+    determinant = np.maximum(determinant, _MINIMUM_SCALE**2)
+    inverses = np.empty_like(matrices)
+    inverses[:, 0, 0] = matrices[:, 1, 1] / determinant
+    inverses[:, 0, 1] = -matrices[:, 0, 1] / determinant
+    inverses[:, 1, 0] = -matrices[:, 1, 0] / determinant
+    inverses[:, 1, 1] = matrices[:, 0, 0] / determinant
+    return inverses, np.log(determinant)
+
+
+def _regularize_two_by_two_covariances(covariances: np.ndarray) -> np.ndarray:
+    """Return symmetric positive 2x2 covariance matrices."""
+    symmetric = 0.5 * (covariances + np.swapaxes(covariances, 1, 2))
+    eigenvalues, eigenvectors = np.linalg.eigh(symmetric)
+    eigenvalues = np.maximum(eigenvalues, _MINIMUM_SCALE)
+    return np.einsum(
+        "nij,nj,nkj->nik",
+        eigenvectors,
+        eigenvalues,
+        eigenvectors,
+    )
+
+
+def _sample_two_dimensional_gaussians(
+    means: np.ndarray,
+    covariances: np.ndarray,
+    generator: np.random.Generator,
+) -> np.ndarray:
+    """Draw one sample from every matching two-dimensional Gaussian."""
+    cholesky = np.linalg.cholesky(covariances)
+    innovations = generator.normal(size=means.shape)
+    return means + np.einsum("nij,nj->ni", cholesky, innovations)
+
+
+def _folded_motion_log_density(
+    values: np.ndarray,
+    means: np.ndarray,
+    variances: np.ndarray,
+) -> np.ndarray:
+    """Evaluate independent Gaussian motion density after speed reflection."""
+    speed_scale = np.sqrt(variances[:, 0])
+    turn_rate_scale = np.sqrt(variances[:, 1])
+    positive_speed = _normal_log_density(values[:, 0], means[:, 0], speed_scale)
+    negative_speed = _normal_log_density(-values[:, 0], means[:, 0], speed_scale)
+    return np.logaddexp(positive_speed, negative_speed) + _normal_log_density(
+        values[:, 1],
+        means[:, 1],
+        turn_rate_scale,
+    )
+
+
+def _folded_bivariate_log_density(
+    values: np.ndarray,
+    means: np.ndarray,
+    covariances: np.ndarray,
+) -> np.ndarray:
+    """Evaluate correlated Gaussian proposal density after speed reflection."""
+    inverses, log_determinants = _invert_two_by_two_matrices(covariances)
+    positive_residuals = values - means
+    negative_values = values.copy()
+    negative_values[:, 0] *= -1.0
+    negative_residuals = negative_values - means
+    positive_quadratic = np.einsum(
+        "ni,nij,nj->n",
+        positive_residuals,
+        inverses,
+        positive_residuals,
+    )
+    negative_quadratic = np.einsum(
+        "ni,nij,nj->n",
+        negative_residuals,
+        inverses,
+        negative_residuals,
+    )
+    normalization = -np.log(2.0 * np.pi) - 0.5 * log_determinants
+    return np.logaddexp(
+        normalization - 0.5 * positive_quadratic,
+        normalization - 0.5 * negative_quadratic,
+    )
+
+
+def _normal_log_density(
+    values: np.ndarray,
+    means: np.ndarray,
+    scales: np.ndarray,
+) -> np.ndarray:
+    """Return elementwise univariate Normal log densities."""
+    standardized = (values - means) / scales
+    return -0.5 * np.log(2.0 * np.pi) - np.log(scales) - 0.5 * standardized**2
