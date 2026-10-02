@@ -35,10 +35,11 @@ PRIOR_FIELD_GROUPS = (
         ),
     ),
     (
-        "Observation noise — exponential distribution",
+        "Additional observation noise — exponential distribution",
         (
             "sigma_position_observation_prior_upper_m",
             "sigma_position_observation_prior_tail_probability",
+            "sigma_position_observation_floor_m",
         ),
     ),
     (

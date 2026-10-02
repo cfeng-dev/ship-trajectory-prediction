@@ -151,6 +151,7 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
         "turn_rate_prior_tail_probability": "0.05",
         "sigma_position_observation_prior_upper_m": "20.0",
         "sigma_position_observation_prior_tail_probability": "0.05",
+        "sigma_position_observation_floor_m": "5.0",
         "sigma_speed_process_prior_upper_mps": "2.0",
         "sigma_speed_process_prior_tail_probability": "0.05",
         "sigma_turn_rate_process_prior_upper_deg_s": "2.0",

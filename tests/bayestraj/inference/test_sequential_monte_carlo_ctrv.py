@@ -7,6 +7,8 @@ import pytest
 
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
+from bayestraj.observations.io import read_processed_trajectory
+from bayestraj.observations.paths import data_path
 
 
 def test_smc_config_has_comparable_particle_filter_defaults():
@@ -16,6 +18,51 @@ def test_smc_config_has_comparable_particle_filter_defaults():
     assert config.posterior_draw_count == 1_000
     assert config.resample_ess_fraction == 0.5
     assert config.rejuvenation_scale == 0.05
+
+
+def test_smc_preserves_forecast_spread_for_the_noiseless_htwg_update():
+    """The real HTWG route must not collapse to a false point forecast at N=669."""
+    trajectory = read_processed_trajectory(
+        data_path("processed/ship_trajectory_htwg.csv")
+    )
+    selected_indices = [0]
+    latest_time = float(trajectory.loc[0, "time"])
+    for index, time_seconds in enumerate(trajectory["time"].iloc[1:], start=1):
+        if time_seconds - latest_time >= 1.0:
+            selected_indices.append(index)
+            latest_time = float(time_seconds)
+    selected = trajectory.iloc[selected_indices].reset_index(drop=True)
+    time_seconds = selected["time"].to_numpy(dtype=float)
+    x_observed = selected["x"].to_numpy(dtype=float)
+    y_observed = selected["y"].to_numpy(dtype=float)
+
+    priors = ctrv_model.BayesianCTRVPriors()
+    assert priors.sigma_position_observation_floor_m == pytest.approx(5.0)
+    online_filter = smc.SequentialMonteCarloCTRVFilter.initialize(
+        time_seconds[:669],
+        x_observed[:669],
+        y_observed[:669],
+        priors=priors,
+        config=smc.SequentialMonteCarloCTRVConfig(),
+        seed=42,
+    )
+    forecast = online_filter.forecast(time_seconds[669:671], seed=1_000_042)
+    first_prediction = np.array(
+        [
+            np.median(forecast.stan_variable("x_prediction")[:, 0]),
+            np.median(forecast.stan_variable("y_prediction")[:, 0]),
+        ]
+    )
+    first_reference = np.array([x_observed[669], y_observed[669]])
+    spread = np.array(
+        [
+            np.std(forecast.stan_variable("x_prediction")[:, 0]),
+            np.std(forecast.stan_variable("y_prediction")[:, 0]),
+        ]
+    )
+
+    assert np.min(spread) > 1.0
+    assert np.linalg.norm(first_prediction - first_reference) < 5.0
 
 
 def test_smc_initializes_weighted_full_state_and_parameter_particles():

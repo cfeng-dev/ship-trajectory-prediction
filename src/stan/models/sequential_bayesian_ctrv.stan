@@ -34,6 +34,7 @@ data {
   real y_observed;
   real<lower=1e-6> process_reference_interval_seconds;
   real<lower=1e-12> minimum_positive_scale;
+  real<lower=0> sigma_position_observation_floor_m;
 }
 
 parameters {
@@ -49,7 +50,9 @@ transformed parameters {
   real previous_speed = fmax(exp(previous_transformed[3]), minimum_positive_scale);
   real previous_heading = wrap_angle(heading_reference + previous_transformed[4]);
   real previous_turn_rate = previous_transformed[5];
-  real sigma_position_observation = fmax(exp(previous_transformed[6]), minimum_positive_scale);
+  real sigma_position_observation = sqrt(
+      square(sigma_position_observation_floor_m)
+      + square(fmax(exp(previous_transformed[6]), minimum_positive_scale)));
   real sigma_speed_process = fmax(exp(previous_transformed[7]), minimum_positive_scale);
   real sigma_turn_rate_process = fmax(exp(previous_transformed[8]), minimum_positive_scale);
   real process_time_scale = sqrt(process_interval_seconds / process_reference_interval_seconds);

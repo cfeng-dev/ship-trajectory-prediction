@@ -119,6 +119,17 @@ def test_sample_gaussian_carry_keeps_stationary_speed_non_negative() -> None:
     assert np.all(np.abs(draws["heading_at_origin"]) <= np.pi)
 
 
+def test_sample_gaussian_carry_applies_the_position_noise_floor() -> None:
+    draws = sequential_vi.sample_gaussian_carry(
+        _carry(),
+        draw_count=20,
+        generator=np.random.default_rng(42),
+        position_observation_noise_floor_m=5.0,
+    )
+
+    assert np.all(draws["sigma_position_observation"] >= 5.0)
+
+
 def test_transformed_draws_rejects_non_positive_sigma() -> None:
     variables = _origin_variables()
     variables["sigma_speed_process"] = np.array([0.5, 0.0, 0.4])

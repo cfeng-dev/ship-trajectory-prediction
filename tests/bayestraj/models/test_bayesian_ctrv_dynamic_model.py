@@ -120,6 +120,9 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     priors = ctrv_model.BayesianCTRVPriors()
     stan_data = ctrv_model.build_stan_data(_dynamic_ctrv_window(), priors=priors)
 
+    assert stan_data["sigma_position_observation_floor_m"] == pytest.approx(
+        priors.sigma_position_observation_floor_m
+    )
     assert stan_data["sigma_speed_process_prior_rate"] == pytest.approx(
         priors.sigma_speed_process_prior_rate
     )

@@ -84,6 +84,7 @@ class SequentialBayesianCTRVFilter:
     last_effective_sample_size: float | None = None
     forecast_origin_means: np.ndarray | None = None
     forecast_origin_covariances: np.ndarray | None = None
+    position_observation_noise_floor_m: float = 0.0
 
     @classmethod
     def initialize(
@@ -134,12 +135,16 @@ class SequentialBayesianCTRVFilter:
             priors.turn_rate_prior_scale,
             particle_count,
         )
-        observation_noise = np.maximum(
+        observation_noise_excess = np.maximum(
             generator.exponential(
                 1.0 / priors.sigma_position_observation_prior_rate,
                 particle_count,
             ),
             1e-6,
+        )
+        observation_noise = np.hypot(
+            observation_noise_excess,
+            priors.sigma_position_observation_floor_m,
         )
         speed_process = np.maximum(
             generator.exponential(
@@ -155,7 +160,9 @@ class SequentialBayesianCTRVFilter:
             ),
             1e-9,
         )
-        parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX] = np.log(observation_noise)
+        parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX] = np.log(
+            observation_noise_excess
+        )
         parameter_particles[:, _LOG_SPEED_PROCESS_INDEX] = np.log(speed_process)
         parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX] = np.log(turn_rate_process)
         state_means = np.column_stack(
@@ -194,6 +201,9 @@ class SequentialBayesianCTRVFilter:
             processed_observation_count=1,
             forecast_origin_means=state_means.copy(),
             forecast_origin_covariances=state_covariances.copy(),
+            position_observation_noise_floor_m=(
+                priors.sigma_position_observation_floor_m
+            ),
         )
         online_filter.update_many(
             time_seconds[1:],
@@ -251,7 +261,12 @@ class SequentialBayesianCTRVFilter:
             y_observed,
         )
         observation_noise, speed_process, turn_rate_process = (
-            _sequential_parameter_values(self.parameter_particles)
+            _sequential_parameter_values(
+                self.parameter_particles,
+                position_observation_noise_floor_m=(
+                    self.position_observation_noise_floor_m
+                ),
+            )
         )
         dt = time_seconds - self.last_observation_time_seconds
         process_variance_scale = ctrv_dynamics.process_time_scale(dt) ** 2
@@ -360,7 +375,12 @@ class SequentialBayesianCTRVFilter:
         )
         ctrv_dynamics.normalize_states(states)
         observation_noise, speed_process, turn_rate_process = (
-            _sequential_parameter_values(parameters)
+            _sequential_parameter_values(
+                parameters,
+                position_observation_noise_floor_m=(
+                    self.position_observation_noise_floor_m
+                ),
+            )
         )
         return particle_utils.SequentialCTRVFit(
             {
@@ -402,7 +422,12 @@ class SequentialBayesianCTRVFilter:
         )
         ctrv_dynamics.normalize_states(states)
         observation_noise, speed_process, turn_rate_process = (
-            _sequential_parameter_values(parameters)
+            _sequential_parameter_values(
+                parameters,
+                position_observation_noise_floor_m=(
+                    self.position_observation_noise_floor_m
+                ),
+            )
         )
         speed_at_origin = states[:, _STATE_SPEED_INDEX].copy()
         heading_at_origin = states[:, _STATE_HEADING_INDEX].copy()
@@ -509,12 +534,28 @@ class SequentialBayesianCTRVFilter:
         self.resample_count += 1
 
 
-def _sequential_parameter_values(parameter_particles: np.ndarray):
+def _sequential_parameter_values(
+    parameter_particles: np.ndarray,
+    *,
+    position_observation_noise_floor_m: float = 0.0,
+):
     """Transform unconstrained particles to positive process-scale arrays."""
+    position_observation_noise_floor_m = (
+        numeric_validation.validate_non_negative_finite(
+            "position_observation_noise_floor_m",
+            position_observation_noise_floor_m,
+        )
+    )
+    values = np.exp(parameter_particles)
+    if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
+        raise RuntimeError("Sequential CTRV particle parameters became invalid.")
     return (
-        np.exp(parameter_particles[:, _LOG_OBSERVATION_NOISE_INDEX]),
-        np.exp(parameter_particles[:, _LOG_SPEED_PROCESS_INDEX]),
-        np.exp(parameter_particles[:, _LOG_TURN_RATE_PROCESS_INDEX]),
+        np.hypot(
+            values[:, _LOG_OBSERVATION_NOISE_INDEX],
+            position_observation_noise_floor_m,
+        ),
+        values[:, _LOG_SPEED_PROCESS_INDEX],
+        values[:, _LOG_TURN_RATE_PROCESS_INDEX],
     )
 
 

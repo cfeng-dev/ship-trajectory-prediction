@@ -424,6 +424,29 @@ def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
         assert np.all(np.isfinite(samples))
 
 
+def test_ctrv_rbpf_enforces_the_shared_position_noise_floor():
+    priors = ctrv_model.BayesianCTRVPriors()
+    online_filter = rbpf_model.SequentialBayesianCTRVFilter.initialize(
+        np.arange(5, dtype=float),
+        np.arange(5, dtype=float),
+        np.zeros(5),
+        priors=priors,
+        config=rbpf_model.SequentialCTRVFilterConfig(
+            particle_count=32,
+            posterior_draw_count=8,
+        ),
+        seed=42,
+    )
+
+    fit = online_filter.sample_current_posterior(seed=43)
+    observation_noise = reporting.posterior_variable_samples(
+        fit,
+        "sigma_position_observation",
+    )
+
+    assert np.all(observation_noise >= priors.sigma_position_observation_floor_m)
+
+
 def test_ctrv_rbpf_samples_current_posterior_without_advancing_filter():
     online_filter = rbpf_model.SequentialBayesianCTRVFilter.initialize(
         np.arange(5, dtype=float),

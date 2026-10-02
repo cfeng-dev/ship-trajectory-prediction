@@ -115,8 +115,14 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     generator = np.random.default_rng(seed)
     x_true = _smooth_position_initials(stan_data["x_observed"])
     y_true = _smooth_position_initials(stan_data["y_observed"])
-    observation_noise_initial = 1.0 / float(
+    observation_noise_excess_initial = 1.0 / float(
         stan_data["sigma_position_observation_prior_rate"]
+    )
+    observation_noise_initial = float(
+        np.hypot(
+            observation_noise_excess_initial,
+            stan_data["sigma_position_observation_floor_m"],
+        )
     )
     latent_jitter_scale = 0.02 * observation_noise_initial
     x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
@@ -148,7 +154,9 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         ),
         "turn_rate_state": turn_rate
         + generator.normal(0.0, turn_jitter, transition_count),
-        "sigma_position_observation": float(observation_noise_initial),
+        "sigma_position_observation_excess": float(
+            observation_noise_excess_initial
+        ),
         "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
         "sigma_turn_rate_process": float(
             0.5 / stan_data["sigma_turn_rate_process_prior_rate"]

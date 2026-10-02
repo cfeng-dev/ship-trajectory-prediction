@@ -43,6 +43,7 @@ data {
   real<lower=0> speed_prior_scale;
   real<lower=0> turn_rate_prior_scale;
   real<lower=1e-6> sigma_position_observation_prior_rate;
+  real<lower=0> sigma_position_observation_floor_m;
   real<lower=1e-6> sigma_speed_process_prior_rate;
   real<lower=1e-6> sigma_turn_rate_process_prior_rate;
 
@@ -79,8 +80,8 @@ parameters {
   real<lower=-pi(), upper=pi()> heading_initial;
   vector[N_history - 1] turn_rate_state;
 
-  // Inferred observation and dynamic process-noise scales.
-  real<lower=1e-6> sigma_position_observation;
+  // Inferred excess observation noise and dynamic process-noise scales.
+  real<lower=0> sigma_position_observation_excess;
   real<lower=1e-6> sigma_speed_process;
   real<lower=1e-6> sigma_turn_rate_process;
 }
@@ -91,6 +92,11 @@ transformed parameters {
   vector[N_history] x_state;
   vector[N_history] y_state;
   vector[N_history] heading_state;
+  real<lower=sigma_position_observation_floor_m> sigma_position_observation;
+
+  sigma_position_observation = sqrt(
+      square(sigma_position_observation_floor_m)
+      + square(sigma_position_observation_excess));
 
   // Initialize the trajectory at the first observed state.
   x_state[1] = x_initial;
@@ -121,7 +127,7 @@ model {
   speed_state[1] ~ normal(0, speed_prior_scale);
   heading_initial ~ uniform(-pi(), pi());
   turn_rate_state[1] ~ normal(0, turn_rate_prior_scale);
-  sigma_position_observation ~ exponential(sigma_position_observation_prior_rate);
+  sigma_position_observation_excess ~ exponential(sigma_position_observation_prior_rate);
   sigma_speed_process ~ exponential(sigma_speed_process_prior_rate);
   sigma_turn_rate_process ~ exponential(sigma_turn_rate_process_prior_rate);
 
