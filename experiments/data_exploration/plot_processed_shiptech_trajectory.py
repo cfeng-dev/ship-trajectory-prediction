@@ -1,0 +1,26 @@
+"""Plot the processed Shiptech trajectory."""
+
+import pandas as pd
+
+import bayestraj.observations.paths as paths
+import bayestraj.observations.plotting as plotting
+
+INPUT_CSV = paths.data_path("processed/ship_trajectory_run_42.csv")
+TRAJECTORY_LABEL = "Shiptech-Trajektorie"
+PLOT_TITLE = "Shiptech-Trajektorie mit Fahrtrichtung"
+DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
+
+
+def main() -> None:
+    """Plot the configured processed Shiptech trajectory."""
+    trajectory_data = pd.read_csv(INPUT_CSV)
+    plotting.plot_processed_trajectory(
+        trajectory_data,
+        trajectory_label=TRAJECTORY_LABEL,
+        title=PLOT_TITLE,
+        direction_arrow_interval_seconds=DIRECTION_ARROW_INTERVAL_SECONDS,
+    )
+
+
+if __name__ == "__main__":
+    main()

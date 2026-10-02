@@ -295,6 +295,157 @@ def plot_ship_trajectory(
     plt.show()
 
 
+def plot_processed_trajectory(
+    data,
+    *,
+    trajectory_label="Schiffstrajektorie",
+    title="Schiffstrajektorie mit Fahrtrichtung",
+    direction_arrow_interval_seconds=180.0,
+    plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
+):
+    """Plot a processed local trajectory with time-spaced direction arrows."""
+    required_columns = ("time", "x", "y")
+    missing_columns = [
+        column for column in required_columns if column not in data.columns
+    ]
+    if missing_columns:
+        raise ValueError(f"Processed trajectory is missing columns: {missing_columns}")
+    if len(data) < 2:
+        raise ValueError("A processed trajectory must contain at least two samples.")
+
+    try:
+        time_seconds, x_coordinates, y_coordinates = np.asarray(
+            data.loc[:, required_columns],
+            dtype=float,
+        ).T
+    except (TypeError, ValueError) as error:
+        raise ValueError("Processed time, x, and y values must be numeric.") from error
+    if not all(
+        np.all(np.isfinite(values))
+        for values in (time_seconds, x_coordinates, y_coordinates)
+    ):
+        raise ValueError("Processed time, x, and y values must be finite.")
+    if np.any(np.diff(time_seconds) <= 0.0):
+        raise ValueError("Processed time values must be strictly increasing.")
+
+    if direction_arrow_interval_seconds is not None:
+        if isinstance(direction_arrow_interval_seconds, bool):
+            raise ValueError(
+                "direction_arrow_interval_seconds must be positive or None."
+            )
+        try:
+            direction_arrow_interval_seconds = float(direction_arrow_interval_seconds)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "direction_arrow_interval_seconds must be positive or None."
+            ) from error
+        if (
+            not np.isfinite(direction_arrow_interval_seconds)
+            or direction_arrow_interval_seconds <= 0.0
+        ):
+            raise ValueError(
+                "direction_arrow_interval_seconds must be positive or None."
+            )
+
+    figure, axis = plt.subplots(figsize=plot_style.trajectory_figure_size)
+    trajectory_line = axis.plot(
+        x_coordinates,
+        y_coordinates,
+        color=plot_style.recorded_data_color,
+        marker="o",
+        markersize=TRAJECTORY_MARKER_SIZE,
+        linewidth=TRAJECTORY_LINE_WIDTH,
+        label=trajectory_label,
+    )[0]
+    start_marker = axis.scatter(
+        x_coordinates[0],
+        y_coordinates[0],
+        s=START_MARKER_SIZE,
+        color=START_COLOR,
+        marker="o",
+        label="Start",
+        zorder=4,
+    )
+    end_marker = axis.scatter(
+        x_coordinates[-1],
+        y_coordinates[-1],
+        s=END_MARKER_SIZE,
+        color=END_COLOR,
+        alpha=END_ALPHA,
+        marker="X",
+        label="Ende",
+        zorder=5,
+    )
+
+    direction_arrow_indices = ()
+    if direction_arrow_interval_seconds is not None:
+        direction_arrow_indices = [0]
+        next_arrow_time = time_seconds[0] + direction_arrow_interval_seconds
+        for index, time_value in enumerate(time_seconds[1:-1], start=1):
+            if time_value >= next_arrow_time:
+                direction_arrow_indices.append(index)
+                next_arrow_time = time_value + direction_arrow_interval_seconds
+
+        for index in direction_arrow_indices:
+            axis.annotate(
+                "",
+                xy=(x_coordinates[index + 1], y_coordinates[index + 1]),
+                xytext=(x_coordinates[index], y_coordinates[index]),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "color": plot_style.derived_data_color,
+                    "linewidth": DIRECTION_LINE_WIDTH,
+                    "mutation_scale": ARROW_MUTATION_SCALE,
+                },
+            )
+
+    axis.set_xlabel("Ostposition x [m]", fontsize=plot_style.axis_label_font_size)
+    axis.set_ylabel("Nordposition y [m]", fontsize=plot_style.axis_label_font_size)
+    axis.set_title(
+        title,
+        pad=plot_style.title_pad,
+        fontsize=plot_style.title_font_size,
+        fontweight=plot_style.title_font_weight,
+    )
+    axis.grid(True)
+    axis.set_aspect("equal", adjustable="box")
+    axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
+
+    x_center = (x_coordinates.min() + x_coordinates.max()) / 2
+    y_center = (y_coordinates.min() + y_coordinates.max()) / 2
+    data_range = max(np.ptp(x_coordinates), np.ptp(y_coordinates))
+    margin = max(data_range * 0.05, MIN_AXIS_MARGIN_METERS)
+    plot_range = max(data_range + 2 * margin, 2 * MIN_AXIS_MARGIN_METERS)
+    axis.set_xlim(x_center - plot_range / 2, x_center + plot_range / 2)
+    axis.set_ylim(y_center - plot_range / 2, y_center + plot_range / 2)
+    axis.ticklabel_format(useOffset=False, style="plain")
+
+    if plot_style.show_legend:
+        legend_handles = [trajectory_line, start_marker, end_marker]
+        legend_handler_map = {}
+        if direction_arrow_indices:
+            direction_handle = FancyArrowPatch(
+                (0, 0),
+                (1, 0),
+                arrowstyle="->",
+                color=plot_style.derived_data_color,
+                linewidth=DIRECTION_LINE_WIDTH,
+                mutation_scale=ARROW_MUTATION_SCALE,
+                label="Fahrtrichtung",
+            )
+            legend_handles.append(direction_handle)
+            legend_handler_map[FancyArrowPatch] = HandlerDirectionArrow()
+        axis.legend(
+            handles=legend_handles,
+            handler_map=legend_handler_map,
+            loc=plot_style.legend_location,
+        )
+
+    figure.tight_layout()
+    plt.show()
+    return figure, axis
+
+
 def plot_ship_speeds(
     data,
     speed_unit="km/h",
