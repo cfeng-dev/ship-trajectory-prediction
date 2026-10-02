@@ -7,8 +7,9 @@ import bayestraj.observations.plotting as plotting
 
 INPUT_CSV = paths.data_path("processed/ship_trajectory_run_42.csv")
 TRAJECTORY_LABEL = "Shiptech-Trajektorie"
-PLOT_TITLE = "Shiptech-Trajektorie mit Fahrtrichtung"
 DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
+POSITION_NOISE_STD_M = 5.0  # Per x/y axis [m]; 0 disables.
+POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 
 
 def main() -> None:
@@ -17,8 +18,9 @@ def main() -> None:
     plotting.plot_processed_trajectory(
         trajectory_data,
         trajectory_label=TRAJECTORY_LABEL,
-        title=PLOT_TITLE,
         direction_arrow_interval_seconds=DIRECTION_ARROW_INTERVAL_SECONDS,
+        position_noise_std_m=POSITION_NOISE_STD_M,
+        position_noise_seed=POSITION_NOISE_SEED,
     )
 
 

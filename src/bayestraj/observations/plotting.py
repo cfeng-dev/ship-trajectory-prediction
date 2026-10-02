@@ -8,6 +8,7 @@ from matplotlib import dates as mdates
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
 
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.window as observation_window
 
@@ -299,11 +300,13 @@ def plot_processed_trajectory(
     data,
     *,
     trajectory_label="Schiffstrajektorie",
-    title="Schiffstrajektorie mit Fahrtrichtung",
+    title=None,
     direction_arrow_interval_seconds=180.0,
+    position_noise_std_m=0.0,
+    position_noise_seed=2026,
     plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
 ):
-    """Plot a processed local trajectory with time-spaced direction arrows."""
+    """Plot a processed local trajectory with optional reproducible position noise."""
     required_columns = ("time", "x", "y")
     missing_columns = [
         column for column in required_columns if column not in data.columns
@@ -327,6 +330,31 @@ def plot_processed_trajectory(
         raise ValueError("Processed time, x, and y values must be finite.")
     if np.any(np.diff(time_seconds) <= 0.0):
         raise ValueError("Processed time values must be strictly increasing.")
+
+    position_noise_std_m = numeric_validation.validate_non_negative_finite(
+        "position_noise_std_m",
+        position_noise_std_m,
+    )
+    position_noise_seed = numeric_validation.validate_non_negative_integer(
+        "position_noise_seed",
+        position_noise_seed,
+    )
+    if position_noise_std_m > 0.0:
+        generator = np.random.default_rng(position_noise_seed)
+        x_coordinates = generator.normal(
+            loc=x_coordinates,
+            scale=position_noise_std_m,
+        )
+        y_coordinates = generator.normal(
+            loc=y_coordinates,
+            scale=position_noise_std_m,
+        )
+
+    displayed_trajectory_label = trajectory_label
+    if position_noise_std_m > 0.0:
+        displayed_trajectory_label = f"Verrauschte {trajectory_label}"
+    if title is None:
+        title = f"{displayed_trajectory_label} mit Fahrtrichtung"
 
     if direction_arrow_interval_seconds is not None:
         if isinstance(direction_arrow_interval_seconds, bool):
@@ -355,7 +383,7 @@ def plot_processed_trajectory(
         marker="o",
         markersize=TRAJECTORY_MARKER_SIZE,
         linewidth=TRAJECTORY_LINE_WIDTH,
-        label=trajectory_label,
+        label=displayed_trajectory_label,
     )[0]
     start_marker = axis.scatter(
         x_coordinates[0],
