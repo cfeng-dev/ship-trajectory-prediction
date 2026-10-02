@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import bayestraj.observations.io as observations_io
-from bayestraj.observations.io import export_processed_trajectory
+from bayestraj.observations.io import export_shiptech_trajectory
 
 
 def _write_raw_ship_data(csv_path, rows):
@@ -29,7 +29,7 @@ def _raw_ship_row(
     }
 
 
-def test_export_processed_trajectory_writes_sorted_position_only_data(tmp_path):
+def test_export_shiptech_trajectory_writes_sorted_position_only_data(tmp_path):
     """Exporting one run preserves its irregular timestamp spacing and positions."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -74,7 +74,7 @@ def test_export_processed_trajectory_writes_sorted_position_only_data(tmp_path):
     )
     raw_contents = input_csv.read_bytes()
 
-    output_path = export_processed_trajectory(
+    output_path = export_shiptech_trajectory(
         input_csv=input_csv,
         run_id=42,
         output_dir=tmp_path / "processed",
@@ -92,7 +92,7 @@ def test_export_processed_trajectory_writes_sorted_position_only_data(tmp_path):
     assert input_csv.read_bytes() == raw_contents
 
 
-def test_export_processed_trajectory_rejects_unknown_run_id(tmp_path):
+def test_export_shiptech_trajectory_rejects_unknown_run_id(tmp_path):
     """A missing run ID must not produce an empty processed CSV."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -101,11 +101,11 @@ def test_export_processed_trajectory_rejects_unknown_run_id(tmp_path):
     )
 
     with pytest.raises(ValueError, match="run_id 42 was not found"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
 @pytest.mark.parametrize("run_id", (None, (42, 7)))
-def test_export_processed_trajectory_rejects_multiple_run_selection(tmp_path, run_id):
+def test_export_shiptech_trajectory_rejects_multiple_run_selection(tmp_path, run_id):
     """The position-only output represents exactly one selected source run."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -117,10 +117,10 @@ def test_export_processed_trajectory_rejects_multiple_run_selection(tmp_path, ru
     )
 
     with pytest.raises(ValueError, match="run_id must select exactly one run"):
-        export_processed_trajectory(input_csv, run_id=run_id, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=run_id, output_dir=tmp_path)
 
 
-def test_export_processed_trajectory_rejects_run_with_one_sample(tmp_path):
+def test_export_shiptech_trajectory_rejects_run_with_one_sample(tmp_path):
     """One position cannot form a trajectory for the processed format."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -129,10 +129,10 @@ def test_export_processed_trajectory_rejects_run_with_one_sample(tmp_path):
     )
 
     with pytest.raises(ValueError, match="at least two samples"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
-def test_export_processed_trajectory_rejects_repeated_timestamps(tmp_path):
+def test_export_shiptech_trajectory_rejects_repeated_timestamps(tmp_path):
     """Duplicate source timestamps would make a non-increasing time column."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -148,10 +148,10 @@ def test_export_processed_trajectory_rejects_repeated_timestamps(tmp_path):
     )
 
     with pytest.raises(ValueError, match="strictly increasing"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
-def test_export_processed_trajectory_rejects_invalid_source_timestamp(tmp_path):
+def test_export_shiptech_trajectory_rejects_invalid_source_timestamp(tmp_path):
     """Missing source timestamps cannot define elapsed trajectory time."""
     input_csv = tmp_path / "raw_ship_data.csv"
     _write_raw_ship_data(
@@ -163,14 +163,14 @@ def test_export_processed_trajectory_rejects_invalid_source_timestamp(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Source timestamps must be valid"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
 @pytest.mark.parametrize(
     ("gps_latitude", "gps_longitude"),
     ((np.nan, 8.0), (47.0, np.inf)),
 )
-def test_export_processed_trajectory_rejects_non_finite_gps_coordinates(
+def test_export_shiptech_trajectory_rejects_non_finite_gps_coordinates(
     tmp_path,
     gps_latitude,
     gps_longitude,
@@ -190,10 +190,10 @@ def test_export_processed_trajectory_rejects_non_finite_gps_coordinates(
     )
 
     with pytest.raises(ValueError, match="GPS coordinates must be finite"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
-def test_export_processed_trajectory_rejects_mismatched_generated_coordinates(
+def test_export_shiptech_trajectory_rejects_mismatched_generated_coordinates(
     tmp_path,
     monkeypatch,
 ):
@@ -213,10 +213,10 @@ def test_export_processed_trajectory_rejects_mismatched_generated_coordinates(
     )
 
     with pytest.raises(ValueError, match="must match the time sample count"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
 
 
-def test_export_processed_trajectory_rejects_non_finite_generated_coordinates(
+def test_export_shiptech_trajectory_rejects_non_finite_generated_coordinates(
     tmp_path,
     monkeypatch,
 ):
@@ -239,4 +239,4 @@ def test_export_processed_trajectory_rejects_non_finite_generated_coordinates(
     )
 
     with pytest.raises(ValueError, match="Generated x/y coordinates must be finite"):
-        export_processed_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)

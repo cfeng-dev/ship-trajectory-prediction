@@ -4,9 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from experiments.data_preparation.export_processed_htwg_trajectory import (
-    export_htwg_trajectory,
-)
+from bayestraj.observations.io import export_htwg_trajectory
 
 
 def test_export_htwg_trajectory_sorts_and_normalizes_elapsed_time(tmp_path):

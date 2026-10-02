@@ -79,7 +79,92 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
     return data.copy()
 
 
-def export_processed_trajectory(input_csv, run_id, output_dir):
+def export_processed_positions(time, x, y, output_csv):
+    """Write sorted local positions as elapsed seconds, east, and north."""
+    trajectory_data = pd.DataFrame({"time": time, "x": x, "y": y})
+    if len(trajectory_data) < 2:
+        raise ValueError("A processed trajectory must contain at least two samples.")
+
+    trajectory_data["x"] = pd.to_numeric(trajectory_data["x"], errors="coerce")
+    trajectory_data["y"] = pd.to_numeric(trajectory_data["y"], errors="coerce")
+    if not np.all(np.isfinite(trajectory_data[["x", "y"]].to_numpy(dtype=float))):
+        raise ValueError("Processed x/y coordinates must be finite.")
+
+    if pd.api.types.is_datetime64_any_dtype(trajectory_data["time"]):
+        if trajectory_data["time"].isna().any():
+            raise ValueError(
+                "Source timestamps must be valid timezone-aware datetimes."
+            )
+    else:
+        trajectory_data["time"] = pd.to_numeric(
+            trajectory_data["time"], errors="coerce"
+        )
+        if not np.all(np.isfinite(trajectory_data["time"].to_numpy(dtype=float))):
+            raise ValueError("Source time values must be finite.")
+
+    trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
+    if pd.api.types.is_datetime64_any_dtype(trajectory_data["time"]):
+        elapsed_seconds = (
+            trajectory_data["time"] - trajectory_data["time"].iloc[0]
+        ).dt.total_seconds()
+    else:
+        elapsed_seconds = trajectory_data["time"] - trajectory_data["time"].iloc[0]
+
+    elapsed_seconds = elapsed_seconds.to_numpy(dtype=float)
+    if not np.all(np.isfinite(elapsed_seconds)):
+        raise ValueError("Generated time values must be finite.")
+    if np.any(np.diff(elapsed_seconds) <= 0.0):
+        raise ValueError("Source times must be strictly increasing after sorting.")
+
+    exported_data = pd.DataFrame(
+        {
+            "time": np.round(elapsed_seconds, 1),
+            "x": trajectory_data["x"].to_numpy(dtype=float),
+            "y": trajectory_data["y"].to_numpy(dtype=float),
+        }
+    )
+
+    output_csv = Path(output_csv)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    exported_data.to_csv(output_csv, index=False)
+    return output_csv
+
+
+def export_htwg_trajectory(input_csv, output_csv):
+    """Export valid HTWG x/y positions with elapsed seconds from the first sample."""
+    position_columns = ["time", "x", "y"]
+    source_data = pd.read_csv(input_csv)
+    missing_columns = [
+        column for column in position_columns if column not in source_data.columns
+    ]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+
+    trajectory_data = source_data[position_columns].copy()
+    if len(trajectory_data) < 2:
+        raise ValueError("The HTWG trajectory must contain at least two samples.")
+    trajectory_data = trajectory_data.apply(pd.to_numeric, errors="coerce")
+    if not np.all(np.isfinite(trajectory_data["time"].to_numpy(dtype=float))):
+        raise ValueError("time must contain finite numeric values.")
+
+    finite_positions = np.isfinite(
+        trajectory_data[["x", "y"]].to_numpy(dtype=float)
+    ).all(axis=1)
+    trajectory_data = trajectory_data.loc[finite_positions].copy()
+    if len(trajectory_data) < 2:
+        raise ValueError(
+            "The HTWG trajectory must contain at least two finite positions."
+        )
+
+    return export_processed_positions(
+        time=trajectory_data["time"],
+        x=trajectory_data["x"],
+        y=trajectory_data["y"],
+        output_csv=output_csv,
+    )
+
+
+def export_shiptech_trajectory(input_csv, run_id, output_dir):
     """Export one recorded ship run as local position observations in seconds."""
     if run_id is None or (
         isinstance(run_id, Iterable) and not isinstance(run_id, (str, bytes))
@@ -93,18 +178,9 @@ def export_processed_trajectory(input_csv, run_id, output_dir):
         raise ValueError("The selected run must contain at least two samples.")
 
     trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
-
     timestamps = trajectory_data["time"]
     if timestamps.isna().any():
         raise ValueError("Source timestamps must be valid timezone-aware datetimes.")
-    elapsed_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds()
-    elapsed_seconds_array = elapsed_seconds.to_numpy(dtype=float)
-    if not np.all(np.isfinite(elapsed_seconds_array)):
-        raise ValueError("Generated time values must be finite.")
-    if elapsed_seconds_array[0] != 0.0:
-        raise ValueError("Generated time values must start at 0.0 seconds.")
-    if np.any(np.diff(elapsed_seconds_array) <= 0.0):
-        raise ValueError("Source timestamps must be strictly increasing after sorting.")
 
     longitude = pd.to_numeric(
         trajectory_data["gps_longitude"], errors="coerce"
@@ -122,26 +198,18 @@ def export_processed_trajectory(input_csv, run_id, output_dir):
     )
     x_coordinates = np.asarray(x_coordinates, dtype=float)
     y_coordinates = np.asarray(y_coordinates, dtype=float)
-    if len(x_coordinates) != len(elapsed_seconds_array) or len(y_coordinates) != len(
-        elapsed_seconds_array
-    ):
+    if len(x_coordinates) != len(timestamps) or len(y_coordinates) != len(timestamps):
         raise ValueError("Generated x/y coordinates must match the time sample count.")
     if not np.all(np.isfinite(x_coordinates)) or not np.all(np.isfinite(y_coordinates)):
         raise ValueError("Generated x/y coordinates must be finite.")
 
-    exported_data = pd.DataFrame(
-        {
-            "time": elapsed_seconds_array,
-            "x": x_coordinates,
-            "y": y_coordinates,
-        }
+    output_path = Path(output_dir) / f"ship_trajectory_run_{run_id}.csv"
+    return export_processed_positions(
+        time=timestamps,
+        x=x_coordinates,
+        y=y_coordinates,
+        output_csv=output_path,
     )
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"ship_trajectory_run_{run_id}.csv"
-    exported_data.to_csv(output_path, index=False)
-    return output_path
 
 
 def resample_trajectory_data(data, interval_seconds=10):
