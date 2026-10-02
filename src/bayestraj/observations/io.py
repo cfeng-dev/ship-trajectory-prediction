@@ -3,8 +3,10 @@
 from collections.abc import Iterable
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
+import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.window as observation_window
 
 DEFAULT_SUMMARY_LABEL_WIDTH = 20
@@ -75,6 +77,71 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
         data = data[data["time"] <= end_time]
 
     return data.copy()
+
+
+def export_processed_trajectory(input_csv, run_id, output_dir):
+    """Export one recorded ship run as local position observations in seconds."""
+    if run_id is None or (
+        isinstance(run_id, Iterable) and not isinstance(run_id, (str, bytes))
+    ):
+        raise ValueError("run_id must select exactly one run.")
+
+    trajectory_data = read_ship_data(input_csv, run_id=run_id)
+    if trajectory_data.empty:
+        raise ValueError(f"run_id {run_id} was not found in {input_csv}.")
+    if len(trajectory_data) < 2:
+        raise ValueError("The selected run must contain at least two samples.")
+
+    trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
+
+    timestamps = trajectory_data["time"]
+    if timestamps.isna().any():
+        raise ValueError("Source timestamps must be valid timezone-aware datetimes.")
+    elapsed_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds()
+    elapsed_seconds_array = elapsed_seconds.to_numpy(dtype=float)
+    if not np.all(np.isfinite(elapsed_seconds_array)):
+        raise ValueError("Generated time values must be finite.")
+    if elapsed_seconds_array[0] != 0.0:
+        raise ValueError("Generated time values must start at 0.0 seconds.")
+    if np.any(np.diff(elapsed_seconds_array) <= 0.0):
+        raise ValueError("Source timestamps must be strictly increasing after sorting.")
+
+    longitude = pd.to_numeric(
+        trajectory_data["gps_longitude"], errors="coerce"
+    ).to_numpy(dtype=float)
+    latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    if not np.all(np.isfinite(longitude)) or not np.all(np.isfinite(latitude)):
+        raise ValueError("GPS coordinates must be finite.")
+
+    x_coordinates, y_coordinates = coordinates.gps_to_local_coordinates(
+        longitude,
+        latitude,
+        unit="m",
+    )
+    x_coordinates = np.asarray(x_coordinates, dtype=float)
+    y_coordinates = np.asarray(y_coordinates, dtype=float)
+    if len(x_coordinates) != len(elapsed_seconds_array) or len(y_coordinates) != len(
+        elapsed_seconds_array
+    ):
+        raise ValueError("Generated x/y coordinates must match the time sample count.")
+    if not np.all(np.isfinite(x_coordinates)) or not np.all(np.isfinite(y_coordinates)):
+        raise ValueError("Generated x/y coordinates must be finite.")
+
+    exported_data = pd.DataFrame(
+        {
+            "time": elapsed_seconds_array,
+            "x": x_coordinates,
+            "y": y_coordinates,
+        }
+    )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"ship_trajectory_run_{run_id}.csv"
+    exported_data.to_csv(output_path, index=False)
+    return output_path
 
 
 def resample_trajectory_data(data, interval_seconds=10):
