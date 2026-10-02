@@ -159,15 +159,21 @@ def prepare_processed_trajectory_window(
     prediction_count=10,
     *,
     start_index=0,
-    max_time_gap_seconds=DEFAULT_MAX_TIME_GAP_SECONDS,
+    max_time_gap_seconds=None,
 ) -> TrajectoryWindowData:
-    """Prepare one local ``time,x,y`` trajectory window in SI units."""
+    """Prepare one local ``time,x,y`` trajectory window in SI units.
+
+    Processed trajectories retain their actual irregular sample times by
+    default.  Set ``max_time_gap_seconds`` to a positive finite value when a
+    caller explicitly needs to reject larger gaps.
+    """
     max_time_gap_seconds = _validate_window_arguments(
         observation_count,
         prediction_count,
         start_index,
         DEFAULT_GPS_SPEED_UNIT,
         max_time_gap_seconds,
+        allow_unbounded_time_gaps=True,
     )
     required_columns = {"time", "x", "y"}
     missing_columns = sorted(required_columns.difference(data.columns))
@@ -194,7 +200,7 @@ def prepare_processed_trajectory_window(
     time_steps = np.diff(time_seconds)
     if np.any(time_steps <= 0):
         raise ValueError("Trajectory timestamps must be strictly increasing.")
-    if np.any(time_steps > max_time_gap_seconds):
+    if max_time_gap_seconds is not None and np.any(time_steps > max_time_gap_seconds):
         largest_gap = float(np.max(time_steps))
         raise ValueError(
             "Trajectory window contains a time gap of "
@@ -275,6 +281,8 @@ def _validate_window_arguments(
     start_index,
     gps_speed_unit,
     max_time_gap_seconds,
+    *,
+    allow_unbounded_time_gaps=False,
 ):
     """Validate shared configuration and return the normalized gap limit."""
     integer_arguments = {
@@ -291,6 +299,10 @@ def _validate_window_arguments(
     if gps_speed_unit not in {"km/h", "m/s"}:
         raise ValueError("gps_speed_unit must be 'km/h' or 'm/s'.")
 
+    if max_time_gap_seconds is None:
+        if allow_unbounded_time_gaps:
+            return None
+        raise ValueError("max_time_gap_seconds must be a positive finite number.")
     if isinstance(max_time_gap_seconds, (bool, str, bytes)):
         raise ValueError("max_time_gap_seconds must be a positive finite number.")
     try:
