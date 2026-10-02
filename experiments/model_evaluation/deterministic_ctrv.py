@@ -6,7 +6,7 @@ import bayestraj.validation.cli as cli
 import bayestraj.validation.deterministic_ctrv_workflow as workflow
 
 DATA_FILE = paths.data_path(
-    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_2026-02-02T00-00-00+01-00_10.csv"
+    "raw/ship_data_shiptech.csv"
 )
 
 EXPERIMENT = config.DeterministicRollingExperimentConfig(
