@@ -261,7 +261,7 @@ def test_status_panels_share_motion_state_row_order():
     )
     assert "Turn Radius:" not in STATUS_ROW_LABELS
     assert format_reference_position(8.31, 47.05, coordinate_display_mode="gps") == (
-        "lon = 8.3100°\nlat = 47.0500°"
+        "x = 8.31 m\ny = 47.05 m"
     )
 
 
@@ -733,18 +733,17 @@ def test_analysis_section_contains_method_and_start_button(root):
 
 def test_inference_method_is_grouped_with_analysis_fields():
     analysis, data = split_analysis_data_fields(
-        {"data_file": "route.csv", "inference_method": "rbpf", "run_id": "102"}
+        {"data_file": "route.csv", "inference_method": "rbpf"}
     )
 
     assert analysis == {"inference_method": "rbpf"}
-    assert data == {"data_file": "route.csv", "run_id": "102"}
+    assert data == {"data_file": "route.csv"}
 
 
 def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings():
     """The default sidebar exposes CSV selection, not inference input settings."""
     assert MAIN_DATA_FIELDS == (
         "data_file",
-        "run_id",
         "inference_method",
     )
     assert DATA_OPTION_FIELDS[:5] == (
@@ -757,7 +756,7 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
     assert "coordinate_display_mode" not in DATA_OPTION_FIELDS
 
 
-def test_dialog_labels_and_fields_share_vertical_center(root):
+def test_start_index_label_and_field_share_vertical_center(root):
     from trajectory_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
@@ -774,13 +773,14 @@ def test_dialog_labels_and_fields_share_vertical_center(root):
         label = next(
             child
             for child in descendants(body)
-            if child.winfo_class() == "Label" and child.cget("text") == "Run ID"
+            if child.winfo_class() == "Label"
+            and child.cget("text") == "Start index (from 0)"
         )
         field = next(
             child
             for child in descendants(body)
             if child.winfo_class() == "TEntry"
-            and child.cget("textvariable") == str(dialog.variables["run_id"])
+            and child.cget("textvariable") == str(dialog.variables["start_index"])
         )
         label_center = label.winfo_rooty() + label.winfo_height() / 2
         field_center = field.winfo_rooty() + field.winfo_height() / 2
@@ -1214,10 +1214,9 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert [entry["label"] for entry in coordinate_menu.entries] == [
         "Local [m]",
         "Local [km]",
-        "GPS [°]",
     ]
-    coordinate_menu.entry("GPS [°]")["command"]()
-    assert app.controls.variables["data"]["coordinate_display_mode"].get() == "gps"
+    coordinate_menu.entry("Local [km]")["command"]()
+    assert app.controls.variables["data"]["coordinate_display_mode"].get() == "km"
     view_menu.entry("Plot display…")["command"]()
     assert plot_windows == [True]
     menu.entry("View")["menu"].entry("Show settings")["command"]()

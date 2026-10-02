@@ -180,7 +180,7 @@ def create_menu_bar(gui):
         command=gui.toggle_settings,
     )
     coordinate_menu = tk.Menu(view_menu, tearoff=0)
-    for label, value in (("Local [m]", "m"), ("Local [km]", "km"), ("GPS [°]", "gps")):
+    for label, value in (("Local [m]", "m"), ("Local [km]", "km")):
         coordinate_menu.add_radiobutton(
             label=label,
             variable=gui.controls.variables["data"]["coordinate_display_mode"],

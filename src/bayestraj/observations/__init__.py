@@ -22,6 +22,7 @@ from bayestraj.observations.window import (
     DEFAULT_GPS_SPEED_UNIT,
     DEFAULT_MAX_TIME_GAP_SECONDS,
     TrajectoryWindowData,
+    prepare_processed_trajectory_window,
     prepare_trajectory_window,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "data_path",
     "gps_to_local_coordinates",
     "local_to_gps_coordinates",
+    "prepare_processed_trajectory_window",
     "prepare_trajectory_window",
     "read_ship_data",
     "resolve_position_observations",

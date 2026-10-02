@@ -45,7 +45,6 @@ METHOD_DISPLAY_TO_VALUE = {
 }
 MAIN_DATA_FIELDS = (
     "data_file",
-    "run_id",
     "inference_method",
 )
 DATA_OPTION_FIELDS = (
@@ -75,7 +74,6 @@ LABELS = {
     "prediction_count": "Forecast steps (0 = off)",
     "prediction_sample_count": "Future trajectories (0 = off)",
     "data_file": "CSV file",
-    "run_id": "Run ID",
     "inference_method": "Inference method",
     "start_index": "Start index (from 0)",
     "observation_interval_seconds": "Observation interval [s]",
@@ -153,13 +151,7 @@ def _defaults():
     sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
-            "data_file": str(
-                data_path(
-                    "raw/processed_ship_data_2026-01-10T00-00-00+01-00_"
-                    "2026-02-02T00-00-00+01-00_10.csv"
-                )
-            ),
-            "run_id": 1,
+            "data_file": str(data_path("processed/ship_trajectory_run_42.csv")),
             "inference_method": "smc",
             "start_index": 0,
             "observation_interval_seconds": 10.0,
@@ -343,7 +335,7 @@ def parse_settings(values) -> ExplorerSettings:
         raise ValueError("Maximum observations must be an integer.") from error
     if maximum:
         _minimum(data, "maximum_observation_count", 3)
-    for key in ("run_id", "start_index"):
+    for key in ("start_index",):
         _minimum(data, key, 0)
     _validate_data_options(data)
     playback_interval_seconds = data.pop("playback_interval_seconds")

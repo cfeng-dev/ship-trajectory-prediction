@@ -24,7 +24,6 @@ import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.observations.coordinates as coordinates
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -256,16 +255,14 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         navigator.disconnect()
 
 
-def test_dashboard_switches_to_gps_without_reloading_the_posterior():
-    """GPS display redraws cached positions only and leaves inference untouched."""
+def test_dashboard_falls_back_to_metres_when_gps_is_requested():
+    """Processed trajectories cannot be displayed as GPS coordinates."""
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
         [0, 1000, 2000, 3000],
         [0, 1000, 2000, 3000],
         [0, 1000, 2000, 3000],
         [0, 1000, 2000, 3000],
-        reference_longitude=8.0,
-        reference_latitude=47.0,
     )
     loads = []
 
@@ -287,36 +284,28 @@ def test_dashboard_switches_to_gps_without_reloading_the_posterior():
     try:
         navigator.slider.set_val(1)
         navigator.show_selected_observation_count(None)
-        navigator.set_coordinate_display_mode("gps")
+        with pytest.warns(UserWarning, match="Invalid plot coordinate mode"):
+            navigator.set_coordinate_display_mode("gps")
         reference_line = next(
             line
             for line in navigator.trajectory_axis.lines
             if line.get_label() == "Recorded trajectory"
         )
-        expected_longitude, expected_latitude = coordinates.local_to_gps_coordinates(
-            trajectory.reference_x,
-            trajectory.reference_y,
-            reference_longitude=8.0,
-            reference_latitude=47.0,
-        )
-        np.testing.assert_allclose(reference_line.get_xdata(), expected_longitude)
-        np.testing.assert_allclose(reference_line.get_ydata(), expected_latitude)
-        assert navigator.trajectory_axis.get_xlabel() == "Longitude [°]"
-        assert navigator.trajectory_axis.get_ylabel() == "Latitude [°]"
-        assert navigator.trajectory_axis.get_aspect() == pytest.approx(
-            1 / np.cos(np.radians(47.0))
-        )
+        np.testing.assert_allclose(reference_line.get_xdata(), trajectory.reference_x)
+        np.testing.assert_allclose(reference_line.get_ydata(), trajectory.reference_y)
+        assert navigator.trajectory_axis.get_xlabel() == "Easting x [m]"
+        assert navigator.trajectory_axis.get_ylabel() == "Northing y [m]"
         assert navigator.observation_count == 1
         assert loads == [1]
     finally:
         navigator.disconnect()
 
 
-def test_dashboard_rejects_gps_display_without_a_reference_position():
-    """GPS ticks need the local-meter origin to represent real coordinates."""
+def test_dashboard_starts_in_metres_when_given_gps_display_mode():
+    """The legacy GPS mode normalizes to the local processed-data view."""
     dashboard = _load_dashboard_module()
-    with pytest.raises(ValueError, match="reference_longitude"):
-        dashboard.create_sequential_posterior_dashboard_figure(
+    with pytest.warns(UserWarning, match="Invalid plot coordinate mode"):
+        figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
             dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4)),
             bayesian_model.BayesianCTRVPriors(),
             lambda count: dashboard.PosteriorDashboardUpdate(
@@ -326,6 +315,10 @@ def test_dashboard_rejects_gps_display_without_a_reference_position():
             figure=Figure(),
             coordinate_display_mode="gps",
         )
+    try:
+        assert navigator.coordinate_display_mode == "m"
+    finally:
+        plt.close(figure)
 
 
 @pytest.fixture(params=["standalone", "embedded"])
@@ -994,28 +987,20 @@ def _dashboard_fit_variables():
 def _dashboard_trajectory_data(count=4):
     return pd.DataFrame(
         {
-            "time": pd.date_range(
-                "2026-01-01",
-                periods=count,
-                freq="10s",
-                tz="UTC",
-            ),
-            "run_id": 102,
-            "gps_latitude": 54.0 + np.arange(count) * 1e-5,
-            "gps_longitude": 10.0 + np.arange(count) * 2e-5,
-            "gps_speed": np.full(count, 18.0),
+            "time": np.arange(count, dtype=float) * 10.0,
+            "x": np.arange(count, dtype=float) * 50.0,
+            "y": np.zeros(count),
             "theta": np.linspace(0.0, np.pi / 6.0, count),
             "omega": np.linspace(0.0, np.pi / 180.0, count),
         }
     )
 
 
-def test_time_interval_selection_uses_actual_timestamps():
+def test_time_interval_selection_uses_elapsed_seconds():
     dashboard = _load_dashboard_module()
     data = pd.DataFrame(
         {
-            "time": pd.Timestamp("2026-01-01T00:00:00Z")
-            + pd.to_timedelta([0.0, 0.05, 0.99, 1.0, 1.01, 2.0], unit="s")
+            "time": [0.0, 0.05, 0.99, 1.0, 1.01, 2.0]
         }
     )
 
@@ -1024,11 +1009,10 @@ def test_time_interval_selection_uses_actual_timestamps():
     assert selected.index.tolist() == [0, 3, 5]
 
 
-def test_dashboard_preparation_preserves_raw_csv_state_despite_gui_noise():
+def test_dashboard_preparation_preserves_processed_state_despite_gui_noise():
     """Reference status data stays separate from the optional GUI perturbation."""
     dashboard = _load_dashboard_module()
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=5.0,
@@ -1055,7 +1039,6 @@ def test_dashboard_preparation_preserves_raw_csv_state_despite_gui_noise():
 def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
     dashboard = _load_dashboard_module()
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1067,8 +1050,8 @@ def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
     )
     data = _dashboard_trajectory_data(6)
     changed_future = data.copy()
-    changed_future.loc[2:, "gps_latitude"] += 0.5
-    changed_future.loc[2:, "gps_longitude"] -= 0.5
+    changed_future.loc[2:, "x"] += 1_000.0
+    changed_future.loc[2:, "y"] -= 1_000.0
 
     def loader(data, config=experiment):
         return dashboard.create_posterior_dashboard_loader(
@@ -1139,7 +1122,6 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         return fit
 
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=1,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1429,7 +1411,6 @@ def test_dashboard_config_rejects_invalid_forecast_settings(field, value):
     dashboard = _load_dashboard_module()
     with pytest.raises(ValueError, match=field):
         dashboard.PosteriorDashboardConfig(
-            run_id=102,
             start_index=0,
             maximum_observation_count=None,
             position_noise_std_m=0.0,
@@ -1501,7 +1482,6 @@ def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
     dashboard = _load_dashboard_module()
 
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=20,
         position_noise_std_m=5.0,
@@ -1530,7 +1510,6 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
     }[inference_method]
 
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1633,7 +1612,6 @@ def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap(
     )
     config = sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=8)
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1754,7 +1732,6 @@ def test_dashboard_loader_extends_prior_phase_to_configured_sequential_bootstrap
     _, _, minimum_count, load_update = dashboard.create_posterior_dashboard_loader(
         _dashboard_trajectory_data(9),
         experiment=dashboard.PosteriorDashboardConfig(
-            run_id=102,
             start_index=0,
             maximum_observation_count=None,
             position_noise_std_m=0.0,
@@ -1796,7 +1773,6 @@ def test_dashboard_loader_propagates_sequential_vi_update_failure():
             raise RuntimeError("Sequential ADVI failed")
 
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1857,7 +1833,6 @@ def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windo
         forecast_prior_predictive,
     )
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1892,16 +1867,16 @@ def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windo
     assert not any(update.is_prior_predictive for update in fitted_updates)
     assert [call[0].observation_count for call in fit_calls] == [3, 9, 10, 10]
     assert [call[0].timestamps[0] for call in fit_calls] == [
-        pd.Timestamp("2026-01-01T00:00:00Z"),
-        pd.Timestamp("2026-01-01T00:00:00Z"),
-        pd.Timestamp("2026-01-01T00:00:00Z"),
-        pd.Timestamp("2026-01-01T00:00:10Z"),
+        pd.Timestamp("1970-01-01T00:00:00Z"),
+        pd.Timestamp("1970-01-01T00:00:00Z"),
+        pd.Timestamp("1970-01-01T00:00:00Z"),
+        pd.Timestamp("1970-01-01T00:00:00Z"),
     ]
     assert [call[0].timestamps[-2] for call in fit_calls] == [
-        pd.Timestamp("2026-01-01T00:00:20Z"),
-        pd.Timestamp("2026-01-01T00:01:20Z"),
-        pd.Timestamp("2026-01-01T00:01:30Z"),
-        pd.Timestamp("2026-01-01T00:01:40Z"),
+        pd.Timestamp("1970-01-01T00:00:20Z"),
+        pd.Timestamp("1970-01-01T00:01:20Z"),
+        pd.Timestamp("1970-01-01T00:01:30Z"),
+        pd.Timestamp("1970-01-01T00:01:30Z"),
     ]
 
 
@@ -1916,7 +1891,6 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
         return _FakeFit(_dashboard_fit_variables())
 
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=None,
         position_noise_std_m=0.0,
@@ -1926,12 +1900,7 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
         prediction_count=1,
     )
     trajectory_data = _dashboard_trajectory_data(27)
-    trajectory_data["time"] = pd.date_range(
-        "2026-01-01",
-        periods=27,
-        freq="5s",
-        tz="UTC",
-    )
+    trajectory_data["time"] = np.arange(27, dtype=float) * 5.0
 
     trajectory, maximum_count, minimum_count, load_update = (
         dashboard.create_posterior_dashboard_loader(
@@ -1954,8 +1923,8 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
     assert len(fit_calls) == 1
     window, options = fit_calls[0]
     assert window.observation_count == 10
-    assert window.timestamps[0] == pd.Timestamp("2026-01-01T00:00:20Z")
-    assert window.timestamps[9] == pd.Timestamp("2026-01-01T00:01:50Z")
+    assert window.timestamps[0] == pd.Timestamp("1970-01-01T00:00:00Z")
+    assert window.timestamps[9] == pd.Timestamp("1970-01-01T00:01:30Z")
     assert options["inference_method"] == "mcmc"
     assert options["seed"] == 42
     assert options["priors"] == bayesian_model.BayesianCTRVPriors()
@@ -1986,7 +1955,6 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
 def test_dashboard_loader_rejects_mcmc_analysis_without_ten_observations():
     dashboard = _load_dashboard_module()
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=9,
         position_noise_std_m=0.0,
@@ -2321,7 +2289,6 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
         observed_y=[0.0, 1.0, 1.5, 1.8],
     )
     experiment = dashboard.PosteriorDashboardConfig(
-        run_id=102,
         start_index=0,
         maximum_observation_count=3,
         position_noise_std_m=0.0,
@@ -2339,8 +2306,8 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
 
     monkeypatch.setattr(
         dashboard.observations_io,
-        "read_ship_data",
-        lambda _data_file, *, run_id: trajectory_data,
+        "read_processed_trajectory",
+        lambda _data_file: trajectory_data,
     )
 
     def create_loader(data, **options):

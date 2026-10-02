@@ -10,6 +10,7 @@ import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.window as observation_window
 
 DEFAULT_SUMMARY_LABEL_WIDTH = 20
+PROCESSED_TRAJECTORY_COLUMNS = ("time", "x", "y")
 
 
 def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
@@ -77,6 +78,33 @@ def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
         data = data[data["time"] <= end_time]
 
     return data.copy()
+
+
+def read_processed_trajectory(csv_path):
+    """Read a local trajectory as elapsed seconds and x/y positions in metres."""
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+    data = pd.read_csv(csv_path)
+    missing_columns = [
+        column for column in PROCESSED_TRAJECTORY_COLUMNS if column not in data.columns
+    ]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+
+    trajectory = data.loc[:, PROCESSED_TRAJECTORY_COLUMNS].copy()
+    if trajectory.empty:
+        raise ValueError("A processed trajectory must contain at least one sample.")
+    trajectory = trajectory.apply(pd.to_numeric, errors="coerce")
+    if not np.all(np.isfinite(trajectory.to_numpy(dtype=float))):
+        raise ValueError("Processed time, x, and y values must be finite numbers.")
+
+    trajectory = trajectory.sort_values("time").reset_index(drop=True)
+    trajectory["time"] -= trajectory["time"].iloc[0]
+    if np.any(np.diff(trajectory["time"].to_numpy(dtype=float)) <= 0.0):
+        raise ValueError("Processed trajectory times must be strictly increasing.")
+    return trajectory
 
 
 def export_processed_positions(time, x, y, output_csv):

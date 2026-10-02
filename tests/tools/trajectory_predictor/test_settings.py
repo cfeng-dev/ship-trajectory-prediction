@@ -81,6 +81,16 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
+def test_trajectory_predictor_defaults_to_the_processed_single_trajectory():
+    """The GUI starts with the local time/x/y trajectory, not a raw run selector."""
+    data = settings.default_form_values()["data"]
+
+    assert data["data_file"].replace("\\", "/").endswith(
+        "data/processed/ship_trajectory_run_42.csv"
+    )
+    assert "run_id" not in data
+
+
 def test_sequential_vi_defaults_and_parsing_preserve_full_config(form):
     defaults = settings.default_form_values()["sequential_vi"]
 
@@ -152,7 +162,6 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
     ("group", "field", "value"),
     [
         ("data", "start_index", "-1"),
-        ("data", "run_id", "1.2"),
         ("data", "maximum_observation_count", "2"),
         ("data", "position_noise_std_m", "nan"),
         ("data", "playback_interval_seconds", "0"),
@@ -189,12 +198,14 @@ def test_forecast_settings_reach_analysis_and_allow_hiding_samples(form):
         settings.parse_settings(form)
 
 
-def test_coordinate_display_mode_is_a_presentation_setting(form):
+def test_coordinate_display_mode_falls_back_to_metres_when_gps_is_requested(form):
     form["data"]["coordinate_display_mode"] = "gps"
 
-    result = settings.parse_settings(form)
+    with pytest.warns(UserWarning, match="Invalid plot coordinate mode"):
+        result = settings.parse_settings(form)
 
-    assert result.coordinate_display_mode == "gps"
+    assert settings.COORDINATE_DISPLAY_MODES == ("m", "km")
+    assert result.coordinate_display_mode == "m"
     assert not hasattr(result.analysis.experiment, "coordinate_display_mode")
 
 

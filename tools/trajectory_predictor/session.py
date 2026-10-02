@@ -48,16 +48,12 @@ class AnalysisEvent:
 def prepare_analysis(settings: AnalysisSettings):
     """Load the selected route and construct its persistent posterior loader."""
     data = (
-        observations_io.read_ship_data(
-            settings.data_file, run_id=settings.experiment.run_id
-        )
+        observations_io.read_processed_trajectory(settings.data_file)
         .sort_values("time")
         .reset_index(drop=True)
     )
     if data.empty:
-        raise ValueError(
-            f"Run ID {settings.experiment.run_id} was not found in the selected CSV file."
-        )
+        raise ValueError("The selected CSV file contains no trajectory rows.")
     return dashboard.create_posterior_dashboard_loader(
         data,
         experiment=settings.experiment,

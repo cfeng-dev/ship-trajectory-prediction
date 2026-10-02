@@ -29,8 +29,8 @@ class TrajectoryWindowData:
     time_seconds: np.ndarray
     x_meters: np.ndarray
     y_meters: np.ndarray
-    reference_longitude: float
-    reference_latitude: float
+    reference_longitude: float | None
+    reference_latitude: float | None
     gps_speed_mps: np.ndarray
     observation_count: int
 
@@ -149,6 +149,70 @@ def prepare_trajectory_window(
         reference_longitude=float(longitude[0]),
         reference_latitude=float(latitude[0]),
         gps_speed_mps=gps_speed_mps,
+        observation_count=observation_count,
+    )
+
+
+def prepare_processed_trajectory_window(
+    data,
+    observation_count=20,
+    prediction_count=10,
+    *,
+    start_index=0,
+    max_time_gap_seconds=DEFAULT_MAX_TIME_GAP_SECONDS,
+) -> TrajectoryWindowData:
+    """Prepare one local ``time,x,y`` trajectory window in SI units."""
+    max_time_gap_seconds = _validate_window_arguments(
+        observation_count,
+        prediction_count,
+        start_index,
+        DEFAULT_GPS_SPEED_UNIT,
+        max_time_gap_seconds,
+    )
+    required_columns = {"time", "x", "y"}
+    missing_columns = sorted(required_columns.difference(data.columns))
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+
+    prepared_data = data.loc[:, ["time", "x", "y"]].copy()
+    prepared_data = prepared_data.apply(pd.to_numeric, errors="coerce")
+    if not np.all(np.isfinite(prepared_data.to_numpy(dtype=float))):
+        raise ValueError("Processed time, x, and y values must be finite numbers.")
+    prepared_data = prepared_data.sort_values("time").reset_index(drop=True)
+
+    window_size = observation_count + prediction_count
+    stop_index = start_index + window_size
+    if stop_index > len(prepared_data):
+        raise ValueError(
+            "Not enough trajectory rows for the requested observation and "
+            "prediction window."
+        )
+
+    window_data = prepared_data.iloc[start_index:stop_index]
+    time_seconds = window_data["time"].to_numpy(dtype=float)
+    time_seconds -= time_seconds[0]
+    time_steps = np.diff(time_seconds)
+    if np.any(time_steps <= 0):
+        raise ValueError("Trajectory timestamps must be strictly increasing.")
+    if np.any(time_steps > max_time_gap_seconds):
+        largest_gap = float(np.max(time_steps))
+        raise ValueError(
+            "Trajectory window contains a time gap of "
+            f"{largest_gap:g} seconds, exceeding max_time_gap_seconds="
+            f"{max_time_gap_seconds:g}."
+        )
+
+    timestamps = pd.DatetimeIndex(
+        pd.to_datetime(time_seconds, unit="s", origin="unix", utc=True)
+    )
+    return TrajectoryWindowData(
+        timestamps=timestamps,
+        time_seconds=time_seconds,
+        x_meters=window_data["x"].to_numpy(dtype=float),
+        y_meters=window_data["y"].to_numpy(dtype=float),
+        reference_longitude=None,
+        reference_latitude=None,
+        gps_speed_mps=np.full(window_size, np.nan),
         observation_count=observation_count,
     )
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -76,7 +77,7 @@ DEFAULT_PREDICTION_COUNT = 2
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
-COORDINATE_DISPLAY_MODES = prediction_plotting.PLOT_COORDINATE_MODES
+COORDINATE_DISPLAY_MODES = ("m", "km")
 
 
 def _format_decimal_log_tick(value, _position):
@@ -86,7 +87,17 @@ def _format_decimal_log_tick(value, _position):
 
 def normalize_coordinate_display_mode(coordinate_display_mode):
     """Return the supported display mode, falling back to metres with a warning."""
-    return prediction_plotting.normalize_plot_coordinate_mode(coordinate_display_mode)
+    if isinstance(coordinate_display_mode, str):
+        normalized_mode = coordinate_display_mode.strip().lower()
+        if normalized_mode in COORDINATE_DISPLAY_MODES:
+            return normalized_mode
+    warnings.warn(
+        f"Invalid plot coordinate mode {coordinate_display_mode!r}; falling back "
+        "to 'm'. Use 'm' or 'km'.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return "m"
 
 
 def _validate_follow_ship_view_span_m(value):
@@ -106,7 +117,6 @@ def _validate_follow_ship_view_span_m(value):
 class PosteriorDashboardConfig:
     """Configuration of one Bayesian CTRV posterior-update dashboard."""
 
-    run_id: int
     start_index: int
     maximum_observation_count: int | None
     position_noise_std_m: float
@@ -1904,7 +1914,7 @@ def create_posterior_dashboard_loader(
 
         fit_observation_count = min(observation_count, batch_observation_count)
         window_start_index = observation_count - fit_observation_count
-        window = observation_window.prepare_trajectory_window(
+        window = observation_window.prepare_processed_trajectory_window(
             batch_trajectory_data,
             observation_count=fit_observation_count,
             prediction_count=max(
@@ -1997,7 +2007,7 @@ def _prepare_posterior_dashboard_trajectory(
             "maximum_observation_count must fit within the selected trajectory."
         )
 
-    complete_window = observation_window.prepare_trajectory_window(
+    complete_window = observation_window.prepare_processed_trajectory_window(
         selected_trajectory_data,
         observation_count=available_observation_count - 1,
         prediction_count=1,
@@ -2043,7 +2053,11 @@ def _prepare_posterior_dashboard_trajectory(
         reference_y,
         observed_x,
         observed_y,
-        reference_speed_mps=complete_window.gps_speed_mps,
+        reference_speed_mps=_reference_speed_from_positions(
+            time_seconds,
+            reference_x,
+            reference_y,
+        ),
         reference_heading_degrees=reference_heading_degrees,
         reference_turn_rate_degrees_per_second=reference_turn_rate_degrees_per_second,
         reference_time_seconds=time_seconds,
@@ -2061,12 +2075,15 @@ def _select_trajectory_rows_at_interval(trajectory_data, interval_seconds):
     )
     if trajectory_data.empty:
         return trajectory_data.copy()
-    timestamps = pd.to_datetime(trajectory_data["time"], utc=True)
-    interval = pd.Timedelta(seconds=interval_seconds)
+    timestamps = pd.to_numeric(trajectory_data["time"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    if not np.all(np.isfinite(timestamps)):
+        raise ValueError("Trajectory times must be finite seconds.")
     selected_indices = [0]
-    last_timestamp = timestamps.iloc[0]
-    for index, timestamp in enumerate(timestamps.iloc[1:], start=1):
-        if timestamp - last_timestamp >= interval:
+    last_timestamp = timestamps[0]
+    for index, timestamp in enumerate(timestamps[1:], start=1):
+        if timestamp - last_timestamp >= interval_seconds:
             selected_indices.append(index)
             last_timestamp = timestamp
     return trajectory_data.iloc[selected_indices].copy()
@@ -2139,6 +2156,20 @@ def _reference_heading_and_turn_rate(
     return np.rad2deg(heading), np.rad2deg(turn_rate)
 
 
+def _reference_speed_from_positions(time_seconds, x_meters, y_meters):
+    """Derive display-only speeds from successive local positions."""
+    time_seconds = np.asarray(time_seconds, dtype=float)
+    x_meters = np.asarray(x_meters, dtype=float)
+    y_meters = np.asarray(y_meters, dtype=float)
+    speed_mps = np.full(time_seconds.shape, np.nan)
+    if len(time_seconds) < 2:
+        return speed_mps
+    distance_meters = np.hypot(np.diff(x_meters), np.diff(y_meters))
+    speed_mps[1:] = distance_meters / np.diff(time_seconds)
+    speed_mps[0] = speed_mps[1]
+    return speed_mps
+
+
 def create_rbpf_posterior_dashboard_loader(
     trajectory_data,
     *,
@@ -2152,7 +2183,6 @@ def create_rbpf_posterior_dashboard_loader(
 ):
     """Create one RBPF stream that exposes all dashboard parameters per stage."""
     experiment = PosteriorDashboardConfig(
-        run_id=0,
         start_index=start_index,
         maximum_observation_count=None,
         position_noise_std_m=position_noise_std_m,
@@ -2195,12 +2225,12 @@ def run_bayesian_ctrv_posterior_dashboard(
     if not isinstance(experiment, PosteriorDashboardConfig):
         raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
     trajectory_data = (
-        observations_io.read_ship_data(data_file, run_id=experiment.run_id)
+        observations_io.read_processed_trajectory(data_file)
         .sort_values("time")
         .reset_index(drop=True)
     )
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
+        raise ValueError("The selected CSV file contains no trajectory rows.")
 
     loader_options = {
         "experiment": experiment,

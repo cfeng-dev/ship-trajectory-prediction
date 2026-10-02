@@ -25,7 +25,6 @@ def analysis(tmp_path):
     data_file = tmp_path / "route.csv"
     data_file.touch()
     values["data"]["data_file"] = str(data_file)
-    values["data"]["run_id"] = "102"
     return parse_settings(values).analysis
 
 
@@ -45,16 +44,13 @@ def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
     data_file = tmp_path / "route.csv"
     pd.DataFrame(
         {
-            "time": pd.date_range("2026-01-01", periods=4, freq="10s", tz="UTC"),
-            "run_id": 102,
-            "gps_latitude": 54.0 + np.arange(4) * 1e-5,
-            "gps_longitude": 10.0 + np.arange(4) * 2e-5,
-            "gps_speed": 18.0,
+            "time": [0.0, 10.0, 20.0, 30.0],
+            "x": [0.0, 20.0, 40.0, 60.0],
+            "y": [0.0, 5.0, 10.0, 15.0],
         }
     ).to_csv(data_file, index=False)
     values = default_form_values()
     values["data"]["data_file"] = str(data_file)
-    values["data"]["run_id"] = "102"
     values["data"]["inference_method"] = method
     values[method]["particle_count"] = "32"
     values[method]["posterior_draw_count"] = "20"
