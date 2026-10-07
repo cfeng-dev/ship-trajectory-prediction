@@ -591,6 +591,31 @@ def test_rbpf_adds_process_uncertainty_after_the_observation_update():
     np.testing.assert_allclose(off_diagonal, 0.0, atol=1e-12)
 
 
+def test_rbpf_reinitializes_the_track_when_predictive_support_is_lost():
+    online_filter = _controlled_online_filter(
+        observation_noise=1.0,
+        speed_process=1e-9,
+        turn_rate_process=1e-9,
+        draw_count=32,
+    )
+    online_filter.last_observed_position = np.array([0.0, 0.0])
+
+    online_filter.update(1.0, 100.0, 0.0)
+
+    assert online_filter.track_lost is True
+    assert online_filter.reinitialization_count == 1
+    assert np.median(online_filter.forecast_origin_means[:, 0]) == pytest.approx(
+        100.0
+    )
+    assert np.median(online_filter.forecast_origin_means[:, 2]) == pytest.approx(
+        100.0,
+        rel=0.05,
+    )
+    assert online_filter.weights == pytest.approx(
+        np.full(online_filter.config.particle_count, 1.0 / online_filter.config.particle_count)
+    )
+
+
 def test_rbpf_forecast_evolves_motion_after_the_completed_interval():
     future_times = np.asarray([10.0, 20.0])
     low_fit = _controlled_online_filter(

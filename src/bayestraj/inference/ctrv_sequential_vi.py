@@ -45,6 +45,7 @@ class SequentialVIConfig:
     show_console: bool = False
     covariance_jitter: float = 1e-9
     regularization_attempts: int = 8
+    predictive_log_density_threshold: float | None = -10.0
 
     def __post_init__(self) -> None:
         if (
@@ -86,12 +87,19 @@ class SequentialVIConfig:
             require_converged=self.require_converged,
             show_console=self.show_console,
         )
+        threshold = self.predictive_log_density_threshold
+        if threshold is not None:
+            threshold = _finite_scalar(
+                threshold,
+                name="predictive_log_density_threshold",
+            )
         object.__setattr__(self, "covariance_jitter", jitter)
         object.__setattr__(
             self,
             "regularization_attempts",
             int(self.regularization_attempts),
         )
+        object.__setattr__(self, "predictive_log_density_threshold", threshold)
 
 
 def _frozen_vector(value: np.ndarray, *, name: str) -> np.ndarray:
@@ -233,6 +241,36 @@ class SequentialVIPredictiveDraws:
         object.__setattr__(self, "x", x)
         object.__setattr__(self, "y", y)
         object.__setattr__(self, "sigma_position_observation", sigma)
+
+
+def _predictive_log_density(
+    predictive_draws: SequentialVIPredictiveDraws,
+    *,
+    x_observed: float,
+    y_observed: float,
+) -> float:
+    """Evaluate the predictive position mixture before the variational update."""
+    squared_error = (x_observed - predictive_draws.x) ** 2 + (
+        y_observed - predictive_draws.y
+    ) ** 2
+    observation_noise = predictive_draws.sigma_position_observation
+    log_components = (
+        -np.log(2.0 * np.pi)
+        - 2.0 * np.log(observation_noise)
+        - 0.5 * squared_error / observation_noise**2
+    )
+    return float(_logsumexp(log_components) - np.log(log_components.size))
+
+
+def _logsumexp(log_values: np.ndarray) -> float:
+    """Return a stable logarithm of a finite positive sum of exponentials."""
+    maximum_log_value = float(np.max(log_values))
+    if not np.isfinite(maximum_log_value):
+        raise RuntimeError("Sequential VI predictive density collapsed.")
+    shifted_sum = float(np.sum(np.exp(log_values - maximum_log_value)))
+    if not np.isfinite(shifted_sum) or shifted_sum <= 0.0:
+        raise RuntimeError("Sequential VI predictive density collapsed.")
+    return maximum_log_value + float(np.log(shifted_sum))
 
 
 @dataclass(frozen=True, slots=True)
@@ -882,6 +920,11 @@ class SequentialCTRVVI:
     _update_fitter: Callable[..., object] = field(repr=False)
     _model: CmdStanModel | None = field(default=None, repr=False)
     _updates: list[SequentialVIUpdate] = field(default_factory=list, repr=False)
+    last_log_predictive_density: float | None = None
+    predictive_log_density_history: list[float] = field(default_factory=list)
+    track_lost: bool | None = None
+    last_observed_position: np.ndarray | None = None
+    reinitialization_count: int = 0
 
     @classmethod
     def initialize(
@@ -989,6 +1032,10 @@ class SequentialCTRVVI:
             _next_seed=seed + 1,
             _update_fitter=update_fitter,
             _model=model,
+            last_observed_position=np.array(
+                [x_values[bootstrap_count - 1], y_values[bootstrap_count - 1]],
+                dtype=float,
+            ),
         )
         instance.update_many(
             time_values[bootstrap_count:],
@@ -1083,31 +1130,63 @@ class SequentialCTRVVI:
         predictive_state, predictive_parameters, predictive_draws = (
             self._predictive_summary(observation_interval, seed=self._next_seed)
         )
-        fitted = self._update_fitter(
-            self.carry,
-            process_interval_seconds=self.last_process_interval_seconds,
-            observation_interval_seconds=observation_interval,
+        log_predictive_density = _predictive_log_density(
+            predictive_draws,
             x_observed=x_value,
             y_observed=y_value,
-            config=self.config,
-            seed=self._next_seed,
-            model=self._model,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
         )
-        next_carry = build_gaussian_carry(
-            fitted,
-            covariance_jitter=self.config.covariance_jitter,
-            regularization_attempts=self.config.regularization_attempts,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
+        self.last_log_predictive_density = log_predictive_density
+        self.predictive_log_density_history.append(log_predictive_density)
+        threshold = self.config.predictive_log_density_threshold
+        self.track_lost = (
+            None
+            if threshold is None
+            else bool(log_predictive_density < threshold)
         )
-        filtered_draws = _physical_fit_draws(fitted)
-        filtered_state = _state_summary(filtered_draws)
-        filtered_parameters = _parameter_summary(filtered_draws)
-        converged = _variational_fit_converged(fitted)
+        if self.track_lost:
+            next_carry = self._reinitialize_carry_at_observation(
+                x_observed=x_value,
+                y_observed=y_value,
+                observation_interval_seconds=observation_interval,
+            )
+            filtered_draws = sample_gaussian_carry(
+                next_carry,
+                draw_count=self.config.draws,
+                generator=np.random.default_rng(self._next_seed),
+                position_observation_noise_floor_m=(
+                    self.priors.sigma_position_observation_floor_m
+                ),
+            )
+            filtered_state = _state_summary(filtered_draws)
+            filtered_parameters = _parameter_summary(filtered_draws)
+            converged = False
+            self.reinitialization_count += 1
+        else:
+            fitted = self._update_fitter(
+                self.carry,
+                process_interval_seconds=self.last_process_interval_seconds,
+                observation_interval_seconds=observation_interval,
+                x_observed=x_value,
+                y_observed=y_value,
+                config=self.config,
+                seed=self._next_seed,
+                model=self._model,
+                position_observation_noise_floor_m=(
+                    self.priors.sigma_position_observation_floor_m
+                ),
+            )
+            next_carry = build_gaussian_carry(
+                fitted,
+                covariance_jitter=self.config.covariance_jitter,
+                regularization_attempts=self.config.regularization_attempts,
+                position_observation_noise_floor_m=(
+                    self.priors.sigma_position_observation_floor_m
+                ),
+            )
+            filtered_draws = _physical_fit_draws(fitted)
+            filtered_state = _state_summary(filtered_draws)
+            filtered_parameters = _parameter_summary(filtered_draws)
+            converged = _variational_fit_converged(fitted)
         runtime = perf_counter() - started
         cumulative_runtime = (
             self.bootstrap_runtime_seconds
@@ -1135,7 +1214,97 @@ class SequentialCTRVVI:
         self.processed_observation_count += 1
         self._next_seed += 1
         self._updates.append(record)
+        self.last_observed_position = np.array([x_value, y_value], dtype=float)
         return record
+
+    def _reinitialize_carry_at_observation(
+        self,
+        *,
+        x_observed: float,
+        y_observed: float,
+        observation_interval_seconds: float,
+    ) -> GaussianCarry:
+        """Construct a new variational carry anchored at a lost-track fix."""
+        generator = np.random.default_rng(self._next_seed)
+        source_draws = sample_gaussian_carry(
+            self.carry,
+            draw_count=self.config.draws,
+            generator=generator,
+            position_observation_noise_floor_m=(
+                self.priors.sigma_position_observation_floor_m
+            ),
+        )
+        observation_noise = source_draws["sigma_position_observation"]
+        previous_position = self.last_observed_position
+        if previous_position is None:
+            displacement = np.zeros(2, dtype=float)
+        else:
+            previous_position = np.asarray(previous_position, dtype=float)
+            if previous_position.shape != (2,) or not np.all(
+                np.isfinite(previous_position)
+            ):
+                raise RuntimeError("Sequential VI last observation became invalid.")
+            displacement = np.array([x_observed, y_observed]) - previous_position
+        distance = float(np.hypot(*displacement))
+        speed_scale = np.sqrt(2.0) * observation_noise / observation_interval_seconds
+        heading_observable = distance > 2.0 * float(np.median(observation_noise))
+        if heading_observable:
+            speed = np.maximum(
+                np.abs(generator.normal(distance / observation_interval_seconds, speed_scale)),
+                MINIMUM_POSITIVE_SCALE,
+            )
+            heading_reference = float(np.arctan2(displacement[1], displacement[0]))
+            heading_local = generator.normal(
+                0.0,
+                np.minimum(
+                    np.pi,
+                    speed_scale / (distance / observation_interval_seconds),
+                ),
+            )
+        else:
+            speed = np.maximum(
+                np.abs(generator.normal(0.0, speed_scale)),
+                MINIMUM_POSITIVE_SCALE,
+            )
+            heading_reference = 0.0
+            heading_local = generator.normal(0.0, np.pi, self.config.draws)
+        observation_noise_excess = np.sqrt(
+            np.maximum(
+                observation_noise**2
+                - self.priors.sigma_position_observation_floor_m**2,
+                MINIMUM_POSITIVE_SCALE**2,
+            )
+        )
+        transformed = np.column_stack(
+            (
+                generator.normal(x_observed, observation_noise),
+                generator.normal(y_observed, observation_noise),
+                np.log(speed),
+                heading_local,
+                generator.normal(
+                    0.0,
+                    source_draws["sigma_turn_rate_process"]
+                    * ctrv_dynamics.process_time_scale(observation_interval_seconds),
+                ),
+                np.log(observation_noise_excess),
+                np.log(source_draws["sigma_speed_process"]),
+                np.log(source_draws["sigma_turn_rate_process"]),
+            )
+        )
+        covariance = np.cov(transformed, rowvar=False, ddof=1)
+        mean = np.mean(transformed, axis=0)
+        mean[0] = x_observed
+        mean[1] = y_observed
+        return GaussianCarry(
+            mean=mean,
+            cholesky=_regularized_cholesky(
+                covariance,
+                covariance_jitter=self.config.covariance_jitter,
+                regularization_attempts=self.config.regularization_attempts,
+            ),
+            heading_reference=heading_reference,
+            draw_count=self.config.draws,
+        )
 
     def update_many(self, time_seconds, x_observed, y_observed) -> None:
         """Assimilate matching new observations exactly once."""

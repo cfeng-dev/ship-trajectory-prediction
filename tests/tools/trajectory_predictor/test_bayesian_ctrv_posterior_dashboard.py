@@ -81,7 +81,7 @@ def test_dashboard_keeps_the_trajectory_plot_box_and_linear_speed_axis():
         navigator.disconnect()
 
 
-def test_dashboard_exposes_smc_predictive_diagnostics_only_when_available():
+def test_dashboard_exposes_online_predictive_diagnostics_only_when_available():
     dashboard = _load_dashboard_module()
     update = dashboard.PosteriorDashboardUpdate(
         2,
@@ -91,12 +91,12 @@ def test_dashboard_exposes_smc_predictive_diagnostics_only_when_available():
         reinitialization_count=3,
     )
 
-    diagnostics = dashboard.smc_predictive_diagnostics_at({2: update}, 2)
+    diagnostics = dashboard.online_predictive_diagnostics_at({2: update}, 2)
 
     assert diagnostics.log_predictive_density == -12.5
     assert diagnostics.track_lost is True
     assert diagnostics.reinitialization_count == 3
-    assert dashboard.smc_predictive_diagnostics_at({}, 2) is None
+    assert dashboard.online_predictive_diagnostics_at({}, 2) is None
 
 
 def test_noise_axes_use_decimal_labels_on_logarithmic_scales():

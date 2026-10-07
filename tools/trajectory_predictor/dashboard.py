@@ -408,20 +408,20 @@ class PosteriorDashboardUpdate:
 
 
 @dataclass(frozen=True, slots=True)
-class SMCPredictiveDiagnostics:
-    """Displayed one-step-ahead diagnostic from the full-state SMC filter."""
+class OnlinePredictiveDiagnostics:
+    """Displayed one-step-ahead diagnostic from an online inference method."""
 
     log_predictive_density: float
     track_lost: bool | None
     reinitialization_count: int | None
 
 
-def smc_predictive_diagnostics_at(updates_by_count, observation_count):
-    """Return the selected SMC prediction diagnostic, if the method produced one."""
+def online_predictive_diagnostics_at(updates_by_count, observation_count):
+    """Return the selected online prediction diagnostic, if available."""
     update = updates_by_count.get(observation_count)
     if update is None or update.predictive_log_density is None:
         return None
-    return SMCPredictiveDiagnostics(
+    return OnlinePredictiveDiagnostics(
         log_predictive_density=float(update.predictive_log_density),
         track_lost=update.track_lost,
         reinitialization_count=update.reinitialization_count,
@@ -1161,7 +1161,7 @@ class PosteriorDashboardNavigator:
             )
         if self._on_predictive_diagnostics_change is not None:
             self._on_predictive_diagnostics_change(
-                smc_predictive_diagnostics_at(
+                online_predictive_diagnostics_at(
                     self._updates_by_count,
                     self.observation_count,
                 )
@@ -1916,18 +1916,12 @@ def create_posterior_dashboard_loader(
                     if inference_method == "sequential_vi"
                     else online_filter.resample_count
                 ),
-                predictive_log_density=(
-                    online_filter.last_log_predictive_density
-                    if inference_method == "smc"
-                    else None
+                predictive_log_density=getattr(
+                    online_filter, "last_log_predictive_density", None
                 ),
-                track_lost=(
-                    online_filter.track_lost if inference_method == "smc" else None
-                ),
-                reinitialization_count=(
-                    online_filter.reinitialization_count
-                    if inference_method == "smc"
-                    else None
+                track_lost=getattr(online_filter, "track_lost", None),
+                reinitialization_count=getattr(
+                    online_filter, "reinitialization_count", None
                 ),
                 forecast=forecast,
             )

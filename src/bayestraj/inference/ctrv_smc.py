@@ -30,7 +30,7 @@ class SequentialMonteCarloCTRVConfig:
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05
-    predictive_log_density_threshold: float | None = None
+    predictive_log_density_threshold: float | None = -10.0
 
     def __post_init__(self) -> None:
         """Validate particle-filter sizes and probabilities."""

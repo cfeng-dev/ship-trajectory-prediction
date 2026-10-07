@@ -18,7 +18,7 @@ def test_smc_config_has_comparable_particle_filter_defaults():
     assert config.posterior_draw_count == 1_000
     assert config.resample_ess_fraction == 0.5
     assert config.rejuvenation_scale == 0.05
-    assert config.predictive_log_density_threshold is None
+    assert config.predictive_log_density_threshold == -10.0
 
 
 def test_smc_predictive_log_density_matches_weighted_gaussian_mixture():
@@ -27,6 +27,7 @@ def test_smc_predictive_log_density_matches_weighted_gaussian_mixture():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
+            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.array(
@@ -88,6 +89,7 @@ def test_smc_predictive_log_density_distinguishes_supported_and_lost_positions()
                 particle_count=2,
                 posterior_draw_count=2,
                 resample_ess_fraction=0.01,
+                predictive_log_density_threshold=None,
             ),
             parameter_particles=np.log(np.full((2, 3), [1.0, 1e-12, 1e-12])),
             state_particles=np.zeros((2, 5)),
@@ -416,6 +418,7 @@ def test_smc_update_propagates_current_motion_before_evolving_next_motion():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
+            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(np.array([100.0, 5.0, 1e-12]), (2, 3)).copy()
@@ -446,6 +449,7 @@ def test_smc_guided_update_recovers_turn_after_particle_collapse():
         config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=particle_count,
             posterior_draw_count=particle_count,
+            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(
@@ -490,6 +494,7 @@ def test_smc_rejuvenates_unobservable_heading_before_vessel_restarts():
         config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=particle_count,
             posterior_draw_count=particle_count,
+            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(

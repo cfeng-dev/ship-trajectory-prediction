@@ -81,8 +81,13 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
-def test_smc_predictive_threshold_defaults_to_disabled_and_accepts_a_number(form):
-    assert settings.default_form_values()["smc"]["predictive_log_density_threshold"] == ""
+def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(form):
+    assert settings.default_form_values()["smc"]["predictive_log_density_threshold"] == "-10.0"
+    assert settings.default_form_values()["rbpf"]["predictive_log_density_threshold"] == "-10.0"
+    assert (
+        settings.default_form_values()["sequential_vi"]["predictive_log_density_threshold"]
+        == "-10.0"
+    )
     form["smc"]["predictive_log_density_threshold"] = "-12.5"
 
     result = settings.parse_settings(form)

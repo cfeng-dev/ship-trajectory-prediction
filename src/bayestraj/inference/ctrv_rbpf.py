@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -36,6 +36,7 @@ class SequentialCTRVFilterConfig:
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05
+    predictive_log_density_threshold: float | None = -10.0
 
     def __post_init__(self) -> None:
         """Validate particle-filter sizes and probabilities."""
@@ -59,8 +60,15 @@ class SequentialCTRVFilterConfig:
         )
         if rejuvenation_scale >= 1.0:
             raise ValueError("rejuvenation_scale must be smaller than one.")
+        threshold = self.predictive_log_density_threshold
+        if threshold is not None:
+            threshold = numeric_validation.validate_finite_scalar(
+                "predictive_log_density_threshold",
+                threshold,
+            )
         object.__setattr__(self, "resample_ess_fraction", ess_fraction)
         object.__setattr__(self, "rejuvenation_scale", rejuvenation_scale)
+        object.__setattr__(self, "predictive_log_density_threshold", threshold)
 
 
 @dataclass(slots=True)
@@ -85,6 +93,11 @@ class SequentialBayesianCTRVFilter:
     forecast_origin_means: np.ndarray | None = None
     forecast_origin_covariances: np.ndarray | None = None
     position_observation_noise_floor_m: float = 0.0
+    last_log_predictive_density: float | None = None
+    predictive_log_density_history: list[float] = field(default_factory=list)
+    track_lost: bool | None = None
+    last_observed_position: np.ndarray | None = None
+    reinitialization_count: int = 0
 
     @classmethod
     def initialize(
@@ -204,6 +217,10 @@ class SequentialBayesianCTRVFilter:
             position_observation_noise_floor_m=(
                 priors.sigma_position_observation_floor_m
             ),
+            last_observed_position=np.array(
+                [x_observed[0], y_observed[0]],
+                dtype=float,
+            ),
         )
         online_filter.update_many(
             time_seconds[1:],
@@ -306,6 +323,27 @@ class SequentialBayesianCTRVFilter:
             log_determinants + squared_distances
         )
         with np.errstate(divide="ignore"):
+            log_predictive_density = _logsumexp(
+                np.log(self.weights) + log_likelihood
+            )
+        self.last_log_predictive_density = log_predictive_density
+        self.predictive_log_density_history.append(log_predictive_density)
+        threshold = self.config.predictive_log_density_threshold
+        self.track_lost = (
+            None if threshold is None else log_predictive_density < threshold
+        )
+        if self.track_lost:
+            self._reinitialize_at_observation(
+                time_seconds,
+                x_observed,
+                y_observed,
+                dt,
+                observation_noise,
+                speed_process,
+                turn_rate_process,
+            )
+            return
+        with np.errstate(divide="ignore"):
             log_weights = np.log(self.weights) + log_likelihood
         log_weights -= np.max(log_weights)
         weights = np.exp(log_weights)
@@ -351,6 +389,96 @@ class SequentialBayesianCTRVFilter:
             < self.config.resample_ess_fraction * self.config.particle_count
         ):
             self._resample_and_rejuvenate()
+        self.last_observed_position = np.array([x_observed, y_observed], dtype=float)
+
+    def _reinitialize_at_observation(
+        self,
+        time_seconds: float,
+        x_observed: float,
+        y_observed: float,
+        dt: float,
+        observation_noise: np.ndarray,
+        speed_process: np.ndarray,
+        turn_rate_process: np.ndarray,
+    ) -> None:
+        """Restart Gaussian state particles around a fix outside predictive support."""
+        particle_count = self.config.particle_count
+        recovered_means = np.zeros(
+            (particle_count, _SEQUENTIAL_STATE_COUNT),
+            dtype=float,
+        )
+        recovered_means[:, _STATE_X_INDEX] = x_observed
+        recovered_means[:, _STATE_Y_INDEX] = y_observed
+        previous_position = self.last_observed_position
+        if previous_position is None:
+            displacement = np.zeros(2, dtype=float)
+        else:
+            previous_position = np.asarray(previous_position, dtype=float)
+            if previous_position.shape != (2,) or not np.all(
+                np.isfinite(previous_position)
+            ):
+                raise RuntimeError("Sequential CTRV last observation became invalid.")
+            displacement = np.array([x_observed, y_observed]) - previous_position
+        distance = float(np.hypot(*displacement))
+        speed_scale = np.sqrt(2.0) * observation_noise / dt
+        heading_observable = distance > 2.0 * float(np.median(observation_noise))
+        if heading_observable:
+            recovered_means[:, _STATE_SPEED_INDEX] = np.maximum(
+                distance / dt,
+                SPEED_STATE_LOWER_MPS,
+            )
+            recovered_means[:, _STATE_HEADING_INDEX] = np.arctan2(
+                displacement[1],
+                displacement[0],
+            )
+            heading_variance = np.minimum(
+                np.pi,
+                speed_scale / (distance / dt),
+            ) ** 2
+        else:
+            recovered_means[:, _STATE_SPEED_INDEX] = SPEED_STATE_LOWER_MPS
+            recovered_means[:, _STATE_HEADING_INDEX] = 0.0
+            heading_variance = np.full(particle_count, np.pi**2)
+        recovered_covariances = np.zeros(
+            (particle_count, _SEQUENTIAL_STATE_COUNT, _SEQUENTIAL_STATE_COUNT),
+            dtype=float,
+        )
+        recovered_covariances[:, _STATE_X_INDEX, _STATE_X_INDEX] = (
+            observation_noise**2
+        )
+        recovered_covariances[:, _STATE_Y_INDEX, _STATE_Y_INDEX] = (
+            observation_noise**2
+        )
+        recovered_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] = (
+            speed_scale**2
+        )
+        recovered_covariances[:, _STATE_HEADING_INDEX, _STATE_HEADING_INDEX] = (
+            heading_variance
+        )
+        recovered_covariances[:, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX] = (
+            turn_rate_process**2
+        )
+        recovered_covariances += (
+            _NUMERICAL_VARIANCE_FLOOR * np.eye(_SEQUENTIAL_STATE_COUNT)[None]
+        )
+        ctrv_dynamics.normalize_states(recovered_means, recovered_covariances)
+        self.forecast_origin_means = recovered_means
+        self.forecast_origin_covariances = recovered_covariances
+        self.state_means = recovered_means.copy()
+        self.state_covariances = recovered_covariances.copy()
+        process_variance_scale = ctrv_dynamics.process_time_scale(dt) ** 2
+        self.state_covariances[:, _STATE_SPEED_INDEX, _STATE_SPEED_INDEX] += (
+            speed_process**2 * process_variance_scale
+        )
+        self.state_covariances[:, _STATE_TURN_RATE_INDEX, _STATE_TURN_RATE_INDEX] += (
+            turn_rate_process**2 * process_variance_scale
+        )
+        self.weights = np.full(particle_count, 1.0 / particle_count, dtype=float)
+        self.last_observation_time_seconds = time_seconds
+        self.last_observed_position = np.array([x_observed, y_observed], dtype=float)
+        self.processed_observation_count += 1
+        self.last_effective_sample_size = float(particle_count)
+        self.reinitialization_count += 1
 
     def sample_current_posterior(
         self,
@@ -573,6 +701,17 @@ def _invert_two_by_two_matrices(
     inverses[:, 1, 0] = -matrices[:, 1, 0] / determinant
     inverses[:, 1, 1] = matrices[:, 0, 0] / determinant
     return inverses, np.log(determinant)
+
+
+def _logsumexp(log_values: np.ndarray) -> float:
+    """Return a stable logarithm of a finite positive sum of exponentials."""
+    maximum_log_value = float(np.max(log_values))
+    if not np.isfinite(maximum_log_value):
+        raise RuntimeError("Sequential CTRV predictive density collapsed.")
+    shifted_sum = float(np.sum(np.exp(log_values - maximum_log_value)))
+    if not np.isfinite(shifted_sum) or shifted_sum <= 0.0:
+        raise RuntimeError("Sequential CTRV predictive density collapsed.")
+    return maximum_log_value + float(np.log(shifted_sum))
 
 
 def _sample_gaussian_states(
