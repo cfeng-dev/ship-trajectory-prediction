@@ -106,6 +106,9 @@ LABELS = {
     "posterior_draw_count": "Posterior draws",
     "resample_ess_fraction": "Resampling: ESS fraction",
     "rejuvenation_scale": "Rejuvenation scale",
+    "predictive_log_density_threshold": (
+        "Predictive log-density reset threshold (empty = off)"
+    ),
     "require_converged": "Require VI convergence",
     "n_bootstrap": "Bootstrap observations",
     "algorithm": "VI algorithm",
@@ -187,7 +190,7 @@ def default_form_values():
     """Return independent strings/booleans suitable for editable Tk variables."""
     return {
         group: {
-            key: value if isinstance(value, bool) else str(value)
+            key: value if isinstance(value, bool) else "" if value is None else str(value)
             for key, value in fields.items()
         }
         for group, fields in _defaults().items()
@@ -207,6 +210,11 @@ def _parse_group(values, defaults):
             elif isinstance(default, float):
                 value = float(value)
                 if not isfinite(value):
+                    raise ValueError("expected a finite number")
+            elif default is None:
+                value = str(value).strip()
+                value = None if not value else float(value)
+                if value is not None and not isfinite(value):
                     raise ValueError("expected a finite number")
             else:
                 value = str(value).strip()

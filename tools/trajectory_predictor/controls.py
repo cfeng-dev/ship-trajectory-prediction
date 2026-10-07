@@ -322,6 +322,43 @@ class SettingsPanel(tk.Frame):
                 fg=TEXT_COLOR,
                 justify="left",
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
+        self.smc_predictive_diagnostics_section = tk.LabelFrame(
+            body,
+            text="SMC predictive diagnostics",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        self.smc_predictive_diagnostics_section.pack(fill="x", pady=(8, 0))
+        self.smc_predictive_diagnostic_values = {
+            "log_predictive_density": tk.StringVar(self, value="—"),
+            "predictive_state": tk.StringVar(self, value="—"),
+            "reinitialization_count": tk.StringVar(self, value="—"),
+        }
+        for row, (key, label) in enumerate(
+            (
+                ("log_predictive_density", "Predictive log density"),
+                ("predictive_state", "Predictive state"),
+                ("reinitialization_count", "Track recoveries"),
+            )
+        ):
+            tk.Label(
+                self.smc_predictive_diagnostics_section,
+                text=f"{label}:",
+                font=("Arial", 9, "bold"),
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
+            tk.Label(
+                self.smc_predictive_diagnostics_section,
+                textvariable=self.smc_predictive_diagnostic_values[key],
+                font="TkFixedFont",
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+            ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
 
     def show_reference_state(self, state):
@@ -382,6 +419,29 @@ class SettingsPanel(tk.Frame):
             f"{metrics.inference_time_seconds:.3f} s"
             if metrics.inference_time_seconds is not None
             else "—"
+        )
+
+    def show_smc_predictive_diagnostics(self, diagnostics):
+        """Show the current SMC one-step-ahead predictive diagnostic."""
+        if diagnostics is None:
+            for variable in self.smc_predictive_diagnostic_values.values():
+                variable.set("—")
+            return
+        self.smc_predictive_diagnostic_values["log_predictive_density"].set(
+            f"{diagnostics.log_predictive_density:.2f}"
+        )
+        state = (
+            "threshold off"
+            if diagnostics.track_lost is None
+            else "inconsistent"
+            if diagnostics.track_lost
+            else "consistent"
+        )
+        self.smc_predictive_diagnostic_values["predictive_state"].set(state)
+        self.smc_predictive_diagnostic_values["reinitialization_count"].set(
+            "—"
+            if diagnostics.reinitialization_count is None
+            else str(diagnostics.reinitialization_count)
         )
 
     def show_posterior_medians(self, medians):

@@ -283,6 +283,7 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
         show_reference_state=lambda _state: None,
         show_analysis_metrics=lambda _metrics: None,
         show_posterior_medians=lambda _medians: None,
+        show_smc_predictive_diagnostics=lambda _diagnostics: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
 

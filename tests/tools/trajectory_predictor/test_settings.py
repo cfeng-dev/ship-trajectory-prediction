@@ -81,6 +81,15 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
+def test_smc_predictive_threshold_defaults_to_disabled_and_accepts_a_number(form):
+    assert settings.default_form_values()["smc"]["predictive_log_density_threshold"] == ""
+    form["smc"]["predictive_log_density_threshold"] = "-12.5"
+
+    result = settings.parse_settings(form)
+
+    assert result.analysis.smc_config.predictive_log_density_threshold == -12.5
+
+
 def test_trajectory_predictor_defaults_to_the_processed_single_trajectory():
     """The GUI starts with the local time/x/y trajectory, not a raw run selector."""
     data = settings.default_form_values()["data"]

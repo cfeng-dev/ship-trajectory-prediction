@@ -346,6 +346,9 @@ class PosteriorDashboardUpdate:
     effective_sample_size: float | None = None
     particle_count: int | None = None
     resample_count: int | None = None
+    predictive_log_density: float | None = None
+    track_lost: bool | None = None
+    reinitialization_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
     inference_time_seconds: float | None = None
     is_prior_predictive: bool = False
@@ -362,6 +365,18 @@ class PosteriorDashboardUpdate:
             or self.inference_time_seconds < 0
         ):
             raise ValueError("inference_time_seconds must be finite and non-negative.")
+        if self.predictive_log_density is not None and not np.isfinite(
+            self.predictive_log_density
+        ):
+            raise ValueError("predictive_log_density must be finite or None.")
+        if self.track_lost is not None and not isinstance(self.track_lost, bool):
+            raise TypeError("track_lost must be a boolean or None.")
+        if self.reinitialization_count is not None and (
+            isinstance(self.reinitialization_count, bool)
+            or not isinstance(self.reinitialization_count, int)
+            or self.reinitialization_count < 0
+        ):
+            raise ValueError("reinitialization_count must be a non-negative integer.")
         if (
             isinstance(self.observation_count, bool)
             or not isinstance(self.observation_count, int)
@@ -390,6 +405,27 @@ class PosteriorDashboardUpdate:
             "samples_by_parameter",
             MappingProxyType(samples_by_parameter),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class SMCPredictiveDiagnostics:
+    """Displayed one-step-ahead diagnostic from the full-state SMC filter."""
+
+    log_predictive_density: float
+    track_lost: bool | None
+    reinitialization_count: int | None
+
+
+def smc_predictive_diagnostics_at(updates_by_count, observation_count):
+    """Return the selected SMC prediction diagnostic, if the method produced one."""
+    update = updates_by_count.get(observation_count)
+    if update is None or update.predictive_log_density is None:
+        return None
+    return SMCPredictiveDiagnostics(
+        log_predictive_density=float(update.predictive_log_density),
+        track_lost=update.track_lost,
+        reinitialization_count=update.reinitialization_count,
+    )
 
 
 def _posterior_dashboard_title(observation_count, update) -> str:
@@ -686,6 +722,7 @@ class PosteriorDashboardNavigator:
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
+        on_predictive_diagnostics_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
     ):
@@ -725,6 +762,7 @@ class PosteriorDashboardNavigator:
         self._on_state_change = on_state_change
         self._on_metrics_change = on_metrics_change
         self._on_medians_change = on_medians_change
+        self._on_predictive_diagnostics_change = on_predictive_diagnostics_change
         self._on_settings_visibility_change = on_settings_visibility_change
         self._updates_by_count = {}
         self._observation_count = 0
@@ -1120,6 +1158,13 @@ class PosteriorDashboardNavigator:
         if self._on_medians_change is not None:
             self._on_medians_change(
                 posterior_medians_at(self._updates_by_count, self.observation_count)
+            )
+        if self._on_predictive_diagnostics_change is not None:
+            self._on_predictive_diagnostics_change(
+                smc_predictive_diagnostics_at(
+                    self._updates_by_count,
+                    self.observation_count,
+                )
             )
 
     def _draw_trajectory(self) -> None:
@@ -1586,6 +1631,7 @@ def create_sequential_posterior_dashboard_figure(
     on_state_change=None,
     on_metrics_change=None,
     on_medians_change=None,
+    on_predictive_diagnostics_change=None,
     settings_visible=True,
     on_settings_visibility_change=None,
 ):
@@ -1679,6 +1725,7 @@ def create_sequential_posterior_dashboard_figure(
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,
+        on_predictive_diagnostics_change=on_predictive_diagnostics_change,
         settings_visible=bool(settings_visible),
         on_settings_visibility_change=on_settings_visibility_change,
     )
@@ -1868,6 +1915,19 @@ def create_posterior_dashboard_loader(
                     None
                     if inference_method == "sequential_vi"
                     else online_filter.resample_count
+                ),
+                predictive_log_density=(
+                    online_filter.last_log_predictive_density
+                    if inference_method == "smc"
+                    else None
+                ),
+                track_lost=(
+                    online_filter.track_lost if inference_method == "smc" else None
+                ),
+                reinitialization_count=(
+                    online_filter.reinitialization_count
+                    if inference_method == "smc"
+                    else None
                 ),
                 forecast=forecast,
             )
