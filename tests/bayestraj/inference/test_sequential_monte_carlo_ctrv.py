@@ -7,8 +7,6 @@ import pytest
 
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
-from bayestraj.observations.io import read_processed_trajectory
-from bayestraj.observations.paths import data_path
 
 
 def test_smc_config_has_comparable_particle_filter_defaults():
@@ -296,21 +294,20 @@ def test_smc_predictive_log_density_history_and_threshold_do_not_change_filter_s
     assert with_threshold.weights == pytest.approx(without_threshold.weights)
 
 
-def test_smc_preserves_forecast_spread_for_the_noiseless_htwg_update():
-    """The real HTWG route must not collapse to a false point forecast at N=669."""
-    trajectory = read_processed_trajectory(
-        data_path("processed/ship_trajectory_htwg.csv")
-    )
-    selected_indices = [0]
-    latest_time = float(trajectory.loc[0, "time"])
-    for index, time_seconds in enumerate(trajectory["time"].iloc[1:], start=1):
-        if time_seconds - latest_time >= 1.0:
-            selected_indices.append(index)
-            latest_time = float(time_seconds)
-    selected = trajectory.iloc[selected_indices].reset_index(drop=True)
-    time_seconds = selected["time"].to_numpy(dtype=float)
-    x_observed = selected["x"].to_numpy(dtype=float)
-    y_observed = selected["y"].to_numpy(dtype=float)
+def _noiseless_turning_trajectory():
+    """Return a deterministic CTRV-compatible route for forecast regression tests."""
+    time_seconds = np.arange(671, dtype=float)
+    speed_mps = 3.0
+    turn_rate_rad_s = np.deg2rad(1.5)
+    turn_radius_m = speed_mps / turn_rate_rad_s
+    x_observed = turn_radius_m * np.sin(turn_rate_rad_s * time_seconds)
+    y_observed = turn_radius_m * (1.0 - np.cos(turn_rate_rad_s * time_seconds))
+    return time_seconds, x_observed, y_observed
+
+
+def test_smc_preserves_forecast_spread_for_a_noiseless_turning_route():
+    """A deterministic turn must retain position spread without external data."""
+    time_seconds, x_observed, y_observed = _noiseless_turning_trajectory()
 
     priors = ctrv_model.BayesianCTRVPriors()
     assert priors.sigma_position_observation_floor_m == pytest.approx(5.0)
