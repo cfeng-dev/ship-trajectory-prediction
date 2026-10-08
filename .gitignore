@@ -38,3 +38,6 @@ data/**
 !data/README.md
 !data/simulated/
 !data/simulated/example_simulated_trajectory.csv
+
+# External IMM MATLAB reference implementation
+external/IMM/

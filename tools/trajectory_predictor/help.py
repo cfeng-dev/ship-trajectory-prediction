@@ -41,7 +41,7 @@ POSTERIOR_HELP_SECTIONS = (
             ("Cancel analysis", "Stop the active analysis and unlock settings"),
             (
                 "Inference method",
-                "Select RBPF, SMC, VI, or MCMC for the next analysis",
+                "Select SMC, Sequential VI, VI, or MCMC for the next analysis",
             ),
             (
                 "VI / MCMC",
