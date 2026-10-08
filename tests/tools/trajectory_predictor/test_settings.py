@@ -80,6 +80,10 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
+def test_trajectory_predictor_defaults_to_no_added_position_noise():
+    assert settings.default_form_values()["data"]["position_noise_std_m"] == "0.0"
+
+
 def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(form):
     assert settings.default_form_values()["smc"]["predictive_log_density_threshold"] == "-10.0"
     assert settings.default_form_values()["rbpf"]["predictive_log_density_threshold"] == "-10.0"

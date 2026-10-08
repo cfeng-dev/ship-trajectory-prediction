@@ -162,7 +162,7 @@ def _defaults():
             "maximum_observation_count": "",
             "prediction_count": DEFAULT_PREDICTION_COUNT,
             "prediction_sample_count": DEFAULT_PREDICTION_SAMPLE_COUNT,
-            "position_noise_std_m": 5.0,
+            "position_noise_std_m": 0.0,
             "position_noise_seed": 2026,
             "inference_seed": 42,
             "playback_interval_seconds": 1.0,
