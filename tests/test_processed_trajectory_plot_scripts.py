@@ -12,15 +12,22 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 
 @pytest.mark.parametrize(
-    ("script_name", "title"),
+    ("script_name", "title", "expected_x_coordinates"),
     (
         (
             "plot_processed_shiptech_trajectory.py",
             "Verrauschte Shiptech-Trajektorie mit Fahrtrichtung",
+            [-3.96561238, 4.20285642, -3.48163175],
         ),
         (
             "plot_processed_htwg_trajectory.py",
             "Verrauschte HTWG-Trajektorie mit Fahrtrichtung",
+            [-3.96561238, 4.20285642, -3.48163175],
+        ),
+        (
+            "plot_br24_target_radar_trajectory.py",
+            "BR24-Radar-Zieltrajektorie mit Fahrtrichtung",
+            [0.0, 3.0, 6.0],
         ),
     ),
 )
@@ -29,6 +36,7 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
     monkeypatch,
     script_name,
     title,
+    expected_x_coordinates,
 ):
     """Each entrypoint plots an interchangeable processed position CSV."""
     input_csv = tmp_path / "processed_trajectory.csv"
@@ -52,7 +60,7 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
         assert trajectory_axis.get_title() == title
         np.testing.assert_allclose(
             trajectory_axis.lines[0].get_xdata(),
-            [-3.96561238, 4.20285642, -3.48163175],
+            expected_x_coordinates,
         )
     finally:
         plt.close("all")
