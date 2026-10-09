@@ -72,22 +72,15 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     row_count = 8
     trajectory = pd.DataFrame(
         {
-            "time": pd.date_range(
-                "2026-01-01",
-                periods=row_count,
-                freq="10s",
-                tz="UTC",
-            ),
-            "run_id": np.full(row_count, 102),
-            "gps_latitude": 53.0 + np.arange(row_count) * 0.00001,
-            "gps_longitude": 10.0 + np.arange(row_count) * 0.00002,
-            "gps_speed": np.full(row_count, 3.6),
+            "time": np.arange(row_count, dtype=float) * 10.0,
+            "x": np.arange(row_count, dtype=float),
+            "y": np.arange(row_count, dtype=float),
         }
     )
     plot_keywords = {}
     monkeypatch.setattr(
         single_ctrv_workflow.observations_io,
-        "read_ship_data",
+        "read_processed_trajectory",
         lambda *args, **kwargs: trajectory,
     )
     monkeypatch.setattr(
@@ -96,7 +89,6 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         lambda *args, **kwargs: plot_keywords.update(kwargs),
     )
     experiment = ctrv_forecasting.ExperimentConfig(
-        run_id=102,
         start_index=0,
         observation_count=5,
         prediction_count=3,
@@ -149,16 +141,9 @@ def test_single_window_ctrv_prediction_dispatches_sequential_vi_once(
     row_count = 13
     trajectory = pd.DataFrame(
         {
-            "time": pd.date_range(
-                "2026-01-01",
-                periods=row_count,
-                freq="2s",
-                tz="UTC",
-            ),
-            "run_id": np.full(row_count, 102),
-            "gps_latitude": 53.0 + np.arange(row_count) * 0.00001,
-            "gps_longitude": 10.0 + np.arange(row_count) * 0.00002,
-            "gps_speed": np.full(row_count, 3.6),
+            "time": np.arange(row_count, dtype=float) * 2.0,
+            "x": np.arange(row_count, dtype=float),
+            "y": np.arange(row_count, dtype=float),
         }
     )
     calls: dict[str, object] = {"initialize_count": 0}
@@ -207,7 +192,7 @@ def test_single_window_ctrv_prediction_dispatches_sequential_vi_once(
     )
     monkeypatch.setattr(
         single_ctrv_workflow.observations_io,
-        "read_ship_data",
+        "read_processed_trajectory",
         lambda *args, **kwargs: trajectory,
     )
     monkeypatch.setattr(
@@ -216,7 +201,6 @@ def test_single_window_ctrv_prediction_dispatches_sequential_vi_once(
         lambda *args, **kwargs: None,
     )
     experiment = ctrv_forecasting.ExperimentConfig(
-        run_id=102,
         start_index=0,
         observation_count=10,
         prediction_count=3,

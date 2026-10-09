@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.deterministic_ctrv as forecasting
-import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
@@ -70,13 +69,9 @@ def _run_deterministic_ctrv_evaluation(
     stride = experiment.stride
     position_noise_std_m = experiment.position_noise_std_m
     position_noise_seed = experiment.position_noise_seed
-    trajectory_data = observations_io.read_ship_data(
-        data_file,
-        run_id=experiment.run_id,
-    )
-    trajectory_data = trajectory_data.sort_values("time").reset_index(drop=True)
+    trajectory_data = _load_evaluation_trajectory(data_file)
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
+        raise ValueError("No trajectory rows found in the configured input file.")
 
     windows = rolling_validation.build_rolling_window_specs(
         len(trajectory_data),
@@ -92,7 +87,7 @@ def _run_deterministic_ctrv_evaluation(
             raise ValueError("max_windows must be a positive integer or None.")
         windows = windows[:max_windows]
 
-    route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    route_x, route_y = _prepare_route_coordinates(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
         standard_deviation_m=position_noise_std_m,
@@ -101,7 +96,6 @@ def _run_deterministic_ctrv_evaluation(
     effective_stride = prediction_count if stride is None else stride
     _print_setup(
         data_file=data_file,
-        run_id=experiment.run_id,
         window_mode=window_mode,
         observation_count=observation_count,
         prediction_count=prediction_count,
@@ -113,7 +107,7 @@ def _run_deterministic_ctrv_evaluation(
 
     prediction_tables = []
     for number, specification in enumerate(windows, start=1):
-        window = observation_window.prepare_trajectory_window(
+        window = _prepare_evaluation_window(
             trajectory_data,
             observation_count=specification.observation_count,
             prediction_count=specification.prediction_count,
@@ -138,8 +132,6 @@ def _run_deterministic_ctrv_evaluation(
             initial_state=initial_state,
             route_x=route_x,
             route_y=route_y,
-            longitude=longitude,
-            latitude=latitude,
             position_noise_std_m=position_noise_std_m,
             position_noise_seed=position_noise_seed,
         )
@@ -218,20 +210,33 @@ def summarize_deterministic_predictions(predictions):
     )
 
 
+def _load_evaluation_trajectory(data_file):
+    """Load one processed local ``time,x,y`` trajectory."""
+    return observations_io.read_processed_trajectory(data_file)
+
+
+def _prepare_evaluation_window(
+    trajectory_data,
+    *,
+    observation_count,
+    prediction_count,
+    start_index,
+):
+    """Prepare one deterministic window from local processed positions."""
+    return observation_window.prepare_processed_trajectory_window(
+        trajectory_data,
+        observation_count=observation_count,
+        prediction_count=prediction_count,
+        start_index=start_index,
+    )
+
+
 def _prepare_route_coordinates(trajectory_data):
-    """Return route coordinates and GPS values in chronological order."""
-    longitude = pd.to_numeric(
-        trajectory_data["gps_longitude"], errors="coerce"
-    ).to_numpy(dtype=float)
-    latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
-        dtype=float
+    """Return processed route coordinates in their local east/north frame."""
+    return (
+        trajectory_data["x"].to_numpy(dtype=float),
+        trajectory_data["y"].to_numpy(dtype=float),
     )
-    route_x, route_y = coordinates.gps_to_local_coordinates(
-        longitude,
-        latitude,
-        unit="m",
-    )
-    return route_x, route_y, longitude, latitude
 
 
 def _simulate_route_position_noise(position_count, *, standard_deviation_m, seed):
@@ -291,27 +296,13 @@ def _build_route_prediction_table(
     initial_state,
     route_x,
     route_y,
-    longitude,
-    latitude,
     position_noise_std_m,
     position_noise_seed,
 ):
-    """Attach rolling metadata and convert predictions to one route frame."""
+    """Attach rolling metadata in the local route frame."""
     table = local_table.copy()
-    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
-        table["x_predicted"],
-        table["y_predicted"],
-        reference_longitude=window.reference_longitude,
-        reference_latitude=window.reference_latitude,
-        unit="m",
-    )
-    x_predicted_route, y_predicted_route = coordinates.gps_to_local_coordinates(
-        np.concatenate(([longitude[0]], predicted_longitude)),
-        np.concatenate(([latitude[0]], predicted_latitude)),
-        unit="m",
-    )
-    x_predicted_route = x_predicted_route[1:]
-    y_predicted_route = y_predicted_route[1:]
+    x_predicted_route = table["x_predicted"].to_numpy(dtype=float)
+    y_predicted_route = table["y_predicted"].to_numpy(dtype=float)
     target_indices = np.arange(
         specification.forecast_start_index,
         specification.forecast_start_index + specification.prediction_count,
@@ -350,7 +341,7 @@ def _print_setup(**values):
     print("Deterministic CTRV Rolling-Window Evaluation")
     print("=" * 72)
     print(f"Data file             : {values['data_file']}")
-    print(f"Run ID                : {values['run_id']}")
+    print("Trajectory schema     : local time,x,y")
     print(f"Window mode           : {values['window_mode']}")
     print(f"Initial observations  : {values['observation_count']}")
     print(f"Prediction horizon    : {values['prediction_count']}")

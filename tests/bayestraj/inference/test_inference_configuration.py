@@ -15,7 +15,6 @@ from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 
 def _ctrv_rolling_config(**overrides):
     values = {
-        "run_id": 102,
         "observation_count": 5,
         "prediction_count": 3,
         "position_noise_std_m": 5.0,
@@ -73,7 +72,6 @@ def test_ctrv_rolling_batch_selection_derives_method_and_window(
 
 def test_ctrv_rolling_observation_count_defaults_to_source_owned_value():
     config = ctrv_config.RollingExperimentConfig(
-        run_id=102,
         prediction_count=3,
         position_noise_std_m=5.0,
         position_noise_seed=2026,
@@ -84,6 +82,20 @@ def test_ctrv_rolling_observation_count_defaults_to_source_owned_value():
 
     assert inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT == 10
     assert config.observation_count == 10
+
+
+def test_ctrv_rolling_configuration_uses_processed_trajectory_contract():
+    config = ctrv_config.RollingExperimentConfig(
+        prediction_count=3,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        stride=None,
+        inference_method="smc",
+        inference_seed=42,
+    )
+
+    assert not hasattr(config, "run_id")
+    assert not hasattr(config, "trajectory_format")
 
 
 def test_default_vi_config_uses_stable_fullrank_optimization():
@@ -332,7 +344,6 @@ def test_existing_ctrv_method_normalization_is_unchanged(method, expected):
 )
 def test_single_window_ctrv_derives_mode_from_inference_method(inference_method):
     config = ctrv_config.ExperimentConfig(
-        run_id=102,
         start_index=0,
         observation_count=5,
         prediction_count=3,
@@ -358,7 +369,6 @@ def test_single_window_ctrv_derives_mode_from_inference_method(inference_method)
 )
 def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
     config = ctrv_config.RollingExperimentConfig(
-        run_id=102,
         observation_count=5,
         prediction_count=3,
         position_noise_std_m=5.0,
@@ -376,7 +386,6 @@ def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
 @pytest.mark.parametrize("online_method", ("rbpf", "smc", "sequential_vi"))
 def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
     experiment = ctrv_config.ExperimentConfig(
-        run_id=102,
         start_index=0,
         observation_count=5,
         prediction_count=3,
@@ -428,7 +437,6 @@ def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
 
 def test_ctrv_rolling_cli_observations_override_source_owned_default():
     experiment = ctrv_config.RollingExperimentConfig(
-        run_id=102,
         prediction_count=3,
         position_noise_std_m=5.0,
         position_noise_seed=2026,

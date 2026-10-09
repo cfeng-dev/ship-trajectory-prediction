@@ -234,14 +234,13 @@ def print_prediction_setup(
     title,
     *,
     data_file,
-    run_id,
     window,
     extra_rows=(),
 ):
     """Print shared window information and model-specific setup values."""
     rows = [
         ("Data file", data_file),
-        ("Run ID", run_id),
+        ("Trajectory schema", "local time,x,y"),
         ("Observed positions", window.observation_count),
         ("Predicted positions", window.prediction_count),
         *extra_rows,

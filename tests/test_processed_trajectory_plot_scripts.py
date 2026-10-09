@@ -15,14 +15,14 @@ PROJECT_ROOT = Path(__file__).parents[1]
     ("script_name", "title", "expected_x_coordinates"),
     (
         (
-            "plot_processed_shiptech_trajectory.py",
-            "Verrauschte Shiptech-Trajektorie mit Fahrtrichtung",
-            [-3.96561238, 4.20285642, -3.48163175],
+            "plot_shiptech_trajectory.py",
+            "Shiptech-Trajektorie mit Fahrtrichtung",
+            [0.0, 3.0, 6.0],
         ),
         (
-            "plot_processed_htwg_trajectory.py",
-            "Verrauschte HTWG-Trajektorie mit Fahrtrichtung",
-            [-3.96561238, 4.20285642, -3.48163175],
+            "plot_br24_target_reference_trajectory.py",
+            "BR24-Ziel-Referenztrajektorie mit Fahrtrichtung",
+            [0.0, 3.0, 6.0],
         ),
         (
             "plot_br24_target_radar_trajectory.py",

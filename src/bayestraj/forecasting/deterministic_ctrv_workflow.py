@@ -24,10 +24,8 @@ def run_deterministic_ctrv_prediction(
     show_time_labels: bool,
 ) -> pd.DataFrame:
     """Estimate and evaluate one deterministic CTRV prediction."""
-    trajectory_data = observations_io.read_ship_data(
-        data_file, run_id=experiment.run_id
-    )
-    window = observation_window.prepare_trajectory_window(
+    trajectory_data = observations_io.read_processed_trajectory(data_file)
+    window = observation_window.prepare_processed_trajectory_window(
         trajectory_data,
         observation_count=experiment.observation_count,
         prediction_count=experiment.prediction_count,
@@ -49,7 +47,6 @@ def run_deterministic_ctrv_prediction(
     reporting.print_prediction_setup(
         "Deterministic CTRV Trajectory Prediction",
         data_file=data_file,
-        run_id=experiment.run_id,
         window=window,
         extra_rows=[
             (

@@ -3,9 +3,9 @@
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.paths as paths
 
-INPUT_CSV = paths.data_path("raw/ship_data_shiptech.csv")
+INPUT_CSV = paths.data_path("raw/shiptech_data.csv")
 RUN_ID = 42
-OUTPUT_DIR = paths.data_path("processed")
+OUTPUT_CSV = paths.data_path("processed/ship_trajectory_run_42.csv")
 
 
 def main() -> None:
@@ -13,7 +13,7 @@ def main() -> None:
     output_path = observations_io.export_shiptech_trajectory(
         input_csv=INPUT_CSV,
         run_id=RUN_ID,
-        output_dir=OUTPUT_DIR,
+        output_csv=OUTPUT_CSV,
     )
     print(f"Exported processed trajectory: {output_path}")
 

@@ -120,11 +120,8 @@ def run_bayesian_ctrv_prediction(
     plot_coordinate_mode = prediction_plotting.normalize_plot_coordinate_mode(
         plot_coordinate_mode
     )
-    trajectory_data = observations_io.read_ship_data(
-        data_file,
-        run_id=experiment.run_id,
-    )
-    window = observation_window.prepare_trajectory_window(
+    trajectory_data = observations_io.read_processed_trajectory(data_file)
+    window = observation_window.prepare_processed_trajectory_window(
         trajectory_data,
         observation_count=experiment.observation_count,
         prediction_count=experiment.prediction_count,
@@ -146,7 +143,6 @@ def run_bayesian_ctrv_prediction(
     reporting.print_prediction_setup(
         "Parametric Bayesian CTRV Prediction",
         data_file=data_file,
-        run_id=experiment.run_id,
         window=window,
         extra_rows=[
             (

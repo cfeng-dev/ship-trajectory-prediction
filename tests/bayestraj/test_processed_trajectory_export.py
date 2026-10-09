@@ -77,7 +77,7 @@ def test_export_shiptech_trajectory_writes_sorted_position_only_data(tmp_path):
     output_path = export_shiptech_trajectory(
         input_csv=input_csv,
         run_id=42,
-        output_dir=tmp_path / "processed",
+        output_csv=tmp_path / "processed" / "ship_trajectory_run_42.csv",
     )
 
     exported = pd.read_csv(output_path)
@@ -101,7 +101,9 @@ def test_export_shiptech_trajectory_rejects_unknown_run_id(tmp_path):
     )
 
     with pytest.raises(ValueError, match="run_id 42 was not found"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 @pytest.mark.parametrize("run_id", (None, (42, 7)))
@@ -117,7 +119,9 @@ def test_export_shiptech_trajectory_rejects_multiple_run_selection(tmp_path, run
     )
 
     with pytest.raises(ValueError, match="run_id must select exactly one run"):
-        export_shiptech_trajectory(input_csv, run_id=run_id, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=run_id, output_csv=tmp_path / "output.csv"
+        )
 
 
 def test_export_shiptech_trajectory_rejects_run_with_one_sample(tmp_path):
@@ -129,7 +133,9 @@ def test_export_shiptech_trajectory_rejects_run_with_one_sample(tmp_path):
     )
 
     with pytest.raises(ValueError, match="at least two samples"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 def test_export_shiptech_trajectory_rejects_repeated_timestamps(tmp_path):
@@ -148,7 +154,9 @@ def test_export_shiptech_trajectory_rejects_repeated_timestamps(tmp_path):
     )
 
     with pytest.raises(ValueError, match="strictly increasing"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 def test_export_shiptech_trajectory_rejects_invalid_source_timestamp(tmp_path):
@@ -163,7 +171,9 @@ def test_export_shiptech_trajectory_rejects_invalid_source_timestamp(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Source timestamps must be valid"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 @pytest.mark.parametrize(
@@ -190,7 +200,9 @@ def test_export_shiptech_trajectory_rejects_non_finite_gps_coordinates(
     )
 
     with pytest.raises(ValueError, match="GPS coordinates must be finite"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 def test_export_shiptech_trajectory_rejects_mismatched_generated_coordinates(
@@ -213,7 +225,9 @@ def test_export_shiptech_trajectory_rejects_mismatched_generated_coordinates(
     )
 
     with pytest.raises(ValueError, match="must match the time sample count"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )
 
 
 def test_export_shiptech_trajectory_rejects_non_finite_generated_coordinates(
@@ -239,4 +253,6 @@ def test_export_shiptech_trajectory_rejects_non_finite_generated_coordinates(
     )
 
     with pytest.raises(ValueError, match="Generated x/y coordinates must be finite"):
-        export_shiptech_trajectory(input_csv, run_id=42, output_dir=tmp_path)
+        export_shiptech_trajectory(
+            input_csv, run_id=42, output_csv=tmp_path / "output.csv"
+        )

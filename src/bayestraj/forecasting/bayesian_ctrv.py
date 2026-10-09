@@ -10,8 +10,6 @@ class ExperimentConfig:
     """Configuration of one single-window parametric CTRV experiment.
 
     Attributes:
-        run_id: Identifier of the ship trajectory to evaluate.
-
         start_index: Index of the first observed position in the selected run.
 
         observation_count: Number of observed positions used for inference.
@@ -27,7 +25,6 @@ class ExperimentConfig:
         inference_seed: Random seed for reproducible inference.
     """
 
-    run_id: int
     start_index: int
     observation_count: int
     prediction_count: int
@@ -50,8 +47,6 @@ class RollingExperimentConfig:
     """Configuration of one rolling parametric CTRV experiment.
 
     Attributes:
-        run_id: Identifier of the ship trajectory to evaluate.
-
         observation_count: Initial number of observed positions. For VI and MCMC, this is also the fixed window size.
 
         prediction_count: Number of future positions forecast per window.
@@ -67,7 +62,6 @@ class RollingExperimentConfig:
         inference_seed: Random seed for reproducible inference.
     """
 
-    run_id: int
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int

@@ -158,8 +158,8 @@ def export_processed_positions(time, x, y, output_csv):
     return output_csv
 
 
-def export_htwg_trajectory(input_csv, output_csv):
-    """Export valid HTWG x/y positions with elapsed seconds from the first sample."""
+def export_br24_target_reference_trajectory(input_csv, output_csv):
+    """Export valid BR24 target reference positions with elapsed seconds."""
     position_columns = ["time", "x", "y"]
     source_data = pd.read_csv(input_csv)
     missing_columns = [
@@ -170,7 +170,9 @@ def export_htwg_trajectory(input_csv, output_csv):
 
     trajectory_data = source_data[position_columns].copy()
     if len(trajectory_data) < 2:
-        raise ValueError("The HTWG trajectory must contain at least two samples.")
+        raise ValueError(
+            "The BR24 target reference trajectory must contain at least two samples."
+        )
     trajectory_data = trajectory_data.apply(pd.to_numeric, errors="coerce")
     if not np.all(np.isfinite(trajectory_data["time"].to_numpy(dtype=float))):
         raise ValueError("time must contain finite numeric values.")
@@ -181,7 +183,8 @@ def export_htwg_trajectory(input_csv, output_csv):
     trajectory_data = trajectory_data.loc[finite_positions].copy()
     if len(trajectory_data) < 2:
         raise ValueError(
-            "The HTWG trajectory must contain at least two finite positions."
+            "The BR24 target reference trajectory must contain at least two finite "
+            "positions."
         )
 
     return export_processed_positions(
@@ -192,8 +195,8 @@ def export_htwg_trajectory(input_csv, output_csv):
     )
 
 
-def export_shiptech_trajectory(input_csv, run_id, output_dir):
-    """Export one recorded ship run as local position observations in seconds."""
+def export_shiptech_trajectory(input_csv, run_id, output_csv):
+    """Export one recorded ship run to an explicit local position CSV."""
     if run_id is None or (
         isinstance(run_id, Iterable) and not isinstance(run_id, (str, bytes))
     ):
@@ -231,12 +234,11 @@ def export_shiptech_trajectory(input_csv, run_id, output_dir):
     if not np.all(np.isfinite(x_coordinates)) or not np.all(np.isfinite(y_coordinates)):
         raise ValueError("Generated x/y coordinates must be finite.")
 
-    output_path = Path(output_dir) / f"ship_trajectory_run_{run_id}.csv"
     return export_processed_positions(
         time=timestamps,
         x=x_coordinates,
         y=y_coordinates,
-        output_csv=output_path,
+        output_csv=output_csv,
     )
 
 

@@ -7,15 +7,12 @@ import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.paths as paths
 
-DATA_FILE = paths.data_path(
-    "raw/ship_data_shiptech.csv"
-)
+DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
 
 # Single-window inference:
 # - Batch: "vi" or "mcmc".
 # - Online: "rbpf", "smc", or "sequential_vi".
 EXPERIMENT = config.ExperimentConfig(
-    run_id=1,
     start_index=0,
     observation_count=10,
     prediction_count=3,

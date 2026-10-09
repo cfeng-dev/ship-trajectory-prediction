@@ -5,12 +5,9 @@ import bayestraj.forecasting.deterministic_ctrv as config
 import bayestraj.forecasting.deterministic_ctrv_workflow as workflow
 import bayestraj.observations.paths as paths
 
-DATA_FILE = paths.data_path(
-    "raw/ship_data_shiptech.csv"
-)
+DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
 
 EXPERIMENT = config.DeterministicExperimentConfig(
-    run_id=1,  # Trajectory run to predict.
     start_index=0,  # First point of the selected window.
     observation_count=20,  # Position points used for state estimation.
     prediction_count=3,  # Held-out future position points.

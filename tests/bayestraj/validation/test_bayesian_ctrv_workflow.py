@@ -1,5 +1,6 @@
 """Tests for Bayesian CTRV rolling-evaluation presentation rules."""
 
+import numpy as np
 import pandas as pd
 
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
@@ -24,6 +25,35 @@ def test_online_window_specs_do_not_require_a_batch_window_mode():
         prediction_count=3,
         stride=2,
     )
+
+
+def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_path):
+    data_file = tmp_path / "processed_trajectory.csv"
+    pd.DataFrame(
+        {
+            "time": [0.0, 2.5, 7.0, 11.0],
+            "x": [100.0, 103.0, 107.0, 110.0],
+            "y": [-20.0, -18.0, -15.0, -13.0],
+        }
+    ).to_csv(data_file, index=False)
+
+    trajectory_data = workflow._load_evaluation_trajectory(data_file)
+    window = workflow._prepare_evaluation_window(
+        trajectory_data,
+        observation_count=3,
+        prediction_count=1,
+        start_index=0,
+    )
+    route_x, route_y = workflow._prepare_route_coordinates(trajectory_data)
+    route_time_seconds = workflow._prepare_route_time_seconds(
+        trajectory_data,
+    )
+
+    np.testing.assert_allclose(window.x_meters, [100.0, 103.0, 107.0, 110.0])
+    np.testing.assert_allclose(window.y_meters, [-20.0, -18.0, -15.0, -13.0])
+    np.testing.assert_allclose(route_x, [100.0, 103.0, 107.0, 110.0])
+    np.testing.assert_allclose(route_y, [-20.0, -18.0, -15.0, -13.0])
+    np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
 
 
 def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys):

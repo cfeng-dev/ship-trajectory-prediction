@@ -5,7 +5,7 @@ import pandas as pd
 import bayestraj.observations.paths as paths
 import bayestraj.observations.plotting as plotting
 
-INPUT_CSV = paths.data_path("raw/BR24_target_radar_trajectory.csv")
+INPUT_CSV = paths.data_path("processed/BR24_target_radar_trajectory.csv")
 TRAJECTORY_LABEL = "BR24-Radar-Zieltrajektorie"
 DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
 

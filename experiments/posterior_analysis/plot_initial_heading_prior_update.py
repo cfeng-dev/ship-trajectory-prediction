@@ -8,7 +8,7 @@ import bayestraj.observations.paths as paths
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 
 DATA_FILE = paths.data_path(
-    "raw/ship_data_shiptech.csv"
+    "raw/shiptech_data.csv"
 )
 RUN_ID = 102
 START_INDEX = 0

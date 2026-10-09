@@ -5,12 +5,9 @@ import bayestraj.observations.paths as paths
 import bayestraj.validation.cli as cli
 import bayestraj.validation.deterministic_ctrv_workflow as workflow
 
-DATA_FILE = paths.data_path(
-    "raw/ship_data_shiptech.csv"
-)
+DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
 
 EXPERIMENT = config.DeterministicRollingExperimentConfig(
-    run_id=1,  # Trajectory run to evaluate.
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.
     observation_count=20,  # Position points used for the first estimate.
     prediction_count=3,  # Held-out future points per rolling forecast.

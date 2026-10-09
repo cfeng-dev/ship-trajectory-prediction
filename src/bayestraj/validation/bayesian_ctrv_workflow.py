@@ -16,7 +16,6 @@ import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
-import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
@@ -70,7 +69,7 @@ def run_bayesian_ctrv_evaluation(
     selected_window_indices=None,
     show_plot=True,
 ):
-    """Evaluate Bayesian CTRV forecasts across one recorded trajectory."""
+    """Evaluate Bayesian CTRV forecasts across one local ``time,x,y`` trajectory."""
     vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
         _resolve_inference_configs(
             vi_config,
@@ -182,16 +181,9 @@ def _run_evaluation(
             mcmc_config=mcmc_config,
             fullrank_grad_samples=fullrank_grad_samples,
         )
-    trajectory_data = (
-        observations_io.read_ship_data(
-            data_file,
-            run_id=experiment.run_id,
-        )
-        .sort_values("time")
-        .reset_index(drop=True)
-    )
+    trajectory_data = _load_evaluation_trajectory(data_file)
     if trajectory_data.empty:
-        raise ValueError(f"No trajectory rows found for run_id={experiment.run_id}.")
+        raise ValueError("No trajectory rows found in the configured input file.")
 
     windows = _build_evaluation_windows(
         len(trajectory_data),
@@ -207,7 +199,7 @@ def _run_evaluation(
             raise ValueError("max_windows must be a positive integer or None.")
         windows = windows[:max_windows]
 
-    route_x, route_y, longitude, latitude = _prepare_route_coordinates(trajectory_data)
+    route_x, route_y = _prepare_route_coordinates(trajectory_data)
     route_time_seconds = _prepare_route_time_seconds(trajectory_data)
     route_noise_x, route_noise_y = _simulate_route_position_noise(
         len(trajectory_data),
@@ -226,7 +218,7 @@ def _run_evaluation(
     print("Parametric Bayesian CTRV Rolling Evaluation")
     print("=" * 72)
     print(f"Data file             : {data_file}")
-    print(f"Run ID                : {experiment.run_id}")
+    print("Trajectory schema     : local time,x,y")
     print("Model                 : Bayesian CTRV")
     print(f"Inference mode        : {inference_mode.upper()}")
     print(f"Inference method      : {inference_method.upper()}")
@@ -296,7 +288,7 @@ def _run_evaluation(
     noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
         window_seed = experiment.inference_seed + specification.window_index
-        window = observation_window.prepare_trajectory_window(
+        window = _prepare_evaluation_window(
             trajectory_data,
             observation_count=specification.observation_count,
             prediction_count=specification.prediction_count,
@@ -407,8 +399,6 @@ def _run_evaluation(
             window=window,
             route_x=route_x,
             route_y=route_y,
-            longitude=longitude,
-            latitude=latitude,
             inference_mode=inference_mode,
             inference_method=inference_method,
             converged=converged,
@@ -424,8 +414,6 @@ def _run_evaluation(
                 window=window,
                 route_x=route_x,
                 route_y=route_y,
-                longitude=longitude,
-                latitude=latitude,
             )
         )
         window_runtime_seconds = time.perf_counter() - runtime_started
@@ -731,10 +719,8 @@ def _build_rolling_plot_data(
     window,
     route_x,
     route_y,
-    longitude,
-    latitude,
 ):
-    """Transform one forecast's model-position draws to the route frame."""
+    """Build one forecast's model-position draws in the local route frame."""
     x_samples = reporting.posterior_variable_samples(fit, "x_prediction")
     y_samples = reporting.posterior_variable_samples(fit, "y_prediction")
     expected_shape = (x_samples.shape[0], specification.prediction_count)
@@ -748,19 +734,6 @@ def _build_rolling_plot_data(
     ):
         raise ValueError("Rolling posterior position draws must be aligned matrices.")
     sample_shape = x_samples.shape
-    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
-        x_samples.ravel(),
-        y_samples.ravel(),
-        reference_longitude=longitude[specification.start_index],
-        reference_latitude=latitude[specification.start_index],
-        unit="m",
-    )
-    x_route, y_route = _gps_to_route_coordinates(
-        predicted_longitude,
-        predicted_latitude,
-        reference_longitude=longitude[0],
-        reference_latitude=latitude[0],
-    )
     forecast_origin_index = specification.forecast_start_index - 1
     prediction_start_time = float(
         window.time_seconds[specification.observation_count - 1]
@@ -772,8 +745,8 @@ def _build_rolling_plot_data(
     return plotting.RollingPosteriorPlotData(
         forecast_origin_x=float(route_x[forecast_origin_index]),
         forecast_origin_y=float(route_y[forecast_origin_index]),
-        x_samples=x_route.reshape(sample_shape),
-        y_samples=y_route.reshape(sample_shape),
+        x_samples=x_samples.reshape(sample_shape),
+        y_samples=y_samples.reshape(sample_shape),
         forecast_time_seconds=np.concatenate(
             ([0.0], prediction_times - prediction_start_time)
         ),
@@ -787,8 +760,6 @@ def _build_route_prediction_table(
     window,
     route_x,
     route_y,
-    longitude,
-    latitude,
     inference_mode,
     inference_method,
     converged,
@@ -803,19 +774,8 @@ def _build_route_prediction_table(
         specification.forecast_start_index,
         specification.forecast_start_index + specification.prediction_count,
     )
-    predicted_longitude, predicted_latitude = coordinates.local_to_gps_coordinates(
-        table["x_median"],
-        table["y_median"],
-        reference_longitude=longitude[specification.start_index],
-        reference_latitude=latitude[specification.start_index],
-        unit="m",
-    )
-    x_median_route, y_median_route = _gps_to_route_coordinates(
-        predicted_longitude,
-        predicted_latitude,
-        reference_longitude=longitude[0],
-        reference_latitude=latitude[0],
-    )
+    x_median_route = table["x_median"].to_numpy(dtype=float)
+    y_median_route = table["y_median"].to_numpy(dtype=float)
     forecast_origin_index = specification.forecast_start_index - 1
     table.insert(0, "window_index", specification.window_index)
     table.insert(1, "window_start_index", specification.start_index)
@@ -848,28 +808,39 @@ def _build_route_prediction_table(
     return table
 
 
+def _load_evaluation_trajectory(data_file):
+    """Load one processed local ``time,x,y`` trajectory."""
+    return observations_io.read_processed_trajectory(data_file)
+
+
+def _prepare_evaluation_window(
+    trajectory_data,
+    *,
+    observation_count,
+    prediction_count,
+    start_index,
+):
+    """Prepare one model window from local processed positions."""
+    return observation_window.prepare_processed_trajectory_window(
+        trajectory_data,
+        observation_count=observation_count,
+        prediction_count=prediction_count,
+        start_index=start_index,
+    )
+
+
 def _prepare_route_coordinates(trajectory_data):
     """Return the complete run in one local east/north frame."""
-    longitude = pd.to_numeric(
-        trajectory_data["gps_longitude"], errors="coerce"
-    ).to_numpy(dtype=float)
-    latitude = pd.to_numeric(trajectory_data["gps_latitude"], errors="coerce").to_numpy(
-        dtype=float
+    return (
+        trajectory_data["x"].to_numpy(dtype=float),
+        trajectory_data["y"].to_numpy(dtype=float),
     )
-    route_x, route_y = coordinates.gps_to_local_coordinates(
-        longitude,
-        latitude,
-        unit="m",
-    )
-    return route_x, route_y, longitude, latitude
 
 
 def _prepare_route_time_seconds(trajectory_data):
     """Return increasing route times required for online RBPF updates."""
-    timestamps = pd.to_datetime(trajectory_data["time"], utc=True, errors="coerce")
-    if timestamps.isna().any():
-        raise ValueError("Trajectory timestamps must be valid for online RBPF updates.")
-    time_seconds = (timestamps - timestamps.iloc[0]).dt.total_seconds().to_numpy()
+    time_seconds = trajectory_data["time"].to_numpy(dtype=float)
+    time_seconds = time_seconds - time_seconds[0]
     if (
         not np.all(np.isfinite(time_seconds))
         or time_seconds.size < 2
@@ -929,24 +900,6 @@ def _build_window_position_observations(
         position_noise_std_m=position_noise_std_m,
         noise_seed=noise_seed,
     )
-
-
-def _gps_to_route_coordinates(
-    longitude,
-    latitude,
-    *,
-    reference_longitude,
-    reference_latitude,
-):
-    """Convert GPS points to the local frame of the complete run."""
-    longitude_with_reference = np.concatenate(([reference_longitude], longitude))
-    latitude_with_reference = np.concatenate(([reference_latitude], latitude))
-    x_route, y_route = coordinates.gps_to_local_coordinates(
-        longitude_with_reference,
-        latitude_with_reference,
-        unit="m",
-    )
-    return x_route[1:], y_route[1:]
 
 
 def _print_summary(summary, *, credible_interval):

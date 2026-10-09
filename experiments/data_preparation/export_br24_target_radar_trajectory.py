@@ -5,7 +5,7 @@ import bayestraj.observations.paths as paths
 
 RADAR_CSV = paths.data_path("raw/BR24_radar_detections.csv")
 SENSOR_CSV = paths.data_path("raw/BR24_sensor_state.csv")
-OUTPUT_CSV = paths.data_path("raw/BR24_target_radar_trajectory.csv")
+OUTPUT_CSV = paths.data_path("processed/BR24_target_radar_trajectory.csv")
 
 
 def main() -> None:
