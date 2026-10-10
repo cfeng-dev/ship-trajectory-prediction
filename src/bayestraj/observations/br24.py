@@ -34,8 +34,6 @@ _OUTPUT_COLUMNS = (
     "cov_xy",
     "cov_yy",
 )
-
-
 @dataclass(frozen=True, slots=True)
 class BR24Association:
     """Nearest radar detection accepted by the Reuter 99% NIS gate."""
@@ -206,6 +204,79 @@ def export_br24_target_radar_trajectory(
     return output_path
 
 
+def export_br24_target_radar_with_ground_truth(
+    *,
+    radar_csv: str | Path,
+    reference_csv: str | Path,
+    output_csv: str | Path,
+) -> Path:
+    """Add evaluation-only interpolated target reference values to radar positions."""
+    radar = _read_csv_with_columns(radar_csv, required=_OUTPUT_COLUMNS)
+    reference = _read_csv_with_columns(
+        reference_csv,
+        required=("time", "x", "y", "yaw", "velocity"),
+    )
+    _validate_finite_columns(radar, _OUTPUT_COLUMNS, source="Radar trajectory")
+    _validate_finite_columns(reference, ("time",), source="Ground-truth trajectory")
+    _validate_strictly_increasing_time(radar, source="Radar trajectory")
+    _validate_strictly_increasing_time(
+        reference,
+        source="Ground-truth trajectory",
+        minimum_sample_count=2,
+    )
+
+    reference_value_columns = ("x", "y", "yaw", "velocity")
+    complete_reference_rows = np.isfinite(
+        reference.loc[:, reference_value_columns].to_numpy(dtype=float)
+    ).all(axis=1)
+    complete_reference_indices = np.flatnonzero(complete_reference_rows)
+    reference = reference.loc[complete_reference_rows].copy()
+    _validate_strictly_increasing_time(
+        reference,
+        source="Complete ground-truth trajectory",
+        minimum_sample_count=2,
+    )
+
+    radar_times = radar["time"].to_numpy(dtype=float)
+    reference_times = reference["time"].to_numpy(dtype=float)
+    if radar_times.size and (
+        radar_times[0] < reference_times[0] or radar_times[-1] > reference_times[-1]
+    ):
+        raise ValueError("Radar times fall outside the ground-truth time range.")
+    if _radar_times_cross_incomplete_ground_truth(
+        radar_times,
+        reference_times,
+        complete_reference_indices,
+    ):
+        raise ValueError("Radar times fall within an incomplete ground-truth interval.")
+
+    output = radar.copy()
+    output["ground_truth_x"] = np.interp(
+        radar_times,
+        reference_times,
+        reference["x"].to_numpy(dtype=float),
+    )
+    output["ground_truth_y"] = np.interp(
+        radar_times,
+        reference_times,
+        reference["y"].to_numpy(dtype=float),
+    )
+    unwrapped_yaw = np.unwrap(reference["yaw"].to_numpy(dtype=float))
+    output["ground_truth_yaw"] = _wrap_angle(
+        np.interp(radar_times, reference_times, unwrapped_yaw)
+    )
+    output["ground_truth_velocity"] = np.interp(
+        radar_times,
+        reference_times,
+        reference["velocity"].to_numpy(dtype=float),
+    )
+
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(output_path, index=False)
+    return output_path
+
+
 def _read_radar_csv(csv_path: str | Path) -> pd.DataFrame:
     radar = _read_csv_with_columns(
         csv_path,
@@ -266,7 +337,7 @@ def _read_csv_with_columns(csv_path: str | Path, *, required: tuple[str, ...]) -
     csv_path = Path(csv_path)
     if not csv_path.is_file():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
-    source = pd.read_csv(csv_path)
+    source = pd.read_csv(csv_path, float_precision="round_trip")
     normalized_names = {column.lower(): column for column in source.columns}
     missing = [column for column in required if column not in normalized_names]
     if missing:
@@ -291,6 +362,44 @@ def _validate_integral_column(data, column, *, source: str) -> None:
     if not np.array_equal(values, np.floor(values)):
         raise ValueError(f"{source} {column} values must be integers.")
     data[column] = values.astype(int)
+
+
+def _validate_strictly_increasing_time(
+    data,
+    *,
+    source: str,
+    minimum_sample_count: int = 0,
+) -> None:
+    if len(data) < minimum_sample_count:
+        raise ValueError(
+            f"{source} must contain at least {minimum_sample_count} samples."
+        )
+    if np.any(np.diff(data["time"].to_numpy(dtype=float)) <= 0.0):
+        raise ValueError(f"{source} times must be strictly increasing.")
+
+
+def _wrap_angle(angle_rad: np.ndarray) -> np.ndarray:
+    """Wrap angles to the half-open interval [-pi, pi)."""
+    return (angle_rad + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _radar_times_cross_incomplete_ground_truth(
+    radar_times: np.ndarray,
+    complete_reference_times: np.ndarray,
+    complete_reference_indices: np.ndarray,
+) -> bool:
+    """Return whether an interpolation interval contains incomplete reference rows."""
+    missing_between_complete_rows = np.diff(complete_reference_indices) > 1
+    if not missing_between_complete_rows.any():
+        return False
+    interval_starts = complete_reference_times[:-1][missing_between_complete_rows]
+    interval_ends = complete_reference_times[1:][missing_between_complete_rows]
+    return bool(
+        np.any(
+            (radar_times[:, np.newaxis] > interval_starts)
+            & (radar_times[:, np.newaxis] < interval_ends)
+        )
+    )
 
 
 def _initialize_imm_state(initial_position: np.ndarray) -> _IMMState:

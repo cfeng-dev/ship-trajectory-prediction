@@ -3,7 +3,7 @@
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.paths as paths
 
-INPUT_CSV = paths.data_path("raw/BR24_target_reference_state.csv")
+INPUT_CSV = paths.data_path("raw/BR24_target_reference_trajectory.csv")
 OUTPUT_CSV = paths.data_path("processed/BR24_target_reference_trajectory.csv")
 
 

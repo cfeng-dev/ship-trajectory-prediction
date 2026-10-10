@@ -7,8 +7,8 @@ import pytest
 from bayestraj.observations.io import export_br24_target_reference_trajectory
 
 
-def test_export_br24_target_reference_trajectory_sorts_elapsed_time(tmp_path):
-    """The position-only export starts at zero and preserves source intervals."""
+def test_export_br24_target_reference_trajectory_sorts_original_time(tmp_path):
+    """The position-only export preserves sorted BR24 source times."""
     input_csv = tmp_path / "BR24_target_reference_state.csv"
     pd.DataFrame(
         {
@@ -28,9 +28,11 @@ def test_export_br24_target_reference_trajectory_sorts_elapsed_time(tmp_path):
 
     exported = pd.read_csv(output_path)
 
-    assert output_path == tmp_path / "processed" / "BR24_target_reference_trajectory.csv"
+    assert (
+        output_path == tmp_path / "processed" / "BR24_target_reference_trajectory.csv"
+    )
     assert exported.columns.tolist() == ["time", "x", "y"]
-    assert exported["time"].tolist() == [0.0, 0.4, 1.2]
+    assert exported["time"].tolist() == [100.0, 100.4, 101.2]
     np.testing.assert_allclose(exported["x"], [1.0, 2.0, 3.0])
     np.testing.assert_allclose(exported["y"], [-1.0, -2.0, -3.0])
     assert exported.dtypes.tolist() == [np.dtype("float64")] * 3
@@ -80,7 +82,7 @@ def test_export_br24_target_reference_trajectory_skips_non_finite_positions(
         export_br24_target_reference_trajectory(input_csv, tmp_path / "output.csv")
     )
 
-    assert exported["time"].tolist() == [0.0, 21.0]
+    assert exported["time"].tolist() == [100.0, 121.0]
     np.testing.assert_allclose(exported["x"], [1.0, 3.0])
     np.testing.assert_allclose(exported["y"], [-1.0, -3.0])
 

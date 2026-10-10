@@ -107,8 +107,8 @@ def read_processed_trajectory(csv_path):
     return trajectory
 
 
-def export_processed_positions(time, x, y, output_csv):
-    """Write sorted local positions as elapsed seconds, east, and north."""
+def export_processed_positions(time, x, y, output_csv, *, normalize_time=True):
+    """Write sorted local positions with optional numeric time normalization."""
     trajectory_data = pd.DataFrame({"time": time, "x": x, "y": y})
     if len(trajectory_data) < 2:
         raise ValueError("A processed trajectory must contain at least two samples.")
@@ -135,8 +135,10 @@ def export_processed_positions(time, x, y, output_csv):
         elapsed_seconds = (
             trajectory_data["time"] - trajectory_data["time"].iloc[0]
         ).dt.total_seconds()
-    else:
+    elif normalize_time:
         elapsed_seconds = trajectory_data["time"] - trajectory_data["time"].iloc[0]
+    else:
+        elapsed_seconds = trajectory_data["time"]
 
     elapsed_seconds = elapsed_seconds.to_numpy(dtype=float)
     if not np.all(np.isfinite(elapsed_seconds)):
@@ -159,7 +161,7 @@ def export_processed_positions(time, x, y, output_csv):
 
 
 def export_br24_target_reference_trajectory(input_csv, output_csv):
-    """Export valid BR24 target reference positions with elapsed seconds."""
+    """Export valid BR24 target reference positions with their source times."""
     position_columns = ["time", "x", "y"]
     source_data = pd.read_csv(input_csv)
     missing_columns = [
@@ -192,6 +194,7 @@ def export_br24_target_reference_trajectory(input_csv, output_csv):
         x=trajectory_data["x"],
         y=trajectory_data["y"],
         output_csv=output_csv,
+        normalize_time=False,
     )
 
 
