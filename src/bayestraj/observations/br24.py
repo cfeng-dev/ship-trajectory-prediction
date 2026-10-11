@@ -18,12 +18,8 @@ _TRANSITION_PROBABILITIES = np.array(
     dtype=float,
 )
 _H_CV = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]])
-_H_CTRV = np.array(
-    [[1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0]]
-)
-_H_CA = np.array(
-    [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]]
-)
+_H_CTRV = np.array([[1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0]])
+_H_CA = np.array([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
 _OUTPUT_COLUMNS = (
     "time",
     "cycle_counter",
@@ -34,6 +30,8 @@ _OUTPUT_COLUMNS = (
     "cov_xy",
     "cov_yy",
 )
+
+
 @dataclass(frozen=True, slots=True)
 class BR24Association:
     """Nearest radar detection accepted by the Reuter 99% NIS gate."""
@@ -200,7 +198,67 @@ def export_br24_target_radar_trajectory(
 
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(exported_rows, columns=_OUTPUT_COLUMNS).to_csv(output_path, index=False)
+    pd.DataFrame(exported_rows, columns=_OUTPUT_COLUMNS).to_csv(
+        output_path, index=False
+    )
+    return output_path
+
+
+def export_br24_tracking_input(
+    *,
+    radar_csv: str | Path,
+    sensor_csv: str | Path,
+    output_csv: str | Path,
+) -> Path:
+    """Flatten BR24 sensor cycles and their raw radar detections for tracking."""
+    radar = _read_radar_csv(radar_csv)
+    sensor = _read_sensor_csv(sensor_csv)
+    combined = sensor.merge(
+        radar,
+        how="left",
+        on="cycle_counter",
+        validate="one_to_many",
+        suffixes=("_sensor", ""),
+    )
+    has_detection = combined["detection_id"].notna()
+    if not np.array_equal(
+        combined.loc[has_detection, "time_sensor"].to_numpy(dtype=float),
+        combined.loc[has_detection, "time"].to_numpy(dtype=float),
+    ):
+        raise ValueError("Radar detection times must match their sensor cycle times.")
+
+    output = combined.loc[
+        :,
+        [
+            "time_sensor",
+            "cycle_counter",
+            "x",
+            "y",
+            "yaw",
+            "detection_id",
+            "range",
+            "azimuth",
+            "std_range",
+            "std_azimuth",
+            "x_relative",
+            "y_relative",
+        ],
+    ].rename(
+        columns={
+            "time_sensor": "time",
+            "x": "sensor_x",
+            "y": "sensor_y",
+            "yaw": "sensor_yaw",
+        }
+    )
+    output = output.sort_values(
+        ["cycle_counter", "detection_id"],
+        na_position="last",
+    ).reset_index(drop=True)
+
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(output_path, index=False)
     return output_path
 
 
@@ -288,6 +346,8 @@ def _read_radar_csv(csv_path: str | Path) -> pd.DataFrame:
             "azimuth",
             "stdrange",
             "stdazimuth",
+            "xrelative",
+            "yrelative",
         ),
     )
     radar = radar.rename(
@@ -296,14 +356,28 @@ def _read_radar_csv(csv_path: str | Path) -> pd.DataFrame:
             "detectionid": "detection_id",
             "stdrange": "std_range",
             "stdazimuth": "std_azimuth",
+            "xrelative": "x_relative",
+            "yrelative": "y_relative",
         }
     )
     _validate_finite_columns(
         radar,
-        ("time", "cycle_counter", "detection_id", "range", "azimuth", "std_range", "std_azimuth"),
+        (
+            "time",
+            "cycle_counter",
+            "detection_id",
+            "range",
+            "azimuth",
+            "std_range",
+            "std_azimuth",
+            "x_relative",
+            "y_relative",
+        ),
         source="Radar",
     )
-    _validate_non_negative_columns(radar, ("range", "std_range", "std_azimuth"), source="Radar")
+    _validate_non_negative_columns(
+        radar, ("range", "std_range", "std_azimuth"), source="Radar"
+    )
     _validate_integral_column(radar, "cycle_counter", source="Radar")
     _validate_integral_column(radar, "detection_id", source="Radar")
     if radar.duplicated(("cycle_counter", "detection_id")).any():
@@ -314,12 +388,12 @@ def _read_radar_csv(csv_path: str | Path) -> pd.DataFrame:
 def _read_sensor_csv(csv_path: str | Path) -> pd.DataFrame:
     sensor = _read_csv_with_columns(
         csv_path,
-        required=("time", "cyclecounter", "x", "y"),
+        required=("time", "cyclecounter", "x", "y", "yaw"),
     )
     sensor = sensor.rename(columns={"cyclecounter": "cycle_counter"})
     _validate_finite_columns(
         sensor,
-        ("time", "cycle_counter", "x", "y"),
+        ("time", "cycle_counter", "x", "y", "yaw"),
         source="Sensor",
     )
     _validate_integral_column(sensor, "cycle_counter", source="Sensor")
@@ -333,7 +407,9 @@ def _read_sensor_csv(csv_path: str | Path) -> pd.DataFrame:
     return sensor
 
 
-def _read_csv_with_columns(csv_path: str | Path, *, required: tuple[str, ...]) -> pd.DataFrame:
+def _read_csv_with_columns(
+    csv_path: str | Path, *, required: tuple[str, ...]
+) -> pd.DataFrame:
     csv_path = Path(csv_path)
     if not csv_path.is_file():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
@@ -354,7 +430,9 @@ def _validate_finite_columns(data, columns, *, source: str) -> None:
 
 def _validate_non_negative_columns(data, columns, *, source: str) -> None:
     if (data.loc[:, columns].to_numpy(dtype=float) < 0.0).any():
-        raise ValueError(f"{source} range and standard deviations must be non-negative.")
+        raise ValueError(
+            f"{source} range and standard deviations must be non-negative."
+        )
 
 
 def _validate_integral_column(data, column, *, source: str) -> None:
@@ -431,7 +509,9 @@ def _predict_imm(state: _IMMState, interval_seconds: float, ego_delta: np.ndarra
         ego_delta,
     )
     ctrv = _ego_compensate(
-        _predict_ctrv(*mixed_ctrv, interval_seconds, 0.03**2, (3.0 * np.pi / 180.0) ** 2),
+        _predict_ctrv(
+            *mixed_ctrv, interval_seconds, 0.03**2, (3.0 * np.pi / 180.0) ** 2
+        ),
         _H_CTRV,
         ego_delta,
     )
@@ -469,10 +549,11 @@ def _associate_and_update_imm(
     measurement_covariance = position_measurement_noise(
         predicted_position=predicted_position,
         range_variance=std_range**2,
-        azimuth_variance=(std_azimuth + _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD)
-        ** 2,
+        azimuth_variance=(std_azimuth + _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD) ** 2,
     )
-    innovation_covariance = _H_CV @ mixed_cv_covariance @ _H_CV.T + measurement_covariance
+    innovation_covariance = (
+        _H_CV @ mixed_cv_covariance @ _H_CV.T + measurement_covariance
+    )
     detection_positions = polar_to_cartesian(
         detections["range"].to_numpy(dtype=float),
         detections["azimuth"].to_numpy(dtype=float),
@@ -486,11 +567,15 @@ def _associate_and_update_imm(
         return _IMMState(*cv, *ctrv, *ca, predicted_mode_probabilities), None
 
     measurement = detection_positions[association.detection_index]
-    cv_updated, cv_innovation_covariance = _update(*cv, measurement, _H_CV, measurement_covariance)
+    cv_updated, cv_innovation_covariance = _update(
+        *cv, measurement, _H_CV, measurement_covariance
+    )
     ctrv_updated, ctrv_innovation_covariance = _update(
         *ctrv, measurement, _H_CTRV, measurement_covariance
     )
-    ca_updated, ca_innovation_covariance = _update(*ca, measurement, _H_CA, measurement_covariance)
+    ca_updated, ca_innovation_covariance = _update(
+        *ca, measurement, _H_CA, measurement_covariance
+    )
     likelihoods = np.array(
         [
             _normal_density(measurement, _H_CV @ cv[0], cv_innovation_covariance),
@@ -498,7 +583,9 @@ def _associate_and_update_imm(
             _normal_density(measurement, _H_CA @ ca[0], ca_innovation_covariance),
         ]
     )
-    mode_probabilities = _update_mode_probabilities(likelihoods, predicted_mode_probabilities)
+    mode_probabilities = _update_mode_probabilities(
+        likelihoods, predicted_mode_probabilities
+    )
     ctrv_updated = _normalize_ctrv(*ctrv_updated)
     detection = detections.iloc[association.detection_index]
     record = {
@@ -528,10 +615,15 @@ def _cycle_standard_deviation(detections: pd.DataFrame, column: str) -> float:
     return float(values[0])
 
 
-def _mixing_probability(mode_probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _mixing_probability(
+    mode_probabilities: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     transition_masses = _TRANSITION_PROBABILITIES * mode_probabilities[:, None]
     predicted_mode_probabilities = np.sum(transition_masses, axis=0)
-    return transition_masses / predicted_mode_probabilities, predicted_mode_probabilities
+    return (
+        transition_masses / predicted_mode_probabilities,
+        predicted_mode_probabilities,
+    )
 
 
 def _mix_to_cv(state: _IMMState, weights: np.ndarray):
@@ -670,10 +762,14 @@ def _to_ca(state: np.ndarray, covariance: np.ndarray):
     return converted, _symmetric(jacobian @ covariance @ jacobian.T)
 
 
-def _predict_cv(state, covariance, interval_seconds, variance_acceleration_x, variance_acceleration_y):
-    transition = np.array(
-        [[1.0, interval_seconds], [0.0, 1.0]], dtype=float
-    )
+def _predict_cv(
+    state,
+    covariance,
+    interval_seconds,
+    variance_acceleration_x,
+    variance_acceleration_y,
+):
+    transition = np.array([[1.0, interval_seconds], [0.0, 1.0]], dtype=float)
     transition = np.block(
         [[transition, np.zeros((2, 2))], [np.zeros((2, 2)), transition]]
     )
@@ -718,7 +814,14 @@ def _predict_ctrv(state, covariance, interval_seconds, variance_velocity, varian
     )
 
 
-def _predict_ca(state, covariance, interval_seconds, tau_acceleration, variance_acceleration_x, variance_acceleration_y):
+def _predict_ca(
+    state,
+    covariance,
+    interval_seconds,
+    tau_acceleration,
+    variance_acceleration_x,
+    variance_acceleration_y,
+):
     transition_axis = np.array(
         [
             [1.0, interval_seconds, 0.5 * interval_seconds**2],

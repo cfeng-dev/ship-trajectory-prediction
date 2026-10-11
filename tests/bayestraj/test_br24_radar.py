@@ -9,9 +9,70 @@ from bayestraj.observations.br24 import (
     associate_br24_detections,
     export_br24_target_radar_trajectory,
     export_br24_target_radar_with_ground_truth,
+    export_br24_tracking_input,
     polar_to_cartesian,
     position_measurement_noise,
 )
+
+
+def test_br24_tracking_input_flattens_sensor_cycles_and_raw_detections(tmp_path):
+    radar_csv = tmp_path / "BR24_radar_detections.csv"
+    sensor_csv = tmp_path / "BR24_sensor_state.csv"
+    output_csv = tmp_path / "BR24Dataset20131107.csv"
+    pd.DataFrame(
+        {
+            "Time": [11.0, 10.0, 11.0],
+            "CycleCounter": [2, 1, 2],
+            "DetectionID": [2, 1, 1],
+            "Range": [20.0, 10.0, 15.0],
+            "Azimuth": [0.2, 0.1, 0.15],
+            "StdRange": [2.3, 2.3, 2.3],
+            "StdAzimuth": [0.03, 0.03, 0.03],
+            "XRelative": [19.6, 9.9, 14.8],
+            "YRelative": [4.0, 1.0, 2.2],
+        }
+    ).to_csv(radar_csv, index=False)
+    pd.DataFrame(
+        {
+            "Time": [12.0, 10.0, 11.0],
+            "CycleCounter": [3, 1, 2],
+            "X": [102.0, 100.0, 101.0],
+            "Y": [-2.0, 0.0, -1.0],
+            "Yaw": [0.3, 0.1, 0.2],
+        }
+    ).to_csv(sensor_csv, index=False)
+
+    output_path = export_br24_tracking_input(
+        radar_csv=radar_csv,
+        sensor_csv=sensor_csv,
+        output_csv=output_csv,
+    )
+
+    exported = pd.read_csv(output_path)
+
+    assert output_path == output_csv
+    assert exported.columns.tolist() == [
+        "time",
+        "cycle_counter",
+        "sensor_x",
+        "sensor_y",
+        "sensor_yaw",
+        "detection_id",
+        "range",
+        "azimuth",
+        "std_range",
+        "std_azimuth",
+        "x_relative",
+        "y_relative",
+    ]
+    assert exported["cycle_counter"].tolist() == [1, 2, 2, 3]
+    assert exported["detection_id"].tolist()[:3] == [1.0, 1.0, 2.0]
+    assert np.isnan(exported["detection_id"].iloc[3])
+    np.testing.assert_allclose(
+        exported.loc[:2, ["sensor_x", "sensor_y", "sensor_yaw"]],
+        [[100.0, 0.0, 0.1], [101.0, -1.0, 0.2], [101.0, -1.0, 0.2]],
+    )
+    assert exported.loc[3, ["range", "azimuth"]].isna().all()
 
 
 def test_polar_to_cartesian_matches_reuter_measurement_formation():
