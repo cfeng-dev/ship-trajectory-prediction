@@ -155,9 +155,7 @@ def _defaults():
     sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
-            "data_file": str(
-                data_path("processed/BR24_radar_trajectory_with_reference.csv")
-            ),
+            "data_file": str(data_path("processed/BR24Dataset20131107.csv")),
             "inference_method": "smc",
             "start_index": 0,
             "observation_interval_seconds": 10.0,
@@ -206,7 +204,7 @@ def default_form_values():
 def _parse_group(values, defaults):
     parsed = {}
     for key, default in defaults.items():
-        value = values[key]
+        value = values.get(key, default)
         try:
             if isinstance(default, bool):
                 if not isinstance(value, bool):
@@ -311,7 +309,7 @@ def validate_dialog_values(group, values):
     else:
         fields = defaults[group]
     if group == "data":
-        fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
+        fields = {key: fields[key] for key in DATA_OPTION_FIELDS if key in values}
     parsed = _parse_group(values, fields)
     if group == "data":
         _validate_data_options(parsed)

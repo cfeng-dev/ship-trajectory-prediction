@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 import matplotlib.pyplot as plt
@@ -26,6 +26,8 @@ import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 import bayestraj.validation.metrics as validation_metrics
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
+from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.observations.br24 import read_br24_tracking_input
 
 from . import coordinates
 
@@ -166,8 +168,11 @@ class PosteriorDashboardTrajectory:
     reference_time_seconds: np.ndarray | None = None
     reference_longitude: float | None = None
     reference_latitude: float | None = None
+    has_reference: bool = True
 
     def __post_init__(self) -> None:
+        if not isinstance(self.has_reference, bool):
+            raise TypeError("has_reference must be a boolean.")
         arrays = {
             name: np.asarray(getattr(self, name), dtype=float).copy()
             for name in (
@@ -233,7 +238,7 @@ class PosteriorDashboardTrajectory:
         coordinate_display_mode = normalize_coordinate_display_mode(
             coordinate_display_mode
         )
-        if observation_count <= 0:
+        if observation_count <= 0 or not self.has_reference:
             return (
                 np.nan,
                 np.nan,
@@ -352,10 +357,33 @@ class PosteriorDashboardUpdate:
     forecast: PosteriorDashboardForecast | None = None
     inference_time_seconds: float | None = None
     is_prior_predictive: bool = False
+    tracked_positions: np.ndarray | None = None
+    radar_detection_id: int | None = None
+    radar_nis: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.is_prior_predictive, bool):
             raise TypeError("is_prior_predictive must be a boolean.")
+        if self.tracked_positions is not None:
+            tracked_positions = np.asarray(self.tracked_positions, dtype=float).copy()
+            if tracked_positions.shape != (self.observation_count, 2) or not np.all(
+                np.isfinite(tracked_positions)
+            ):
+                raise ValueError(
+                    "tracked_positions must be finite with shape (observation_count, 2)."
+                )
+            tracked_positions.setflags(write=False)
+            object.__setattr__(self, "tracked_positions", tracked_positions)
+        if self.radar_detection_id is not None and (
+            isinstance(self.radar_detection_id, bool)
+            or not isinstance(self.radar_detection_id, (int, np.integer))
+            or self.radar_detection_id < 1
+        ):
+            raise ValueError("radar_detection_id must be a positive integer or None.")
+        if self.radar_nis is not None and (
+            not np.isfinite(self.radar_nis) or self.radar_nis < 0
+        ):
+            raise ValueError("radar_nis must be finite and non-negative or None.")
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
@@ -466,6 +494,18 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             inference_time_seconds=None,
         )
     update = updates_by_count.get(observation_count)
+    if not trajectory.has_reference:
+        return DashboardAnalysisMetrics(
+            ade_m=None,
+            fde_m=None,
+            energy_score_m=None,
+            joint_coverage_50_count=0,
+            joint_coverage_90_count=0,
+            joint_coverage_total=0,
+            inference_time_seconds=(
+                None if update is None else update.inference_time_seconds
+            ),
+        )
     forecast = None if update is None else update.forecast
     ade_m, fde_m, energy_score_m = None, None, None
     if forecast is not None:
@@ -743,7 +783,9 @@ class PosteriorDashboardNavigator:
         self.maximum_observation_count = maximum_observation_count
         self.minimum_posterior_observation_count = minimum_posterior_observation_count
         self.show_legend = show_legend
-        self.show_reference_trajectory = show_reference_trajectory
+        self.show_reference_trajectory = (
+            show_reference_trajectory and trajectory.has_reference
+        )
         self.show_observed_trajectory = show_observed_trajectory
         self.show_current_position = show_current_position
         self.show_sample_trajectories = show_sample_trajectories
@@ -1167,6 +1209,19 @@ class PosteriorDashboardNavigator:
                 )
             )
 
+    def _displayed_observed_positions(self) -> np.ndarray:
+        """Return inferred track positions when the active update supplies them."""
+        update = self._updates_by_count.get(self.observation_count)
+        if update is not None and update.tracked_positions is not None:
+            return update.tracked_positions
+        count = self.observation_count or len(self.trajectory.observed_x)
+        return np.column_stack(
+            (
+                self.trajectory.observed_x[:count],
+                self.trajectory.observed_y[:count],
+            )
+        )
+
     def _draw_trajectory(self) -> None:
         axis = self.trajectory_axis
         view_limits = None
@@ -1180,9 +1235,10 @@ class PosteriorDashboardNavigator:
             self.trajectory.reference_x,
             self.trajectory.reference_y,
         )
+        displayed_positions = self._displayed_observed_positions()
         observed_x, observed_y = self._display_coordinates(
-            self.trajectory.observed_x,
-            self.trajectory.observed_y,
+            displayed_positions[:, 0],
+            displayed_positions[:, 1],
         )
         if self.show_reference_trajectory:
             axis.plot(
@@ -1265,13 +1321,13 @@ class PosteriorDashboardNavigator:
         if not self.follow_checkbox.get_status()[0] or self.observation_count == 0:
             return
         axis = self.trajectory_axis
-        index = self.observation_count - 1
+        position = self._displayed_observed_positions()[-1]
         position_x, position_y = self._display_coordinates(
-            np.asarray([self.trajectory.observed_x[index]]),
-            np.asarray([self.trajectory.observed_y[index]]),
+            np.asarray([position[0]]),
+            np.asarray([position[1]]),
         )
         if self._follow_ship_view_needs_focus:
-            self._set_focused_ship_view(index)
+            self._set_focused_ship_view(position)
             self._follow_ship_view_needs_focus = False
             return
         for get_limits, set_limits, position in (
@@ -1282,11 +1338,10 @@ class PosteriorDashboardNavigator:
             half_span = (upper - lower) / 2.0
             set_limits(position - half_span, position + half_span)
 
-    def _set_focused_ship_view(self, index) -> None:
+    def _set_focused_ship_view(self, position) -> None:
         """Show a fixed real-world window around the current ship position."""
         half_span_meters = self.follow_ship_view_span_m / 2.0
-        current_x = self.trajectory.observed_x[index]
-        current_y = self.trajectory.observed_y[index]
+        current_x, current_y = position
         x_values, _ = self._display_coordinates(
             np.asarray([current_x - half_span_meters, current_x + half_span_meters]),
             np.asarray([current_y, current_y]),
@@ -1313,9 +1368,10 @@ class PosteriorDashboardNavigator:
         title = "Ship movement"
         legend_handles = []
         if forecast is not None:
+            origin_position = self._displayed_observed_positions()[-1]
             origin_x, origin_y = self._display_coordinates(
-                np.asarray([self.trajectory.observed_x[self.observation_count - 1]]),
-                np.asarray([self.trajectory.observed_y[self.observation_count - 1]]),
+                np.asarray([origin_position[0]]),
+                np.asarray([origin_position[1]]),
             )
             origin = np.array([origin_x[0], origin_y[0]])
             region_probabilities = tuple(
@@ -1446,6 +1502,8 @@ class PosteriorDashboardNavigator:
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
+            if name == "show_reference_trajectory":
+                value = value and self.trajectory.has_reference
             setattr(self, name, bool(value))
         if follow_ship_view_span_m is not None:
             self.follow_ship_view_span_m = _validate_follow_ship_view_span_m(
@@ -2013,6 +2071,116 @@ def create_posterior_dashboard_loader(
         minimum_observation_count,
         load_batch_update,
     )
+
+
+def create_br24_radar_dashboard_loader(
+    input_csv,
+    *,
+    experiment,
+    priors,
+    smc_config,
+):
+    """Create online dashboard updates directly from raw BR24 radar cycles.
+
+    The raw data determine association and measurement covariance.  In particular,
+    this adapter neither loads nor displays a reference trajectory, so it is safe
+    for the end-to-end tracker comparison.
+    """
+    if not isinstance(experiment, PosteriorDashboardConfig):
+        raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
+    if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
+        raise TypeError("priors must be a BayesianCTRVPriors instance.")
+    if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
+        raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
+    if experiment.start_index != 0:
+        raise ValueError(
+            "BR24 radar tracking always starts at the lowest cycle counter."
+        )
+    cycles = read_br24_tracking_input(input_csv)
+    selected_cycles = cycles
+    if not selected_cycles[0].detections:
+        raise ValueError(
+            "The earliest BR24 radar cycle has no detection to initialize."
+        )
+    initial_detection_id = selected_cycles[0].detections[0].detection_id
+    maximum_observation_count = len(selected_cycles)
+    if experiment.maximum_observation_count is not None:
+        if not 1 <= experiment.maximum_observation_count <= maximum_observation_count:
+            raise ValueError(
+                "maximum_observation_count must fit within the BR24 cycles."
+            )
+        maximum_observation_count = experiment.maximum_observation_count
+        selected_cycles = selected_cycles[:maximum_observation_count]
+    tracker = BR24BayesianRadarTracker.initialize(
+        selected_cycles[0],
+        initial_detection_id=initial_detection_id,
+        priors=priors,
+        config=replace(smc_config, predictive_log_density_threshold=None),
+        seed=experiment.inference_seed,
+    )
+    time_seconds = np.asarray(
+        [cycle.time_seconds for cycle in selected_cycles], dtype=float
+    )
+    initial_position = tracker.estimated_position
+    trajectory = PosteriorDashboardTrajectory(
+        np.full(maximum_observation_count, initial_position[0]),
+        np.full(maximum_observation_count, initial_position[1]),
+        np.full(maximum_observation_count, initial_position[0]),
+        np.full(maximum_observation_count, initial_position[1]),
+        reference_time_seconds=time_seconds,
+        has_reference=False,
+    )
+    specs = tuple(
+        prior_posterior.build_parameter_spec(parameter_name, priors)
+        for parameter_name in PARAMETER_NAMES
+    )
+    steps = [
+        (initial_detection_id, None),
+    ]
+    tracked_positions = [initial_position]
+
+    def load_radar_update(observation_count):
+        _validate_update_observation_count(
+            observation_count,
+            minimum=1,
+            maximum=maximum_observation_count,
+        )
+        while len(steps) < observation_count:
+            step = tracker.process_cycle(selected_cycles[len(steps)])
+            steps.append((step.detection_id, step.nis))
+            tracked_positions.append(tracker.estimated_position)
+        fit = tracker.filter.sample_current_posterior(seed=experiment.inference_seed)
+        future_times = time_seconds[
+            observation_count : observation_count + experiment.prediction_count
+        ]
+        forecast = None
+        if future_times.size:
+            forecast_fit = tracker.filter.forecast(
+                future_times,
+                seed=1_000_000 + experiment.inference_seed,
+            )
+            forecast = _extract_dashboard_forecast(
+                forecast_fit,
+                future_times - time_seconds[observation_count - 1],
+                experiment.prediction_sample_count,
+            )
+        detection_id, nis = steps[observation_count - 1]
+        return PosteriorDashboardUpdate(
+            observation_count=observation_count,
+            samples_by_parameter=_extract_dashboard_samples(fit, specs),
+            effective_sample_size=tracker.filter.effective_sample_size,
+            particle_count=smc_config.particle_count,
+            resample_count=tracker.filter.resample_count,
+            predictive_log_density=tracker.filter.last_log_predictive_density,
+            track_lost=tracker.filter.track_lost,
+            reinitialization_count=tracker.filter.reinitialization_count,
+            forecast=forecast,
+            tracked_positions=np.asarray(tracked_positions),
+            radar_detection_id=detection_id,
+            radar_nis=nis,
+        )
+
+    return trajectory, maximum_observation_count, 1, load_radar_update
 
 
 def _prepare_posterior_dashboard_trajectory(

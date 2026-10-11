@@ -39,6 +39,14 @@ class BR24BayesianRadarTracker:
     filter: SequentialMonteCarloCTRVFilter
     association_gate_nis: float = ASSOCIATION_GATE_NIS
 
+    @property
+    def estimated_position(self) -> np.ndarray:
+        """Return the current weighted posterior position in local metres."""
+        origins = self.filter.forecast_origin_particles
+        if origins is None:
+            origins = self.filter.state_particles
+        return np.sum(self.filter.weights[:, None] * origins[:, :2], axis=0)
+
     @classmethod
     def initialize(
         cls,

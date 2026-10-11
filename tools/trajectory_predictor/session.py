@@ -18,6 +18,7 @@ from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+from bayestraj.observations.br24 import is_br24_tracking_input
 
 from . import dashboard
 
@@ -47,6 +48,15 @@ class AnalysisEvent:
 
 def prepare_analysis(settings: AnalysisSettings):
     """Load the selected route and construct its persistent posterior loader."""
+    if is_br24_tracking_input(settings.data_file):
+        if settings.experiment.inference_method != "smc":
+            raise ValueError("BR24 radar tracking requires the SMC inference method.")
+        return dashboard.create_br24_radar_dashboard_loader(
+            settings.data_file,
+            experiment=settings.experiment,
+            priors=settings.priors,
+            smc_config=settings.smc_config,
+        )
     data = (
         observations_io.read_processed_trajectory(settings.data_file)
         .sort_values("time")

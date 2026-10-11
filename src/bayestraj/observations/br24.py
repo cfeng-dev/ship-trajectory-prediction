@@ -46,6 +46,15 @@ _TRACKING_INPUT_COLUMNS = (
 )
 
 
+def is_br24_tracking_input(csv_path: str | Path) -> bool:
+    """Return whether a CSV has the complete flattened BR24 tracking schema."""
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    columns = pd.read_csv(csv_path, nrows=0).columns
+    return set(_TRACKING_INPUT_COLUMNS).issubset(columns)
+
+
 @dataclass(frozen=True, slots=True)
 class BR24Association:
     """Nearest radar detection accepted by the Reuter 99% NIS gate."""

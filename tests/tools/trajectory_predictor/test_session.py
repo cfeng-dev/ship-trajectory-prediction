@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from trajectory_predictor.dashboard import PARAMETER_NAMES, PosteriorDashboardUpdate
-from trajectory_predictor.session import PosteriorAnalysisWorker
+from trajectory_predictor.session import PosteriorAnalysisWorker, prepare_analysis
 from trajectory_predictor.settings import default_form_values, parse_settings
 
 
@@ -78,6 +78,54 @@ def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
     finally:
         worker.close()
         worker.join(5)
+
+
+def test_br24_input_uses_manual_radar_seed_and_never_exposes_reference(tmp_path):
+    data_file = tmp_path / "BR24Dataset20131107.csv"
+    pd.DataFrame(
+        {
+            "time": [0.0, 0.0, 1.0, 1.0, 2.0],
+            "cycle_counter": [4, 4, 5, 5, 6],
+            "sensor_x": [100.0] * 5,
+            "sensor_y": [-20.0] * 5,
+            "sensor_yaw": [0.0] * 5,
+            "detection_id": [10, 9, 10, 11, np.nan],
+            "range": [200.0, 10.0, 10.0, 200.0, np.nan],
+            "azimuth": [0.0, 0.0, 0.0, 0.0, np.nan],
+            "std_range": [0.5, 0.5, 0.5, 0.5, np.nan],
+            "std_azimuth": [0.0, 0.0, 0.0, 0.0, np.nan],
+            "x_relative": [200.0, 10.0, 10.0, 200.0, np.nan],
+            "y_relative": [0.0, 0.0, 0.0, 0.0, np.nan],
+        }
+    ).to_csv(data_file, index=False)
+    values = default_form_values()
+    values["data"].update(
+        {
+            "data_file": str(data_file),
+            "inference_method": "smc",
+            "prediction_count": "1",
+            "prediction_sample_count": "5",
+        }
+    )
+    values["smc"].update({"particle_count": "32", "posterior_draw_count": "20"})
+
+    trajectory, maximum, minimum, load = prepare_analysis(
+        parse_settings(values).analysis
+    )
+    first_update = load(1)
+    accepted_update = load(2)
+    missed_update = load(3)
+
+    assert maximum == 3
+    assert minimum == 1
+    assert trajectory.has_reference is False
+    assert first_update.radar_detection_id == 9
+    assert accepted_update.radar_detection_id == 10
+    assert accepted_update.radar_nis is not None
+    assert missed_update.radar_detection_id is None
+    assert first_update.tracked_positions.shape == (1, 2)
+    assert missed_update.tracked_positions.shape == (3, 2)
+    assert first_update.forecast is not None
 
 
 def test_pause_lowers_target_without_repeating_an_inflight_fit(analysis):

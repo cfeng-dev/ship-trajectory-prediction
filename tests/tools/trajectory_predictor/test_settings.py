@@ -84,6 +84,11 @@ def test_trajectory_predictor_defaults_to_no_added_position_noise():
     assert settings.default_form_values()["data"]["position_noise_std_m"] == "0.0"
 
 
+def test_settings_do_not_expose_manual_br24_start_selection(form):
+    assert "initial_cycle_counter" not in form["data"]
+    assert "initial_detection_id" not in form["data"]
+
+
 def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(form):
     assert (
         settings.default_form_values()["smc"]["predictive_log_density_threshold"]
@@ -113,7 +118,7 @@ def test_trajectory_predictor_defaults_to_the_br24_radar_trajectory():
     assert (
         data["data_file"]
         .replace("\\", "/")
-        .endswith("data/processed/BR24_radar_trajectory_with_reference.csv")
+        .endswith("data/processed/BR24Dataset20131107.csv")
     )
     assert "run_id" not in data
 
