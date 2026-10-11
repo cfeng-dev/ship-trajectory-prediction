@@ -155,7 +155,9 @@ def _defaults():
     sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
-            "data_file": str(data_path("processed/ship_trajectory_run_42.csv")),
+            "data_file": str(
+                data_path("processed/BR24_radar_trajectory_with_reference.csv")
+            ),
             "inference_method": "smc",
             "start_index": 0,
             "observation_interval_seconds": 10.0,
@@ -190,7 +192,11 @@ def default_form_values():
     """Return independent strings/booleans suitable for editable Tk variables."""
     return {
         group: {
-            key: value if isinstance(value, bool) else "" if value is None else str(value)
+            key: value
+            if isinstance(value, bool)
+            else ""
+            if value is None
+            else str(value)
             for key, value in fields.items()
         }
         for group, fields in _defaults().items()

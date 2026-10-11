@@ -85,10 +85,18 @@ def test_trajectory_predictor_defaults_to_no_added_position_noise():
 
 
 def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(form):
-    assert settings.default_form_values()["smc"]["predictive_log_density_threshold"] == "-10.0"
-    assert settings.default_form_values()["rbpf"]["predictive_log_density_threshold"] == "-10.0"
     assert (
-        settings.default_form_values()["sequential_vi"]["predictive_log_density_threshold"]
+        settings.default_form_values()["smc"]["predictive_log_density_threshold"]
+        == "-10.0"
+    )
+    assert (
+        settings.default_form_values()["rbpf"]["predictive_log_density_threshold"]
+        == "-10.0"
+    )
+    assert (
+        settings.default_form_values()["sequential_vi"][
+            "predictive_log_density_threshold"
+        ]
         == "-10.0"
     )
     form["smc"]["predictive_log_density_threshold"] = "-12.5"
@@ -98,12 +106,14 @@ def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(f
     assert result.analysis.smc_config.predictive_log_density_threshold == -12.5
 
 
-def test_trajectory_predictor_defaults_to_the_processed_single_trajectory():
-    """The GUI starts with the local time/x/y trajectory, not a raw run selector."""
+def test_trajectory_predictor_defaults_to_the_br24_radar_trajectory():
+    """The GUI starts with the BR24 radar trajectory, not a raw run selector."""
     data = settings.default_form_values()["data"]
 
-    assert data["data_file"].replace("\\", "/").endswith(
-        "data/processed/ship_trajectory_run_42.csv"
+    assert (
+        data["data_file"]
+        .replace("\\", "/")
+        .endswith("data/processed/BR24_radar_trajectory_with_reference.csv")
     )
     assert "run_id" not in data
 
