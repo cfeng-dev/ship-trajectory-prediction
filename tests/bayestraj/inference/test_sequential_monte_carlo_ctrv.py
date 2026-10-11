@@ -170,7 +170,9 @@ def test_smc_reinitializes_the_latent_track_at_a_lost_observation():
         100.0,
         rel=0.05,
     )
-    assert online_filter.weights == pytest.approx(np.full(particle_count, 1.0 / particle_count))
+    assert online_filter.weights == pytest.approx(
+        np.full(particle_count, 1.0 / particle_count)
+    )
     assert online_filter.parameter_particles == pytest.approx(parameter_particles)
     assert online_filter.last_observed_position == pytest.approx([100.0, 0.0])
 
@@ -574,6 +576,70 @@ def test_smc_observation_updates_parameter_particle_weights():
     online_filter.update(1.0, 5.0, 0.0)
 
     assert online_filter.weights[1] > 0.999
+
+
+def test_smc_update_uses_a_supplied_cartesian_measurement_covariance():
+    online_filter = smc.SequentialMonteCarloCTRVFilter(
+        config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=2,
+            posterior_draw_count=2,
+            resample_ess_fraction=0.01,
+            predictive_log_density_threshold=None,
+        ),
+        parameter_particles=np.log(np.full((2, 3), [1e-12, 1e-12, 1e-12])),
+        state_particles=np.array(
+            [[0.0, 0.0, 0.0, 0.0, 0.0], [4.0, 0.0, 0.0, 0.0, 0.0]]
+        ),
+        weights=np.array([0.5, 0.5]),
+        generator=np.random.default_rng(42),
+        last_observation_time_seconds=0.0,
+        processed_observation_count=1,
+    )
+
+    online_filter.update(
+        1.0,
+        0.0,
+        0.0,
+        measurement_covariance=np.eye(2) * 9.0,
+    )
+
+    expected_first_weight = 1.0 / (1.0 + np.exp(-0.5 * 16.0 / 9.0))
+    assert online_filter.weights == pytest.approx(
+        [expected_first_weight, 1.0 - expected_first_weight]
+    )
+
+
+def test_smc_advances_without_measurement_and_exposes_the_predicted_position():
+    online_filter = smc.SequentialMonteCarloCTRVFilter(
+        config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=2,
+            posterior_draw_count=2,
+        ),
+        parameter_particles=np.log(np.full((2, 3), [1e-12, 1e-12, 1e-12])),
+        state_particles=np.array(
+            [[0.0, 0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0, 0.0]]
+        ),
+        weights=np.array([0.25, 0.75]),
+        generator=np.random.default_rng(42),
+        last_observation_time_seconds=0.0,
+        processed_observation_count=1,
+        last_observed_position=np.array([0.0, 0.0]),
+    )
+
+    predicted_position, predicted_covariance = (
+        online_filter.predict_position_distribution(1.0)
+    )
+    online_filter.advance_without_measurement(1.0)
+
+    assert predicted_position == pytest.approx([2.0, 0.0])
+    assert predicted_covariance == pytest.approx(np.zeros((2, 2)))
+    assert online_filter.last_observation_time_seconds == 1.0
+    assert online_filter.last_observed_position == pytest.approx([0.0, 0.0])
+    np.testing.assert_allclose(
+        online_filter.forecast_origin_particles[:, :2],
+        [[2.0, 0.0], [2.0, 0.0]],
+    )
+    assert online_filter.weights == pytest.approx([0.25, 0.75])
 
 
 def test_smc_initialization_processes_every_supplied_observation_once():

@@ -101,6 +101,7 @@ class SequentialMonteCarloCTRVFilter:
         priors: ctrv_model.BayesianCTRVPriors,
         config: SequentialMonteCarloCTRVConfig | None = None,
         seed: int = 42,
+        initial_measurement_covariance: np.ndarray | None = None,
     ) -> SequentialMonteCarloCTRVFilter:
         """Draw prior particles and condition positions on the first fix."""
         if not isinstance(priors, ctrv_model.BayesianCTRVPriors):
@@ -118,6 +119,10 @@ class SequentialMonteCarloCTRVFilter:
                 minimum_count=1,
             )
         )
+        if initial_measurement_covariance is not None:
+            initial_measurement_covariance = _validate_measurement_covariance(
+                initial_measurement_covariance
+            )
         generator = np.random.default_rng(seed)
         particle_count = config.particle_count
         observation_noise_excess = np.maximum(
@@ -151,8 +156,21 @@ class SequentialMonteCarloCTRVFilter:
             )
         )
         state_particles = np.empty((particle_count, _STATE_COUNT), dtype=float)
-        state_particles[:, 0] = generator.normal(x_observed[0], observation_noise)
-        state_particles[:, 1] = generator.normal(y_observed[0], observation_noise)
+        if initial_measurement_covariance is None:
+            state_particles[:, 0] = generator.normal(x_observed[0], observation_noise)
+            state_particles[:, 1] = generator.normal(y_observed[0], observation_noise)
+        else:
+            state_particles[:, :2] = _sample_two_dimensional_gaussians(
+                np.broadcast_to(
+                    np.array([x_observed[0], y_observed[0]]),
+                    (particle_count, 2),
+                ),
+                _measurement_covariances(
+                    initial_measurement_covariance,
+                    observation_noise,
+                ),
+                generator,
+            )
         state_particles[:, 2] = np.maximum(
             np.abs(generator.normal(0.0, priors.speed_prior_scale, particle_count)),
             ctrv_dynamics.SPEED_STATE_LOWER_MPS,
@@ -192,6 +210,37 @@ class SequentialMonteCarloCTRVFilter:
         """Return the current particle-weight effective sample size."""
         return particle_utils.effective_sample_size(self.weights)
 
+    @property
+    def expected_position_observation_variance(self) -> float:
+        """Return the posterior mean per-axis residual observation variance."""
+        observation_noise, _, _ = _parameter_values(
+            self.parameter_particles,
+            position_observation_noise_floor_m=(
+                self.position_observation_noise_floor_m
+            ),
+        )
+        return float(np.sum(self.weights * observation_noise**2))
+
+    def predict_position_distribution(
+        self,
+        time_seconds: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return the particle-predicted position mean and covariance at a time."""
+        time_seconds = numeric_validation.validate_finite_scalar(
+            "time_seconds",
+            time_seconds,
+        )
+        if time_seconds <= self.last_observation_time_seconds:
+            raise ValueError("time_seconds must follow the previous observation.")
+        positions = ctrv_dynamics.transition_states(
+            self.state_particles,
+            time_seconds - self.last_observation_time_seconds,
+        )[:, :2]
+        mean = np.sum(self.weights[:, None] * positions, axis=0)
+        centered = positions - mean
+        covariance = (centered.T * self.weights) @ centered
+        return mean, 0.5 * (covariance + covariance.T)
+
     def update_many(self, time_seconds, x_observed, y_observed) -> None:
         """Update the posterior with matching new positions exactly once."""
         time_seconds, x_observed, y_observed = (
@@ -219,6 +268,8 @@ class SequentialMonteCarloCTRVFilter:
         time_seconds: float,
         x_observed: float,
         y_observed: float,
+        *,
+        measurement_covariance: np.ndarray | None = None,
     ) -> None:
         """Propagate full state particles and condition on one position."""
         time_seconds = numeric_validation.validate_finite_scalar(
@@ -235,6 +286,10 @@ class SequentialMonteCarloCTRVFilter:
             "y_observed",
             y_observed,
         )
+        if measurement_covariance is not None:
+            measurement_covariance = _validate_measurement_covariance(
+                measurement_covariance
+            )
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles,
             position_observation_noise_floor_m=(
@@ -248,6 +303,7 @@ class SequentialMonteCarloCTRVFilter:
             x_observed,
             y_observed,
             observation_noise,
+            measurement_covariance=measurement_covariance,
         )
         self.last_log_predictive_density = log_predictive_density
         self.predictive_log_density_history.append(log_predictive_density)
@@ -267,7 +323,7 @@ class SequentialMonteCarloCTRVFilter:
                 process_time_scale,
             )
             return
-        if self.processed_observation_count == 1:
+        if self.processed_observation_count == 1 or measurement_covariance is not None:
             proposed_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
             parameter_particles = self.parameter_particles
             with np.errstate(divide="ignore"):
@@ -294,14 +350,21 @@ class SequentialMonteCarloCTRVFilter:
                 ),
             )
             auxiliary_resampled = True
-        squared_position_error = (x_observed - proposed_origins[:, 0]) ** 2 + (
-            y_observed - proposed_origins[:, 1]
-        ) ** 2
-        log_likelihood = (
-            -np.log(2.0 * np.pi)
-            - 2.0 * np.log(observation_noise)
-            - 0.5 * squared_position_error / observation_noise**2
-        )
+        if measurement_covariance is None:
+            squared_position_error = (x_observed - proposed_origins[:, 0]) ** 2 + (
+                y_observed - proposed_origins[:, 1]
+            ) ** 2
+            log_likelihood = (
+                -np.log(2.0 * np.pi)
+                - 2.0 * np.log(observation_noise)
+                - 0.5 * squared_position_error / observation_noise**2
+            )
+        else:
+            log_likelihood = _position_log_likelihood(
+                np.array([x_observed, y_observed]),
+                proposed_origins[:, :2],
+                _measurement_covariances(measurement_covariance, observation_noise),
+            )
         with np.errstate(divide="ignore"):
             log_weights = base_log_weights + log_likelihood + log_proposal_correction
         weights = _normalized_weights(log_weights)
@@ -340,6 +403,40 @@ class SequentialMonteCarloCTRVFilter:
         self.resample_count += int(auxiliary_resampled) + int(resampled)
         self.last_observed_position = np.array([x_observed, y_observed], dtype=float)
 
+    def advance_without_measurement(self, time_seconds: float) -> None:
+        """Advance the posterior to a radar cycle that has no accepted detection."""
+        time_seconds = numeric_validation.validate_finite_scalar(
+            "time_seconds",
+            time_seconds,
+        )
+        if time_seconds <= self.last_observation_time_seconds:
+            raise ValueError("time_seconds must follow the previous observation.")
+        dt = time_seconds - self.last_observation_time_seconds
+        process_time_scale = ctrv_dynamics.process_time_scale(dt)
+        _, speed_process, turn_rate_process = _parameter_values(
+            self.parameter_particles,
+            position_observation_noise_floor_m=(
+                self.position_observation_noise_floor_m
+            ),
+        )
+        predicted_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
+        next_states = predicted_origins.copy()
+        next_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
+            0.0,
+            speed_process * process_time_scale,
+        )
+        next_states[:, _STATE_TURN_RATE_INDEX] += self.generator.normal(
+            0.0,
+            turn_rate_process * process_time_scale,
+        )
+        ctrv_dynamics.normalize_states(next_states)
+        self.forecast_origin_particles = predicted_origins
+        self.state_particles = next_states
+        self.last_observation_time_seconds = time_seconds
+        self.processed_observation_count += 1
+        self.last_effective_sample_size = self.effective_sample_size
+        self.track_lost = False
+
     def _reinitialize_at_observation(
         self,
         time_seconds: float,
@@ -368,7 +465,9 @@ class SequentialMonteCarloCTRVFilter:
         else:
             displacement = np.asarray(previous_position, dtype=float)
             if displacement.shape != (2,) or not np.all(np.isfinite(displacement)):
-                raise RuntimeError("Sequential CTRV SMC last observation became invalid.")
+                raise RuntimeError(
+                    "Sequential CTRV SMC last observation became invalid."
+                )
             displacement = np.array([x_observed, y_observed]) - displacement
         distance = float(np.hypot(*displacement))
         is_heading_observable = distance > 2.0 * float(np.median(observation_noise))
@@ -424,20 +523,29 @@ class SequentialMonteCarloCTRVFilter:
         x_observed: float,
         y_observed: float,
         observation_noise: np.ndarray,
+        *,
+        measurement_covariance: np.ndarray | None = None,
     ) -> float:
         """Evaluate ``p(z_k | z_1:k-1)`` before conditioning on ``z_k``."""
         predicted_positions = ctrv_dynamics.transition_states(
             self.state_particles,
             dt,
         )[:, :2]
-        squared_position_error = (x_observed - predicted_positions[:, 0]) ** 2 + (
-            y_observed - predicted_positions[:, 1]
-        ) ** 2
-        log_components = (
-            -np.log(2.0 * np.pi)
-            - 2.0 * np.log(observation_noise)
-            - 0.5 * squared_position_error / observation_noise**2
-        )
+        if measurement_covariance is None:
+            squared_position_error = (x_observed - predicted_positions[:, 0]) ** 2 + (
+                y_observed - predicted_positions[:, 1]
+            ) ** 2
+            log_components = (
+                -np.log(2.0 * np.pi)
+                - 2.0 * np.log(observation_noise)
+                - 0.5 * squared_position_error / observation_noise**2
+            )
+        else:
+            log_components = _position_log_likelihood(
+                np.array([x_observed, y_observed]),
+                predicted_positions,
+                _measurement_covariances(measurement_covariance, observation_noise),
+            )
         with np.errstate(divide="ignore"):
             log_weighted_components = np.log(self.weights) + log_components
         return _logsumexp(log_weighted_components)
@@ -767,6 +875,43 @@ def _parameter_values(
         raise RuntimeError("Sequential CTRV SMC parameters became invalid.")
     values[:, 0] = np.hypot(values[:, 0], position_observation_noise_floor_m)
     return values[:, 0], values[:, 1], values[:, 2]
+
+
+def _validate_measurement_covariance(measurement_covariance: np.ndarray) -> np.ndarray:
+    """Validate one finite symmetric positive-semidefinite 2D covariance."""
+    covariance = np.asarray(measurement_covariance, dtype=float)
+    if covariance.shape != (2, 2) or not np.all(np.isfinite(covariance)):
+        raise ValueError("measurement_covariance must be a finite 2x2 matrix.")
+    covariance = 0.5 * (covariance + covariance.T)
+    if np.linalg.eigvalsh(covariance)[0] < -_MINIMUM_SCALE:
+        raise ValueError("measurement_covariance must be positive semidefinite.")
+    return covariance
+
+
+def _measurement_covariances(
+    measurement_covariance: np.ndarray,
+    observation_noise: np.ndarray,
+) -> np.ndarray:
+    """Add each particle's residual position variance to a sensor covariance."""
+    covariances = np.broadcast_to(
+        measurement_covariance,
+        (observation_noise.size, 2, 2),
+    ).copy()
+    covariances[:, 0, 0] += observation_noise**2
+    covariances[:, 1, 1] += observation_noise**2
+    return covariances
+
+
+def _position_log_likelihood(
+    observation: np.ndarray,
+    positions: np.ndarray,
+    covariances: np.ndarray,
+) -> np.ndarray:
+    """Evaluate one bivariate Gaussian observation density per particle."""
+    residuals = observation - positions
+    inverses, log_determinants = _invert_two_by_two_matrices(covariances)
+    quadratic = np.einsum("ni,nij,nj->n", residuals, inverses, residuals)
+    return -np.log(2.0 * np.pi) - 0.5 * log_determinants - 0.5 * quadratic
 
 
 def _normalized_weights(log_weights: np.ndarray) -> np.ndarray:

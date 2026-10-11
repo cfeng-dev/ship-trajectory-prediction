@@ -30,6 +30,20 @@ _OUTPUT_COLUMNS = (
     "cov_xy",
     "cov_yy",
 )
+_TRACKING_INPUT_COLUMNS = (
+    "time",
+    "cycle_counter",
+    "sensor_x",
+    "sensor_y",
+    "sensor_yaw",
+    "detection_id",
+    "range",
+    "azimuth",
+    "std_range",
+    "std_azimuth",
+    "x_relative",
+    "y_relative",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +52,28 @@ class BR24Association:
 
     detection_index: int
     nis: float
+
+
+@dataclass(frozen=True, slots=True)
+class BR24Detection:
+    """One raw BR24 detection belonging to a sensor cycle."""
+
+    detection_id: int
+    range_m: float
+    azimuth_rad: float
+    std_range_m: float
+    std_azimuth_rad: float
+
+
+@dataclass(frozen=True, slots=True)
+class BR24RadarCycle:
+    """One timestamped sensor state and every radar detection at that time."""
+
+    time_seconds: float
+    cycle_counter: int
+    sensor_position: np.ndarray
+    sensor_yaw_rad: float
+    detections: tuple[BR24Detection, ...]
 
 
 @dataclass(slots=True)
@@ -64,6 +100,39 @@ def polar_to_cartesian(range_m, azimuth_rad) -> np.ndarray:
     if np.any(ranges < 0.0):
         raise ValueError("Radar range must be non-negative.")
     return np.column_stack((ranges * np.cos(azimuths), ranges * np.sin(azimuths)))
+
+
+def br24_measurement_position(
+    *,
+    sensor_position: np.ndarray,
+    range_m: float,
+    azimuth_rad: float,
+) -> np.ndarray:
+    """Return a BR24 detection in the world frame used by the reference export."""
+    sensor_position = np.asarray(sensor_position, dtype=float)
+    if sensor_position.shape != (2,) or not np.all(np.isfinite(sensor_position)):
+        raise ValueError("sensor_position must be a finite two-dimensional vector.")
+    return sensor_position + polar_to_cartesian(range_m, azimuth_rad)[0]
+
+
+def br24_measurement_covariance(
+    *,
+    range_m: float,
+    azimuth_rad: float,
+    std_range_m: float,
+    std_azimuth_rad: float,
+) -> np.ndarray:
+    """Return the Cartesian covariance of one raw BR24 radar detection."""
+    relative_position = polar_to_cartesian(range_m, azimuth_rad)[0]
+    return position_measurement_noise(
+        predicted_position=relative_position,
+        range_variance=_non_negative_finite(std_range_m, "std_range_m") ** 2,
+        azimuth_variance=(
+            _non_negative_finite(std_azimuth_rad, "std_azimuth_rad")
+            + _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD
+        )
+        ** 2,
+    )
 
 
 def position_measurement_noise(
@@ -260,6 +329,90 @@ def export_br24_tracking_input(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output.to_csv(output_path, index=False)
     return output_path
+
+
+def read_br24_tracking_input(csv_path: str | Path) -> tuple[BR24RadarCycle, ...]:
+    """Read flattened BR24 input as complete time-ordered radar cycles."""
+    data = _read_csv_with_columns(csv_path, required=_TRACKING_INPUT_COLUMNS)
+    _validate_finite_columns(
+        data,
+        ("time", "cycle_counter", "sensor_x", "sensor_y", "sensor_yaw"),
+        source="BR24 tracking input",
+    )
+    _validate_integral_column(
+        data,
+        "cycle_counter",
+        source="BR24 tracking input",
+    )
+    cycles: list[BR24RadarCycle] = []
+    for cycle_counter, group in data.groupby("cycle_counter", sort=True):
+        sensor_values = group.loc[
+            :, ("time", "sensor_x", "sensor_y", "sensor_yaw")
+        ].to_numpy(dtype=float)
+        if not np.allclose(sensor_values, sensor_values[0], rtol=0.0, atol=0.0):
+            raise ValueError("Sensor values must be identical within each BR24 cycle.")
+        detection_columns = (
+            "detection_id",
+            "range",
+            "azimuth",
+            "std_range",
+            "std_azimuth",
+            "x_relative",
+            "y_relative",
+        )
+        detection_rows = group.loc[:, detection_columns]
+        has_detection = detection_rows["detection_id"].notna()
+        if detection_rows.loc[~has_detection].notna().any(axis=None):
+            raise ValueError(
+                "Empty BR24 detection rows must contain only missing values."
+            )
+        detections = detection_rows.loc[has_detection].copy()
+        if not detections.empty:
+            _validate_finite_columns(
+                detections,
+                detection_columns,
+                source="BR24 tracking input detection",
+            )
+            _validate_integral_column(
+                detections,
+                "detection_id",
+                source="BR24 tracking input detection",
+            )
+            _validate_non_negative_columns(
+                detections,
+                ("range", "std_range", "std_azimuth"),
+                source="BR24 tracking input detection",
+            )
+            if detections["detection_id"].duplicated().any():
+                raise ValueError(
+                    "DetectionID values must be unique within each BR24 cycle."
+                )
+        cycles.append(
+            BR24RadarCycle(
+                time_seconds=float(sensor_values[0, 0]),
+                cycle_counter=int(cycle_counter),
+                sensor_position=sensor_values[0, 1:3].copy(),
+                sensor_yaw_rad=float(sensor_values[0, 3]),
+                detections=tuple(
+                    BR24Detection(
+                        detection_id=int(row.detection_id),
+                        range_m=float(row.range),
+                        azimuth_rad=float(row.azimuth),
+                        std_range_m=float(row.std_range),
+                        std_azimuth_rad=float(row.std_azimuth),
+                    )
+                    for row in detections.sort_values("detection_id").itertuples(
+                        index=False
+                    )
+                ),
+            )
+        )
+    if not cycles:
+        raise ValueError("BR24 tracking input must contain at least one sensor cycle.")
+    times = np.array([cycle.time_seconds for cycle in cycles])
+    if np.any(np.diff(times) <= 0.0):
+        raise ValueError("BR24 tracking-input cycle times must be strictly increasing.")
+    return tuple(cycles)
 
 
 def export_br24_target_radar_with_ground_truth(

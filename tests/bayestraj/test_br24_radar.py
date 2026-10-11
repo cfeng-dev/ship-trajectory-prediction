@@ -7,12 +7,35 @@ import pytest
 from bayestraj.observations.br24 import (
     ASSOCIATION_GATE_NIS,
     associate_br24_detections,
+    br24_measurement_covariance,
+    br24_measurement_position,
     export_br24_target_radar_trajectory,
     export_br24_target_radar_with_ground_truth,
     export_br24_tracking_input,
     polar_to_cartesian,
     position_measurement_noise,
+    read_br24_tracking_input,
 )
+
+
+def test_br24_measurement_position_and_covariance_use_only_sensor_and_detection():
+    position = br24_measurement_position(
+        sensor_position=np.array([100.0, -20.0]),
+        range_m=10.0,
+        azimuth_rad=0.0,
+    )
+    covariance = br24_measurement_covariance(
+        range_m=10.0,
+        azimuth_rad=0.0,
+        std_range_m=2.0,
+        std_azimuth_rad=0.0,
+    )
+
+    np.testing.assert_allclose(position, [110.0, -20.0])
+    np.testing.assert_allclose(
+        covariance,
+        [[4.0, 0.0], [0.0, (10.0 * np.deg2rad(0.5)) ** 2]],
+    )
 
 
 def test_br24_tracking_input_flattens_sensor_cycles_and_raw_detections(tmp_path):
@@ -73,6 +96,34 @@ def test_br24_tracking_input_flattens_sensor_cycles_and_raw_detections(tmp_path)
         [[100.0, 0.0, 0.1], [101.0, -1.0, 0.2], [101.0, -1.0, 0.2]],
     )
     assert exported.loc[3, ["range", "azimuth"]].isna().all()
+
+
+def test_read_br24_tracking_input_groups_all_detections_by_sensor_cycle(tmp_path):
+    csv_path = tmp_path / "BR24Dataset20131107.csv"
+    pd.DataFrame(
+        {
+            "time": [10.0, 10.0, 11.0],
+            "cycle_counter": [1, 1, 2],
+            "sensor_x": [100.0, 100.0, 101.0],
+            "sensor_y": [-20.0, -20.0, -21.0],
+            "sensor_yaw": [0.1, 0.1, 0.2],
+            "detection_id": [2, 4, np.nan],
+            "range": [10.0, 20.0, np.nan],
+            "azimuth": [0.0, 0.2, np.nan],
+            "std_range": [2.3, 2.3, np.nan],
+            "std_azimuth": [0.03, 0.03, np.nan],
+            "x_relative": [10.0, 19.6, np.nan],
+            "y_relative": [0.0, 4.0, np.nan],
+        }
+    ).to_csv(csv_path, index=False)
+
+    cycles = read_br24_tracking_input(csv_path)
+
+    assert [cycle.cycle_counter for cycle in cycles] == [1, 2]
+    assert cycles[0].time_seconds == 10.0
+    np.testing.assert_allclose(cycles[0].sensor_position, [100.0, -20.0])
+    assert [detection.detection_id for detection in cycles[0].detections] == [2, 4]
+    assert cycles[1].detections == ()
 
 
 def test_polar_to_cartesian_matches_reuter_measurement_formation():
