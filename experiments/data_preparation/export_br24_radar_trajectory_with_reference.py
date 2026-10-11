@@ -1,13 +1,11 @@
-"""Add time-aligned evaluation-only ground truth to BR24 radar positions."""
+"""Add time-aligned evaluation reference values to BR24 radar positions."""
 
 import bayestraj.observations.br24 as br24
 import bayestraj.observations.paths as paths
 
-RADAR_CSV = paths.data_path("processed/BR24_target_radar_trajectory.csv")
-REFERENCE_CSV = paths.data_path("raw/BR24_target_reference_trajectory.csv")
-OUTPUT_CSV = paths.data_path(
-    "processed/BR24_target_radar_trajectory_with_ground_truth.csv"
-)
+RADAR_CSV = paths.data_path("processed/BR24_radar_trajectory.csv")
+REFERENCE_CSV = paths.data_path("raw/BR24_reference_trajectory.csv")
+OUTPUT_CSV = paths.data_path("processed/BR24_radar_trajectory_with_reference.csv")
 
 
 def main() -> None:
@@ -17,7 +15,7 @@ def main() -> None:
         reference_csv=REFERENCE_CSV,
         output_csv=OUTPUT_CSV,
     )
-    print(f"Exported BR24 radar trajectory with ground truth: {output_path}")
+    print(f"Exported BR24 radar trajectory with reference: {output_path}")
 
 
 if __name__ == "__main__":

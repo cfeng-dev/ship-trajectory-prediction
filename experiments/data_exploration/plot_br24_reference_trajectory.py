@@ -1,4 +1,4 @@
-"""Plot the processed BR24 target reference trajectory."""
+"""Plot the processed BR24 reference trajectory."""
 
 import pandas as pd
 
@@ -13,7 +13,7 @@ POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 
 
 def main() -> None:
-    """Plot the configured processed BR24 target reference trajectory."""
+    """Plot the configured processed BR24 reference trajectory."""
     trajectory_data = pd.read_csv(INPUT_CSV)
     plotting.plot_processed_trajectory(
         trajectory_data,

@@ -160,8 +160,8 @@ def export_processed_positions(time, x, y, output_csv, *, normalize_time=True):
     return output_csv
 
 
-def export_br24_target_reference_trajectory(input_csv, output_csv):
-    """Export valid BR24 target reference positions with their source times."""
+def export_br24_reference_trajectory(input_csv, output_csv):
+    """Export valid BR24 reference positions with their source times."""
     position_columns = ["time", "x", "y"]
     source_data = pd.read_csv(input_csv)
     missing_columns = [
@@ -173,7 +173,7 @@ def export_br24_target_reference_trajectory(input_csv, output_csv):
     trajectory_data = source_data[position_columns].copy()
     if len(trajectory_data) < 2:
         raise ValueError(
-            "The BR24 target reference trajectory must contain at least two samples."
+            "The BR24 reference trajectory must contain at least two samples."
         )
     trajectory_data = trajectory_data.apply(pd.to_numeric, errors="coerce")
     if not np.all(np.isfinite(trajectory_data["time"].to_numpy(dtype=float))):
@@ -185,8 +185,7 @@ def export_br24_target_reference_trajectory(input_csv, output_csv):
     trajectory_data = trajectory_data.loc[finite_positions].copy()
     if len(trajectory_data) < 2:
         raise ValueError(
-            "The BR24 target reference trajectory must contain at least two finite "
-            "positions."
+            "The BR24 reference trajectory must contain at least two finite positions."
         )
 
     return export_processed_positions(

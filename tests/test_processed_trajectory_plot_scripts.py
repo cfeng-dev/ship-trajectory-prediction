@@ -20,12 +20,12 @@ PROJECT_ROOT = Path(__file__).parents[1]
             [0.0, 3.0, 6.0],
         ),
         (
-            "plot_br24_target_reference_trajectory.py",
+            "plot_br24_reference_trajectory.py",
             "BR24-Ziel-Referenztrajektorie mit Fahrtrichtung",
             [0.0, 3.0, 6.0],
         ),
         (
-            "plot_br24_target_radar_trajectory.py",
+            "plot_br24_radar_trajectory.py",
             "BR24-Radar-Zieltrajektorie mit Fahrtrichtung",
             [0.0, 3.0, 6.0],
         ),
