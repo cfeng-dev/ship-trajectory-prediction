@@ -27,7 +27,10 @@ import bayestraj.validation.metrics as validation_metrics
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
-from bayestraj.observations.br24 import read_br24_tracking_input
+from bayestraj.observations.br24 import (
+    br24_measurement_covariance,
+    read_br24_tracking_input,
+)
 
 from . import coordinates
 
@@ -358,8 +361,10 @@ class PosteriorDashboardUpdate:
     inference_time_seconds: float | None = None
     is_prior_predictive: bool = False
     tracked_positions: np.ndarray | None = None
+    radar_tracking_active: bool = False
     radar_detection_id: int | None = None
     radar_nis: float | None = None
+    radar_measurement_covariance: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.is_prior_predictive, bool):
@@ -384,6 +389,22 @@ class PosteriorDashboardUpdate:
             not np.isfinite(self.radar_nis) or self.radar_nis < 0
         ):
             raise ValueError("radar_nis must be finite and non-negative or None.")
+        if not isinstance(self.radar_tracking_active, bool):
+            raise TypeError("radar_tracking_active must be a boolean.")
+        if self.radar_measurement_covariance is not None:
+            covariance = np.asarray(
+                self.radar_measurement_covariance, dtype=float
+            ).copy()
+            if (
+                covariance.shape != (2, 2)
+                or not np.all(np.isfinite(covariance))
+                or not np.allclose(covariance, covariance.T)
+            ):
+                raise ValueError(
+                    "radar_measurement_covariance must be a finite symmetric (2, 2) matrix."
+                )
+            covariance.setflags(write=False)
+            object.__setattr__(self, "radar_measurement_covariance", covariance)
         if self.forecast is not None and not isinstance(
             self.forecast, PosteriorDashboardForecast
         ):
@@ -444,6 +465,16 @@ class OnlinePredictiveDiagnostics:
     reinitialization_count: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class RadarAssociationDiagnostics:
+    """Displayed BR24 association decision and its Cartesian measurement noise."""
+
+    status: str
+    detection_id: int | None
+    nis: float | None
+    measurement_covariance: np.ndarray | None
+
+
 def online_predictive_diagnostics_at(updates_by_count, observation_count):
     """Return the selected online prediction diagnostic, if available."""
     update = updates_by_count.get(observation_count)
@@ -453,6 +484,26 @@ def online_predictive_diagnostics_at(updates_by_count, observation_count):
         log_predictive_density=float(update.predictive_log_density),
         track_lost=update.track_lost,
         reinitialization_count=update.reinitialization_count,
+    )
+
+
+def radar_association_diagnostics_at(updates_by_count, observation_count):
+    """Return the raw-radar association details for the selected dashboard stage."""
+    update = updates_by_count.get(observation_count)
+    if update is None or not update.radar_tracking_active:
+        return None
+    if update.radar_detection_id is None:
+        return RadarAssociationDiagnostics(
+            status="prediction_only",
+            detection_id=None,
+            nis=None,
+            measurement_covariance=None,
+        )
+    return RadarAssociationDiagnostics(
+        status="initialization" if update.radar_nis is None else "accepted",
+        detection_id=update.radar_detection_id,
+        nis=update.radar_nis,
+        measurement_covariance=update.radar_measurement_covariance,
     )
 
 
@@ -763,6 +814,7 @@ class PosteriorDashboardNavigator:
         on_metrics_change=None,
         on_medians_change=None,
         on_predictive_diagnostics_change=None,
+        on_radar_association_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
     ):
@@ -805,6 +857,7 @@ class PosteriorDashboardNavigator:
         self._on_metrics_change = on_metrics_change
         self._on_medians_change = on_medians_change
         self._on_predictive_diagnostics_change = on_predictive_diagnostics_change
+        self._on_radar_association_change = on_radar_association_change
         self._on_settings_visibility_change = on_settings_visibility_change
         self._updates_by_count = {}
         self._observation_count = 0
@@ -1204,6 +1257,13 @@ class PosteriorDashboardNavigator:
         if self._on_predictive_diagnostics_change is not None:
             self._on_predictive_diagnostics_change(
                 online_predictive_diagnostics_at(
+                    self._updates_by_count,
+                    self.observation_count,
+                )
+            )
+        if self._on_radar_association_change is not None:
+            self._on_radar_association_change(
+                radar_association_diagnostics_at(
                     self._updates_by_count,
                     self.observation_count,
                 )
@@ -1690,6 +1750,7 @@ def create_sequential_posterior_dashboard_figure(
     on_metrics_change=None,
     on_medians_change=None,
     on_predictive_diagnostics_change=None,
+    on_radar_association_change=None,
     settings_visible=True,
     on_settings_visibility_change=None,
 ):
@@ -1784,6 +1845,7 @@ def create_sequential_posterior_dashboard_figure(
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,
         on_predictive_diagnostics_change=on_predictive_diagnostics_change,
+        on_radar_association_change=on_radar_association_change,
         settings_visible=bool(settings_visible),
         on_settings_visibility_change=on_settings_visibility_change,
     )
@@ -2134,8 +2196,18 @@ def create_br24_radar_dashboard_loader(
         prior_posterior.build_parameter_spec(parameter_name, priors)
         for parameter_name in PARAMETER_NAMES
     )
+    initial_detection = selected_cycles[0].detections[0]
     steps = [
-        (initial_detection_id, None),
+        (
+            initial_detection_id,
+            None,
+            br24_measurement_covariance(
+                range_m=initial_detection.range_m,
+                azimuth_rad=initial_detection.azimuth_rad,
+                std_range_m=initial_detection.std_range_m,
+                std_azimuth_rad=initial_detection.std_azimuth_rad,
+            ),
+        ),
     ]
     tracked_positions = [initial_position]
 
@@ -2147,7 +2219,7 @@ def create_br24_radar_dashboard_loader(
         )
         while len(steps) < observation_count:
             step = tracker.process_cycle(selected_cycles[len(steps)])
-            steps.append((step.detection_id, step.nis))
+            steps.append((step.detection_id, step.nis, step.measurement_covariance))
             tracked_positions.append(tracker.estimated_position)
         fit = tracker.filter.sample_current_posterior(seed=experiment.inference_seed)
         future_times = time_seconds[
@@ -2164,7 +2236,7 @@ def create_br24_radar_dashboard_loader(
                 future_times - time_seconds[observation_count - 1],
                 experiment.prediction_sample_count,
             )
-        detection_id, nis = steps[observation_count - 1]
+        detection_id, nis, measurement_covariance = steps[observation_count - 1]
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
@@ -2176,8 +2248,10 @@ def create_br24_radar_dashboard_loader(
             reinitialization_count=tracker.filter.reinitialization_count,
             forecast=forecast,
             tracked_positions=np.asarray(tracked_positions),
+            radar_tracking_active=True,
             radar_detection_id=detection_id,
             radar_nis=nis,
+            radar_measurement_covariance=measurement_covariance,
         )
 
     return trajectory, maximum_observation_count, 1, load_radar_update

@@ -30,6 +30,7 @@ class BR24TrackerStep:
     cycle_counter: int
     detection_id: int | None
     nis: float | None
+    measurement_covariance: np.ndarray | None
 
 
 @dataclass(slots=True)
@@ -89,6 +90,7 @@ class BR24BayesianRadarTracker:
                 cycle_counter=cycle.cycle_counter,
                 detection_id=None,
                 nis=None,
+                measurement_covariance=None,
             )
 
         predicted_position, predicted_covariance = (
@@ -117,6 +119,7 @@ class BR24BayesianRadarTracker:
                 cycle_counter=cycle.cycle_counter,
                 detection_id=None,
                 nis=None,
+                measurement_covariance=None,
             )
 
         detection, position, covariance, nis = accepted
@@ -131,6 +134,7 @@ class BR24BayesianRadarTracker:
             cycle_counter=cycle.cycle_counter,
             detection_id=detection.detection_id,
             nis=nis,
+            measurement_covariance=covariance,
         )
 
 
@@ -171,6 +175,9 @@ def track_br24_csv(
             cycle_counter=initial_cycle.cycle_counter,
             detection_id=initial_detection_id,
             nis=None,
+            measurement_covariance=_measurement_covariance(
+                _detection_by_id(initial_cycle.detections, initial_detection_id)
+            ),
         )
     ]
     steps.extend(tracker.process_cycle(cycle) for cycle in cycles[initial_index + 1 :])

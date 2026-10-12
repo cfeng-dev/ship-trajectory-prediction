@@ -26,6 +26,7 @@ class PosteriorPlotView(tk.Frame):
         on_metrics_change=None,
         on_medians_change=None,
         on_predictive_diagnostics_change=None,
+        on_radar_association_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
     ):
@@ -59,6 +60,7 @@ class PosteriorPlotView(tk.Frame):
             on_metrics_change=on_metrics_change,
             on_medians_change=on_medians_change,
             on_predictive_diagnostics_change=on_predictive_diagnostics_change,
+            on_radar_association_change=on_radar_association_change,
             settings_visible=settings_visible,
             on_settings_visibility_change=on_settings_visibility_change,
         )

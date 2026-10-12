@@ -284,6 +284,7 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
         show_analysis_metrics=lambda _metrics: None,
         show_posterior_medians=lambda _medians: None,
         show_online_predictive_diagnostics=lambda _diagnostics: None,
+        show_radar_association=lambda _diagnostics: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
 
@@ -340,6 +341,14 @@ def test_settings_panel_displays_reference_csv_state(root):
             "turn_rate_process_noise": 6.0,
         }
     )
+    panel.show_radar_association(
+        SimpleNamespace(
+            status="accepted",
+            detection_id=7,
+            nis=1.25,
+            measurement_covariance=np.array([[4.0, 0.5], [0.5, 9.0]]),
+        )
+    )
     posterior_median_labels = {
         child.cget("text")
         for child in panel.posterior_medians_section.winfo_children()
@@ -363,6 +372,12 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.posterior_median_values["position_observation_noise"].get() == "4.00 m"
     assert panel.posterior_median_values["speed_process_noise"].get() == "5.00 m/s"
     assert panel.posterior_median_values["turn_rate_process_noise"].get() == "6.00°/s"
+    assert panel.radar_association_values["status"].get() == "accepted"
+    assert panel.radar_association_values["detection_id"].get() == "7"
+    assert panel.radar_association_values["nis"].get() == "1.25"
+    assert panel.radar_association_values["cov_xx"].get() == "4.000"
+    assert panel.radar_association_values["cov_xy"].get() == "0.500"
+    assert panel.radar_association_values["cov_yy"].get() == "9.000"
     assert "Speed-process noise:" in posterior_median_labels
     assert "Turn-rate-process noise:" in posterior_median_labels
 

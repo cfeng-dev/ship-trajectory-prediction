@@ -53,8 +53,13 @@ def test_bayesian_br24_tracker_associates_online_and_continues_after_a_miss():
 
     assert accepted.detection_id == 5
     assert accepted.nis is not None
+    np.testing.assert_allclose(
+        accepted.measurement_covariance,
+        [[0.25, 0.0], [0.0, 100.0 * np.deg2rad(0.5) ** 2]],
+    )
     assert missed.detection_id is None
     assert missed.nis is None
+    assert missed.measurement_covariance is None
     assert tracker.filter.last_observation_time_seconds == 2.0
     assert tracker.filter.position_observation_noise_floor_m == 1e-6
 

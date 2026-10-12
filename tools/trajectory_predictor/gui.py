@@ -79,6 +79,7 @@ class TrajectoryPredictor:
         self.controls.show_analysis_metrics(None)
         self.controls.show_posterior_medians(None)
         self.controls.show_online_predictive_diagnostics(None)
+        self.controls.show_radar_association(None)
         self._settings = settings
         self._error = None
         self._computing = None
@@ -107,6 +108,7 @@ class TrajectoryPredictor:
         self.controls.show_analysis_metrics(None)
         self.controls.show_posterior_medians(None)
         self.controls.show_online_predictive_diagnostics(None)
+        self.controls.show_radar_association(None)
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
@@ -307,6 +309,7 @@ class TrajectoryPredictor:
                 self.controls.show_analysis_metrics,
                 self.controls.show_posterior_medians,
                 self.controls.show_online_predictive_diagnostics,
+                self.controls.show_radar_association,
                 settings_visible=self.settings_visible,
                 on_settings_visibility_change=self.set_settings_visible,
             )

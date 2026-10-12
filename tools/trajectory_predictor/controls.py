@@ -359,6 +359,49 @@ class SettingsPanel(tk.Frame):
                 fg=TEXT_COLOR,
                 justify="left",
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
+        self.radar_association_section = tk.LabelFrame(
+            body,
+            text="BR24 radar association",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            padx=10,
+            pady=8,
+        )
+        self.radar_association_values = {
+            "status": tk.StringVar(self, value="-"),
+            "detection_id": tk.StringVar(self, value="-"),
+            "nis": tk.StringVar(self, value="-"),
+            "cov_xx": tk.StringVar(self, value="-"),
+            "cov_xy": tk.StringVar(self, value="-"),
+            "cov_yy": tk.StringVar(self, value="-"),
+        }
+        self.radar_association_section.pack(fill="x", pady=(8, 0))
+        for row, (key, label) in enumerate(
+            (
+                ("status", "Status"),
+                ("detection_id", "Detection ID"),
+                ("nis", "NIS"),
+                ("cov_xx", "cov_xx [m²]"),
+                ("cov_xy", "cov_xy [m²]"),
+                ("cov_yy", "cov_yy [m²]"),
+            )
+        ):
+            tk.Label(
+                self.radar_association_section,
+                text=f"{label}:",
+                font=("Arial", 9, "bold"),
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
+            tk.Label(
+                self.radar_association_section,
+                textvariable=self.radar_association_values[key],
+                font="TkFixedFont",
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                justify="left",
+            ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
 
     def show_reference_state(self, state):
@@ -443,6 +486,35 @@ class SettingsPanel(tk.Frame):
             if diagnostics.reinitialization_count is None
             else str(diagnostics.reinitialization_count)
         )
+
+    def show_radar_association(self, diagnostics):
+        """Show BR24 association and the per-detection Cartesian covariance."""
+        if diagnostics is None:
+            for variable in self.radar_association_values.values():
+                variable.set("-")
+            return
+        status_labels = {
+            "accepted": "accepted",
+            "initialization": "initial measurement",
+            "prediction_only": "prediction only",
+        }
+        self.radar_association_values["status"].set(status_labels[diagnostics.status])
+        if diagnostics.status == "prediction_only":
+            for key in ("detection_id", "nis", "cov_xx", "cov_xy", "cov_yy"):
+                self.radar_association_values[key].set("-")
+            return
+        self.radar_association_values["detection_id"].set(str(diagnostics.detection_id))
+        self.radar_association_values["nis"].set(
+            "-" if diagnostics.nis is None else f"{diagnostics.nis:.2f}"
+        )
+        covariance = diagnostics.measurement_covariance
+        if covariance is None:
+            for key in ("cov_xx", "cov_xy", "cov_yy"):
+                self.radar_association_values[key].set("-")
+            return
+        self.radar_association_values["cov_xx"].set(f"{covariance[0, 0]:.3f}")
+        self.radar_association_values["cov_xy"].set(f"{covariance[0, 1]:.3f}")
+        self.radar_association_values["cov_yy"].set(f"{covariance[1, 1]:.3f}")
 
     def show_posterior_medians(self, medians):
         """Show only posterior medians identified by the selected observations."""

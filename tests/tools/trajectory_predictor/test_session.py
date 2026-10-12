@@ -119,10 +119,21 @@ def test_br24_input_uses_manual_radar_seed_and_never_exposes_reference(tmp_path)
     assert maximum == 3
     assert minimum == 1
     assert trajectory.has_reference is False
+    assert first_update.radar_tracking_active is True
     assert first_update.radar_detection_id == 9
+    assert first_update.radar_nis is None
+    np.testing.assert_allclose(
+        first_update.radar_measurement_covariance,
+        [[0.25, 0.0], [0.0, 100.0 * np.deg2rad(0.5) ** 2]],
+    )
     assert accepted_update.radar_detection_id == 10
     assert accepted_update.radar_nis is not None
+    np.testing.assert_allclose(
+        accepted_update.radar_measurement_covariance,
+        [[0.25, 0.0], [0.0, 100.0 * np.deg2rad(0.5) ** 2]],
+    )
     assert missed_update.radar_detection_id is None
+    assert missed_update.radar_measurement_covariance is None
     assert first_update.tracked_positions.shape == (1, 2)
     assert missed_update.tracked_positions.shape == (3, 2)
     assert first_update.forecast is not None

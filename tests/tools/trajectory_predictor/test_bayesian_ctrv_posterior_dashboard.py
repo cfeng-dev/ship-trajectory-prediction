@@ -99,6 +99,36 @@ def test_dashboard_exposes_online_predictive_diagnostics_only_when_available():
     assert dashboard.online_predictive_diagnostics_at({}, 2) is None
 
 
+def test_dashboard_exposes_radar_covariance_and_prediction_only_status():
+    dashboard = _load_dashboard_module()
+    accepted = dashboard.PosteriorDashboardUpdate(
+        2,
+        _dashboard_samples(),
+        radar_tracking_active=True,
+        radar_detection_id=5,
+        radar_nis=1.25,
+        radar_measurement_covariance=[[4.0, 0.5], [0.5, 9.0]],
+    )
+    missed = dashboard.PosteriorDashboardUpdate(
+        3,
+        _dashboard_samples(),
+        radar_tracking_active=True,
+    )
+
+    accepted_diagnostics = dashboard.radar_association_diagnostics_at({2: accepted}, 2)
+    missed_diagnostics = dashboard.radar_association_diagnostics_at({3: missed}, 3)
+
+    assert accepted_diagnostics.detection_id == 5
+    assert accepted_diagnostics.nis == 1.25
+    np.testing.assert_allclose(
+        accepted_diagnostics.measurement_covariance,
+        [[4.0, 0.5], [0.5, 9.0]],
+    )
+    assert accepted_diagnostics.status == "accepted"
+    assert missed_diagnostics.status == "prediction_only"
+    assert missed_diagnostics.measurement_covariance is None
+
+
 def test_noise_axes_use_decimal_labels_on_logarithmic_scales():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(4.0)
@@ -1016,11 +1046,7 @@ def _dashboard_trajectory_data(count=4):
 
 def test_time_interval_selection_uses_elapsed_seconds():
     dashboard = _load_dashboard_module()
-    data = pd.DataFrame(
-        {
-            "time": [0.0, 0.05, 0.99, 1.0, 1.01, 2.0]
-        }
-    )
+    data = pd.DataFrame({"time": [0.0, 0.05, 0.99, 1.0, 1.01, 2.0]})
 
     selected = dashboard._select_trajectory_rows_at_interval(data, 1.0)
 
