@@ -11,7 +11,7 @@ from bayestraj.observations.br24 import read_br24_tracking_input
 from bayestraj.observations.paths import data_path
 
 RAW_INPUT_CSV = data_path("processed/BR24Dataset20131107.csv")
-IMM_ASSOCIATIONS_CSV = data_path("processed/BR24_radar_trajectory.csv")
+IMM_TRACKED_TRAJECTORY_CSV = data_path("processed/BR24_imm_tracked_trajectory.csv")
 OUTPUT_CSV = data_path("processed/BR24_association_comparison.csv")
 
 
@@ -136,7 +136,7 @@ def main() -> None:
     """Create the configured BR24 association-audit CSV and print its summary."""
     comparison = compare_associations(
         raw_csv=RAW_INPUT_CSV,
-        imm_csv=IMM_ASSOCIATIONS_CSV,
+        imm_csv=IMM_TRACKED_TRAJECTORY_CSV,
         output_csv=OUTPUT_CSV,
     )
     counts = comparison["association_status"].value_counts()

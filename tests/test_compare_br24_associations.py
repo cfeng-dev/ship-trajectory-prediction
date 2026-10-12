@@ -16,7 +16,7 @@ def test_association_audit_uses_the_imm_initialization_and_records_misses(tmp_pa
     assert SCRIPT_PATH.exists()
     module = runpy.run_path(SCRIPT_PATH)
     raw_csv = tmp_path / "BR24Dataset20131107.csv"
-    imm_csv = tmp_path / "BR24_radar_trajectory.csv"
+    imm_csv = tmp_path / "BR24_imm_tracked_trajectory.csv"
     output_csv = tmp_path / "BR24_association_comparison.csv"
     pd.DataFrame(
         {

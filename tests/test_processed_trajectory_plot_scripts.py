@@ -25,8 +25,8 @@ PROJECT_ROOT = Path(__file__).parents[1]
             [0.0, 3.0, 6.0],
         ),
         (
-            "plot_br24_radar_trajectory.py",
-            "BR24-Radar-Zieltrajektorie mit Fahrtrichtung",
+            "plot_br24_imm_tracked_trajectory.py",
+            "IMM-getrackte BR24-Zieltrajektorie mit Fahrtrichtung",
             [0.0, 3.0, 6.0],
         ),
     ),

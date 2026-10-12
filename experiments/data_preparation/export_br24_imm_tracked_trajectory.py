@@ -1,21 +1,21 @@
-"""Export BR24 radar observations selected by Reuter's IMM association."""
+"""Export the BR24 target trajectory tracked by Reuter's IMM association."""
 
 import bayestraj.observations.br24 as br24
 import bayestraj.observations.paths as paths
 
 RADAR_CSV = paths.data_path("raw/BR24_radar_detections.csv")
 SENSOR_CSV = paths.data_path("raw/BR24_sensor_state.csv")
-OUTPUT_CSV = paths.data_path("processed/BR24_radar_trajectory.csv")
+OUTPUT_CSV = paths.data_path("processed/BR24_imm_tracked_trajectory.csv")
 
 
 def main() -> None:
-    """Export the local BR24 radar trajectory without ground-truth input."""
+    """Export the local IMM-tracked BR24 trajectory without ground truth."""
     output_path = br24.export_br24_target_radar_trajectory(
         radar_csv=RADAR_CSV,
         sensor_csv=SENSOR_CSV,
         output_csv=OUTPUT_CSV,
     )
-    print(f"Exported associated BR24 radar trajectory: {output_path}")
+    print(f"Exported IMM-tracked BR24 trajectory: {output_path}")
 
 
 if __name__ == "__main__":
