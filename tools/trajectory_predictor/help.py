@@ -97,6 +97,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "Joint 2D probabilistic forecast error; lower is better.",
             ),
             (
+                "Predictive log density",
+                "One-step-ahead log likelihood of the new observation; larger is better.",
+            ),
+            (
                 "Joint 50% coverage",
                 "Share of future position points inside their joint 50% prediction regions; close to 50% is well calibrated.",
             ),

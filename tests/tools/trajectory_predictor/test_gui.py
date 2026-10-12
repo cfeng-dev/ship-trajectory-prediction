@@ -325,6 +325,7 @@ def test_settings_panel_displays_reference_csv_state(root):
             ade_m=2.5,
             fde_m=4.0,
             energy_score_m=3.25,
+            predictive_log_density=-12.5,
             joint_coverage_50_count=3,
             joint_coverage_90_count=7,
             joint_coverage_total=8,
@@ -363,6 +364,7 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.analysis_metric_values["forecast_ade"].get() == "2.50 m"
     assert panel.analysis_metric_values["forecast_fde"].get() == "4.00 m"
     assert panel.analysis_metric_values["energy_score"].get() == "3.25 m"
+    assert panel.analysis_metric_values["predictive_log_density"].get() == "-12.50"
     assert panel.analysis_metric_values["joint_coverage_50"].get() == "37.5% (3/8)"
     assert panel.analysis_metric_values["joint_coverage_90"].get() == "87.5% (7/8)"
     assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
@@ -420,6 +422,7 @@ def test_help_explains_analysis_metrics():
         "Forecast ADE": "Mean position error across all forecast steps in meters; lower is better.",
         "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
         "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
+        "Predictive log density": "One-step-ahead log likelihood of the new observation; larger is better.",
         "Joint 50% coverage": "Share of future position points inside their joint 50% prediction regions; close to 50% is well calibrated.",
         "Joint 90% coverage": "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
         "Inference time": "Time required for inference; measures computation speed, not forecast accuracy.",

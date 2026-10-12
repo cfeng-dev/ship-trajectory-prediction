@@ -26,6 +26,7 @@ ANALYSIS_METRIC_ROW_KEYS = (
     "forecast_ade",
     "forecast_fde",
     "energy_score",
+    "predictive_log_density",
     "joint_coverage_50",
     "joint_coverage_90",
     "inference_time",
@@ -302,6 +303,7 @@ class SettingsPanel(tk.Frame):
             "forecast_ade": "Forecast ADE",
             "forecast_fde": "Forecast FDE",
             "energy_score": "Forecast Energy Score",
+            "predictive_log_density": "Predictive log density",
             "joint_coverage_50": "Joint 50% coverage",
             "joint_coverage_90": "Joint 90% coverage",
             "inference_time": "Inference time",
@@ -333,13 +335,11 @@ class SettingsPanel(tk.Frame):
         )
         self.online_predictive_diagnostics_section.pack(fill="x", pady=(8, 0))
         self.online_predictive_diagnostic_values = {
-            "log_predictive_density": tk.StringVar(self, value="—"),
             "predictive_state": tk.StringVar(self, value="—"),
             "reinitialization_count": tk.StringVar(self, value="—"),
         }
         for row, (key, label) in enumerate(
             (
-                ("log_predictive_density", "Predictive log density"),
                 ("predictive_state", "Predictive state"),
                 ("reinitialization_count", "Track recoveries"),
             )
@@ -446,6 +446,11 @@ class SettingsPanel(tk.Frame):
             if metrics.energy_score_m is not None
             else "—"
         )
+        self.analysis_metric_values["predictive_log_density"].set(
+            f"{metrics.predictive_log_density:.2f}"
+            if metrics.predictive_log_density is not None
+            else "—"
+        )
         self.analysis_metric_values["joint_coverage_50"].set(
             f"{100 * metrics.joint_coverage_50_count / metrics.joint_coverage_total:.1f}% "
             f"({metrics.joint_coverage_50_count}/{metrics.joint_coverage_total})"
@@ -470,9 +475,6 @@ class SettingsPanel(tk.Frame):
             for variable in self.online_predictive_diagnostic_values.values():
                 variable.set("—")
             return
-        self.online_predictive_diagnostic_values["log_predictive_density"].set(
-            f"{diagnostics.log_predictive_density:.2f}"
-        )
         state = (
             "threshold off"
             if diagnostics.track_lost is None
