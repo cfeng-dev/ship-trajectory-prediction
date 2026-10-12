@@ -432,13 +432,63 @@ def export_br24_target_radar_with_ground_truth(
 ) -> Path:
     """Add evaluation-only interpolated target reference values to radar positions."""
     radar = _read_csv_with_columns(radar_csv, required=_OUTPUT_COLUMNS)
+    _validate_finite_columns(radar, _OUTPUT_COLUMNS, source="Radar trajectory")
+    _validate_strictly_increasing_time(radar, source="Radar trajectory")
+    ground_truth = _interpolate_ground_truth(
+        reference_csv=reference_csv,
+        target_times=radar["time"].to_numpy(dtype=float),
+    )
+    output = radar.copy()
+    for name, values in ground_truth.items():
+        output[f"ground_truth_{name}"] = values
+
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(output_path, index=False)
+    return output_path
+
+
+def export_br24_tracking_input_with_reference(
+    *,
+    tracking_csv: str | Path,
+    reference_csv: str | Path,
+    output_csv: str | Path,
+) -> Path:
+    """Attach evaluation-only reference labels to a flattened BR24 input CSV.
+
+    The original tracking columns are preserved exactly.  Ground-truth columns are
+    derived only after the raw radar cycles have been validated and are ignored by
+    :func:`read_br24_tracking_input`.
+    """
+    cycles = read_br24_tracking_input(tracking_csv)
+    tracking = pd.read_csv(tracking_csv, float_precision="round_trip")
+    cycle_counters = np.asarray([cycle.cycle_counter for cycle in cycles], dtype=int)
+    ground_truth = _interpolate_ground_truth(
+        reference_csv=reference_csv,
+        target_times=np.asarray([cycle.time_seconds for cycle in cycles], dtype=float),
+    )
+    output = tracking.copy()
+    for name, values in ground_truth.items():
+        values_by_cycle = dict(zip(cycle_counters, values, strict=True))
+        output[f"ground_truth_{name}"] = output["cycle_counter"].map(values_by_cycle)
+
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(output_path, index=False)
+    return output_path
+
+
+def _interpolate_ground_truth(
+    *,
+    reference_csv: str | Path,
+    target_times: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Synchronize complete ground-truth states to validated radar-cycle times."""
     reference = _read_csv_with_columns(
         reference_csv,
         required=("time", "x", "y", "yaw", "velocity"),
     )
-    _validate_finite_columns(radar, _OUTPUT_COLUMNS, source="Radar trajectory")
     _validate_finite_columns(reference, ("time",), source="Ground-truth trajectory")
-    _validate_strictly_increasing_time(radar, source="Radar trajectory")
     _validate_strictly_increasing_time(
         reference,
         source="Ground-truth trajectory",
@@ -457,44 +507,34 @@ def export_br24_target_radar_with_ground_truth(
         minimum_sample_count=2,
     )
 
-    radar_times = radar["time"].to_numpy(dtype=float)
+    target_times = np.asarray(target_times, dtype=float)
     reference_times = reference["time"].to_numpy(dtype=float)
-    if radar_times.size and (
-        radar_times[0] < reference_times[0] or radar_times[-1] > reference_times[-1]
+    if target_times.size and (
+        target_times[0] < reference_times[0] or target_times[-1] > reference_times[-1]
     ):
         raise ValueError("Radar times fall outside the ground-truth time range.")
     if _radar_times_cross_incomplete_ground_truth(
-        radar_times,
+        target_times,
         reference_times,
         complete_reference_indices,
     ):
         raise ValueError("Radar times fall within an incomplete ground-truth interval.")
 
-    output = radar.copy()
-    output["ground_truth_x"] = np.interp(
-        radar_times,
-        reference_times,
-        reference["x"].to_numpy(dtype=float),
-    )
-    output["ground_truth_y"] = np.interp(
-        radar_times,
-        reference_times,
-        reference["y"].to_numpy(dtype=float),
-    )
     unwrapped_yaw = np.unwrap(reference["yaw"].to_numpy(dtype=float))
-    output["ground_truth_yaw"] = _wrap_angle(
-        np.interp(radar_times, reference_times, unwrapped_yaw)
-    )
-    output["ground_truth_velocity"] = np.interp(
-        radar_times,
-        reference_times,
-        reference["velocity"].to_numpy(dtype=float),
-    )
-
-    output_path = Path(output_csv)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output.to_csv(output_path, index=False)
-    return output_path
+    return {
+        "x": np.interp(
+            target_times, reference_times, reference["x"].to_numpy(dtype=float)
+        ),
+        "y": np.interp(
+            target_times, reference_times, reference["y"].to_numpy(dtype=float)
+        ),
+        "yaw": _wrap_angle(np.interp(target_times, reference_times, unwrapped_yaw)),
+        "velocity": np.interp(
+            target_times,
+            reference_times,
+            reference["velocity"].to_numpy(dtype=float),
+        ),
+    }
 
 
 def _read_radar_csv(csv_path: str | Path) -> pd.DataFrame:

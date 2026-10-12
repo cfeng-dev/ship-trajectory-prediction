@@ -12,6 +12,7 @@ from bayestraj.observations.br24 import (
     export_br24_target_radar_trajectory,
     export_br24_target_radar_with_ground_truth,
     export_br24_tracking_input,
+    export_br24_tracking_input_with_reference,
     polar_to_cartesian,
     position_measurement_noise,
     read_br24_tracking_input,
@@ -267,6 +268,67 @@ def test_br24_radar_export_adds_interpolated_ground_truth_without_changing_radar
     np.testing.assert_allclose(exported["ground_truth_y"], [-2.0, -6.0])
     np.testing.assert_allclose(exported["ground_truth_velocity"], [2.0, 4.0])
     assert exported.loc[0, "ground_truth_yaw"] == pytest.approx(3.041592653589793)
+
+
+def test_br24_tracking_input_export_adds_evaluation_reference_without_changing_radar(
+    tmp_path,
+):
+    tracking_csv = tmp_path / "BR24Dataset20131107.csv"
+    reference_csv = tmp_path / "BR24_reference_trajectory.csv"
+    output_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    tracking_input = pd.DataFrame(
+        {
+            "time": [0.5, 0.5, 1.5],
+            "cycle_counter": [4, 4, 5],
+            "sensor_x": [100.0, 100.0, 101.0],
+            "sensor_y": [-20.0, -20.0, -19.0],
+            "sensor_yaw": [0.0, 0.0, 0.1],
+            "detection_id": [1, 2, 1],
+            "range": [10.0, 20.0, 11.0],
+            "azimuth": [0.0, 0.1, 0.0],
+            "std_range": [0.5, 0.5, 0.6],
+            "std_azimuth": [0.01, 0.01, 0.02],
+            "x_relative": [10.0, 19.9, 11.0],
+            "y_relative": [0.0, 2.0, 0.0],
+        }
+    )
+    tracking_input.to_csv(tracking_csv, index=False)
+    pd.DataFrame(
+        {
+            "time": [0.0, 1.0, 2.0],
+            "x": [0.0, 10.0, 20.0],
+            "y": [0.0, -4.0, -8.0],
+            "yaw": [2.8, -3.0, -2.5],
+            "velocity": [1.0, 3.0, 5.0],
+        }
+    ).to_csv(reference_csv, index=False)
+
+    output_path = export_br24_tracking_input_with_reference(
+        tracking_csv=tracking_csv,
+        reference_csv=reference_csv,
+        output_csv=output_csv,
+    )
+
+    exported = pd.read_csv(output_path)
+    pd.testing.assert_frame_equal(
+        exported.loc[:, tracking_input.columns], tracking_input
+    )
+    assert exported.columns.tolist() == [
+        *tracking_input.columns,
+        "ground_truth_x",
+        "ground_truth_y",
+        "ground_truth_yaw",
+        "ground_truth_velocity",
+    ]
+    np.testing.assert_allclose(exported["ground_truth_x"], [5.0, 5.0, 15.0])
+    np.testing.assert_allclose(exported["ground_truth_y"], [-2.0, -2.0, -6.0])
+    np.testing.assert_allclose(exported["ground_truth_velocity"], [2.0, 2.0, 4.0])
+    assert exported.loc[0, "ground_truth_yaw"] == pytest.approx(3.041592653589793)
+
+    cycles = read_br24_tracking_input(output_path)
+
+    assert [cycle.cycle_counter for cycle in cycles] == [4, 5]
+    assert [detection.detection_id for detection in cycles[0].detections] == [1, 2]
 
 
 def test_br24_radar_export_rejects_ground_truth_extrapolation(tmp_path):

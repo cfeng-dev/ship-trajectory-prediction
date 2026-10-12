@@ -19,3 +19,18 @@ def test_br24_tracking_input_export_writes_to_processed_data():
         .replace("\\", "/")
         .endswith("data/processed/BR24Dataset20131107.csv")
     )
+
+
+def test_br24_tracking_input_with_reference_export_writes_to_processed_data():
+    module = runpy.run_path(
+        PROJECT_ROOT
+        / "experiments"
+        / "data_preparation"
+        / "export_br24_dataset20131107_with_reference.py"
+    )
+
+    assert (
+        str(module["OUTPUT_CSV"])
+        .replace("\\", "/")
+        .endswith("data/processed/BR24Dataset20131107_with_reference.csv")
+    )
