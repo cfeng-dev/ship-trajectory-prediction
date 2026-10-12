@@ -7,6 +7,7 @@ from time import monotonic
 import numpy as np
 import pandas as pd
 import pytest
+from trajectory_predictor import dashboard
 from trajectory_predictor.dashboard import PARAMETER_NAMES, PosteriorDashboardUpdate
 from trajectory_predictor.session import PosteriorAnalysisWorker, prepare_analysis
 from trajectory_predictor.settings import default_form_values, parse_settings
@@ -137,6 +138,80 @@ def test_br24_input_uses_manual_radar_seed_and_never_exposes_reference(tmp_path)
     assert first_update.tracked_positions.shape == (1, 2)
     assert missed_update.tracked_positions.shape == (3, 2)
     assert first_update.forecast is not None
+
+
+def test_br24_reference_labels_are_dashboard_only_and_do_not_change_tracking(tmp_path):
+    raw_file = tmp_path / "BR24Dataset20131107.csv"
+    labelled_file = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    raw = pd.DataFrame(
+        {
+            "time": [0.0, 0.0, 1.0, 1.0, 2.0],
+            "cycle_counter": [4, 4, 5, 5, 6],
+            "sensor_x": [100.0] * 5,
+            "sensor_y": [-20.0] * 5,
+            "sensor_yaw": [0.0] * 5,
+            "detection_id": [10, 9, 10, 11, np.nan],
+            "range": [200.0, 10.0, 10.0, 200.0, np.nan],
+            "azimuth": [0.0, 0.0, 0.0, 0.0, np.nan],
+            "std_range": [0.5, 0.5, 0.5, 0.5, np.nan],
+            "std_azimuth": [0.0, 0.0, 0.0, 0.0, np.nan],
+            "x_relative": [200.0, 10.0, 10.0, 200.0, np.nan],
+            "y_relative": [0.0, 0.0, 0.0, 0.0, np.nan],
+        }
+    )
+    raw.to_csv(raw_file, index=False)
+    labelled = raw.assign(
+        ground_truth_x=[110.0, 110.0, 111.0, 111.0, 112.0],
+        ground_truth_y=[-20.0, -20.0, -20.0, -20.0, -20.0],
+        ground_truth_yaw=[0.1] * 5,
+        ground_truth_velocity=[2.0] * 5,
+    )
+    labelled.to_csv(labelled_file, index=False)
+
+    values = default_form_values()
+    values["data"].update(
+        {
+            "inference_method": "smc",
+            "prediction_count": "1",
+            "prediction_sample_count": "5",
+        }
+    )
+    values["smc"].update({"particle_count": "32", "posterior_draw_count": "20"})
+    values["data"]["data_file"] = str(raw_file)
+    raw_trajectory, _, _, raw_load = prepare_analysis(parse_settings(values).analysis)
+    values["data"]["data_file"] = str(labelled_file)
+    labelled_trajectory, _, _, labelled_load = prepare_analysis(
+        parse_settings(values).analysis
+    )
+
+    raw_update = raw_load(2)
+    labelled_update = labelled_load(2)
+
+    assert raw_trajectory.has_reference is False
+    assert labelled_trajectory.has_reference is True
+    np.testing.assert_allclose(
+        raw_update.tracked_positions, labelled_update.tracked_positions
+    )
+    assert raw_update.radar_detection_id == labelled_update.radar_detection_id
+    assert raw_update.radar_nis == labelled_update.radar_nis
+    np.testing.assert_allclose(
+        raw_update.forecast.median_positions,
+        labelled_update.forecast.median_positions,
+    )
+    reference_state = labelled_trajectory.reference_state_at(2)
+    np.testing.assert_allclose(
+        reference_state[:4], [111.0, -20.0, 0.1 * 180 / np.pi, 2.0]
+    )
+    assert reference_state[-1] == 1.0
+    assert (
+        dashboard.analysis_metrics_at(raw_trajectory, {2: raw_update}, 2).ade_m is None
+    )
+    assert (
+        dashboard.analysis_metrics_at(
+            labelled_trajectory, {2: labelled_update}, 2
+        ).ade_m
+        is not None
+    )
 
 
 def test_pause_lowers_target_without_repeating_an_inflight_fit(analysis):

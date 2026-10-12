@@ -111,14 +111,14 @@ def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(f
     assert result.analysis.smc_config.predictive_log_density_threshold == -12.5
 
 
-def test_trajectory_predictor_defaults_to_the_br24_radar_trajectory():
-    """The GUI starts with the BR24 radar trajectory, not a raw run selector."""
+def test_trajectory_predictor_defaults_to_br24_tracking_input_with_reference():
+    """The GUI starts with BR24 tracking input that includes evaluation labels."""
     data = settings.default_form_values()["data"]
 
     assert (
         data["data_file"]
         .replace("\\", "/")
-        .endswith("data/processed/BR24Dataset20131107.csv")
+        .endswith("data/processed/BR24Dataset20131107_with_reference.csv")
     )
     assert "run_id" not in data
 

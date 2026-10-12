@@ -155,7 +155,9 @@ def _defaults():
     sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
-            "data_file": str(data_path("processed/BR24Dataset20131107.csv")),
+            "data_file": str(
+                data_path("processed/BR24Dataset20131107_with_reference.csv")
+            ),
             "inference_method": "smc",
             "start_index": 0,
             "observation_interval_seconds": 10.0,

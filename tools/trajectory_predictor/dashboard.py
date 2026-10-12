@@ -30,6 +30,7 @@ from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
 from bayestraj.observations.br24 import (
     br24_measurement_covariance,
     read_br24_tracking_input,
+    read_br24_tracking_reference,
 )
 
 from . import coordinates
@@ -2152,9 +2153,9 @@ def create_br24_radar_dashboard_loader(
 ):
     """Create online dashboard updates directly from raw BR24 radar cycles.
 
-    The raw data determine association and measurement covariance.  In particular,
-    this adapter neither loads nor displays a reference trajectory, so it is safe
-    for the end-to-end tracker comparison.
+    The raw data determine association, measurement covariance, filtering, and
+    forecasting.  Optional ground-truth labels are read separately and retained
+    solely for dashboard reference-state and forecast-evaluation displays.
     """
     if not isinstance(experiment, PosteriorDashboardConfig):
         raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
@@ -2167,6 +2168,18 @@ def create_br24_radar_dashboard_loader(
             "BR24 radar tracking always starts at the lowest cycle counter."
         )
     cycles = read_br24_tracking_input(input_csv)
+    reference = read_br24_tracking_reference(input_csv)
+    if reference is not None:
+        cycle_counters = np.asarray(
+            [cycle.cycle_counter for cycle in cycles], dtype=int
+        )
+        cycle_times = np.asarray([cycle.time_seconds for cycle in cycles], dtype=float)
+        if not np.array_equal(
+            reference.cycle_counters, cycle_counters
+        ) or not np.array_equal(reference.time_seconds, cycle_times):
+            raise ValueError(
+                "BR24 reference labels must align exactly with the radar cycles."
+            )
     selected_cycles = cycles
     if not selected_cycles[0].detections:
         raise ValueError(
@@ -2192,14 +2205,30 @@ def create_br24_radar_dashboard_loader(
         [cycle.time_seconds for cycle in selected_cycles], dtype=float
     )
     initial_position = tracker.estimated_position
-    trajectory = PosteriorDashboardTrajectory(
-        np.full(maximum_observation_count, initial_position[0]),
-        np.full(maximum_observation_count, initial_position[1]),
-        np.full(maximum_observation_count, initial_position[0]),
-        np.full(maximum_observation_count, initial_position[1]),
-        reference_time_seconds=time_seconds,
-        has_reference=False,
-    )
+    observed_x = np.full(maximum_observation_count, initial_position[0])
+    observed_y = np.full(maximum_observation_count, initial_position[1])
+    if reference is None:
+        trajectory = PosteriorDashboardTrajectory(
+            observed_x,
+            observed_y,
+            observed_x,
+            observed_y,
+            reference_time_seconds=time_seconds,
+            has_reference=False,
+        )
+    else:
+        trajectory = PosteriorDashboardTrajectory(
+            reference.x_meters[:maximum_observation_count],
+            reference.y_meters[:maximum_observation_count],
+            observed_x,
+            observed_y,
+            reference_speed_mps=reference.velocity_mps[:maximum_observation_count],
+            reference_heading_degrees=np.rad2deg(
+                reference.yaw_rad[:maximum_observation_count]
+            ),
+            reference_time_seconds=reference.time_seconds[:maximum_observation_count],
+            has_reference=True,
+        )
     specs = tuple(
         prior_posterior.build_parameter_spec(parameter_name, priors)
         for parameter_name in PARAMETER_NAMES

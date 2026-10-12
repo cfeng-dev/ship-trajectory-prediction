@@ -44,6 +44,12 @@ _TRACKING_INPUT_COLUMNS = (
     "x_relative",
     "y_relative",
 )
+_TRACKING_REFERENCE_COLUMNS = (
+    "ground_truth_x",
+    "ground_truth_y",
+    "ground_truth_yaw",
+    "ground_truth_velocity",
+)
 
 
 def is_br24_tracking_input(csv_path: str | Path) -> bool:
@@ -83,6 +89,52 @@ class BR24RadarCycle:
     sensor_position: np.ndarray
     sensor_yaw_rad: float
     detections: tuple[BR24Detection, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BR24TrackingReference:
+    """Evaluation-only target labels synchronized to BR24 radar cycles."""
+
+    cycle_counters: np.ndarray
+    time_seconds: np.ndarray
+    x_meters: np.ndarray
+    y_meters: np.ndarray
+    yaw_rad: np.ndarray
+    velocity_mps: np.ndarray
+
+    def __post_init__(self) -> None:
+        arrays = {
+            name: np.asarray(getattr(self, name), dtype=float).copy()
+            for name in (
+                "cycle_counters",
+                "time_seconds",
+                "x_meters",
+                "y_meters",
+                "yaw_rad",
+                "velocity_mps",
+            )
+        }
+        if (
+            any(values.ndim != 1 for values in arrays.values())
+            or len({values.shape for values in arrays.values()}) != 1
+        ):
+            raise ValueError("BR24 reference values must be matching vectors.")
+        if not arrays["time_seconds"].size or any(
+            not np.all(np.isfinite(values)) for values in arrays.values()
+        ):
+            raise ValueError("BR24 reference values must be finite and non-empty.")
+        if not np.array_equal(
+            arrays["cycle_counters"], np.floor(arrays["cycle_counters"])
+        ):
+            raise ValueError("BR24 reference cycle counters must be integers.")
+        arrays["cycle_counters"] = arrays["cycle_counters"].astype(int)
+        if np.any(np.diff(arrays["cycle_counters"]) <= 0) or np.any(
+            np.diff(arrays["time_seconds"]) <= 0.0
+        ):
+            raise ValueError("BR24 reference cycles must be strictly time-ordered.")
+        for name, values in arrays.items():
+            values.setflags(write=False)
+            object.__setattr__(self, name, values)
 
 
 @dataclass(slots=True)
@@ -422,6 +474,57 @@ def read_br24_tracking_input(csv_path: str | Path) -> tuple[BR24RadarCycle, ...]
     if np.any(np.diff(times) <= 0.0):
         raise ValueError("BR24 tracking-input cycle times must be strictly increasing.")
     return tuple(cycles)
+
+
+def read_br24_tracking_reference(
+    csv_path: str | Path,
+) -> BR24TrackingReference | None:
+    """Read optional evaluation labels without exposing them to the tracker.
+
+    ``None`` means that the flattened BR24 input has no reference labels.  When
+    present, every label must be supplied and be identical for all detections in
+    one radar cycle.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    normalized_columns = {
+        str(column).lower() for column in pd.read_csv(csv_path, nrows=0).columns
+    }
+    available_columns = set(_TRACKING_REFERENCE_COLUMNS) & normalized_columns
+    if not available_columns:
+        return None
+    if available_columns != set(_TRACKING_REFERENCE_COLUMNS):
+        missing = sorted(set(_TRACKING_REFERENCE_COLUMNS) - available_columns)
+        raise ValueError(f"Missing BR24 reference columns: {missing}")
+    data = _read_csv_with_columns(
+        csv_path,
+        required=("time", "cycle_counter", *_TRACKING_REFERENCE_COLUMNS),
+    )
+    _validate_finite_columns(data, data.columns, source="BR24 tracking reference")
+    _validate_integral_column(
+        data,
+        "cycle_counter",
+        source="BR24 tracking reference",
+    )
+    cycle_references = []
+    reference_columns = ("time", *_TRACKING_REFERENCE_COLUMNS)
+    for cycle_counter, group in data.groupby("cycle_counter", sort=True):
+        values = group.loc[:, reference_columns].to_numpy(dtype=float)
+        if not np.allclose(values, values[0], rtol=0.0, atol=0.0):
+            raise ValueError(
+                "Reference values must be identical within each BR24 cycle."
+            )
+        cycle_references.append((int(cycle_counter), *values[0]))
+    reference = np.asarray(cycle_references, dtype=float)
+    return BR24TrackingReference(
+        cycle_counters=reference[:, 0],
+        time_seconds=reference[:, 1],
+        x_meters=reference[:, 2],
+        y_meters=reference[:, 3],
+        yaw_rad=reference[:, 4],
+        velocity_mps=reference[:, 5],
+    )
 
 
 def export_br24_target_radar_with_ground_truth(
