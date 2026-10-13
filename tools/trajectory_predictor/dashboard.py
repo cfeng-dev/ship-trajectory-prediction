@@ -879,7 +879,7 @@ class PosteriorDashboardNavigator:
         self._parameter_group = "motion"
         self._posterior_display_mode = "compact"
         self._trajectory_has_been_drawn = False
-        self._follow_ship_view_needs_focus = False
+        self._follow_ship_view_needs_focus = True
         self._is_playing = False
         self._slider_interaction_active = False
         self._specs_by_name = {
@@ -919,7 +919,7 @@ class PosteriorDashboardNavigator:
         self.follow_checkbox = CheckButtons(
             follow_axis,
             ("Follow ship",),
-            (False,),
+            (True,),
             useblit=False,
             label_props={"fontsize": [10]},
             frame_props={"s": [196], "linewidth": [1.2]},

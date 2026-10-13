@@ -487,12 +487,11 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
 
 def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
     figure, navigator, loads = follow_dashboard
-    assert navigator.follow_checkbox.get_status() == [False]
+    assert navigator.follow_checkbox.get_status() == [True]
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
     posterior_line = navigator.posterior_axes[0].lines[-1]
 
-    navigator.follow_checkbox.set_active(0)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
     assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
     assert navigator.posterior_axes[0].lines[-1] is posterior_line
@@ -554,7 +553,6 @@ def test_follow_ship_preserves_manual_zoom_and_resets_when_disabled(follow_dashb
     figure, navigator, loads = follow_dashboard
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
-    navigator.follow_checkbox.set_active(0)
     navigator.trajectory_axis.set_xlim(0, 8)
     navigator.trajectory_axis.set_ylim(-4, 4)
     figure.canvas.draw()
@@ -580,8 +578,6 @@ def test_follow_ship_focus_uses_600m_in_km_display(follow_dashboard):
     navigator.show_selected_observation_count(None)
     navigator.set_coordinate_display_mode("km")
 
-    navigator.follow_checkbox.set_active(0)
-
     assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(0.6)
 
 
@@ -606,13 +602,13 @@ def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboar
             )._process()
 
     click()
-    assert navigator.follow_checkbox.get_status() == [True]
+    assert navigator.follow_checkbox.get_status() == [False]
     assert navigator.is_playing
     assert navigator.observation_count == 0
     assert loads == []
     navigator.disconnect()
     click()
-    assert navigator.follow_checkbox.get_status() == [True]
+    assert navigator.follow_checkbox.get_status() == [False]
 
 
 def test_follow_ship_waits_for_displayed_async_result_and_respects_pause():
@@ -642,7 +638,6 @@ def test_follow_ship_waits_for_displayed_async_result_and_respects_pause():
         navigator.advance_playback()
         assert navigator.is_waiting
         previous_requests = list(requests)
-        navigator.follow_checkbox.set_active(0)
         assert requests == previous_requests
         np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
         frozen_view = _view_limits(navigator)
@@ -729,6 +724,7 @@ def test_embedded_async_navigation_waits_caches_and_preserves_pause():
         request_update=requests.append,
     )
     assert figure is supplied_figure
+    navigator.follow_checkbox.set_active(0)
     navigator.toggle_playback(None)
     navigator.advance_playback()
     navigator.advance_playback()
@@ -1243,6 +1239,7 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         prediction_count=2,
     )
     try:
+        navigator.follow_checkbox.set_active(0)
         assert not any(
             "Median" in line.get_label() for line in navigator.trajectory_axis.lines
         )
@@ -2450,6 +2447,7 @@ def test_dashboard_keeps_manual_trajectory_zoom_without_aspect_limit_warning(
     )
 
     try:
+        navigator.follow_checkbox.set_active(0)
         navigator.slider.set_val(2)
         navigator.show_selected_observation_count(None)
         navigator.trajectory_axis.set_xlim(0.5, 2.5)
