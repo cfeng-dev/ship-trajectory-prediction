@@ -160,8 +160,15 @@ def export_processed_positions(time, x, y, output_csv, *, normalize_time=True):
     return output_csv
 
 
-def export_br24_reference_trajectory(input_csv, output_csv):
-    """Export valid BR24 reference positions with their source times."""
+def export_br24_reference_trajectory(
+    input_csv,
+    output_csv,
+    *,
+    sensor_csv=None,
+    start_time_seconds=None,
+    end_time_seconds=None,
+):
+    """Export reference positions, optionally restricted to BR24 sensor coverage."""
     position_columns = ["time", "x", "y"]
     source_data = pd.read_csv(input_csv)
     missing_columns = [
@@ -188,6 +195,27 @@ def export_br24_reference_trajectory(input_csv, output_csv):
             "The BR24 reference trajectory must contain at least two finite positions."
         )
 
+    if sensor_csv is not None:
+        if start_time_seconds is not None or end_time_seconds is not None:
+            raise ValueError(
+                "sensor_csv cannot be combined with explicit reference time bounds."
+            )
+        start_time, end_time = _br24_sensor_time_bounds(sensor_csv)
+    else:
+        start_time = _optional_finite_time(start_time_seconds, "start_time_seconds")
+        end_time = _optional_finite_time(end_time_seconds, "end_time_seconds")
+    if start_time is not None and end_time is not None and start_time > end_time:
+        raise ValueError("start_time_seconds must not exceed end_time_seconds.")
+    if start_time is not None:
+        trajectory_data = trajectory_data.loc[trajectory_data["time"] >= start_time]
+    if end_time is not None:
+        trajectory_data = trajectory_data.loc[trajectory_data["time"] <= end_time]
+    if len(trajectory_data) < 2:
+        raise ValueError(
+            "The BR24 reference trajectory time window must contain at least two "
+            "finite positions."
+        )
+
     return export_processed_positions(
         time=trajectory_data["time"],
         x=trajectory_data["x"],
@@ -195,6 +223,33 @@ def export_br24_reference_trajectory(input_csv, output_csv):
         output_csv=output_csv,
         normalize_time=False,
     )
+
+
+def _optional_finite_time(value, name):
+    """Return an optional finite numeric time bound."""
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a finite numeric value.") from error
+    if not np.isfinite(value):
+        raise ValueError(f"{name} must be a finite numeric value.")
+    return value
+
+
+def _br24_sensor_time_bounds(sensor_csv):
+    """Return the inclusive time coverage of a BR24 sensor-state CSV."""
+    sensor_data = pd.read_csv(sensor_csv)
+    normalized_columns = {str(column).lower(): column for column in sensor_data.columns}
+    if "time" not in normalized_columns:
+        raise ValueError("BR24 sensor CSV must contain a Time column.")
+    sensor_times = pd.to_numeric(
+        sensor_data[normalized_columns["time"]], errors="coerce"
+    ).to_numpy(dtype=float)
+    if not sensor_times.size or not np.all(np.isfinite(sensor_times)):
+        raise ValueError("BR24 sensor times must be finite and non-empty.")
+    return float(np.min(sensor_times)), float(np.max(sensor_times))
 
 
 def export_shiptech_trajectory(input_csv, run_id, output_csv):

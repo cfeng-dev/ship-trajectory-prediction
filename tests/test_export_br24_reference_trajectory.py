@@ -39,6 +39,58 @@ def test_export_br24_reference_trajectory_sorts_original_time(tmp_path):
     assert input_csv.read_bytes() == raw_contents
 
 
+def test_export_br24_reference_trajectory_limits_to_radar_time_window(tmp_path):
+    """The optional radar bounds trim samples without rebasing their times."""
+    input_csv = tmp_path / "BR24_target_reference_state.csv"
+    pd.DataFrame(
+        {
+            "time": [49070.2, 49070.6, 49071.0, 50774.1, 50774.5],
+            "x": [0.0, 1.0, 2.0, 3.0, 4.0],
+            "y": [0.0, -1.0, -2.0, -3.0, -4.0],
+        }
+    ).to_csv(input_csv, index=False)
+
+    exported = pd.read_csv(
+        export_br24_reference_trajectory(
+            input_csv=input_csv,
+            output_csv=tmp_path / "output.csv",
+            start_time_seconds=49070.6,
+            end_time_seconds=50774.1,
+        )
+    )
+
+    assert exported["time"].tolist() == [49070.6, 49071.0, 50774.1]
+    np.testing.assert_allclose(exported["x"], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(exported["y"], [-1.0, -2.0, -3.0])
+
+
+def test_export_br24_reference_trajectory_reads_optional_sensor_time_window(tmp_path):
+    """An optional BR24 sensor CSV restricts reference samples to radar coverage."""
+    input_csv = tmp_path / "BR24_target_reference_state.csv"
+    sensor_csv = tmp_path / "BR24_sensor_state.csv"
+    pd.DataFrame(
+        {
+            "time": [49070.2, 49070.6, 49071.0, 50774.1, 50774.5],
+            "x": [0.0, 1.0, 2.0, 3.0, 4.0],
+            "y": [0.0, -1.0, -2.0, -3.0, -4.0],
+        }
+    ).to_csv(input_csv, index=False)
+    pd.DataFrame({"Time": [49070.6, 50774.1], "CycleCounter": [1, 650]}).to_csv(
+        sensor_csv,
+        index=False,
+    )
+
+    exported = pd.read_csv(
+        export_br24_reference_trajectory(
+            input_csv=input_csv,
+            output_csv=tmp_path / "output.csv",
+            sensor_csv=sensor_csv,
+        )
+    )
+
+    assert exported["time"].tolist() == [49070.6, 49071.0, 50774.1]
+
+
 def test_export_br24_reference_trajectory_rejects_one_sample(tmp_path):
     """A single point cannot define a processed trajectory."""
     input_csv = tmp_path / "BR24_target_reference_state.csv"
