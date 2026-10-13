@@ -339,6 +339,7 @@ class DashboardAnalysisMetrics:
 
     ade_m: float | None
     fde_m: float | None
+    rmse_m: float | None
     energy_score_m: float | None
     predictive_log_density: float | None
     joint_coverage_50_count: int
@@ -540,6 +541,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         return DashboardAnalysisMetrics(
             ade_m=None,
             fde_m=None,
+            rmse_m=None,
             energy_score_m=None,
             predictive_log_density=None,
             joint_coverage_50_count=0,
@@ -552,6 +554,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         return DashboardAnalysisMetrics(
             ade_m=None,
             fde_m=None,
+            rmse_m=None,
             energy_score_m=None,
             predictive_log_density=(
                 None if update is None else update.predictive_log_density
@@ -564,7 +567,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             ),
         )
     forecast = None if update is None else update.forecast
-    ade_m, fde_m, energy_score_m = None, None, None
+    ade_m, fde_m, rmse_m, energy_score_m = None, None, None, None
     if forecast is not None:
         actual_positions = _forecast_reference_positions(trajectory, update)
         if actual_positions.size:
@@ -574,6 +577,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             )
             ade_m = float(np.mean(errors_m))
             fde_m = float(errors_m[-1])
+            rmse_m = float(np.sqrt(np.mean(errors_m**2)))
             energy_score_m = _forecast_energy_score(
                 forecast.posterior_positions[:, : len(actual_positions), :].transpose(
                     1,
@@ -611,6 +615,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
     return DashboardAnalysisMetrics(
         ade_m=ade_m,
         fde_m=fde_m,
+        rmse_m=rmse_m,
         energy_score_m=energy_score_m,
         predictive_log_density=(
             None if update is None else update.predictive_log_density

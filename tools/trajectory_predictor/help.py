@@ -93,6 +93,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "Position error at the final forecast step in meters; lower is better.",
             ),
             (
+                "Forecast RMSE",
+                "Root mean squared 2D position error across all forecast steps in meters; lower is better.",
+            ),
+            (
                 "Forecast Energy Score",
                 "Joint 2D probabilistic forecast error; lower is better.",
             ),

@@ -25,6 +25,7 @@ CSV_STATE_ROW_KEYS = ("position", "speed", "heading", "turn_rate", "time")
 ANALYSIS_METRIC_ROW_KEYS = (
     "forecast_ade",
     "forecast_fde",
+    "forecast_rmse",
     "energy_score",
     "predictive_log_density",
     "joint_coverage_50",
@@ -302,6 +303,7 @@ class SettingsPanel(tk.Frame):
         metric_labels_by_key = {
             "forecast_ade": "Forecast ADE",
             "forecast_fde": "Forecast FDE",
+            "forecast_rmse": "Forecast RMSE",
             "energy_score": "Forecast Energy Score",
             "predictive_log_density": "Predictive log density",
             "joint_coverage_50": "Joint 50% coverage",
@@ -440,6 +442,9 @@ class SettingsPanel(tk.Frame):
         )
         self.analysis_metric_values["forecast_fde"].set(
             f"{metrics.fde_m:.2f} m" if metrics.fde_m is not None else "—"
+        )
+        self.analysis_metric_values["forecast_rmse"].set(
+            f"{metrics.rmse_m:.2f} m" if metrics.rmse_m is not None else "—"
         )
         self.analysis_metric_values["energy_score"].set(
             f"{metrics.energy_score_m:.2f} m"

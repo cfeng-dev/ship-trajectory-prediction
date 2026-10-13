@@ -973,6 +973,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
 
     assert metrics.ade_m == pytest.approx(0.5)
     assert metrics.fde_m == pytest.approx(1.0)
+    assert metrics.rmse_m == pytest.approx(np.sqrt(0.5))
     assert metrics.energy_score_m == pytest.approx(0.487874)
     assert metrics.predictive_log_density == pytest.approx(-12.5)
     assert metrics.joint_coverage_50_count == 1
