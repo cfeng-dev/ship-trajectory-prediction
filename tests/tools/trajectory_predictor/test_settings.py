@@ -47,6 +47,7 @@ def test_settings_preserve_selected_method_and_units(form, method):
     result = settings.parse_settings(form)
     assert result.analysis.experiment.inference_method == method
     assert result.analysis.experiment.maximum_observation_count is None
+    assert result.analysis.experiment.observation_interval_seconds is None
     assert result.analysis.priors.sigma_turn_rate_process_prior_upper_deg_s == 7.5
     assert result.playback_interval_ms > 0
 
@@ -316,6 +317,11 @@ def test_data_options_dialog_preserves_seconds_and_validates_intervals():
         "inference_seed": 456,
         "playback_interval_seconds": 1.5,
     }
+    values["observation_interval_seconds"] = ""
+    assert (
+        settings.validate_dialog_values("data", values)["observation_interval_seconds"]
+        is None
+    )
     values["playback_interval_seconds"] = "0"
     with pytest.raises(ValueError):
         settings.validate_dialog_values("data", values)

@@ -1056,6 +1056,15 @@ def test_time_interval_selection_uses_elapsed_seconds():
     assert selected.index.tolist() == [0, 3, 5]
 
 
+def test_time_interval_selection_keeps_original_timestamps_when_disabled():
+    dashboard = _load_dashboard_module()
+    data = pd.DataFrame({"time": [0.0, 0.05, 0.99, 1.0, 1.01, 2.0]})
+
+    selected = dashboard._select_trajectory_rows_at_interval(data, None)
+
+    assert selected.index.tolist() == [0, 1, 2, 3, 4, 5]
+
+
 def test_dashboard_preparation_preserves_processed_state_despite_gui_noise():
     """Reference status data stays separate from the optional GUI perturbation."""
     dashboard = _load_dashboard_module()
@@ -1945,6 +1954,7 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
         inference_method="mcmc",
         inference_seed=42,
         prediction_count=1,
+        observation_interval_seconds=10.0,
     )
     trajectory_data = _dashboard_trajectory_data(27)
     trajectory_data["time"] = np.arange(27, dtype=float) * 5.0

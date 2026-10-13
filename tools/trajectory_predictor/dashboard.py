@@ -131,7 +131,7 @@ class PosteriorDashboardConfig:
     inference_seed: int
     prediction_count: int = DEFAULT_PREDICTION_COUNT
     prediction_sample_count: int = DEFAULT_PREDICTION_SAMPLE_COUNT
-    observation_interval_seconds: float = 10.0
+    observation_interval_seconds: float | None = None
 
     def __post_init__(self) -> None:
         """Normalize the selected batch or online inference method."""
@@ -148,14 +148,15 @@ class PosteriorDashboardConfig:
                     name, getattr(self, name)
                 ),
             )
-        object.__setattr__(
-            self,
-            "observation_interval_seconds",
-            numeric_validation.validate_positive_finite(
+        if self.observation_interval_seconds is not None:
+            object.__setattr__(
+                self,
                 "observation_interval_seconds",
-                self.observation_interval_seconds,
-            ),
-        )
+                numeric_validation.validate_positive_finite(
+                    "observation_interval_seconds",
+                    self.observation_interval_seconds,
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1908,9 +1909,10 @@ def create_posterior_dashboard_loader(
         ]
         sampling_times = future_times
         if sampling_times.size == 0:
-            sampling_times = np.asarray(
-                [origin_time + experiment.observation_interval_seconds]
-            )
+            fallback_interval_seconds = experiment.observation_interval_seconds
+            if fallback_interval_seconds is None:
+                fallback_interval_seconds = time_seconds[-1] - time_seconds[-2]
+            sampling_times = np.asarray([origin_time + fallback_interval_seconds])
         fit = sequential_vi.forecast_ctrv_prior_predictive(
             x_at_origin=trajectory.observed_x[observation_count - 1],
             y_at_origin=trajectory.observed_y[observation_count - 1],
@@ -2325,10 +2327,15 @@ def _prepare_posterior_dashboard_trajectory(
     )
     available_observation_count = len(selected_trajectory_data)
     if available_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
+        if experiment.observation_interval_seconds is None:
+            prefix = "The selected trajectory"
+        else:
+            prefix = (
+                f"Observation interval {experiment.observation_interval_seconds:g} s"
+            )
         raise ValueError(
-            f"Observation interval {experiment.observation_interval_seconds:g} s "
-            f"leaves only {available_observation_count} positions; at least four "
-            "consecutive positions are required."
+            f"{prefix} leaves only {available_observation_count} positions; at least "
+            "four consecutive positions are required."
         )
     maximum_supported_count = available_observation_count - int(reserve_prediction)
     maximum_observation_count = experiment.maximum_observation_count
@@ -2406,11 +2413,7 @@ def _prepare_posterior_dashboard_trajectory(
 
 
 def _select_trajectory_rows_at_interval(trajectory_data, interval_seconds):
-    """Keep the first row and later rows at least one interval apart in time."""
-    interval_seconds = numeric_validation.validate_positive_finite(
-        "observation_interval_seconds",
-        interval_seconds,
-    )
+    """Optionally keep positions at least one interval apart in time."""
     if trajectory_data.empty:
         return trajectory_data.copy()
     timestamps = pd.to_numeric(trajectory_data["time"], errors="coerce").to_numpy(
@@ -2418,6 +2421,12 @@ def _select_trajectory_rows_at_interval(trajectory_data, interval_seconds):
     )
     if not np.all(np.isfinite(timestamps)):
         raise ValueError("Trajectory times must be finite seconds.")
+    if interval_seconds is None:
+        return trajectory_data.copy()
+    interval_seconds = numeric_validation.validate_positive_finite(
+        "observation_interval_seconds",
+        interval_seconds,
+    )
     selected_indices = [0]
     last_timestamp = timestamps[0]
     for index, timestamp in enumerate(timestamps[1:], start=1):

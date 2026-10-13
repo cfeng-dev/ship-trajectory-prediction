@@ -76,7 +76,7 @@ LABELS = {
     "data_file": "CSV file",
     "inference_method": "Inference method",
     "start_index": "Start index (from 0)",
-    "observation_interval_seconds": "Observation interval [s]",
+    "observation_interval_seconds": "Observation interval [s] (empty = original)",
     "maximum_observation_count": "Maximum observations (empty = all)",
     "position_noise_std_m": "Additional position noise [m]",
     "position_noise_seed": "Position-noise seed",
@@ -160,7 +160,7 @@ def _defaults():
             ),
             "inference_method": "smc",
             "start_index": 0,
-            "observation_interval_seconds": 10.0,
+            "observation_interval_seconds": None,
             "maximum_observation_count": "",
             "prediction_count": DEFAULT_PREDICTION_COUNT,
             "prediction_sample_count": DEFAULT_PREDICTION_SAMPLE_COUNT,
@@ -282,6 +282,7 @@ def _validate_data_options(fields):
             _minimum(fields, key, 0)
     if (
         "observation_interval_seconds" in fields
+        and fields["observation_interval_seconds"] is not None
         and fields["observation_interval_seconds"] <= 0
     ):
         raise ValueError("Observation interval must be greater than 0.")

@@ -58,7 +58,7 @@ POSTERIOR_HELP_SECTIONS = (
             ("Start index", "First CSV position to include; counting begins at 0"),
             (
                 "Observation interval",
-                "Use positions separated by at least this many seconds",
+                "Optional minimum position spacing in seconds; leave empty to use every original timestamp",
             ),
             ("Maximum observations", "Limit selected positions; leave empty for all"),
             (
