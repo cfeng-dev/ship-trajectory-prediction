@@ -2,9 +2,14 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
+import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
+import bayestraj.inference.ctrv_smc as smc_model
+import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
+import bayestraj.validation.cli as validation_cli
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
@@ -54,6 +59,109 @@ def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_p
     np.testing.assert_allclose(route_x, [100.0, 103.0, 107.0, 110.0])
     np.testing.assert_allclose(route_y, [-20.0, -18.0, -15.0, -13.0])
     np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
+
+
+def _write_br24_evaluation_input(path, *, reference_x_offset=0.0):
+    cycle_count = 5
+    times = np.arange(cycle_count, dtype=float)
+    ranges = 10.0 + times
+    pd.DataFrame(
+        {
+            "time": times,
+            "cycle_counter": np.arange(1, cycle_count + 1),
+            "sensor_x": np.zeros(cycle_count),
+            "sensor_y": np.zeros(cycle_count),
+            "sensor_yaw": np.zeros(cycle_count),
+            "detection_id": np.arange(1, cycle_count + 1),
+            "range": ranges,
+            "azimuth": np.zeros(cycle_count),
+            "std_range": np.full(cycle_count, 0.5),
+            "std_azimuth": np.zeros(cycle_count),
+            "x_relative": ranges,
+            "y_relative": np.zeros(cycle_count),
+            "ground_truth_x": ranges + reference_x_offset,
+            "ground_truth_y": np.zeros(cycle_count),
+            "ground_truth_yaw": np.zeros(cycle_count),
+            "ground_truth_velocity": np.ones(cycle_count),
+        }
+    ).to_csv(path, index=False)
+
+
+def _run_br24_evaluation(
+    data_file,
+    *,
+    inference_method="smc",
+    position_noise_std_m=0.0,
+):
+    experiment = forecasting.RollingExperimentConfig(
+        observation_count=2,
+        prediction_count=1,
+        position_noise_std_m=position_noise_std_m,
+        position_noise_seed=2026,
+        stride=1,
+        inference_method=inference_method,
+        inference_seed=42,
+    )
+    options = validation_cli.BayesianCTRVEvaluationOptions(
+        observation_count=2,
+        prediction_count=1,
+        stride=1,
+        inference_method=inference_method,
+        vi_algorithm="meanfield",
+        turn_rate_prior_abs_rate_deg_s=10.0,
+        inference_seed=42,
+        position_noise_std_m=position_noise_std_m,
+        position_noise_seed=2026,
+        require_converged=False,
+        max_windows=None,
+        plot_each_window=False,
+    )
+    return workflow.run_bayesian_ctrv_evaluation(
+        data_file=data_file,
+        experiment=experiment,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        smc_config=smc_model.SequentialMonteCarloCTRVConfig(
+            particle_count=64,
+            posterior_draw_count=16,
+            predictive_log_density_threshold=None,
+        ),
+        fullrank_grad_samples=1,
+        credible_interval=0.9,
+        sample_trajectories_per_forecast=4,
+        options=options,
+        show_plot=False,
+    )
+
+
+def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
+    tmp_path,
+):
+    input_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    changed_reference_csv = tmp_path / "changed_reference.csv"
+    _write_br24_evaluation_input(input_csv)
+    _write_br24_evaluation_input(changed_reference_csv, reference_x_offset=100.0)
+
+    predictions, summary = _run_br24_evaluation(input_csv)
+    changed_predictions, _ = _run_br24_evaluation(changed_reference_csv)
+
+    assert summary.inference_method == "smc"
+    assert summary.window_count == 3
+    assert predictions["x_actual"].tolist() == [12.0, 13.0, 14.0]
+    assert changed_predictions["x_actual"].tolist() == [112.0, 113.0, 114.0]
+    np.testing.assert_allclose(
+        predictions["x_median"],
+        changed_predictions["x_median"],
+    )
+
+
+def test_br24_evaluation_requires_smc_and_unmodified_raw_radar_measurements(tmp_path):
+    input_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    _write_br24_evaluation_input(input_csv)
+
+    with pytest.raises(ValueError, match="requires the SMC"):
+        _run_br24_evaluation(input_csv, inference_method="rbpf")
+    with pytest.raises(ValueError, match="artificial position noise"):
+        _run_br24_evaluation(input_csv, position_noise_std_m=0.1)
 
 
 def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys):

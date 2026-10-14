@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
+import bayestraj.inference.br24_radar_smc as br24_radar_smc
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
@@ -16,6 +17,7 @@ import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
+import bayestraj.observations.br24 as br24_observations
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
@@ -69,7 +71,7 @@ def run_bayesian_ctrv_evaluation(
     selected_window_indices=None,
     show_plot=True,
 ):
-    """Evaluate Bayesian CTRV forecasts across one local ``time,x,y`` trajectory."""
+    """Evaluate Bayesian CTRV forecasts from a processed trajectory or raw BR24 data."""
     vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
         _resolve_inference_configs(
             vi_config,
@@ -93,6 +95,20 @@ def run_bayesian_ctrv_evaluation(
         priors,
         turn_rate_prior_abs_rate_deg_s=options.turn_rate_prior_abs_rate_deg_s,
     )
+    if br24_observations.is_br24_tracking_input(data_file):
+        return _run_br24_radar_evaluation(
+            data_file=data_file,
+            experiment=configured_experiment,
+            priors=configured_priors,
+            smc_config=smc_config,
+            credible_interval=credible_interval,
+            sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+            max_windows=options.max_windows,
+            plot_each_window=options.plot_each_window,
+            selected_window_indices=selected_window_indices,
+            show_time_labels=show_time_labels,
+            show_plot=show_plot,
+        )
     return _run_evaluation(
         data_file=data_file,
         experiment=configured_experiment,
@@ -476,6 +492,253 @@ def _run_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _run_br24_radar_evaluation(
+    *,
+    data_file,
+    experiment,
+    priors,
+    smc_config,
+    credible_interval,
+    sample_trajectories_per_forecast,
+    max_windows,
+    plot_each_window,
+    selected_window_indices,
+    show_time_labels,
+    show_plot,
+):
+    """Evaluate leakage-free rolling forecasts from raw BR24 radar cycles."""
+    if experiment.inference_method != "smc":
+        raise ValueError("BR24 radar evaluation requires the SMC inference method.")
+    if experiment.position_noise_std_m != 0.0:
+        raise ValueError(
+            "BR24 radar evaluation does not support artificial position noise."
+        )
+    if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
+        raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
+
+    cycles = br24_observations.read_br24_tracking_input(data_file)
+    reference = br24_observations.read_br24_tracking_reference(data_file)
+    if reference is None:
+        raise ValueError(
+            "BR24 radar evaluation requires ground_truth_* columns for evaluation."
+        )
+    cycle_counters = np.asarray([cycle.cycle_counter for cycle in cycles], dtype=int)
+    cycle_times = np.asarray([cycle.time_seconds for cycle in cycles], dtype=float)
+    if not np.array_equal(
+        reference.cycle_counters, cycle_counters
+    ) or not np.array_equal(reference.time_seconds, cycle_times):
+        raise ValueError("BR24 reference labels must align exactly with radar cycles.")
+    if not cycles[0].detections:
+        raise ValueError(
+            "The earliest BR24 radar cycle has no detection to initialize."
+        )
+
+    windows = rolling_validation.build_online_forecast_specs(
+        len(cycles),
+        initial_observation_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+    )
+    windows = _select_window_specs(windows, selected_window_indices)
+    if max_windows is not None:
+        if isinstance(max_windows, bool) or max_windows < 1:
+            raise ValueError("max_windows must be a positive integer or None.")
+        windows = windows[:max_windows]
+
+    initial_detection = cycles[0].detections[0]
+    tracker = br24_radar_smc.BR24BayesianRadarTracker.initialize(
+        cycles[0],
+        initial_detection_id=initial_detection.detection_id,
+        priors=priors,
+        config=dataclasses.replace(
+            smc_config,
+            predictive_log_density_threshold=None,
+        ),
+        seed=experiment.inference_seed,
+    )
+    tracked_positions = [tracker.estimated_position]
+    processed_cycle_count = 1
+    route_x = reference.x_meters
+    route_y = reference.y_meters
+    effective_stride = (
+        experiment.prediction_count if experiment.stride is None else experiment.stride
+    )
+    show_rolling_plot = _should_show_rolling_plot(
+        show_plot=show_plot,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+    )
+    print("=" * 72)
+    print("Bayesian CTRV BR24 Radar Rolling Evaluation")
+    print("=" * 72)
+    print(f"Data file             : {data_file}")
+    print("Trajectory schema     : raw BR24 radar cycles with evaluation labels")
+    print("Model                 : Bayesian CTRV radar tracker")
+    print("Inference mode        : ONLINE")
+    print("Inference method      : SMC")
+    print(f"Initial observations  : {experiment.observation_count}")
+    print(f"Prediction horizon    : {experiment.prediction_count}")
+    print(f"Stride                : {effective_stride}")
+    print(f"Forecast origins      : {len(windows)}")
+    print("Position noise        : disabled; raw radar covariance per detection")
+    print("Reference labels      : evaluation only")
+    _print_online_configuration(
+        "smc",
+        particle_filter_config=smc_config,
+        sequential_vi_config=None,
+    )
+
+    prediction_tables = []
+    posterior_plot_groups = []
+    for number, specification in enumerate(windows, start=1):
+        runtime_started = time.perf_counter()
+        while processed_cycle_count < specification.forecast_start_index:
+            tracker.process_cycle(cycles[processed_cycle_count])
+            tracked_positions.append(tracker.estimated_position)
+            processed_cycle_count += 1
+
+        forecast_stop_index = (
+            specification.forecast_start_index + specification.prediction_count
+        )
+        future_times = cycle_times[
+            specification.forecast_start_index : forecast_stop_index
+        ]
+        window_seed = experiment.inference_seed + specification.window_index
+        print(
+            f"\nForecast {number}/{len(windows)}: "
+            f"observations={specification.observation_count}, "
+            f"predictions={specification.prediction_count}, seed={window_seed}"
+        )
+        fit = tracker.filter.forecast(
+            future_times,
+            seed=1_000_000 + window_seed,
+        )
+        fit_runtime_seconds = time.perf_counter() - runtime_started
+        # Reference labels are deliberately materialized only after the raw-radar
+        # tracker has produced its forecast.  They are never passed to the tracker.
+        window = _prepare_br24_reference_window(
+            reference,
+            observation_count=specification.observation_count,
+            prediction_count=specification.prediction_count,
+        )
+        evaluation = metrics.evaluate_position_predictions(
+            fit,
+            window,
+            credible_interval=credible_interval,
+            position_variable_names=("x_prediction", "y_prediction"),
+        )
+        diagnostics = _posterior_diagnostics(fit)
+        diagnostics.update(_online_filter_diagnostics(tracker.filter, smc_config))
+        table = _build_route_prediction_table(
+            evaluation.prediction_table,
+            specification=specification,
+            window=window,
+            route_x=route_x,
+            route_y=route_y,
+            inference_mode="online",
+            inference_method="smc",
+            converged=None,
+            mcmc_diagnostics_ok=None,
+            diagnostics=diagnostics,
+            position_noise_std_m=0.0,
+            position_noise_seed=experiment.position_noise_seed,
+        )
+        table["fit_runtime_seconds"] = fit_runtime_seconds
+        table["window_runtime_seconds"] = time.perf_counter() - runtime_started
+        prediction_tables.append(table)
+        posterior_plot_groups.append(
+            _build_rolling_plot_data(
+                fit,
+                specification=specification,
+                window=window,
+                route_x=route_x,
+                route_y=route_y,
+            )
+        )
+        if plot_each_window:
+            observed_positions = np.asarray(
+                tracked_positions[: specification.forecast_start_index]
+            )
+            figure, _ = prediction_plotting.plot_prediction(
+                window,
+                fit,
+                state_prediction_variable_names=("x_prediction", "y_prediction"),
+                observed_position_values=(
+                    observed_positions[:, 0],
+                    observed_positions[:, 1],
+                ),
+                observed_trajectory_label="Assoziierte Radar-Trackpositionen",
+                position_noise_std_m=0.0,
+                forecast_label="Median der latenten CTRV-Trajektorie",
+                sample_label="Latente CTRV-Trajektorienprognosen",
+                show_time_labels=show_time_labels,
+            )
+            plt.close(figure)
+        latest_update_ess = tracker.filter.last_effective_sample_size
+        if latest_update_ess is None:
+            latest_update_ess = tracker.filter.effective_sample_size
+        print(
+            f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
+            f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s, "
+            f"SMC processed={tracker.filter.processed_observation_count}, "
+            f"latest-update ESS={latest_update_ess:.0f}/"
+            f"{smc_config.particle_count}, resamples={tracker.filter.resample_count}"
+        )
+
+    predictions = pd.concat(prediction_tables, ignore_index=True)
+    summary = rolling_validation.summarize_rolling_predictions(
+        predictions,
+        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
+    )
+    _print_summary(summary, credible_interval=credible_interval)
+    _print_parameter_summary(predictions)
+    if not show_rolling_plot:
+        print("\nRolling plot skipped because forecast origins overlap.")
+        return predictions, summary
+    tracked_positions = np.asarray(tracked_positions)
+    plotting.plot_bayesian_rolling_predictions(
+        route_x,
+        route_y,
+        posterior_plot_groups,
+        initial_observation_count=experiment.observation_count,
+        inference_mode="online",
+        window_mode=None,
+        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+        sample_seed=experiment.inference_seed,
+        observed_route_x=tracked_positions[:, 0],
+        observed_route_y=tracked_positions[:, 1],
+        observed_trajectory_label="Assoziierte Radar-Trackpositionen",
+        title_prefix="Bayesian CTRV BR24 Radar",
+        forecast_label="Rollierende latente Prognosemediane",
+        sample_label="Latente CTRV-Trajektorienprognosen",
+        show_time_labels=show_time_labels,
+    )
+    return predictions, summary
+
+
+def _prepare_br24_reference_window(
+    reference,
+    *,
+    observation_count,
+    prediction_count,
+):
+    """Build an evaluation-only window from labels after a BR24 forecast."""
+    stop_index = observation_count + prediction_count
+    time_seconds = reference.time_seconds[:stop_index]
+    return observation_window.TrajectoryWindowData(
+        timestamps=pd.DatetimeIndex(
+            pd.to_datetime(time_seconds, unit="s", origin="unix", utc=True)
+        ),
+        time_seconds=time_seconds,
+        x_meters=reference.x_meters[:stop_index],
+        y_meters=reference.y_meters[:stop_index],
+        reference_longitude=None,
+        reference_latitude=None,
+        gps_speed_mps=np.full(stop_index, np.nan),
+        observation_count=observation_count,
+    )
 
 
 def _build_evaluation_windows(

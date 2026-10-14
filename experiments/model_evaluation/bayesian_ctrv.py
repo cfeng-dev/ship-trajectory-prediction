@@ -8,14 +8,15 @@ import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as cli
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
-DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
+# Raw detections are tracked online; ground_truth_* is used only for evaluation.
+DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
 
 # Rolling inference:
 # - Batch: "vi" or "mcmc" with a fixed sliding window.
 # - Online: "rbpf", "smc", or "sequential_vi".
 EXPERIMENT = config.RollingExperimentConfig(
     prediction_count=10,
-    position_noise_std_m=5.0,
+    position_noise_std_m=0.0,
     position_noise_seed=2026,
     stride=1,  # Start a new three-step forecast after every observed position.
     inference_method="smc",
