@@ -5,7 +5,9 @@ from numbers import Integral, Real
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse, Patch
+from scipy.stats import gaussian_kde
 
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.validation.metrics as metrics
@@ -61,6 +63,8 @@ POSTERIOR_MEDIAN_LINE_WIDTH = 2.0
 PREDICTION_REGION_50_ALPHA = 0.22
 PREDICTION_REGION_90_ALPHA = 0.10
 PREDICTION_REGION_EDGE_LINE_WIDTH = 0.7
+PREDICTION_DENSITY_GRID_SIZE = 80
+PREDICTION_DENSITY_CONTOUR_LINE_WIDTH = 1.2
 
 
 def plot_trajectory_paths(
@@ -665,6 +669,149 @@ def _draw_prediction_regions(
         )
         if probability in selected_probabilities
     ]
+
+
+def _draw_prediction_density_contours(
+    axis,
+    posterior_draws,
+    forecast_time_seconds,
+    *,
+    annotate_time=True,
+    group_index=None,
+    region_probabilities=PREDICTION_REGION_LEVELS,
+):
+    """Draw highest-density posterior contours for every future time point."""
+    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
+    horizon_seconds = _prediction_horizon_seconds(
+        forecast_time_seconds,
+        x_samples.shape[1],
+    )
+    contour_styles = {
+        0.5: ("solid", "Posterior-prädiktive Dichtekontur (50 %)"),
+        0.9: ("dashed", "Posterior-prädiktive Dichtekontur (90 %)"),
+    }
+    selected_probabilities = tuple(region_probabilities)
+    if any(probability not in contour_styles for probability in selected_probabilities):
+        raise ValueError("region_probabilities must contain supported regions.")
+    if not selected_probabilities:
+        return []
+    if x_samples.shape[0] < 3:
+        warnings.warn(
+            "At least three posterior draws are required for density contours.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+
+    centers = []
+    for time_index in range(x_samples.shape[1]):
+        x_grid, y_grid, density = _prediction_density_grid(
+            x_samples[:, time_index],
+            y_samples[:, time_index],
+        )
+        thresholds = {
+            probability: _highest_density_threshold(density, probability)
+            for probability in selected_probabilities
+        }
+        ordered_probabilities = tuple(
+            sorted(selected_probabilities, key=thresholds.__getitem__)
+        )
+        levels = np.asarray(
+            [thresholds[probability] for probability in ordered_probabilities],
+            dtype=float,
+        )
+        if np.any(np.diff(levels) <= 0):
+            warnings.warn(
+                "Posterior draws do not define distinct density contours.",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+        contour_set = axis.contour(
+            x_grid,
+            y_grid,
+            density,
+            levels=levels,
+            colors=POSTERIOR_COLOR,
+            linestyles=[
+                contour_styles[probability][0]
+                for probability in ordered_probabilities
+            ],
+            linewidths=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
+            alpha=0.9,
+            zorder=2,
+        )
+        group_suffix = "" if group_index is None else f"-g{group_index}"
+        contour_set.set_gid(
+            f"posterior-predictive-density-contour{group_suffix}-t{time_index}"
+        )
+        centers.append(
+            (
+                float(np.mean(x_samples[:, time_index])),
+                float(np.mean(y_samples[:, time_index])),
+            )
+        )
+
+    if annotate_time and centers:
+        _label_prediction_horizons(axis, centers, horizon_seconds[: len(centers)])
+    return [
+        Line2D(
+            [],
+            [],
+            color=POSTERIOR_COLOR,
+            linestyle=contour_styles[probability][0],
+            linewidth=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
+            label=contour_styles[probability][1],
+        )
+        for probability in (0.5, 0.9)
+        if probability in selected_probabilities
+    ]
+
+
+def _prediction_density_grid(x_values, y_values):
+    """Evaluate a smooth two-dimensional posterior density on a fixed grid."""
+    samples = np.vstack((x_values, y_values))
+    try:
+        density_estimate = gaussian_kde(samples)
+    except np.linalg.LinAlgError as error:
+        raise ValueError(
+            "Posterior draws must span two dimensions for density contours."
+        ) from error
+    standard_deviations = np.sqrt(np.diag(density_estimate.covariance))
+    x_padding, y_padding = np.maximum(3.0 * standard_deviations, 1e-12)
+    x_grid, y_grid = np.meshgrid(
+        np.linspace(
+            float(np.min(x_values) - x_padding),
+            float(np.max(x_values) + x_padding),
+            PREDICTION_DENSITY_GRID_SIZE,
+        ),
+        np.linspace(
+            float(np.min(y_values) - y_padding),
+            float(np.max(y_values) + y_padding),
+            PREDICTION_DENSITY_GRID_SIZE,
+        ),
+    )
+    density = density_estimate(np.vstack((x_grid.ravel(), y_grid.ravel()))).reshape(
+        x_grid.shape
+    )
+    return x_grid, y_grid, density
+
+
+def _highest_density_threshold(density, probability):
+    """Return the density cutoff enclosing the requested grid probability mass."""
+    density = np.asarray(density, dtype=float)
+    if not 0 < probability < 1:
+        raise ValueError("probability must be strictly between 0 and 1.")
+    if density.ndim != 2 or not np.all(np.isfinite(density)) or np.any(density < 0):
+        raise ValueError("density must be a finite non-negative two-dimensional grid.")
+    sorted_density = np.sort(density.ravel())[::-1]
+    cumulative_mass = np.cumsum(sorted_density)
+    cumulative_mass /= cumulative_mass[-1]
+    threshold_index = min(
+        int(np.searchsorted(cumulative_mass, probability, side="left")),
+        sorted_density.size - 1,
+    )
+    return float(sorted_density[threshold_index])
 
 
 def _prediction_horizon_seconds(forecast_time_seconds, prediction_count):

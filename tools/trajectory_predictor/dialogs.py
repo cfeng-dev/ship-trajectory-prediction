@@ -9,6 +9,8 @@ from .settings import (
     DISPLAY_OPTION_FIELDS,
     LABELS,
     PLOT_DISPLAY_FIELDS,
+    PREDICTION_REGION_STYLE_DISPLAY_LABELS,
+    PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
     validate_dialog_values,
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
@@ -127,6 +129,23 @@ class PlotDisplayWindow(tk.Toplevel):
                 fg=TEXT_COLOR,
                 anchor="w",
             ).pack(fill="x", pady=3)
+        region_style_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        region_style_row.pack(fill="x", pady=(8, 3))
+        tk.Label(
+            region_style_row,
+            text=LABELS["prediction_region_style"],
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+        ).pack(side="left")
+        ttk.Combobox(
+            region_style_row,
+            textvariable=self.variables["prediction_region_style"],
+            values=PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
+            state="readonly",
+            width=18,
+            style="Predictor.TCombobox",
+        ).pack(side="right")
         span_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
         span_row.pack(fill="x", pady=(8, 3))
         tk.Label(
@@ -176,6 +195,8 @@ class PlotDisplayWindow(tk.Toplevel):
             messagebox.showerror("Plot display", str(error), parent=self)
             return
         for key, value in values.items():
+            if key == "prediction_region_style":
+                value = PREDICTION_REGION_STYLE_DISPLAY_LABELS[value]
             self.panel.variables["data"][key].set(value)
         self.close()
 
@@ -323,6 +344,8 @@ class SettingsDialog(tk.Toplevel):
             return
         target_group = "data" if self.group == "plot" else self.group
         for key, value in values.items():
+            if self.group == "plot" and key == "prediction_region_style":
+                value = PREDICTION_REGION_STYLE_DISPLAY_LABELS[value]
             self.panel.variables[target_group][key].set(value)
         self.cancel()
 

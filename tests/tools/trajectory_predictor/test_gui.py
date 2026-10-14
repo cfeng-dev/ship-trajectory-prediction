@@ -929,6 +929,7 @@ def test_plot_dialog_contains_display_options(root):
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "plot")
     try:
+        assert dialog.variables["prediction_region_style"].get() == "Ellipses"
         labels = {
             child.cget("text")
             for child in dialog._form.body.winfo_children()
@@ -957,7 +958,10 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
             "data": {
                 key: tk.BooleanVar(root, value=True) for key in DISPLAY_OPTION_FIELDS
             }
-            | {"follow_ship_view_span_m": tk.StringVar(root, value="600")}
+            | {
+                "prediction_region_style": tk.StringVar(root, value="Ellipses"),
+                "follow_ship_view_span_m": tk.StringVar(root, value="600"),
+            }
         }
     )
     closed = []
@@ -1003,7 +1007,10 @@ def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeyp
             "data": {
                 key: SimpleNamespace(get=lambda: True) for key in DISPLAY_OPTION_FIELDS
             }
-            | {"follow_ship_view_span_m": SimpleNamespace(get=lambda: "nan")}
+            | {
+                "prediction_region_style": SimpleNamespace(get=lambda: "Ellipses"),
+                "follow_ship_view_span_m": SimpleNamespace(get=lambda: "nan"),
+            }
         }
     )
     monkeypatch.setattr(
@@ -1024,9 +1031,13 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
 
     draft_variables = {
         key: _Value(key != "show_legend") for key in DISPLAY_OPTION_FIELDS
-    } | {"follow_ship_view_span_m": _Value("250")}
+    } | {
+        "prediction_region_style": _Value("Density contours"),
+        "follow_ship_view_span_m": _Value("250"),
+    }
     shared_variables = {key: _Value(True) for key in DISPLAY_OPTION_FIELDS} | {
-        "follow_ship_view_span_m": _Value("600")
+        "prediction_region_style": _Value("Ellipses"),
+        "follow_ship_view_span_m": _Value("600"),
     }
     window = PlotDisplayWindow.__new__(PlotDisplayWindow)
     window.variables = draft_variables
@@ -1037,6 +1048,7 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     window.apply()
 
     assert shared_variables["show_legend"].get() is False
+    assert shared_variables["prediction_region_style"].get() == "Density contours"
     assert shared_variables["follow_ship_view_span_m"].get() == 250.0
     assert closed == [True]
 

@@ -23,10 +23,19 @@ from .dashboard import (
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
     normalize_coordinate_display_mode,
+    normalize_prediction_region_style,
+)
+from .dashboard import (
+    PREDICTION_REGION_STYLE_DISPLAY_LABELS as _PREDICTION_REGION_STYLE_DISPLAY_LABELS,
+)
+from .dashboard import (
+    PREDICTION_REGION_STYLE_DISPLAY_OPTIONS as _PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
 )
 from .session import AnalysisSettings
 
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
+PREDICTION_REGION_STYLE_DISPLAY_LABELS = _PREDICTION_REGION_STYLE_DISPLAY_LABELS
+PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = _PREDICTION_REGION_STYLE_DISPLAY_OPTIONS
 
 METHODS = ("rbpf", "smc", "sequential_vi", "vi", "mcmc")
 GUI_INFERENCE_METHODS = ("smc", "sequential_vi", "vi", "mcmc")
@@ -68,7 +77,10 @@ DISPLAY_OPTION_FIELDS = (
     "show_prediction_region_50",
     "show_prediction_region_90",
 )
-PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + ("follow_ship_view_span_m",)
+PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + (
+    "prediction_region_style",
+    "follow_ship_view_span_m",
+)
 LABELS = {
     "coordinate_display_mode": "Coordinate display",
     "prediction_count": "Forecast steps (0 = off)",
@@ -90,6 +102,7 @@ LABELS = {
     "show_median_forecast": "Show forecast (median)",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
+    "prediction_region_style": "Prediction uncertainty",
     "follow_ship_view_span_m": "Follow-ship view span [m]",
     "speed_prior_upper_mps": "Speed: upper threshold [m/s]",
     "speed_prior_tail_probability": "Speed: tail probability",
@@ -144,6 +157,7 @@ class ExplorerSettings:
     show_median_forecast: bool
     show_prediction_region_50: bool
     show_prediction_region_90: bool
+    prediction_region_style: str
     follow_ship_view_span_m: float
 
 
@@ -174,6 +188,7 @@ def _defaults():
             "show_median_forecast": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
+            "prediction_region_style": "ellipses",
             "follow_ship_view_span_m": 600.0,
         },
         "priors": asdict(BayesianCTRVPriors()),
@@ -297,6 +312,10 @@ def _validate_data_options(fields):
         fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
             fields["coordinate_display_mode"]
         )
+    if "prediction_region_style" in fields:
+        fields["prediction_region_style"] = normalize_prediction_region_style(
+            fields["prediction_region_style"]
+        )
 
 
 def validate_dialog_values(group, values):
@@ -354,6 +373,7 @@ def parse_settings(values) -> ExplorerSettings:
     playback_interval_seconds = data.pop("playback_interval_seconds")
     interval = max(1, round(playback_interval_seconds * 1_000))
     coordinate_display_mode = data.pop("coordinate_display_mode")
+    prediction_region_style = data.pop("prediction_region_style")
     follow_ship_view_span_m = data.pop("follow_ship_view_span_m")
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
@@ -378,6 +398,7 @@ def parse_settings(values) -> ExplorerSettings:
         ),
         playback_interval_ms=interval,
         coordinate_display_mode=coordinate_display_mode,
+        prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
         **display_options,
     )

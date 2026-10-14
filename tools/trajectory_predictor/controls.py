@@ -11,6 +11,8 @@ from .settings import (
     MAIN_DATA_FIELDS,
     METHOD_DISPLAY_LABELS,
     METHOD_DISPLAY_OPTIONS,
+    PREDICTION_REGION_STYLE_DISPLAY_LABELS,
+    PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
     default_form_values,
 )
 from .view import (
@@ -616,10 +618,16 @@ def populate_fields(
         if key == "inference_method":
             display_value = METHOD_DISPLAY_LABELS.get(variable.get(), variable.get())
             variable.set(display_value)
+        if key == "prediction_region_style":
+            display_value = PREDICTION_REGION_STYLE_DISPLAY_LABELS.get(
+                variable.get(), variable.get()
+            )
+            variable.set(display_value)
         choices = {
             "inference_method": METHOD_DISPLAY_OPTIONS,
             "algorithm": ("meanfield", "fullrank"),
             "coordinate_display_mode": COORDINATE_DISPLAY_MODES,
+            "prediction_region_style": PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
         }.get(key)
         widget = (
             ttk.Combobox(

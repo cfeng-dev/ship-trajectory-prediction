@@ -171,6 +171,9 @@ class TrajectoryPredictor:
             key: self.controls.variables["data"][key].get()
             for key in DISPLAY_OPTION_FIELDS
         }
+        display_options["prediction_region_style"] = self.controls.variables["data"][
+            "prediction_region_style"
+        ].get()
         try:
             display_options["follow_ship_view_span_m"] = float(
                 self.controls.variables["data"]["follow_ship_view_span_m"].get()

@@ -84,6 +84,16 @@ DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = ("m", "km")
+PREDICTION_REGION_STYLES = ("ellipses", "density_contours", "none")
+PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
+    "ellipses": "Ellipses",
+    "density_contours": "Density contours",
+    "none": "No region",
+}
+PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = tuple(
+    PREDICTION_REGION_STYLE_DISPLAY_LABELS[style]
+    for style in PREDICTION_REGION_STYLES
+)
 
 
 def _format_decimal_log_tick(value, _position):
@@ -104,6 +114,21 @@ def normalize_coordinate_display_mode(coordinate_display_mode):
         stacklevel=2,
     )
     return "m"
+
+
+def normalize_prediction_region_style(prediction_region_style):
+    """Return one supported posterior-predictive region visualization."""
+    if isinstance(prediction_region_style, str):
+        normalized_style = prediction_region_style.strip().lower()
+        display_styles = {
+            label.lower(): style
+            for style, label in PREDICTION_REGION_STYLE_DISPLAY_LABELS.items()
+        }
+        normalized_style = display_styles.get(normalized_style, normalized_style)
+        if normalized_style in PREDICTION_REGION_STYLES:
+            return normalized_style
+    supported = ", ".join(PREDICTION_REGION_STYLES)
+    raise ValueError(f"prediction_region_style must be one of: {supported}.")
 
 
 def _validate_follow_ship_view_span_m(value):
@@ -793,6 +818,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
+        prediction_region_style="ellipses",
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         on_state_change=None,
         on_metrics_change=None,
@@ -827,6 +853,9 @@ class PosteriorDashboardNavigator:
         self.show_median_forecast = show_median_forecast
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
+        self.prediction_region_style = normalize_prediction_region_style(
+            prediction_region_style
+        )
         self.follow_ship_view_span_m = _validate_follow_ship_view_span_m(
             follow_ship_view_span_m
         )
@@ -1429,7 +1458,11 @@ class PosteriorDashboardNavigator:
                         (sample_x, sample_y)
                     )
 
-            if region_probabilities and forecast.posterior_positions.shape[0] >= 2:
+            if (
+                self.prediction_region_style != "none"
+                and region_probabilities
+                and forecast.posterior_positions.shape[0] >= 2
+            ):
                 display_posterior_positions = np.empty_like(
                     forecast.posterior_positions
                 )
@@ -1441,7 +1474,12 @@ class PosteriorDashboardNavigator:
                     display_posterior_positions[:, time_index] = np.column_stack(
                         (posterior_x, posterior_y)
                     )
-                legend_handles = prediction_plotting._draw_prediction_regions(
+                draw_regions = (
+                    prediction_plotting._draw_prediction_regions
+                    if self.prediction_region_style == "ellipses"
+                    else prediction_plotting._draw_prediction_density_contours
+                )
+                legend_handles = draw_regions(
                     axis,
                     (
                         display_posterior_positions[:, :, 0],
@@ -1521,6 +1559,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast,
         show_prediction_region_50,
         show_prediction_region_90,
+        prediction_region_style=None,
         follow_ship_view_span_m=None,
     ) -> None:
         """Apply presentation-only toggles without loading another update."""
@@ -1540,6 +1579,10 @@ class PosteriorDashboardNavigator:
             if name == "show_reference_trajectory":
                 value = value and self.trajectory.has_reference
             setattr(self, name, bool(value))
+        if prediction_region_style is not None:
+            self.prediction_region_style = normalize_prediction_region_style(
+                prediction_region_style
+            )
         if follow_ship_view_span_m is not None:
             self.follow_ship_view_span_m = _validate_follow_ship_view_span_m(
                 follow_ship_view_span_m
@@ -1720,6 +1763,7 @@ def create_sequential_posterior_dashboard_figure(
     show_median_forecast=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
+    prediction_region_style="ellipses",
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     on_state_change=None,
     on_metrics_change=None,
@@ -1814,6 +1858,7 @@ def create_sequential_posterior_dashboard_figure(
         show_median_forecast=show_median_forecast,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
+        prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
