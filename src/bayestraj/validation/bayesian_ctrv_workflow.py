@@ -437,7 +437,7 @@ def _run_evaluation(
         table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
         print(
-            f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
+            f"{_window_metric_summary(evaluation)}, "
             f"runtime={window_runtime_seconds:.3f} s, {inference_status}"
         )
         if plot_each_window:
@@ -680,7 +680,7 @@ def _run_br24_radar_evaluation(
         if latest_update_ess is None:
             latest_update_ess = tracker.filter.effective_sample_size
         print(
-            f"ADE={evaluation.ade_m:.2f} m, FDE={evaluation.fde_m:.2f} m, "
+            f"{_window_metric_summary(evaluation)}, "
             f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s, "
             f"SMC processed={tracker.filter.processed_observation_count}, "
             f"latest-update ESS={latest_update_ess:.0f}/"
@@ -716,6 +716,20 @@ def _run_br24_radar_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _window_metric_summary(evaluation):
+    """Format the point and probabilistic metrics of one forecast window."""
+    position_errors_m = evaluation.prediction_table["position_error_m"].to_numpy(
+        dtype=float
+    )
+    rmse_m = float(np.sqrt(np.mean(position_errors_m**2)))
+    return (
+        f"ADE={evaluation.ade_m:.2f} m, "
+        f"FDE={evaluation.fde_m:.2f} m, "
+        f"RMSE={rmse_m:.2f} m, "
+        f"Mean LogPD={evaluation.mean_log_predictive_density:.3f}"
+    )
 
 
 def _prepare_br24_reference_window(

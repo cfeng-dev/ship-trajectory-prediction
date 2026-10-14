@@ -61,6 +61,23 @@ def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_p
     np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
 
 
+def test_window_metric_summary_includes_rmse_and_mean_log_predictive_density():
+    evaluation = type(
+        "Evaluation",
+        (),
+        {
+            "ade_m": 10.0,
+            "fde_m": 20.0,
+            "mean_log_predictive_density": -3.4567,
+            "prediction_table": pd.DataFrame({"position_error_m": [3.0, 4.0]}),
+        },
+    )()
+
+    summary = workflow._window_metric_summary(evaluation)
+
+    assert summary == "ADE=10.00 m, FDE=20.00 m, RMSE=3.54 m, Mean LogPD=-3.457"
+
+
 def _write_br24_evaluation_input(path, *, reference_x_offset=0.0):
     cycle_count = 5
     times = np.arange(cycle_count, dtype=float)
