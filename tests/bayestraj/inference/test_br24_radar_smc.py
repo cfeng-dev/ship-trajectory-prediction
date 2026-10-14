@@ -41,7 +41,6 @@ def test_bayesian_br24_tracker_associates_online_and_continues_after_a_miss():
         config=SequentialMonteCarloCTRVConfig(
             particle_count=128,
             posterior_draw_count=16,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
     )
@@ -64,14 +63,35 @@ def test_bayesian_br24_tracker_associates_online_and_continues_after_a_miss():
     assert tracker.filter.position_observation_noise_floor_m == 1e-6
 
 
-def test_bayesian_br24_tracker_disables_smc_reinitialization_by_default():
+def test_bayesian_br24_tracker_does_not_configure_automatic_recovery():
     tracker = BR24BayesianRadarTracker.initialize(
         _cycle(0.0, 1, [_detection(4, 10.0)]),
         initial_detection_id=4,
         priors=BayesianCTRVPriors(),
     )
 
-    assert tracker.filter.config.predictive_log_density_threshold is None
+    assert not hasattr(tracker.filter.config, "predictive_log_density_threshold")
+
+
+def test_bayesian_br24_tracker_keeps_predicting_after_three_rejected_detections():
+    tracker = BR24BayesianRadarTracker.initialize(
+        _cycle(0.0, 1, [_detection(4, 10.0)]),
+        initial_detection_id=4,
+        priors=BayesianCTRVPriors(),
+        config=SequentialMonteCarloCTRVConfig(
+            particle_count=128,
+            posterior_draw_count=16,
+        ),
+        seed=42,
+    )
+
+    steps = tuple(
+        tracker.process_cycle(_cycle(float(cycle - 1), cycle, [_detection(cycle, 500.0)]))
+        for cycle in (2, 3, 4)
+    )
+
+    assert [step.detection_id for step in steps] == [None, None, None]
+    assert not hasattr(tracker.filter, "reinitialization_count")
 
 
 def test_track_br24_csv_starts_at_the_manual_seed_and_never_reads_a_reference(
@@ -103,7 +123,6 @@ def test_track_br24_csv_starts_at_the_manual_seed_and_never_reads_a_reference(
         config=SequentialMonteCarloCTRVConfig(
             particle_count=128,
             posterior_draw_count=16,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
     )

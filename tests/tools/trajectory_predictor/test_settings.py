@@ -90,26 +90,16 @@ def test_settings_do_not_expose_manual_br24_start_selection(form):
     assert "initial_detection_id" not in form["data"]
 
 
-def test_online_predictive_threshold_defaults_to_recovery_and_accepts_a_number(form):
-    assert (
-        settings.default_form_values()["smc"]["predictive_log_density_threshold"]
-        == "-10.0"
-    )
-    assert (
-        settings.default_form_values()["rbpf"]["predictive_log_density_threshold"]
-        == "-10.0"
-    )
-    assert (
-        settings.default_form_values()["sequential_vi"][
-            "predictive_log_density_threshold"
-        ]
-        == "-10.0"
-    )
-    form["smc"]["predictive_log_density_threshold"] = "-12.5"
+def test_settings_do_not_expose_automatic_track_recovery_controls(form):
+    defaults = settings.default_form_values()
+
+    for method in ("smc", "rbpf", "sequential_vi"):
+        assert "predictive_log_density_threshold" not in defaults[method]
+    assert "br24_recovery_nis_gate" not in defaults["smc"]
 
     result = settings.parse_settings(form)
 
-    assert result.analysis.smc_config.predictive_log_density_threshold == -12.5
+    assert not hasattr(result.analysis.smc_config, "predictive_log_density_threshold")
 
 
 def test_trajectory_predictor_defaults_to_br24_tracking_input_with_reference():

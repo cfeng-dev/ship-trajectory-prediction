@@ -552,10 +552,7 @@ def _run_br24_radar_evaluation(
         cycles[0],
         initial_detection_id=initial_detection.detection_id,
         priors=priors,
-        config=dataclasses.replace(
-            smc_config,
-            predictive_log_density_threshold=None,
-        ),
+        config=smc_config,
         seed=experiment.inference_seed,
     )
     tracked_positions = [tracker.estimated_position]

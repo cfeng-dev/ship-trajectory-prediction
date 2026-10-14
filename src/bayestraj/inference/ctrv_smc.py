@@ -30,7 +30,6 @@ class SequentialMonteCarloCTRVConfig:
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05
-    predictive_log_density_threshold: float | None = -10.0
 
     def __post_init__(self) -> None:
         """Validate particle-filter sizes and probabilities."""
@@ -54,15 +53,8 @@ class SequentialMonteCarloCTRVConfig:
         )
         if rejuvenation_scale >= 1.0:
             raise ValueError("rejuvenation_scale must be smaller than one.")
-        threshold = self.predictive_log_density_threshold
-        if threshold is not None:
-            threshold = numeric_validation.validate_finite_scalar(
-                "predictive_log_density_threshold",
-                threshold,
-            )
         object.__setattr__(self, "resample_ess_fraction", ess_fraction)
         object.__setattr__(self, "rejuvenation_scale", rejuvenation_scale)
-        object.__setattr__(self, "predictive_log_density_threshold", threshold)
 
 
 @dataclass(slots=True)
@@ -87,9 +79,6 @@ class SequentialMonteCarloCTRVFilter:
     position_observation_noise_floor_m: float = 0.0
     last_log_predictive_density: float | None = None
     predictive_log_density_history: list[float] = field(default_factory=list)
-    track_lost: bool | None = None
-    last_observed_position: np.ndarray | None = None
-    reinitialization_count: int = 0
 
     @classmethod
     def initialize(
@@ -192,10 +181,6 @@ class SequentialMonteCarloCTRVFilter:
             forecast_origin_particles=state_particles.copy(),
             position_observation_noise_floor_m=(
                 priors.sigma_position_observation_floor_m
-            ),
-            last_observed_position=np.array(
-                [x_observed[0], y_observed[0]],
-                dtype=float,
             ),
         )
         online_filter.update_many(
@@ -307,22 +292,6 @@ class SequentialMonteCarloCTRVFilter:
         )
         self.last_log_predictive_density = log_predictive_density
         self.predictive_log_density_history.append(log_predictive_density)
-        threshold = self.config.predictive_log_density_threshold
-        self.track_lost = (
-            None if threshold is None else log_predictive_density < threshold
-        )
-        if self.track_lost:
-            self._reinitialize_at_observation(
-                time_seconds,
-                x_observed,
-                y_observed,
-                dt,
-                observation_noise,
-                speed_process,
-                turn_rate_process,
-                process_time_scale,
-            )
-            return
         if self.processed_observation_count == 1 or measurement_covariance is not None:
             proposed_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
             parameter_particles = self.parameter_particles
@@ -401,8 +370,6 @@ class SequentialMonteCarloCTRVFilter:
         self.processed_observation_count += 1
         self.last_effective_sample_size = effective_sample_size
         self.resample_count += int(auxiliary_resampled) + int(resampled)
-        self.last_observed_position = np.array([x_observed, y_observed], dtype=float)
-
     def advance_without_measurement(self, time_seconds: float) -> None:
         """Advance the posterior to a radar cycle that has no accepted detection."""
         time_seconds = numeric_validation.validate_finite_scalar(
@@ -435,87 +402,6 @@ class SequentialMonteCarloCTRVFilter:
         self.last_observation_time_seconds = time_seconds
         self.processed_observation_count += 1
         self.last_effective_sample_size = self.effective_sample_size
-        self.track_lost = False
-
-    def _reinitialize_at_observation(
-        self,
-        time_seconds: float,
-        x_observed: float,
-        y_observed: float,
-        dt: float,
-        observation_noise: np.ndarray,
-        speed_process: np.ndarray,
-        turn_rate_process: np.ndarray,
-        process_time_scale: float,
-    ) -> None:
-        """Restart state particles around an observation outside predictive support."""
-        particle_count = self.config.particle_count
-        recovered_origins = np.empty((particle_count, _STATE_COUNT), dtype=float)
-        recovered_origins[:, _STATE_X_INDEX] = self.generator.normal(
-            x_observed,
-            observation_noise,
-        )
-        recovered_origins[:, _STATE_Y_INDEX] = self.generator.normal(
-            y_observed,
-            observation_noise,
-        )
-        previous_position = self.last_observed_position
-        if previous_position is None:
-            displacement = np.zeros(2, dtype=float)
-        else:
-            displacement = np.asarray(previous_position, dtype=float)
-            if displacement.shape != (2,) or not np.all(np.isfinite(displacement)):
-                raise RuntimeError(
-                    "Sequential CTRV SMC last observation became invalid."
-                )
-            displacement = np.array([x_observed, y_observed]) - displacement
-        distance = float(np.hypot(*displacement))
-        is_heading_observable = distance > 2.0 * float(np.median(observation_noise))
-        speed_scale = np.sqrt(2.0) * observation_noise / dt
-        if is_heading_observable:
-            recovered_origins[:, _STATE_SPEED_INDEX] = np.maximum(
-                np.abs(self.generator.normal(distance / dt, speed_scale)),
-                ctrv_dynamics.SPEED_STATE_LOWER_MPS,
-            )
-            heading = float(np.arctan2(displacement[1], displacement[0]))
-            heading_scale = np.minimum(np.pi, speed_scale / (distance / dt))
-            recovered_origins[:, _STATE_HEADING_INDEX] = self.generator.normal(
-                heading,
-                heading_scale,
-            )
-        else:
-            recovered_origins[:, _STATE_SPEED_INDEX] = np.maximum(
-                np.abs(self.generator.normal(0.0, speed_scale)),
-                ctrv_dynamics.SPEED_STATE_LOWER_MPS,
-            )
-            recovered_origins[:, _STATE_HEADING_INDEX] = self.generator.uniform(
-                -np.pi,
-                np.pi,
-                particle_count,
-            )
-        recovered_origins[:, _STATE_TURN_RATE_INDEX] = self.generator.normal(
-            0.0,
-            turn_rate_process * process_time_scale,
-        )
-        ctrv_dynamics.normalize_states(recovered_origins)
-        next_states = recovered_origins.copy()
-        next_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
-            0.0,
-            speed_process * process_time_scale,
-        )
-        next_states[:, _STATE_TURN_RATE_INDEX] += self.generator.normal(
-            0.0,
-            turn_rate_process * process_time_scale,
-        )
-        ctrv_dynamics.normalize_states(next_states)
-        self.forecast_origin_particles = recovered_origins
-        self.state_particles = next_states
-        self.weights = np.full(particle_count, 1.0 / particle_count, dtype=float)
-        self.last_observation_time_seconds = time_seconds
-        self.last_observed_position = np.array([x_observed, y_observed], dtype=float)
-        self.processed_observation_count += 1
-        self.last_effective_sample_size = float(particle_count)
-        self.reinitialization_count += 1
 
     def _one_step_ahead_log_predictive_density(
         self,

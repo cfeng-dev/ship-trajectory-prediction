@@ -81,22 +81,15 @@ def test_dashboard_keeps_the_trajectory_plot_box_and_linear_speed_axis():
         navigator.disconnect()
 
 
-def test_dashboard_exposes_online_predictive_diagnostics_only_when_available():
+def test_dashboard_updates_do_not_include_track_recovery_state():
     dashboard = _load_dashboard_module()
-    update = dashboard.PosteriorDashboardUpdate(
-        2,
-        _dashboard_samples(),
-        predictive_log_density=-12.5,
-        track_lost=True,
-        reinitialization_count=3,
+
+    assert "track_lost" not in dashboard.PosteriorDashboardUpdate.__dataclass_fields__
+    assert (
+        "reinitialization_count"
+        not in dashboard.PosteriorDashboardUpdate.__dataclass_fields__
     )
-
-    diagnostics = dashboard.online_predictive_diagnostics_at({2: update}, 2)
-
-    assert diagnostics.log_predictive_density == -12.5
-    assert diagnostics.track_lost is True
-    assert diagnostics.reinitialization_count == 3
-    assert dashboard.online_predictive_diagnostics_at({}, 2) is None
+    assert not hasattr(dashboard, "OnlinePredictiveDiagnostics")
 
 
 def test_dashboard_exposes_radar_covariance_and_prediction_only_status():

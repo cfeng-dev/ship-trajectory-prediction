@@ -283,7 +283,6 @@ def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypat
         show_reference_state=lambda _state: None,
         show_analysis_metrics=lambda _metrics: None,
         show_posterior_medians=lambda _medians: None,
-        show_online_predictive_diagnostics=lambda _diagnostics: None,
         show_radar_association=lambda _diagnostics: None,
         set_analysis_active=lambda active: locked_states.append(active),
     )
@@ -384,6 +383,13 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.radar_association_values["cov_yy"].get() == "9.000"
     assert "Speed-process noise:" in posterior_median_labels
     assert "Turn-rate-process noise:" in posterior_median_labels
+
+
+def test_settings_panel_does_not_create_online_predictive_diagnostics(root):
+    panel = SettingsPanel(root, lambda: None)
+    root.update_idletasks()
+
+    assert not hasattr(panel, "online_predictive_diagnostics_section")
 
 
 def test_posterior_median_process_noise_labels_are_compact():

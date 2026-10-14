@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from types import MappingProxyType
 
 import matplotlib.pyplot as plt
@@ -359,8 +359,6 @@ class PosteriorDashboardUpdate:
     particle_count: int | None = None
     resample_count: int | None = None
     predictive_log_density: float | None = None
-    track_lost: bool | None = None
-    reinitialization_count: int | None = None
     forecast: PosteriorDashboardForecast | None = None
     inference_time_seconds: float | None = None
     is_prior_predictive: bool = False
@@ -422,14 +420,6 @@ class PosteriorDashboardUpdate:
             self.predictive_log_density
         ):
             raise ValueError("predictive_log_density must be finite or None.")
-        if self.track_lost is not None and not isinstance(self.track_lost, bool):
-            raise TypeError("track_lost must be a boolean or None.")
-        if self.reinitialization_count is not None and (
-            isinstance(self.reinitialization_count, bool)
-            or not isinstance(self.reinitialization_count, int)
-            or self.reinitialization_count < 0
-        ):
-            raise ValueError("reinitialization_count must be a non-negative integer.")
         if (
             isinstance(self.observation_count, bool)
             or not isinstance(self.observation_count, int)
@@ -461,15 +451,6 @@ class PosteriorDashboardUpdate:
 
 
 @dataclass(frozen=True, slots=True)
-class OnlinePredictiveDiagnostics:
-    """Displayed one-step-ahead diagnostic from an online inference method."""
-
-    log_predictive_density: float
-    track_lost: bool | None
-    reinitialization_count: int | None
-
-
-@dataclass(frozen=True, slots=True)
 class RadarAssociationDiagnostics:
     """Displayed BR24 association decision and its Cartesian measurement noise."""
 
@@ -477,18 +458,6 @@ class RadarAssociationDiagnostics:
     detection_id: int | None
     nis: float | None
     measurement_covariance: np.ndarray | None
-
-
-def online_predictive_diagnostics_at(updates_by_count, observation_count):
-    """Return the selected online prediction diagnostic, if available."""
-    update = updates_by_count.get(observation_count)
-    if update is None or update.predictive_log_density is None:
-        return None
-    return OnlinePredictiveDiagnostics(
-        log_predictive_density=float(update.predictive_log_density),
-        track_lost=update.track_lost,
-        reinitialization_count=update.reinitialization_count,
-    )
 
 
 def radar_association_diagnostics_at(updates_by_count, observation_count):
@@ -828,7 +797,6 @@ class PosteriorDashboardNavigator:
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
-        on_predictive_diagnostics_change=None,
         on_radar_association_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
@@ -871,7 +839,6 @@ class PosteriorDashboardNavigator:
         self._on_state_change = on_state_change
         self._on_metrics_change = on_metrics_change
         self._on_medians_change = on_medians_change
-        self._on_predictive_diagnostics_change = on_predictive_diagnostics_change
         self._on_radar_association_change = on_radar_association_change
         self._on_settings_visibility_change = on_settings_visibility_change
         self._updates_by_count = {}
@@ -1268,13 +1235,6 @@ class PosteriorDashboardNavigator:
         if self._on_medians_change is not None:
             self._on_medians_change(
                 posterior_medians_at(self._updates_by_count, self.observation_count)
-            )
-        if self._on_predictive_diagnostics_change is not None:
-            self._on_predictive_diagnostics_change(
-                online_predictive_diagnostics_at(
-                    self._updates_by_count,
-                    self.observation_count,
-                )
             )
         if self._on_radar_association_change is not None:
             self._on_radar_association_change(
@@ -1764,7 +1724,6 @@ def create_sequential_posterior_dashboard_figure(
     on_state_change=None,
     on_metrics_change=None,
     on_medians_change=None,
-    on_predictive_diagnostics_change=None,
     on_radar_association_change=None,
     settings_visible=True,
     on_settings_visibility_change=None,
@@ -1859,7 +1818,6 @@ def create_sequential_posterior_dashboard_figure(
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,
-        on_predictive_diagnostics_change=on_predictive_diagnostics_change,
         on_radar_association_change=on_radar_association_change,
         settings_visible=bool(settings_visible),
         on_settings_visibility_change=on_settings_visibility_change,
@@ -2055,10 +2013,6 @@ def create_posterior_dashboard_loader(
                 predictive_log_density=getattr(
                     online_filter, "last_log_predictive_density", None
                 ),
-                track_lost=getattr(online_filter, "track_lost", None),
-                reinitialization_count=getattr(
-                    online_filter, "reinitialization_count", None
-                ),
                 forecast=forecast,
             )
 
@@ -2205,7 +2159,7 @@ def create_br24_radar_dashboard_loader(
         selected_cycles[0],
         initial_detection_id=initial_detection_id,
         priors=priors,
-        config=replace(smc_config, predictive_log_density_threshold=None),
+        config=smc_config,
         seed=experiment.inference_seed,
     )
     time_seconds = np.asarray(
@@ -2288,8 +2242,6 @@ def create_br24_radar_dashboard_loader(
             particle_count=smc_config.particle_count,
             resample_count=tracker.filter.resample_count,
             predictive_log_density=tracker.filter.last_log_predictive_density,
-            track_lost=tracker.filter.track_lost,
-            reinitialization_count=tracker.filter.reinitialization_count,
             forecast=forecast,
             tracked_positions=np.asarray(tracked_positions),
             radar_tracking_active=True,

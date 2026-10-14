@@ -213,10 +213,10 @@ def test_sequential_vi_config_uses_fullrank_cmdstan_defaults() -> None:
     assert config.grad_samples == cmdstan.DEFAULT_VI_GRAD_SAMPLES
     assert config.elbo_samples == cmdstan.DEFAULT_VI_ELBO_SAMPLES
     assert config.draws == cmdstan.DEFAULT_VI_DRAWS
-    assert config.predictive_log_density_threshold == -10.0
+    assert "predictive_log_density_threshold" not in config.__dataclass_fields__
 
 
-def test_sequential_vi_reinitializes_carry_when_predictive_support_is_lost() -> None:
+def test_sequential_vi_updates_after_a_low_predictive_density() -> None:
     update_calls = []
 
     def batch_fitter(window, **options):
@@ -224,7 +224,7 @@ def test_sequential_vi_reinitializes_carry_when_predictive_support_is_lost() -> 
 
     def update_fitter(*args, **kwargs):
         update_calls.append((args, kwargs))
-        raise AssertionError("A lost track must recover without fitting from the stale carry.")
+        return FakeFit(_origin_variables())
 
     online_vi = sequential_vi.SequentialCTRVVI.initialize(
         np.array([0.0, 1.0, 2.0]),
@@ -234,7 +234,6 @@ def test_sequential_vi_reinitializes_carry_when_predictive_support_is_lost() -> 
         config=sequential_vi.SequentialVIConfig(
             n_bootstrap=3,
             draws=20,
-            predictive_log_density_threshold=-3.0,
         ),
         seed=42,
         batch_fitter=batch_fitter,
@@ -243,10 +242,10 @@ def test_sequential_vi_reinitializes_carry_when_predictive_support_is_lost() -> 
 
     online_vi.update(3.0, 100.0, 0.0)
 
-    assert update_calls == []
-    assert online_vi.track_lost is True
-    assert online_vi.reinitialization_count == 1
-    assert online_vi.carry.mean[0] == pytest.approx(100.0, abs=0.5)
+    assert len(update_calls) == 1
+    assert online_vi.last_log_predictive_density < -3.0
+    assert not hasattr(online_vi, "track_lost")
+    assert not hasattr(online_vi, "reinitialization_count")
 
 
 @pytest.mark.parametrize(
@@ -470,7 +469,6 @@ def test_sequential_vi_bootstraps_batch_once_then_updates_unseen_positions() -> 
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
             draws=20,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
         batch_fitter=batch_fitter,
@@ -519,7 +517,6 @@ def test_sequential_vi_rejects_repeated_timestamp_before_fitting() -> None:
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
             draws=20,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
         batch_fitter=batch_fitter,
@@ -552,7 +549,6 @@ def test_sequential_vi_update_rolls_back_all_state_on_failure() -> None:
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
             draws=20,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
         batch_fitter=batch_fitter,
@@ -598,7 +594,6 @@ def test_sequential_vi_fit_records_terminal_failure_and_stops() -> None:
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
             draws=20,
-            predictive_log_density_threshold=None,
         ),
         seed=42,
         batch_fitter=batch_fitter,

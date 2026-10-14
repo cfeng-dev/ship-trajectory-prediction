@@ -16,7 +16,8 @@ def test_smc_config_has_comparable_particle_filter_defaults():
     assert config.posterior_draw_count == 1_000
     assert config.resample_ess_fraction == 0.5
     assert config.rejuvenation_scale == 0.05
-    assert config.predictive_log_density_threshold == -10.0
+    assert "predictive_log_density_threshold" not in config.__dataclass_fields__
+    assert "br24_recovery_nis_gate" not in config.__dataclass_fields__
 
 
 def test_smc_predictive_log_density_matches_weighted_gaussian_mixture():
@@ -25,7 +26,6 @@ def test_smc_predictive_log_density_matches_weighted_gaussian_mixture():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.array(
@@ -87,7 +87,6 @@ def test_smc_predictive_log_density_distinguishes_supported_and_lost_positions()
                 particle_count=2,
                 posterior_draw_count=2,
                 resample_ess_fraction=0.01,
-                predictive_log_density_threshold=None,
             ),
             parameter_particles=np.log(np.full((2, 3), [1.0, 1e-12, 1e-12])),
             state_particles=np.zeros((2, 5)),
@@ -105,13 +104,12 @@ def test_smc_predictive_log_density_distinguishes_supported_and_lost_positions()
     assert supported.last_log_predictive_density > lost.last_log_predictive_density
 
 
-def test_smc_predictive_log_density_marks_track_lost_only_below_threshold():
+def test_smc_records_a_low_predictive_density_without_track_recovery():
     online_filter = smc.SequentialMonteCarloCTRVFilter(
         config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=-3.0,
         ),
         parameter_particles=np.log(np.full((2, 3), [1.0, 1e-12, 1e-12])),
         state_particles=np.zeros((2, 5)),
@@ -123,10 +121,12 @@ def test_smc_predictive_log_density_marks_track_lost_only_below_threshold():
 
     online_filter.update(1.0, 100.0, 100.0)
 
-    assert online_filter.track_lost is True
+    assert online_filter.last_log_predictive_density < -3.0
+    assert not hasattr(online_filter, "track_lost")
+    assert not hasattr(online_filter, "reinitialization_count")
 
 
-def test_smc_reinitializes_the_latent_track_at_a_lost_observation():
+def test_smc_keeps_filtering_after_a_very_low_predictive_density():
     particle_count = 64
     parameter_particles = np.log(
         np.broadcast_to(
@@ -139,7 +139,6 @@ def test_smc_reinitializes_the_latent_track_at_a_lost_observation():
             particle_count=particle_count,
             posterior_draw_count=16,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=-3.0,
         ),
         parameter_particles=parameter_particles.copy(),
         state_particles=np.broadcast_to(
@@ -151,30 +150,12 @@ def test_smc_reinitializes_the_latent_track_at_a_lost_observation():
         generator=np.random.default_rng(42),
         last_observation_time_seconds=0.0,
         processed_observation_count=1,
-        last_observed_position=np.array([0.0, 0.0]),
     )
 
     online_filter.update(1.0, 100.0, 0.0)
 
-    assert online_filter.track_lost is True
-    assert online_filter.reinitialization_count == 1
-    assert np.median(online_filter.forecast_origin_particles[:, 0]) == pytest.approx(
-        100.0,
-        abs=0.5,
-    )
-    assert np.median(online_filter.forecast_origin_particles[:, 1]) == pytest.approx(
-        0.0,
-        abs=0.5,
-    )
-    assert np.median(online_filter.forecast_origin_particles[:, 2]) == pytest.approx(
-        100.0,
-        rel=0.05,
-    )
-    assert online_filter.weights == pytest.approx(
-        np.full(particle_count, 1.0 / particle_count)
-    )
+    assert online_filter.last_log_predictive_density < -3.0
     assert online_filter.parameter_particles == pytest.approx(parameter_particles)
-    assert online_filter.last_observed_position == pytest.approx([100.0, 0.0])
 
 
 def test_smc_keeps_the_regular_update_when_predictive_density_is_supported():
@@ -183,7 +164,6 @@ def test_smc_keeps_the_regular_update_when_predictive_density_is_supported():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=-10.0,
         ),
         parameter_particles=np.log(np.full((2, 3), [1.0, 1e-12, 1e-12])),
         state_particles=np.zeros((2, 5)),
@@ -191,13 +171,12 @@ def test_smc_keeps_the_regular_update_when_predictive_density_is_supported():
         generator=np.random.default_rng(42),
         last_observation_time_seconds=0.0,
         processed_observation_count=1,
-        last_observed_position=np.array([0.0, 0.0]),
     )
 
     online_filter.update(1.0, 0.0, 0.0)
 
-    assert online_filter.track_lost is False
-    assert online_filter.reinitialization_count == 0
+    assert not hasattr(online_filter, "track_lost")
+    assert not hasattr(online_filter, "reinitialization_count")
 
 
 def test_smc_predictive_log_density_is_recorded_before_guided_proposal(monkeypatch):
@@ -253,47 +232,45 @@ def test_smc_predictive_log_density_is_recorded_before_guided_proposal(monkeypat
     )
 
 
-def test_smc_predictive_log_density_history_and_threshold_do_not_change_filter_state():
-    config_without_threshold = smc.SequentialMonteCarloCTRVConfig(
+def test_smc_predictive_log_density_history_does_not_change_filter_state():
+    first_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=64,
         posterior_draw_count=16,
-        predictive_log_density_threshold=None,
     )
-    config_with_threshold = smc.SequentialMonteCarloCTRVConfig(
+    second_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=64,
         posterior_draw_count=16,
-        predictive_log_density_threshold=-1_000_000.0,
     )
     time_seconds = np.array([0.0, 1.0, 2.0])
     x_observed = np.array([0.0, 1.0, 2.0])
     y_observed = np.zeros(3)
-    without_threshold = smc.SequentialMonteCarloCTRVFilter.initialize(
+    first_filter = smc.SequentialMonteCarloCTRVFilter.initialize(
         time_seconds,
         x_observed,
         y_observed,
         priors=ctrv_model.BayesianCTRVPriors(),
-        config=config_without_threshold,
+        config=first_config,
         seed=42,
     )
-    with_threshold = smc.SequentialMonteCarloCTRVFilter.initialize(
+    second_filter = smc.SequentialMonteCarloCTRVFilter.initialize(
         time_seconds,
         x_observed,
         y_observed,
         priors=ctrv_model.BayesianCTRVPriors(),
-        config=config_with_threshold,
+        config=second_config,
         seed=42,
     )
 
-    assert len(without_threshold.predictive_log_density_history) == 2
-    assert without_threshold.track_lost is None
-    assert with_threshold.track_lost is False
-    assert with_threshold.state_particles == pytest.approx(
-        without_threshold.state_particles
+    assert len(first_filter.predictive_log_density_history) == 2
+    assert not hasattr(first_filter, "track_lost")
+    assert not hasattr(second_filter, "track_lost")
+    assert second_filter.state_particles == pytest.approx(
+        first_filter.state_particles
     )
-    assert with_threshold.parameter_particles == pytest.approx(
-        without_threshold.parameter_particles
+    assert second_filter.parameter_particles == pytest.approx(
+        first_filter.parameter_particles
     )
-    assert with_threshold.weights == pytest.approx(without_threshold.weights)
+    assert second_filter.weights == pytest.approx(first_filter.weights)
 
 
 def _noiseless_turning_trajectory():
@@ -417,7 +394,6 @@ def test_smc_update_propagates_current_motion_before_evolving_next_motion():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(np.array([100.0, 5.0, 1e-12]), (2, 3)).copy()
@@ -448,7 +424,6 @@ def test_smc_guided_update_recovers_turn_after_particle_collapse():
         config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=particle_count,
             posterior_draw_count=particle_count,
-            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(
@@ -493,7 +468,6 @@ def test_smc_rejuvenates_unobservable_heading_before_vessel_restarts():
         config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=particle_count,
             posterior_draw_count=particle_count,
-            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(
             np.broadcast_to(
@@ -584,7 +558,6 @@ def test_smc_update_uses_a_supplied_cartesian_measurement_covariance():
             particle_count=2,
             posterior_draw_count=2,
             resample_ess_fraction=0.01,
-            predictive_log_density_threshold=None,
         ),
         parameter_particles=np.log(np.full((2, 3), [1e-12, 1e-12, 1e-12])),
         state_particles=np.array(
@@ -623,7 +596,6 @@ def test_smc_advances_without_measurement_and_exposes_the_predicted_position():
         generator=np.random.default_rng(42),
         last_observation_time_seconds=0.0,
         processed_observation_count=1,
-        last_observed_position=np.array([0.0, 0.0]),
     )
 
     predicted_position, predicted_covariance = (
@@ -634,7 +606,6 @@ def test_smc_advances_without_measurement_and_exposes_the_predicted_position():
     assert predicted_position == pytest.approx([2.0, 0.0])
     assert predicted_covariance == pytest.approx(np.zeros((2, 2)))
     assert online_filter.last_observation_time_seconds == 1.0
-    assert online_filter.last_observed_position == pytest.approx([0.0, 0.0])
     np.testing.assert_allclose(
         online_filter.forecast_origin_particles[:, :2],
         [[2.0, 0.0], [2.0, 0.0]],

@@ -140,7 +140,6 @@ def _run_br24_evaluation(
         smc_config=smc_model.SequentialMonteCarloCTRVConfig(
             particle_count=64,
             posterior_draw_count=16,
-            predictive_log_density_threshold=None,
         ),
         fullrank_grad_samples=1,
         credible_interval=0.9,

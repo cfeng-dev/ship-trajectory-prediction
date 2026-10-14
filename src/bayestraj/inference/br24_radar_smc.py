@@ -64,9 +64,7 @@ class BR24BayesianRadarTracker:
         position = _measurement_position(cycle, detection)
         covariance = _measurement_covariance(detection)
         if config is None:
-            config = SequentialMonteCarloCTRVConfig(
-                predictive_log_density_threshold=None,
-            )
+            config = SequentialMonteCarloCTRVConfig()
         online_filter = SequentialMonteCarloCTRVFilter.initialize(
             np.array([cycle.time_seconds]),
             np.array([position[0]]),

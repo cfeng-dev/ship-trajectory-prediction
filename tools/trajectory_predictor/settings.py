@@ -106,9 +106,6 @@ LABELS = {
     "posterior_draw_count": "Posterior draws",
     "resample_ess_fraction": "Resampling: ESS fraction",
     "rejuvenation_scale": "Rejuvenation scale",
-    "predictive_log_density_threshold": (
-        "Predictive log-density reset threshold (empty = off)"
-    ),
     "require_converged": "Require VI convergence",
     "n_bootstrap": "Bootstrap observations",
     "algorithm": "VI algorithm",
