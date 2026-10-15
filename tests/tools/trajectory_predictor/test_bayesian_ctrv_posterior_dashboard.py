@@ -478,7 +478,7 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     assert not any(axis.get_visible() for axis in noise_axes)
 
 
-def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
+def test_follow_ship_starts_with_a_focused_100m_view(follow_dashboard):
     figure, navigator, loads = follow_dashboard
     assert navigator.follow_checkbox.get_status() == [True]
     navigator.slider.set_val(1)
@@ -486,21 +486,21 @@ def test_follow_ship_starts_with_a_focused_600m_view(follow_dashboard):
     posterior_line = navigator.posterior_axes[0].lines[-1]
 
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [10, -10])
-    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(100)
     assert navigator.posterior_axes[0].lines[-1] is posterior_line
     assert loads == [1]
 
     navigator.toggle_playback(None)
     navigator.advance_playback()
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(100)
     navigator.pause_playback()
     navigator.slider.set_val(3)
     navigator.show_selected_observation_count(None)
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [65, 5])
     navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key="left"))
     np.testing.assert_allclose(_view_limits(navigator).mean(axis=1), [30, 20])
-    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(600)
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(100)
     assert loads == [1, 2, 3]
 
 
@@ -565,13 +565,13 @@ def test_follow_ship_preserves_manual_zoom_and_resets_when_disabled(follow_dashb
     np.testing.assert_allclose(_view_limits(navigator), reset_view)
 
 
-def test_follow_ship_focus_uses_600m_in_km_display(follow_dashboard):
+def test_follow_ship_focus_uses_100m_in_km_display(follow_dashboard):
     _, navigator, _ = follow_dashboard
     navigator.slider.set_val(1)
     navigator.show_selected_observation_count(None)
     navigator.set_coordinate_display_mode("km")
 
-    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(0.6)
+    assert np.max(np.diff(_view_limits(navigator), axis=1)) == pytest.approx(0.1)
 
 
 def test_follow_checkbox_click_does_not_navigate_and_disconnects(follow_dashboard):

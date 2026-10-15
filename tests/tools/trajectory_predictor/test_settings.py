@@ -52,6 +52,10 @@ def test_settings_preserve_selected_method_and_units(form, method):
     assert result.playback_interval_ms > 0
 
 
+def test_default_form_values_use_a_100m_follow_ship_view():
+    assert settings.default_form_values()["data"]["follow_ship_view_span_m"] == "100.0"
+
+
 def test_inference_method_display_labels_normalize_to_internal_values():
     assert (
         settings.METHOD_DISPLAY_LABELS["rbpf"]

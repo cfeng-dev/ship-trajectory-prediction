@@ -189,7 +189,7 @@ def _defaults():
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
             "prediction_region_style": "funnel",
-            "follow_ship_view_span_m": 600.0,
+            "follow_ship_view_span_m": 100.0,
         },
         "priors": asdict(BayesianCTRVPriors()),
         "rbpf": asdict(create_default_ctrv_rbpf_config()),
