@@ -858,6 +858,78 @@ def _draw_prediction_density_regions(
     ]
 
 
+def _draw_horizon_prediction_density_regions(
+    axis,
+    posterior_draws,
+    *,
+    region_probabilities=PREDICTION_REGION_LEVELS,
+):
+    """Draw a density summary aggregated across the complete forecast horizon."""
+    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
+    selected_probabilities = tuple(region_probabilities)
+    region_styles = {
+        0.9: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_90_ALPHA,
+            "Horizon-aggregated prediction density (90 %)",
+        ),
+        0.5: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_50_ALPHA,
+            "Horizon-aggregated prediction density (50 %)",
+        ),
+    }
+    if any(probability not in region_styles for probability in selected_probabilities):
+        raise ValueError("region_probabilities must contain supported regions.")
+    if not selected_probabilities:
+        return []
+
+    x_values = x_samples.ravel()
+    y_values = y_samples.ravel()
+    if x_values.size < 3:
+        warnings.warn(
+            "At least three posterior positions are required for a prediction funnel.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+
+    x_grid, y_grid, density = _prediction_density_grid(x_values, y_values)
+    thresholds = {
+        probability: _highest_density_threshold(density, probability)
+        for probability in selected_probabilities
+    }
+    upper_level = np.nextafter(float(np.max(density)), np.inf)
+    for probability in (0.9, 0.5):
+        if probability not in selected_probabilities:
+            continue
+        color, alpha, _ = region_styles[probability]
+        density_region = axis.contourf(
+            x_grid,
+            y_grid,
+            density,
+            levels=(thresholds[probability], upper_level),
+            colors=(color,),
+            alpha=alpha,
+            zorder=1,
+        )
+        density_region.set_gid(
+            "posterior-predictive-horizon-density-region-"
+            f"{probability:g}"
+        )
+
+    return [
+        Patch(
+            facecolor=region_styles[probability][0],
+            edgecolor="none",
+            alpha=region_styles[probability][1],
+            label=region_styles[probability][2],
+        )
+        for probability in (0.5, 0.9)
+        if probability in selected_probabilities
+    ]
+
+
 def _prediction_density_grid(x_values, y_values):
     """Evaluate a smooth two-dimensional posterior density on a fixed grid."""
     samples = np.vstack((x_values, y_values))

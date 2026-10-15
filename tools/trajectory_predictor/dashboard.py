@@ -88,12 +88,14 @@ PREDICTION_REGION_STYLES = (
     "ellipses",
     "density_regions",
     "density_contours",
+    "funnel",
     "none",
 )
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
     "ellipses": "Ellipses",
     "density_regions": "Filled density regions",
     "density_contours": "Density contours",
+    "funnel": "Prediction funnel",
     "none": "No region",
 }
 PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = tuple(
@@ -1505,13 +1507,21 @@ class PosteriorDashboardNavigator:
                             region_probabilities=region_probabilities,
                         )
                     )
-                else:
+                elif self.prediction_region_style == "density_regions":
                     legend_handles = prediction_plotting._draw_prediction_density_regions(
                         axis,
                         display_posterior_draws,
                         np.concatenate(([0.0], forecast.time_offsets_seconds)),
                         annotate_time=False,
                         region_probabilities=region_probabilities,
+                    )
+                else:
+                    legend_handles = (
+                        prediction_plotting._draw_horizon_prediction_density_regions(
+                            axis,
+                            display_posterior_draws,
+                            region_probabilities=region_probabilities,
+                        )
                     )
             # Connect to the last measured point for orientation, as in the
             # standalone prediction plot; this does not re-anchor model draws.

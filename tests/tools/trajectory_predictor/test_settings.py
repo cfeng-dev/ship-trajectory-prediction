@@ -334,6 +334,7 @@ def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
     (
         ("Density contours", "density_contours"),
         ("Filled density regions", "density_regions"),
+        ("Prediction funnel", "funnel"),
     ),
 )
 def test_plot_options_dialog_validates_display_switches_independently(
