@@ -331,7 +331,10 @@ def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
 
 @pytest.mark.parametrize(
     ("display_style", "normalized_style"),
-    (("Density contours", "density_contours"), ("Prediction funnel", "funnel")),
+    (
+        ("Density contours", "density_contours"),
+        ("Filled density regions", "density_regions"),
+    ),
 )
 def test_plot_options_dialog_validates_display_switches_independently(
     display_style, normalized_style

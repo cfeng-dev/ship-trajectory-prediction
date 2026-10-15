@@ -84,10 +84,15 @@ DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = ("m", "km")
-PREDICTION_REGION_STYLES = ("ellipses", "funnel", "density_contours", "none")
+PREDICTION_REGION_STYLES = (
+    "ellipses",
+    "density_regions",
+    "density_contours",
+    "none",
+)
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
     "ellipses": "Ellipses",
-    "funnel": "Prediction funnel",
+    "density_regions": "Filled density regions",
     "density_contours": "Density contours",
     "none": "No region",
 }
@@ -1442,7 +1447,6 @@ class PosteriorDashboardNavigator:
             median_x, median_y = self._display_coordinates(
                 forecast.median_positions[:, 0], forecast.median_positions[:, 1]
             )
-            display_median_positions = np.column_stack((median_x, median_y))
             region_probabilities = tuple(
                 probability
                 for probability, enabled in (
@@ -1502,11 +1506,11 @@ class PosteriorDashboardNavigator:
                         )
                     )
                 else:
-                    legend_handles = prediction_plotting._draw_prediction_funnel(
+                    legend_handles = prediction_plotting._draw_prediction_density_regions(
                         axis,
                         display_posterior_draws,
-                        display_median_positions,
-                        origin,
+                        np.concatenate(([0.0], forecast.time_offsets_seconds)),
+                        annotate_time=False,
                         region_probabilities=region_probabilities,
                     )
             # Connect to the last measured point for orientation, as in the
