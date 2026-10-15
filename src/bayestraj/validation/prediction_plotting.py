@@ -6,7 +6,7 @@ from numbers import Integral, Real
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse, Patch
+from matplotlib.patches import Ellipse, Patch, Polygon
 from scipy.stats import gaussian_kde
 
 import bayestraj.observations.coordinates as coordinates
@@ -766,6 +766,107 @@ def _draw_prediction_density_contours(
         for probability in (0.5, 0.9)
         if probability in selected_probabilities
     ]
+
+
+def _draw_prediction_funnel(
+    axis,
+    posterior_draws,
+    median_positions,
+    origin_position,
+    *,
+    region_probabilities=PREDICTION_REGION_LEVELS,
+):
+    """Draw marginal cross-track posterior-predictive bands along one path."""
+    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
+    median_positions = np.asarray(median_positions, dtype=float)
+    origin_position = np.asarray(origin_position, dtype=float)
+    if median_positions.shape != (x_samples.shape[1], 2):
+        raise ValueError("median_positions must match the forecast horizon.")
+    if origin_position.shape != (2,):
+        raise ValueError("origin_position must contain exactly two coordinates.")
+    if not np.all(np.isfinite(median_positions)) or not np.all(
+        np.isfinite(origin_position)
+    ):
+        raise ValueError("Funnel coordinates must be finite.")
+    selected_probabilities = tuple(region_probabilities)
+    region_styles = {
+        0.9: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_90_ALPHA,
+            "Posterior-predictive funnel (90 %)",
+        ),
+        0.5: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_50_ALPHA,
+            "Posterior-predictive funnel (50 %)",
+        ),
+    }
+    if any(probability not in region_styles for probability in selected_probabilities):
+        raise ValueError("region_probabilities must contain supported regions.")
+    if not selected_probabilities:
+        return []
+
+    posterior_positions = np.stack((x_samples, y_samples), axis=-1)
+    normals = _forecast_path_normals(median_positions, origin_position)
+    cross_track_offsets = np.einsum(
+        "std,td->st",
+        posterior_positions - median_positions[np.newaxis, :, :],
+        normals,
+    )
+    group_handles = []
+    for probability in (0.9, 0.5):
+        if probability not in selected_probabilities:
+            continue
+        tail_probability = (1.0 - probability) / 2.0
+        lower, upper = np.quantile(
+            cross_track_offsets,
+            (tail_probability, 1.0 - tail_probability),
+            axis=0,
+        )
+        upper_boundary = median_positions + normals * upper[:, np.newaxis]
+        lower_boundary = median_positions + normals * lower[:, np.newaxis]
+        vertices = np.vstack(
+            (
+                origin_position,
+                upper_boundary,
+                lower_boundary[::-1],
+                origin_position,
+            )
+        )
+        color, alpha, label = region_styles[probability]
+        funnel = Polygon(
+            vertices,
+            closed=True,
+            facecolor=color,
+            edgecolor="none",
+            alpha=alpha,
+            zorder=1,
+        )
+        funnel.set_gid(f"posterior-predictive-funnel-{probability:g}")
+        axis.add_patch(funnel)
+        group_handles.append(
+            Patch(facecolor=color, edgecolor="none", alpha=alpha, label=label)
+        )
+    return list(reversed(group_handles))
+
+
+def _forecast_path_normals(median_positions, origin_position):
+    """Return stable unit normals for the median path at forecast timestamps."""
+    path = np.vstack((origin_position, median_positions))
+    normals = np.empty_like(median_positions)
+    fallback_direction = np.array([1.0, 0.0])
+    for difference in np.diff(path, axis=0):
+        magnitude = np.linalg.norm(difference)
+        if magnitude > 0:
+            fallback_direction = difference / magnitude
+            break
+    for index in range(median_positions.shape[0]):
+        direction = path[min(index + 2, path.shape[0] - 1)] - path[index]
+        magnitude = np.linalg.norm(direction)
+        if magnitude > 0:
+            fallback_direction = direction / magnitude
+        normals[index] = (-fallback_direction[1], fallback_direction[0])
+    return normals
 
 
 def _prediction_density_grid(x_values, y_values):

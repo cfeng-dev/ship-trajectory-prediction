@@ -316,8 +316,6 @@ def _validate_data_options(fields):
         fields["prediction_region_style"] = normalize_prediction_region_style(
             fields["prediction_region_style"]
         )
-
-
 def validate_dialog_values(group, values):
     """Validate one dialog independently, without needing a valid CSV selection."""
     defaults = _defaults()

@@ -329,7 +329,13 @@ def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
     assert result.playback_interval_ms == 1500
 
 
-def test_plot_options_dialog_validates_display_switches_independently():
+@pytest.mark.parametrize(
+    ("display_style", "normalized_style"),
+    (("Density contours", "density_contours"), ("Prediction funnel", "funnel")),
+)
+def test_plot_options_dialog_validates_display_switches_independently(
+    display_style, normalized_style
+):
     values = {
         "show_legend": False,
         "show_reference_trajectory": False,
@@ -339,7 +345,7 @@ def test_plot_options_dialog_validates_display_switches_independently():
         "show_median_forecast": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
-        "prediction_region_style": "Density contours",
+        "prediction_region_style": display_style,
         "follow_ship_view_span_m": 600.0,
     }
 
@@ -347,5 +353,5 @@ def test_plot_options_dialog_validates_display_switches_independently():
 
     assert result == {
         **values,
-        "prediction_region_style": "density_contours",
+        "prediction_region_style": normalized_style,
     }

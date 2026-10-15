@@ -84,9 +84,10 @@ DEFAULT_PREDICTION_SAMPLE_COUNT = 20
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = ("m", "km")
-PREDICTION_REGION_STYLES = ("ellipses", "density_contours", "none")
+PREDICTION_REGION_STYLES = ("ellipses", "funnel", "density_contours", "none")
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
     "ellipses": "Ellipses",
+    "funnel": "Prediction funnel",
     "density_contours": "Density contours",
     "none": "No region",
 }
@@ -1438,6 +1439,10 @@ class PosteriorDashboardNavigator:
                 np.asarray([origin_position[1]]),
             )
             origin = np.array([origin_x[0], origin_y[0]])
+            median_x, median_y = self._display_coordinates(
+                forecast.median_positions[:, 0], forecast.median_positions[:, 1]
+            )
+            display_median_positions = np.column_stack((median_x, median_y))
             region_probabilities = tuple(
                 probability
                 for probability, enabled in (
@@ -1474,21 +1479,36 @@ class PosteriorDashboardNavigator:
                     display_posterior_positions[:, time_index] = np.column_stack(
                         (posterior_x, posterior_y)
                     )
-                draw_regions = (
-                    prediction_plotting._draw_prediction_regions
-                    if self.prediction_region_style == "ellipses"
-                    else prediction_plotting._draw_prediction_density_contours
+                display_posterior_draws = (
+                    display_posterior_positions[:, :, 0],
+                    display_posterior_positions[:, :, 1],
                 )
-                legend_handles = draw_regions(
-                    axis,
-                    (
-                        display_posterior_positions[:, :, 0],
-                        display_posterior_positions[:, :, 1],
-                    ),
-                    np.concatenate(([0.0], forecast.time_offsets_seconds)),
-                    annotate_time=False,
-                    region_probabilities=region_probabilities,
-                )
+                if self.prediction_region_style == "ellipses":
+                    legend_handles = prediction_plotting._draw_prediction_regions(
+                        axis,
+                        display_posterior_draws,
+                        np.concatenate(([0.0], forecast.time_offsets_seconds)),
+                        annotate_time=False,
+                        region_probabilities=region_probabilities,
+                    )
+                elif self.prediction_region_style == "density_contours":
+                    legend_handles = (
+                        prediction_plotting._draw_prediction_density_contours(
+                            axis,
+                            display_posterior_draws,
+                            np.concatenate(([0.0], forecast.time_offsets_seconds)),
+                            annotate_time=False,
+                            region_probabilities=region_probabilities,
+                        )
+                    )
+                else:
+                    legend_handles = prediction_plotting._draw_prediction_funnel(
+                        axis,
+                        display_posterior_draws,
+                        display_median_positions,
+                        origin,
+                        region_probabilities=region_probabilities,
+                    )
             # Connect to the last measured point for orientation, as in the
             # standalone prediction plot; this does not re-anchor model draws.
             for index, positions in enumerate(
@@ -1513,9 +1533,6 @@ class PosteriorDashboardNavigator:
                     if index == 0
                     else "_nolegend_",
                 )
-            median_x, median_y = self._display_coordinates(
-                forecast.median_positions[:, 0], forecast.median_positions[:, 1]
-            )
             path = np.vstack((origin, np.column_stack((median_x, median_y))))
             if self.show_median_forecast:
                 axis.plot(

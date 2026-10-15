@@ -1454,6 +1454,78 @@ def test_dashboard_draws_density_contours_instead_of_covariance_ellipses():
         navigator.disconnect()
 
 
+def test_dashboard_draws_widening_prediction_funnel_without_profile_axes():
+    """Show a widening spatial uncertainty band along the median forecast."""
+    dashboard = _load_dashboard_module()
+    posterior_positions = np.array(
+        [
+            [[20.0, -1.0], [30.0, -4.0]],
+            [[20.0, -0.5], [30.0, -2.0]],
+            [[20.0, 0.0], [30.0, 0.0]],
+            [[20.0, 0.5], [30.0, 2.0]],
+            [[20.0, 1.0], [30.0, 4.0]],
+        ]
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[10.0, 20.0],
+        median_positions=[[20.0, 0.0], [30.0, 0.0]],
+        sample_positions=posterior_positions,
+        posterior_positions=posterior_positions,
+    )
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(
+            reference_x=[0.0, 10.0, 20.0, 30.0],
+            reference_y=[0.0, 0.0, 0.0, 0.0],
+            observed_x=[0.0, 10.0, 20.0, 30.0],
+            observed_y=[0.0, 0.0, 0.0, 0.0],
+        ),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+            forecast=forecast,
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+        prediction_count=2,
+        show_sample_trajectories=False,
+        prediction_region_style="funnel",
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+
+        funnel_patches = {
+            patch.get_gid(): patch
+            for patch in navigator.trajectory_axis.patches
+            if (patch.get_gid() or "").startswith("posterior-predictive-funnel-")
+        }
+        assert set(funnel_patches) == {
+            "posterior-predictive-funnel-0.5",
+            "posterior-predictive-funnel-0.9",
+        }
+        outer_y_span = np.ptp(
+            funnel_patches["posterior-predictive-funnel-0.9"].get_xy()[:, 1]
+        )
+        inner_y_span = np.ptp(
+            funnel_patches["posterior-predictive-funnel-0.5"].get_xy()[:, 1]
+        )
+        assert outer_y_span > inner_y_span
+        outer_vertices = funnel_patches["posterior-predictive-funnel-0.9"].get_xy()
+        near_offsets = outer_vertices[np.isclose(outer_vertices[:, 0], 20.0), 1]
+        far_offsets = outer_vertices[np.isclose(outer_vertices[:, 0], 30.0), 1]
+        assert np.max(np.abs(far_offsets)) > np.max(np.abs(near_offsets))
+        assert not any(
+            (patch.get_gid() or "").startswith("posterior-predictive-region-")
+            for patch in navigator.trajectory_axis.patches
+        )
+        assert not hasattr(navigator, "forecast_profile_axes")
+    finally:
+        navigator.disconnect()
+
+
 def test_dashboard_display_options_redraw_without_loading_an_update():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(4.0)
