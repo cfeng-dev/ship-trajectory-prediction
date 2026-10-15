@@ -88,6 +88,7 @@ PREDICTION_REGION_STYLES = (
     "ellipses",
     "density_regions",
     "density_contours",
+    "horizon_density_contours",
     "funnel",
     "none",
 )
@@ -95,6 +96,7 @@ PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
     "ellipses": "Ellipses",
     "density_regions": "Filled density regions",
     "density_contours": "Density contours",
+    "horizon_density_contours": "Horizon density contours",
     "funnel": "Prediction funnel",
     "none": "No region",
 }
@@ -1504,6 +1506,14 @@ class PosteriorDashboardNavigator:
                             display_posterior_draws,
                             np.concatenate(([0.0], forecast.time_offsets_seconds)),
                             annotate_time=False,
+                            region_probabilities=region_probabilities,
+                        )
+                    )
+                elif self.prediction_region_style == "horizon_density_contours":
+                    legend_handles = (
+                        prediction_plotting._draw_horizon_prediction_density_contours(
+                            axis,
+                            display_posterior_draws,
                             region_probabilities=region_probabilities,
                         )
                     )

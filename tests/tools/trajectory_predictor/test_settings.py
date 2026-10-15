@@ -334,6 +334,7 @@ def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
     (
         ("Density contours", "density_contours"),
         ("Filled density regions", "density_regions"),
+        ("Horizon density contours", "horizon_density_contours"),
         ("Prediction funnel", "funnel"),
     ),
 )

@@ -768,6 +768,89 @@ def _draw_prediction_density_contours(
     ]
 
 
+def _draw_horizon_prediction_density_contours(
+    axis,
+    posterior_draws,
+    *,
+    region_probabilities=PREDICTION_REGION_LEVELS,
+):
+    """Draw one highest-density contour set aggregated across the forecast horizon."""
+    x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
+    selected_probabilities = tuple(region_probabilities)
+    contour_styles = {
+        0.5: (
+            "solid",
+            "Horizon-aggregated prediction density contour (50 %)",
+        ),
+        0.9: (
+            "dashed",
+            "Horizon-aggregated prediction density contour (90 %)",
+        ),
+    }
+    if any(probability not in contour_styles for probability in selected_probabilities):
+        raise ValueError("region_probabilities must contain supported regions.")
+    if not selected_probabilities:
+        return []
+
+    x_values = x_samples.ravel()
+    y_values = y_samples.ravel()
+    if x_values.size < 3:
+        warnings.warn(
+            "At least three posterior positions are required for horizon density contours.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+
+    x_grid, y_grid, density = _prediction_density_grid(x_values, y_values)
+    thresholds = {
+        probability: _highest_density_threshold(density, probability)
+        for probability in selected_probabilities
+    }
+    ordered_probabilities = tuple(
+        sorted(selected_probabilities, key=thresholds.__getitem__)
+    )
+    levels = np.asarray(
+        [thresholds[probability] for probability in ordered_probabilities],
+        dtype=float,
+    )
+    if np.any(np.diff(levels) <= 0):
+        warnings.warn(
+            "Posterior positions do not define distinct horizon density contours.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
+    contour_set = axis.contour(
+        x_grid,
+        y_grid,
+        density,
+        levels=levels,
+        colors=POSTERIOR_COLOR,
+        linestyles=[
+            contour_styles[probability][0]
+            for probability in ordered_probabilities
+        ],
+        linewidths=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
+        alpha=0.9,
+        zorder=2,
+    )
+    contour_set.set_gid("posterior-predictive-horizon-density-contour")
+
+    return [
+        Line2D(
+            [],
+            [],
+            color=POSTERIOR_COLOR,
+            linestyle=contour_styles[probability][0],
+            linewidth=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
+            label=contour_styles[probability][1],
+        )
+        for probability in (0.5, 0.9)
+        if probability in selected_probabilities
+    ]
+
+
 def _draw_prediction_density_regions(
     axis,
     posterior_draws,

@@ -1575,6 +1575,70 @@ def test_dashboard_draws_horizon_aggregated_prediction_funnel():
         navigator.disconnect()
 
 
+def test_dashboard_draws_horizon_aggregated_density_contours():
+    """Render one pair of density contours across all forecast horizons."""
+    dashboard = _load_dashboard_module()
+    angles = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+    posterior_positions = np.stack(
+        (
+            np.column_stack((10.0 + np.cos(angles), 20.0 + 0.5 * np.sin(angles))),
+            np.column_stack((14.0 + 1.5 * np.cos(angles), 23.0 + np.sin(angles))),
+        ),
+        axis=1,
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[10.0, 20.0],
+        median_positions=[[10.0, 20.0], [14.0, 23.0]],
+        sample_positions=posterior_positions[:4],
+        posterior_positions=posterior_positions,
+    )
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+            forecast=forecast,
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+        prediction_count=2,
+        show_sample_trajectories=False,
+        prediction_region_style="horizon_density_contours",
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+
+        horizon_contours = [
+            collection
+            for collection in navigator.trajectory_axis.collections
+            if (collection.get_gid() or "").startswith(
+                "posterior-predictive-horizon-density-contour"
+            )
+        ]
+        per_time_contours = [
+            collection
+            for collection in navigator.trajectory_axis.collections
+            if (collection.get_gid() or "").startswith(
+                "posterior-predictive-density-contour-"
+            )
+        ]
+        legend_labels = [
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+
+        assert len(horizon_contours) == 1
+        assert per_time_contours == []
+        assert "Horizon-aggregated prediction density contour (50 %)" in legend_labels
+        assert "Horizon-aggregated prediction density contour (90 %)" in legend_labels
+    finally:
+        navigator.disconnect()
+
+
 def test_dashboard_display_options_redraw_without_loading_an_update():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(4.0)
