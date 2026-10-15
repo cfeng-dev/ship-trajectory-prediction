@@ -188,7 +188,7 @@ def _defaults():
             "show_median_forecast": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
-            "prediction_region_style": "ellipses",
+            "prediction_region_style": "funnel",
             "follow_ship_view_span_m": 600.0,
         },
         "priors": asdict(BayesianCTRVPriors()),

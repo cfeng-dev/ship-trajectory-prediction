@@ -81,6 +81,21 @@ def test_trajectory_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
+def test_trajectory_predictor_defaults_to_prediction_funnel():
+    assert settings.default_form_values()["data"]["prediction_region_style"] == "funnel"
+
+
+def test_prediction_region_style_options_prioritize_prediction_funnel():
+    assert settings.PREDICTION_REGION_STYLE_DISPLAY_OPTIONS == (
+        "Horizon density region",
+        "Per-step density regions",
+        "Covariance ellipses",
+        "Horizon density contours",
+        "Per-step density contours",
+        "No uncertainty region",
+    )
+
+
 def test_trajectory_predictor_defaults_to_no_added_position_noise():
     assert settings.default_form_values()["data"]["position_noise_std_m"] == "0.0"
 
@@ -332,10 +347,12 @@ def test_parse_settings_converts_playback_seconds_to_timer_milliseconds(form):
 @pytest.mark.parametrize(
     ("display_style", "normalized_style"),
     (
-        ("Density contours", "density_contours"),
-        ("Filled density regions", "density_regions"),
+        ("Per-step density contours", "density_contours"),
+        ("Per-step density regions", "density_regions"),
+        ("Covariance ellipses", "ellipses"),
         ("Horizon density contours", "horizon_density_contours"),
-        ("Prediction funnel", "funnel"),
+        ("Horizon density region", "funnel"),
+        ("No uncertainty region", "none"),
     ),
 )
 def test_plot_options_dialog_validates_display_switches_independently(

@@ -85,20 +85,20 @@ ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 600.0
 COORDINATE_DISPLAY_MODES = ("m", "km")
 PREDICTION_REGION_STYLES = (
-    "ellipses",
-    "density_regions",
-    "density_contours",
-    "horizon_density_contours",
     "funnel",
+    "density_regions",
+    "ellipses",
+    "horizon_density_contours",
+    "density_contours",
     "none",
 )
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
-    "ellipses": "Ellipses",
-    "density_regions": "Filled density regions",
-    "density_contours": "Density contours",
+    "funnel": "Horizon density region",
+    "density_regions": "Per-step density regions",
+    "ellipses": "Covariance ellipses",
     "horizon_density_contours": "Horizon density contours",
-    "funnel": "Prediction funnel",
-    "none": "No region",
+    "density_contours": "Per-step density contours",
+    "none": "No uncertainty region",
 }
 PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = tuple(
     PREDICTION_REGION_STYLE_DISPLAY_LABELS[style]
@@ -828,7 +828,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
-        prediction_region_style="ellipses",
+        prediction_region_style="funnel",
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         on_state_change=None,
         on_metrics_change=None,
@@ -1804,7 +1804,7 @@ def create_sequential_posterior_dashboard_figure(
     show_median_forecast=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
-    prediction_region_style="ellipses",
+    prediction_region_style="funnel",
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     on_state_change=None,
     on_metrics_change=None,

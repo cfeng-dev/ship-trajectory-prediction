@@ -599,12 +599,12 @@ def _draw_prediction_regions(
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
-            "Posterior-prädiktiver Bereich (90 %)",
+            "Covariance ellipse (90 %)",
         ),
         0.5: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_50_ALPHA,
-            "Posterior-prädiktiver Bereich (50 %)",
+            "Covariance ellipse (50 %)",
         ),
     }
     selected_probabilities = tuple(region_probabilities)
@@ -687,8 +687,8 @@ def _draw_prediction_density_contours(
         x_samples.shape[1],
     )
     contour_styles = {
-        0.5: ("solid", "Posterior-prädiktive Dichtekontur (50 %)"),
-        0.9: ("dashed", "Posterior-prädiktive Dichtekontur (90 %)"),
+        0.5: ("solid", "Per-step density contour (50 %)"),
+        0.9: ("dashed", "Per-step density contour (90 %)"),
     }
     selected_probabilities = tuple(region_probabilities)
     if any(probability not in contour_styles for probability in selected_probabilities):
@@ -780,11 +780,11 @@ def _draw_horizon_prediction_density_contours(
     contour_styles = {
         0.5: (
             "solid",
-            "Horizon-aggregated prediction density contour (50 %)",
+            "Horizon density contour (50 %)",
         ),
         0.9: (
             "dashed",
-            "Horizon-aggregated prediction density contour (90 %)",
+            "Horizon density contour (90 %)",
         ),
     }
     if any(probability not in contour_styles for probability in selected_probabilities):
@@ -871,12 +871,12 @@ def _draw_prediction_density_regions(
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
-            "Posterior-predictive density region (90 %)",
+            "Per-step density region (90 %)",
         ),
         0.5: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_50_ALPHA,
-            "Posterior-predictive density region (50 %)",
+            "Per-step density region (50 %)",
         ),
     }
     if any(probability not in region_styles for probability in selected_probabilities):
@@ -954,12 +954,12 @@ def _draw_horizon_prediction_density_regions(
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
-            "Horizon-aggregated prediction density (90 %)",
+            "Horizon density region (90 %)",
         ),
         0.5: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_50_ALPHA,
-            "Horizon-aggregated prediction density (50 %)",
+            "Horizon density region (50 %)",
         ),
     }
     if any(probability not in region_styles for probability in selected_probabilities):

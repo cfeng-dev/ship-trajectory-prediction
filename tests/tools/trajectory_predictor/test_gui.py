@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 tk = pytest.importorskip("tkinter")
+ttk = pytest.importorskip("tkinter.ttk")
 
 from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
 from trajectory_predictor import controls as predictor_controls  # noqa: E402
@@ -929,7 +930,7 @@ def test_plot_dialog_contains_display_options(root):
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "plot")
     try:
-        assert dialog.variables["prediction_region_style"].get() == "Ellipses"
+        assert dialog.variables["prediction_region_style"].get() == "Horizon density region"
         labels = {
             child.cget("text")
             for child in dialog._form.body.winfo_children()
@@ -949,6 +950,22 @@ def test_plot_dialog_contains_display_options(root):
         dialog.cancel()
 
 
+def test_plot_display_initial_values_translate_prediction_style():
+    from trajectory_predictor.dialogs import _plot_display_initial_values
+
+    values = _plot_display_initial_values(
+        {
+            "prediction_region_style": "funnel",
+            "follow_ship_view_span_m": 600.0,
+        }
+    )
+
+    assert values == {
+        "prediction_region_style": "Horizon density region",
+        "follow_ship_view_span_m": 600.0,
+    }
+
+
 def test_plot_display_window_closes_from_its_cancel_button(root):
     from trajectory_predictor.dialogs import PlotDisplayWindow
     from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
@@ -959,7 +976,7 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
                 key: tk.BooleanVar(root, value=True) for key in DISPLAY_OPTION_FIELDS
             }
             | {
-                "prediction_region_style": tk.StringVar(root, value="Ellipses"),
+                "prediction_region_style": tk.StringVar(root, value="funnel"),
                 "follow_ship_view_span_m": tk.StringVar(root, value="600"),
             }
         }
@@ -967,6 +984,14 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
     closed = []
     window = PlotDisplayWindow(root, panel, on_close=lambda: closed.append(True))
     try:
+        assert window.variables["prediction_region_style"].get() == "Horizon density region"
+        prediction_region_selector = next(
+            child
+            for frame in window.winfo_children()
+            for child in frame.winfo_children()
+            if isinstance(child, ttk.Combobox)
+        )
+        assert int(prediction_region_selector.cget("width")) == 30
         button_labels = {
             child.cget("text")
             for frame in window.winfo_children()
@@ -1008,7 +1033,9 @@ def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeyp
                 key: SimpleNamespace(get=lambda: True) for key in DISPLAY_OPTION_FIELDS
             }
             | {
-                "prediction_region_style": SimpleNamespace(get=lambda: "Ellipses"),
+                "prediction_region_style": SimpleNamespace(
+                    get=lambda: "Covariance ellipses"
+                ),
                 "follow_ship_view_span_m": SimpleNamespace(get=lambda: "nan"),
             }
         }
@@ -1032,11 +1059,11 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     draft_variables = {
         key: _Value(key != "show_legend") for key in DISPLAY_OPTION_FIELDS
     } | {
-        "prediction_region_style": _Value("Density contours"),
+        "prediction_region_style": _Value("Per-step density contours"),
         "follow_ship_view_span_m": _Value("250"),
     }
     shared_variables = {key: _Value(True) for key in DISPLAY_OPTION_FIELDS} | {
-        "prediction_region_style": _Value("Ellipses"),
+        "prediction_region_style": _Value("Covariance ellipses"),
         "follow_ship_view_span_m": _Value("600"),
     }
     window = PlotDisplayWindow.__new__(PlotDisplayWindow)
@@ -1048,7 +1075,10 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     window.apply()
 
     assert shared_variables["show_legend"].get() is False
-    assert shared_variables["prediction_region_style"].get() == "Density contours"
+    assert (
+        shared_variables["prediction_region_style"].get()
+        == "Per-step density contours"
+    )
     assert shared_variables["follow_ship_view_span_m"].get() == 250.0
     assert closed == [True]
 

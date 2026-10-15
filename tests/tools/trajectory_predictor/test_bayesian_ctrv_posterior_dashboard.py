@@ -1230,6 +1230,7 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         maximum_observation_count=4,
         figure=figure,
         prediction_count=2,
+        prediction_region_style="ellipses",
     )
     try:
         navigator.follow_checkbox.set_active(0)
@@ -1258,8 +1259,8 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
             text.get_text()
             for text in navigator.trajectory_axis.get_legend().get_texts()
         ]
-        assert "Posterior-prädiktiver Bereich (50 %)" in legend_labels
-        assert "Posterior-prädiktiver Bereich (90 %)" in legend_labels
+        assert "Covariance ellipse (50 %)" in legend_labels
+        assert "Covariance ellipse (90 %)" in legend_labels
         assert navigator.trajectory_axis.get_legend()._loc == 1
         for count in (1, 2):
             navigator.slider.set_val(count)
@@ -1325,6 +1326,7 @@ def test_dashboard_regions_are_centered_on_the_full_posterior_median():
         maximum_observation_count=4,
         figure=figure,
         prediction_count=2,
+        prediction_region_style="ellipses",
     )
 
     try:
@@ -1378,6 +1380,7 @@ def test_dashboard_display_options_hide_selected_trajectory_elements():
         show_median_forecast=False,
         show_prediction_region_50=False,
         show_prediction_region_90=True,
+        prediction_region_style="ellipses",
     )
     try:
         navigator.slider.set_val(2)
@@ -1395,7 +1398,7 @@ def test_dashboard_display_options_hide_selected_trajectory_elements():
             text.get_text()
             for text in navigator.trajectory_axis.get_legend().get_texts()
         ]
-        assert legend_labels == ["Posterior-prädiktiver Bereich (90 %)"]
+        assert legend_labels == ["Covariance ellipse (90 %)"]
     finally:
         navigator.disconnect()
 
@@ -1450,6 +1453,32 @@ def test_dashboard_draws_density_contours_instead_of_covariance_ellipses():
         ]
         assert len(contour_sets) == 2
         assert ellipse_regions == []
+        legend_labels = [
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+        assert "Per-step density contour (50 %)" in legend_labels
+        assert "Per-step density contour (90 %)" in legend_labels
+    finally:
+        navigator.disconnect()
+
+
+def test_dashboard_factory_defaults_to_prediction_funnel():
+    dashboard = _load_dashboard_module()
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        lambda count: dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+        ),
+        maximum_observation_count=4,
+        figure=figure,
+    )
+    try:
+        assert navigator.prediction_region_style == "funnel"
     finally:
         navigator.disconnect()
 
@@ -1507,6 +1536,12 @@ def test_dashboard_draws_filled_density_regions_without_funnel_patches():
             (patch.get_gid() or "").startswith("posterior-predictive-funnel-")
             for patch in navigator.trajectory_axis.patches
         )
+        legend_labels = [
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+        assert "Per-step density region (50 %)" in legend_labels
+        assert "Per-step density region (90 %)" in legend_labels
     finally:
         navigator.disconnect()
 
@@ -1569,8 +1604,8 @@ def test_dashboard_draws_horizon_aggregated_prediction_funnel():
 
         assert len(horizon_regions) == 2
         assert per_time_regions == []
-        assert "Horizon-aggregated prediction density (50 %)" in legend_labels
-        assert "Horizon-aggregated prediction density (90 %)" in legend_labels
+        assert "Horizon density region (50 %)" in legend_labels
+        assert "Horizon density region (90 %)" in legend_labels
     finally:
         navigator.disconnect()
 
@@ -1633,8 +1668,8 @@ def test_dashboard_draws_horizon_aggregated_density_contours():
 
         assert len(horizon_contours) == 1
         assert per_time_contours == []
-        assert "Horizon-aggregated prediction density contour (50 %)" in legend_labels
-        assert "Horizon-aggregated prediction density contour (90 %)" in legend_labels
+        assert "Horizon density contour (50 %)" in legend_labels
+        assert "Horizon density contour (90 %)" in legend_labels
     finally:
         navigator.disconnect()
 

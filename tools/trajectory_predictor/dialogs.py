@@ -23,6 +23,7 @@ DATA_DIALOG_WIDTH = 560
 WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
+PREDICTION_REGION_SELECTOR_WIDTH = 30
 PRIOR_FIELD_GROUPS = (
     (
         "Speed — half-normal distribution",
@@ -89,6 +90,19 @@ def dialog_width_for_group(group, screen_width):
     return min(preferred_width, max(400, screen_width - 80))
 
 
+def _plot_display_initial_values(values):
+    """Translate internal prediction-style keys for the plot-display combobox."""
+    initial_values = dict(values)
+    prediction_region_style = initial_values.get("prediction_region_style")
+    initial_values["prediction_region_style"] = (
+        PREDICTION_REGION_STYLE_DISPLAY_LABELS.get(
+            prediction_region_style,
+            prediction_region_style,
+        )
+    )
+    return initial_values
+
+
 class PlotDisplayWindow(tk.Toplevel):
     """Non-modal editor that applies validated plot-display changes on demand."""
 
@@ -104,7 +118,12 @@ class PlotDisplayWindow(tk.Toplevel):
         self.resizable(False, False)
         self.variables = create_variables(
             self,
-            {key: panel.variables["data"][key].get() for key in PLOT_DISPLAY_FIELDS},
+            _plot_display_initial_values(
+                {
+                    key: panel.variables["data"][key].get()
+                    for key in PLOT_DISPLAY_FIELDS
+                }
+            ),
         )
         tk.Label(
             self,
@@ -143,7 +162,7 @@ class PlotDisplayWindow(tk.Toplevel):
             textvariable=self.variables["prediction_region_style"],
             values=PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
             state="readonly",
-            width=18,
+            width=PREDICTION_REGION_SELECTOR_WIDTH,
             style="Predictor.TCombobox",
         ).pack(side="right")
         span_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
