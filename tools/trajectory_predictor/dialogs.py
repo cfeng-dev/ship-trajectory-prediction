@@ -365,7 +365,7 @@ class SettingsDialog(tk.Toplevel):
         for key, value in values.items():
             if self.group == "plot" and key == "prediction_region_style":
                 value = PREDICTION_REGION_STYLE_DISPLAY_LABELS[value]
-            self.panel.variables[target_group][key].set(value)
+            self.panel.variables[target_group][key].set("" if value is None else value)
         self.cancel()
 
     def cancel(self):

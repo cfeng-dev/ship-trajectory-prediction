@@ -1111,6 +1111,31 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     assert panel.values()["smc"] == original["smc"]
 
 
+def test_data_settings_dialog_keeps_an_empty_observation_interval_after_apply(
+    monkeypatch,
+):
+    from trajectory_predictor.dialogs import SettingsDialog
+
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog.group = "data"
+    dialog.variables = {"observation_interval_seconds": _Value("")}
+    saved_interval = _Value("10")
+    dialog.panel = SimpleNamespace(
+        variables={"data": {"observation_interval_seconds": saved_interval}}
+    )
+    closed = []
+    dialog.cancel = lambda: closed.append(True)
+    monkeypatch.setattr(
+        "trajectory_predictor.dialogs.validate_dialog_values",
+        lambda _group, _values: {"observation_interval_seconds": None},
+    )
+
+    dialog.apply()
+
+    assert saved_interval.get() == ""
+    assert closed == [True]
+
+
 class _MenuRecorder:
     """Record our menu registrations without needing a Tcl display."""
 
