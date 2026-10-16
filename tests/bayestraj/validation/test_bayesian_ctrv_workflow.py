@@ -364,7 +364,7 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.legend_location == "upper right"
 
 
-def test_rolling_diagnostics_plot_aggregates_metrics_by_forecast_origin_time(
+def test_rolling_diagnostics_plot_renders_one_color_coded_figure_per_metric(
     monkeypatch,
 ):
     predictions = pd.DataFrame(
@@ -379,27 +379,56 @@ def test_rolling_diagnostics_plot_aggregates_metrics_by_forecast_origin_time(
             "inference_method": ["smc", "smc", "smc", "smc"],
         }
     )
-    monkeypatch.setattr(runtime_plotting.plt, "show", lambda: None)
+    shown_figures = []
+    monkeypatch.setattr(
+        runtime_plotting.plt,
+        "show",
+        lambda: shown_figures.append(runtime_plotting.plt.gcf()),
+    )
 
-    figure, axes = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
+    figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
         predictions,
         inference_selection="smc",
     )
 
-    expected_series = {
-        "RMSE [m]": [np.sqrt(12.5), np.sqrt(84.5)],
-        "Log predictive density": [-2.0, -6.0],
-        "ADE [m]": [3.5, 8.5],
-        "FDE [m]": [4.0, 12.0],
-        "Energy Score [m]": [3.0, 8.0],
-        "Inference time [s]": [1.0, 2.0],
-    }
-    assert axes.shape == (3, 2)
-    for axis in axes.flat:
+    expected_plots = (
+        ("RMSE", "RMSE [m]", "Rolling RMSE", "#0072B2", [np.sqrt(12.5), np.sqrt(84.5)]),
+        (
+            "Log predictive density",
+            "Log predictive density",
+            "Rolling log predictive density",
+            "#CC79A7",
+            [-2.0, -6.0],
+        ),
+        ("ADE", "ADE [m]", "Rolling ADE", "#E69F00", [3.5, 8.5]),
+        ("FDE", "FDE [m]", "Rolling FDE", "#D55E00", [4.0, 12.0]),
+        (
+            "Energy Score",
+            "Energy Score [m]",
+            "Rolling Energy Score",
+            "#009E73",
+            [3.0, 8.0],
+        ),
+        (
+            "Inference time",
+            "Inference time [s]",
+            "Rolling inference time",
+            "#56B4E9",
+            [1.0, 2.0],
+        ),
+    )
+    assert len(figures) == len(expected_plots)
+    assert shown_figures == [figure for figure, _ in figures]
+    for (figure, axis), (title, ylabel, label, color, values) in zip(
+        figures,
+        expected_plots,
+        strict=True,
+    ):
         assert axis.get_xlabel() == "Forecast origin time [s]"
+        assert axis.get_title() == title
+        assert axis.get_ylabel() == ylabel
         np.testing.assert_allclose(axis.lines[0].get_xdata(), [100.0, 120.0])
-        np.testing.assert_allclose(
-            axis.lines[0].get_ydata(),
-            expected_series[axis.get_ylabel()],
-        )
-    figure.clf()
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
+        assert axis.lines[0].get_color() == color
+        assert [entry.get_text() for entry in axis.get_legend().get_texts()] == [label]
+        figure.clf()

@@ -6,6 +6,32 @@ import numpy as np
 import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
+ROLLING_DIAGNOSTIC_PLOT_STYLES = (
+    ("RMSE", "RMSE [m]", "Rolling RMSE", "#0072B2", "rmse_m"),
+    (
+        "Log predictive density",
+        "Log predictive density",
+        "Rolling log predictive density",
+        "#CC79A7",
+        "mean_log_predictive_density",
+    ),
+    ("ADE", "ADE [m]", "Rolling ADE", "#E69F00", "ade_m"),
+    ("FDE", "FDE [m]", "Rolling FDE", "#D55E00", "fde_m"),
+    (
+        "Energy Score",
+        "Energy Score [m]",
+        "Rolling Energy Score",
+        "#009E73",
+        "energy_score_m",
+    ),
+    (
+        "Inference time",
+        "Inference time [s]",
+        "Rolling inference time",
+        "#56B4E9",
+        "fit_runtime_seconds",
+    ),
+)
 
 
 def plot_bayesian_ctrv_inference_runtime(predictions, *, inference_selection=None):
@@ -38,7 +64,7 @@ def plot_bayesian_ctrv_inference_runtime(predictions, *, inference_selection=Non
 
 
 def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=None):
-    """Plot one rolling Bayesian CTRV metric series per forecast origin time."""
+    """Plot each rolling Bayesian CTRV metric in its own sequential figure."""
     required_columns = {
         "window_index",
         "forecast_origin_seconds",
@@ -63,34 +89,16 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
     inference_title = _format_inference_title(
         inference_selection or str(inference_methods[0])
     )
-    metric_definitions = (
-        ("RMSE", "RMSE [m]", metric_values["rmse_m"]),
-        (
-            "Log predictive density",
-            "Log predictive density",
-            metric_values["mean_log_predictive_density"],
-        ),
-        ("ADE", "ADE [m]", metric_values["ade_m"]),
-        ("FDE", "FDE [m]", metric_values["fde_m"]),
-        ("Energy Score", "Energy Score [m]", metric_values["energy_score_m"]),
-        (
-            "Inference time",
-            "Inference time [s]",
-            metric_values["fit_runtime_seconds"],
-        ),
-    )
-    figure, axes = plt.subplots(nrows=3, ncols=2, figsize=(12, 10))
-    for axis, (title, y_axis_label, values) in zip(
-        axes.flat,
-        metric_definitions,
-        strict=True,
-    ):
+    figures = []
+    for title, y_axis_label, label, color, value_name in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+        figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
         axis.plot(
             time_seconds,
-            values,
+            metric_values[value_name],
             marker="o",
             markersize=3,
-            color=RUNTIME_PLOT_STYLE.derived_data_color,
+            color=color,
+            label=label,
         )
         axis.set_xlabel(
             "Forecast origin time [s]",
@@ -109,10 +117,12 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             axis="both",
             labelsize=RUNTIME_PLOT_STYLE.axis_tick_font_size,
         )
-    figure.suptitle(f"Bayesian CTRV rolling diagnostics ({inference_title})")
-    figure.tight_layout()
-    plt.show()
-    return figure, axes
+        axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
+        figure.suptitle(f"Bayesian CTRV ({inference_title})")
+        figure.tight_layout()
+        plt.show()
+        figures.append((figure, axis))
+    return tuple(figures)
 
 
 def _rolling_window_metric_series(predictions):
