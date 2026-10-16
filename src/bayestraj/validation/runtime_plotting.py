@@ -86,6 +86,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             "configuration."
         )
     time_seconds, metric_values = _rolling_window_metric_series(predictions)
+    elapsed_time_seconds = time_seconds - time_seconds[0]
     inference_title = _format_inference_title(
         inference_selection or str(inference_methods[0])
     )
@@ -93,7 +94,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
     for title, y_axis_label, label, color, value_name in ROLLING_DIAGNOSTIC_PLOT_STYLES:
         figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
         axis.plot(
-            time_seconds,
+            elapsed_time_seconds,
             metric_values[value_name],
             marker="o",
             markersize=3,
@@ -101,7 +102,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             label=label,
         )
         axis.set_xlabel(
-            "Forecast origin time [s]",
+            "Time [s]",
             fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
         )
         axis.set_ylabel(

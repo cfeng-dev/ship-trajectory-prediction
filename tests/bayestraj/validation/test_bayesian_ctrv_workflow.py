@@ -424,10 +424,10 @@ def test_rolling_diagnostics_plot_renders_one_color_coded_figure_per_metric(
         expected_plots,
         strict=True,
     ):
-        assert axis.get_xlabel() == "Forecast origin time [s]"
+        assert axis.get_xlabel() == "Time [s]"
         assert axis.get_title() == title
         assert axis.get_ylabel() == ylabel
-        np.testing.assert_allclose(axis.lines[0].get_xdata(), [100.0, 120.0])
+        np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 20.0])
         np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
         assert axis.lines[0].get_color() == color
         assert [entry.get_text() for entry in axis.get_legend().get_texts()] == [label]
