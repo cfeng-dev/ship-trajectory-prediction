@@ -1553,7 +1553,10 @@ class PosteriorDashboardNavigator:
                     alpha=0.14,
                     linewidth=0.9,
                     zorder=2,
-                    label="Possible future trajectories"
+                    label=(
+                        "Possible future trajectories "
+                        f"(n = {len(forecast.sample_positions)})"
+                    )
                     if index == 0
                     else "_nolegend_",
                 )

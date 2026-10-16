@@ -291,6 +291,10 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         assert median_line.get_ydata() == pytest.approx([0, 0.5, 1])
         assert navigator.trajectory_axis.get_xlabel() == "Easting x [km]"
         assert navigator.trajectory_axis.get_ylabel() == "Northing y [km]"
+        legend_labels = [
+            text.get_text() for text in navigator.trajectory_axis.get_legend().get_texts()
+        ]
+        assert "Possible future trajectories (n = 1)" in legend_labels
         assert loads == [1]
     finally:
         navigator.disconnect()
