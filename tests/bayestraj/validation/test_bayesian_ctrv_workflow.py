@@ -163,6 +163,10 @@ def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
     assert summary.inference_method == "smc"
     assert summary.window_count == 3
     assert predictions["x_actual"].tolist() == [12.0, 13.0, 14.0]
+    np.testing.assert_allclose(
+        predictions["forecast_origin_seconds"],
+        [1.0, 2.0, 3.0],
+    )
     assert changed_predictions["x_actual"].tolist() == [112.0, 113.0, 114.0]
     np.testing.assert_allclose(
         predictions["x_median"],
@@ -358,3 +362,44 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.title_keywords == {"pad": 16, "fontsize": 13, "fontweight": "bold"}
     assert axis.tick_parameters == {"axis": "both", "labelsize": 11}
     assert axis.legend_location == "upper right"
+
+
+def test_rolling_diagnostics_plot_aggregates_metrics_by_forecast_origin_time(
+    monkeypatch,
+):
+    predictions = pd.DataFrame(
+        {
+            "window_index": [1, 0, 1, 0],
+            "forecast_origin_seconds": [120.0, 100.0, 120.0, 100.0],
+            "horizon_step": [1, 1, 2, 2],
+            "position_error_m": [5.0, 3.0, 12.0, 4.0],
+            "log_predictive_density": [-5.0, -1.0, -7.0, -3.0],
+            "energy_score_m": [6.0, 2.0, 10.0, 4.0],
+            "fit_runtime_seconds": [2.0, 1.0, 2.0, 1.0],
+            "inference_method": ["smc", "smc", "smc", "smc"],
+        }
+    )
+    monkeypatch.setattr(runtime_plotting.plt, "show", lambda: None)
+
+    figure, axes = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
+        predictions,
+        inference_selection="smc",
+    )
+
+    expected_series = {
+        "RMSE [m]": [np.sqrt(12.5), np.sqrt(84.5)],
+        "Log predictive density": [-2.0, -6.0],
+        "ADE [m]": [3.5, 8.5],
+        "FDE [m]": [4.0, 12.0],
+        "Energy Score [m]": [3.0, 8.0],
+        "Inference time [s]": [1.0, 2.0],
+    }
+    assert axes.shape == (3, 2)
+    for axis in axes.flat:
+        assert axis.get_xlabel() == "Forecast origin time [s]"
+        np.testing.assert_allclose(axis.lines[0].get_xdata(), [100.0, 120.0])
+        np.testing.assert_allclose(
+            axis.lines[0].get_ydata(),
+            expected_series[axis.get_ylabel()],
+        )
+    figure.clf()

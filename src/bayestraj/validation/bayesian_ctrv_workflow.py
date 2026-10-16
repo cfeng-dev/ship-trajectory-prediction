@@ -415,6 +415,9 @@ def _run_evaluation(
             window=window,
             route_x=route_x,
             route_y=route_y,
+            forecast_origin_seconds=route_time_seconds[
+                specification.forecast_start_index - 1
+            ],
             inference_mode=inference_mode,
             inference_method=inference_method,
             converged=converged,
@@ -634,6 +637,7 @@ def _run_br24_radar_evaluation(
             window=window,
             route_x=route_x,
             route_y=route_y,
+            forecast_origin_seconds=cycle_times[specification.forecast_start_index - 1],
             inference_mode="online",
             inference_method="smc",
             converged=None,
@@ -1034,6 +1038,7 @@ def _build_route_prediction_table(
     window,
     route_x,
     route_y,
+    forecast_origin_seconds,
     inference_mode,
     inference_method,
     converged,
@@ -1073,6 +1078,7 @@ def _build_route_prediction_table(
     table["forecast_origin_time"] = window.timestamps[
         specification.observation_count - 1
     ]
+    table["forecast_origin_seconds"] = float(forecast_origin_seconds)
     table["forecast_origin_x_route"] = route_x[forecast_origin_index]
     table["forecast_origin_y_route"] = route_y[forecast_origin_index]
     table["x_actual_route"] = route_x[target_indices]

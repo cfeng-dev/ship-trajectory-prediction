@@ -39,7 +39,7 @@ MAX_WINDOWS = None
 PLOT_EACH_WINDOW = False
 SAMPLE_TRAJECTORIES_PER_FORECAST = 15
 SHOW_TIME_LABELS = False  # Avoid repeated labels across all rolling windows.
-SHOW_FIT_RUNTIME_PLOT = True
+SHOW_ROLLING_DIAGNOSTICS_PLOT = True
 
 
 def main(argv=None):
@@ -62,8 +62,8 @@ def main(argv=None):
         options=options,
         show_time_labels=SHOW_TIME_LABELS,
     )
-    if SHOW_FIT_RUNTIME_PLOT:
-        runtime_plotting.plot_bayesian_ctrv_inference_runtime(
+    if SHOW_ROLLING_DIAGNOSTICS_PLOT:
+        runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
             predictions,
             inference_selection=options.inference_method,
         )
