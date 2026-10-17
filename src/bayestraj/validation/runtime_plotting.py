@@ -7,25 +7,22 @@ import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
-    ("RMSE", "RMSE [m]", "Rolling RMSE", "#0072B2", "rmse_m"),
+    ("RMSE [m]", "Rolling RMSE", "#0072B2", "rmse_m"),
     (
-        "Log predictive density",
         "Log predictive density",
         "Rolling log predictive density",
         "#CC79A7",
         "mean_log_predictive_density",
     ),
-    ("ADE", "ADE [m]", "Rolling ADE", "#E69F00", "ade_m"),
-    ("FDE", "FDE [m]", "Rolling FDE", "#D55E00", "fde_m"),
+    ("ADE [m]", "Rolling ADE", "#E69F00", "ade_m"),
+    ("FDE [m]", "Rolling FDE", "#D55E00", "fde_m"),
     (
-        "Energy Score",
         "Energy Score [m]",
         "Rolling Energy Score",
         "#009E73",
         "energy_score_m",
     ),
     (
-        "Inference time",
         "Inference time [s]",
         "Rolling inference time",
         "#56B4E9",
@@ -91,7 +88,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
         inference_selection or str(inference_methods[0])
     )
     figures = []
-    for title, y_axis_label, label, color, value_name in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+    for y_axis_label, label, color, value_name in ROLLING_DIAGNOSTIC_PLOT_STYLES:
         figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
         axis.plot(
             elapsed_time_seconds,
@@ -108,11 +105,6 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
         axis.set_ylabel(
             y_axis_label,
             fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
-        )
-        axis.set_title(
-            title,
-            fontsize=RUNTIME_PLOT_STYLE.title_font_size,
-            fontweight=RUNTIME_PLOT_STYLE.title_font_weight,
         )
         axis.tick_params(
             axis="both",

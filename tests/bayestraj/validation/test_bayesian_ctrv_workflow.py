@@ -364,7 +364,7 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.legend_location == "upper right"
 
 
-def test_rolling_diagnostics_plot_renders_one_color_coded_figure_per_metric(
+def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_titles(
     monkeypatch,
 ):
     predictions = pd.DataFrame(
@@ -392,25 +392,22 @@ def test_rolling_diagnostics_plot_renders_one_color_coded_figure_per_metric(
     )
 
     expected_plots = (
-        ("RMSE", "RMSE [m]", "Rolling RMSE", "#0072B2", [np.sqrt(12.5), np.sqrt(84.5)]),
+        ("RMSE [m]", "Rolling RMSE", "#0072B2", [np.sqrt(12.5), np.sqrt(84.5)]),
         (
-            "Log predictive density",
             "Log predictive density",
             "Rolling log predictive density",
             "#CC79A7",
             [-2.0, -6.0],
         ),
-        ("ADE", "ADE [m]", "Rolling ADE", "#E69F00", [3.5, 8.5]),
-        ("FDE", "FDE [m]", "Rolling FDE", "#D55E00", [4.0, 12.0]),
+        ("ADE [m]", "Rolling ADE", "#E69F00", [3.5, 8.5]),
+        ("FDE [m]", "Rolling FDE", "#D55E00", [4.0, 12.0]),
         (
-            "Energy Score",
             "Energy Score [m]",
             "Rolling Energy Score",
             "#009E73",
             [3.0, 8.0],
         ),
         (
-            "Inference time",
             "Inference time [s]",
             "Rolling inference time",
             "#56B4E9",
@@ -419,13 +416,13 @@ def test_rolling_diagnostics_plot_renders_one_color_coded_figure_per_metric(
     )
     assert len(figures) == len(expected_plots)
     assert shown_figures == [figure for figure, _ in figures]
-    for (figure, axis), (title, ylabel, label, color, values) in zip(
+    for (figure, axis), (ylabel, label, color, values) in zip(
         figures,
         expected_plots,
         strict=True,
     ):
         assert axis.get_xlabel() == "Time [s]"
-        assert axis.get_title() == title
+        assert axis.get_title() == ""
         assert axis.get_ylabel() == ylabel
         np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 20.0])
         np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
