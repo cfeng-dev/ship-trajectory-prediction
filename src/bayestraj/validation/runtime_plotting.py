@@ -7,26 +7,29 @@ import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
-    ("RMSE [m]", "Rolling RMSE", "#0072B2", "rmse_m"),
+    ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mean RMSE: {mean:.2f} m"),
     (
         "Log predictive density",
-        "Rolling log predictive density",
+        "Log predictive density",
         "#CC79A7",
         "mean_log_predictive_density",
+        "Mean log predictive density: {mean:.3f}",
     ),
-    ("ADE [m]", "Rolling ADE", "#E69F00", "ade_m"),
-    ("FDE [m]", "Rolling FDE", "#D55E00", "fde_m"),
+    ("ADE [m]", "ADE", "#E69F00", "ade_m", "Mean ADE: {mean:.2f} m"),
+    ("FDE [m]", "FDE", "#D55E00", "fde_m", "Mean FDE: {mean:.2f} m"),
     (
         "Energy Score [m]",
-        "Rolling Energy Score",
+        "Energy Score",
         "#009E73",
         "energy_score_m",
+        "Mean Energy Score: {mean:.2f} m",
     ),
     (
         "Inference time [s]",
-        "Rolling inference time",
+        "Inference time",
         "#56B4E9",
         "fit_runtime_seconds",
+        "Mean inference time: {mean:.3f} s",
     ),
 )
 
@@ -88,7 +91,13 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
         inference_selection or str(inference_methods[0])
     )
     figures = []
-    for y_axis_label, label, color, value_name in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+    for (
+        y_axis_label,
+        label,
+        color,
+        value_name,
+        mean_label,
+    ) in ROLLING_DIAGNOSTIC_PLOT_STYLES:
         figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
         axis.plot(
             elapsed_time_seconds,
@@ -97,6 +106,13 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             markersize=3,
             color=color,
             label=label,
+        )
+        mean = float(np.mean(metric_values[value_name]))
+        axis.axhline(
+            mean,
+            color=color,
+            linestyle="--",
+            label=mean_label.format(mean=mean),
         )
         axis.set_xlabel(
             "Time [s]",

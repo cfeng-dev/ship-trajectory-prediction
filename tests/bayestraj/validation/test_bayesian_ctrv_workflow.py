@@ -369,14 +369,14 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
 ):
     predictions = pd.DataFrame(
         {
-            "window_index": [1, 0, 1, 0],
-            "forecast_origin_seconds": [120.0, 100.0, 120.0, 100.0],
-            "horizon_step": [1, 1, 2, 2],
-            "position_error_m": [5.0, 3.0, 12.0, 4.0],
-            "log_predictive_density": [-5.0, -1.0, -7.0, -3.0],
-            "energy_score_m": [6.0, 2.0, 10.0, 4.0],
-            "fit_runtime_seconds": [2.0, 1.0, 2.0, 1.0],
-            "inference_method": ["smc", "smc", "smc", "smc"],
+            "window_index": [1, 0, 1, 0, 0],
+            "forecast_origin_seconds": [120.0, 100.0, 120.0, 100.0, 100.0],
+            "horizon_step": [1, 1, 2, 2, 3],
+            "position_error_m": [5.0, 3.0, 12.0, 4.0, 8.0],
+            "log_predictive_density": [-5.0, -1.0, -7.0, -3.0, -5.0],
+            "energy_score_m": [6.0, 2.0, 10.0, 4.0, 6.0],
+            "fit_runtime_seconds": [2.0, 1.0, 2.0, 1.0, 1.0],
+            "inference_method": ["smc", "smc", "smc", "smc", "smc"],
         }
     )
     shown_figures = []
@@ -392,31 +392,44 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
     )
 
     expected_plots = (
-        ("RMSE [m]", "Rolling RMSE", "#0072B2", [np.sqrt(12.5), np.sqrt(84.5)]),
+        (
+            "RMSE [m]",
+            "RMSE",
+            "#0072B2",
+            [np.sqrt(89 / 3), np.sqrt(84.5)],
+            7.3195498508,
+            "Mean RMSE: 7.32 m",
+        ),
         (
             "Log predictive density",
-            "Rolling log predictive density",
+            "Log predictive density",
             "#CC79A7",
-            [-2.0, -6.0],
+            [-3.0, -6.0],
+            -4.5,
+            "Mean log predictive density: -4.500",
         ),
-        ("ADE [m]", "Rolling ADE", "#E69F00", [3.5, 8.5]),
-        ("FDE [m]", "Rolling FDE", "#D55E00", [4.0, 12.0]),
+        ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mean ADE: 6.75 m"),
+        ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mean FDE: 10.00 m"),
         (
             "Energy Score [m]",
-            "Rolling Energy Score",
+            "Energy Score",
             "#009E73",
-            [3.0, 8.0],
+            [4.0, 8.0],
+            6.0,
+            "Mean Energy Score: 6.00 m",
         ),
         (
             "Inference time [s]",
-            "Rolling inference time",
+            "Inference time",
             "#56B4E9",
             [1.0, 2.0],
+            1.5,
+            "Mean inference time: 1.500 s",
         ),
     )
     assert len(figures) == len(expected_plots)
     assert shown_figures == [figure for figure, _ in figures]
-    for (figure, axis), (ylabel, label, color, values) in zip(
+    for (figure, axis), (ylabel, label, color, values, mean, mean_label) in zip(
         figures,
         expected_plots,
         strict=True,
@@ -427,5 +440,10 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 20.0])
         np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
         assert axis.lines[0].get_color() == color
-        assert [entry.get_text() for entry in axis.get_legend().get_texts()] == [label]
+        np.testing.assert_allclose(axis.lines[1].get_ydata(), [mean, mean])
+        assert axis.lines[1].get_linestyle() == "--"
+        assert [entry.get_text() for entry in axis.get_legend().get_texts()] == [
+            label,
+            mean_label,
+        ]
         figure.clf()
