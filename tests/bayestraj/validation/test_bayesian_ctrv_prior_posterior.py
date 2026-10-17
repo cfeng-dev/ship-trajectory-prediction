@@ -237,6 +237,12 @@ def test_prior_posterior_figure_navigates_in_one_window():
         assert len(plt.get_fignums()) == 1
         assert navigator.observation_count == 0
         assert "N = 0" in navigator.axis.get_title()
+        assert navigator.axis.title.get_fontsize() == 13
+        assert navigator.axis.title.get_fontweight() == "bold"
+        assert navigator.axis.xaxis.label.get_fontsize() == 13
+        assert navigator.axis.yaxis.label.get_fontsize() == 13
+        assert navigator.axis.get_xticklabels()[0].get_fontsize() == 11
+        assert navigator.axis.get_yticklabels()[0].get_fontsize() == 11
         assert [line.get_label() for line in navigator.axis.lines] == ["Initial prior"]
         assert navigator.slider.val == pytest.approx(0.0)
         assert navigator.slider.valstep == pytest.approx([0.0, 3.0, 5.0, 10.0, 20.0])

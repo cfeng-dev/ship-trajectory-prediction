@@ -207,6 +207,12 @@ def test_all_prior_titles_have_visible_spacing_from_axes():
         for figure in figures.values():
             figure.canvas.draw()
             axis = figure.axes[0]
+            assert axis.title.get_fontsize() == 13
+            assert axis.title.get_fontweight() == "bold"
+            assert axis.xaxis.label.get_fontsize() == 13
+            assert axis.yaxis.label.get_fontsize() == 13
+            assert axis.get_xticklabels()[0].get_fontsize() == 11
+            assert axis.get_yticklabels()[0].get_fontsize() == 11
             renderer = figure.canvas.get_renderer()
             title_bounds = axis.title.get_window_extent(renderer)
             axis_bounds = axis.get_window_extent(renderer)

@@ -127,7 +127,11 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             labelsize=RUNTIME_PLOT_STYLE.axis_tick_font_size,
         )
         axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
-        figure.suptitle(f"Bayesian CTRV ({inference_title})")
+        figure.suptitle(
+            f"Bayesian CTRV ({inference_title})",
+            fontsize=RUNTIME_PLOT_STYLE.title_font_size,
+            fontweight=RUNTIME_PLOT_STYLE.title_font_weight,
+        )
         figure.tight_layout()
         plt.show()
         figures.append((figure, axis))

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import bayestraj.models.bayesian_ctrv as bayesian_model
+from bayestraj.observations.plotting import DEFAULT_SHIP_DATA_PLOT_STYLE
 
 DENSITY_POINT_COUNT = 1_000
 PLOT_TAIL_PROBABILITY = 1e-3
@@ -179,9 +180,18 @@ def _draw_prior(axis, curve: PriorCurve, *, show_legend=True) -> None:
             label=curve.threshold_legend_label if index == 0 else "_nolegend_",
             zorder=3,
         )
-    axis.set_title(curve.title, fontsize=16, pad=TITLE_PAD_POINTS)
-    axis.set_xlabel(curve.x_label, fontsize=13)
-    axis.set_ylabel("Dichte", fontsize=13)
+    axis.set_title(
+        curve.title,
+        fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_size,
+        fontweight=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_weight,
+        pad=TITLE_PAD_POINTS,
+    )
+    axis.set_xlabel(
+        curve.x_label, fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size
+    )
+    axis.set_ylabel(
+        "Dichte", fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size
+    )
     axis.grid(alpha=0.25, linewidth=0.8)
     x_lower, x_upper = curve.x_limits or (curve.x_values[0], curve.x_values[-1])
     axis.set_xlim(x_lower, x_upper)
@@ -195,7 +205,7 @@ def _draw_prior(axis, curve: PriorCurve, *, show_legend=True) -> None:
             }
         )
     )
-    axis.tick_params(labelsize=11)
+    axis.tick_params(labelsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_tick_font_size)
     if show_legend:
         axis.legend(loc="upper right", fontsize=10, framealpha=0.9)
 

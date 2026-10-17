@@ -16,6 +16,7 @@ import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.reporting as reporting
+from bayestraj.observations.plotting import DEFAULT_SHIP_DATA_PLOT_STYLE
 
 PARAMETER_NAMES = (
     "current_speed",
@@ -274,17 +275,25 @@ class PriorPosteriorNavigator:
 
         self.axis.set_title(
             f"Prior-to-posterior update: {self.spec.title}\n{status}",
-            fontsize=15,
+            fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_size,
+            fontweight=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_weight,
             pad=TITLE_PAD_POINTS,
         )
-        self.axis.set_xlabel(self.spec.x_label, fontsize=13)
-        self.axis.set_ylabel("Density", fontsize=13)
+        self.axis.set_xlabel(
+            self.spec.x_label,
+            fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size,
+        )
+        self.axis.set_ylabel(
+            "Density", fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size
+        )
         self.axis.set_xlim(float(self.x_values[0]), float(self.x_values[-1]))
         if self.spec.support == "circular":
             self.axis.set_xticks([-270.0, -180.0, -90.0, 0.0, 90.0, 180.0, 270.0])
         self.axis.set_ylim(bottom=0.0)
         self.axis.grid(alpha=0.25, linewidth=0.8)
-        self.axis.tick_params(labelsize=11)
+        self.axis.tick_params(
+            labelsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_tick_font_size
+        )
         if self.show_legend:
             self.axis.legend(loc="upper right", fontsize=10, framealpha=0.9)
         self.figure.canvas.draw_idle()

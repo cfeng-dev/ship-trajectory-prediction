@@ -101,4 +101,15 @@ def test_sequential_vi_plot_functions_return_figures_without_showing(
     for figure, axes in figures:
         assert figure.axes
         assert axes is not None
+        for axis in figure.axes:
+            if axis.get_title():
+                assert axis.title.get_fontsize() == 13
+                assert axis.title.get_fontweight() == "bold"
+            if axis.get_xlabel():
+                assert axis.xaxis.label.get_fontsize() == 13
+            if axis.get_ylabel():
+                assert axis.yaxis.label.get_fontsize() == 13
+            assert axis.get_yticklabels()[0].get_fontsize() == 11
+            if axis.get_xticklabels():
+                assert axis.get_xticklabels()[0].get_fontsize() == 11
         plt.close(figure)

@@ -11,6 +11,7 @@ from bayestraj.inference.ctrv_sequential_vi import (
     DistributionSummary,
     SequentialVIResult,
 )
+from bayestraj.observations.plotting import DEFAULT_SHIP_DATA_PLOT_STYLE
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,15 @@ def _plot_summary(axis, times, values, *, label, color) -> None:
     axis.plot(times, values[:, 1], color=color, label=label)
 
 
+def _style_axis(axis) -> None:
+    """Apply the shared standalone-plot typography without changing global style."""
+    axis.title.set_fontsize(DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_size)
+    axis.title.set_fontweight(DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_weight)
+    axis.xaxis.label.set_fontsize(DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size)
+    axis.yaxis.label.set_fontsize(DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size)
+    axis.tick_params(labelsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_tick_font_size)
+
+
 def plot_trajectory_comparison(result: SequentialVIResult):
     """Plot observed, predictive, and filtered position medians."""
     data = extract_sequential_vi_plot_data(result)
@@ -128,6 +138,7 @@ def plot_trajectory_comparison(result: SequentialVIResult):
         label="Filtered median",
     )
     axis.set(xlabel="Easting x [m]", ylabel="Northing y [m]", title="Sequential VI")
+    _style_axis(axis)
     axis.legend()
     axis.grid(alpha=0.25)
     figure.tight_layout()
@@ -160,6 +171,8 @@ def plot_motion_state_comparison(result: SequentialVIResult):
     axes[0].set_title("Motion state")
     axes[0].legend()
     axes[-1].set_xlabel("Time [s]")
+    for axis in axes:
+        _style_axis(axis)
     figure.tight_layout()
     return figure, axes
 
@@ -190,6 +203,8 @@ def plot_uncertainty_parameter_comparison(result: SequentialVIResult):
     axes[0].set_title("Uncertainty parameters")
     axes[0].legend()
     axes[-1].set_xlabel("Time [s]")
+    for axis in axes:
+        _style_axis(axis)
     figure.tight_layout()
     return figure, axes
 
@@ -213,6 +228,7 @@ def plot_runtime_comparison(result: SequentialVIResult):
         label="Cumulative",
     )
     axis.set(xlabel="Time [s]", ylabel="Runtime [s]", title="Sequential VI runtime")
+    _style_axis(axis)
     axis.legend()
     axis.grid(alpha=0.25)
     figure.tight_layout()

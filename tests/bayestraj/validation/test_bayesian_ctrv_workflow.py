@@ -434,6 +434,8 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         expected_plots,
         strict=True,
     ):
+        assert figure._suptitle.get_fontsize() == 13
+        assert figure._suptitle.get_fontweight() == "bold"
         assert axis.get_xlabel() == "Time [s]"
         assert axis.get_title() == ""
         assert axis.get_ylabel() == ylabel
