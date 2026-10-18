@@ -16,7 +16,7 @@ from bayestraj.observations.br24 import (
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
-    / "experiments/data_exploration/compare_br24_imm_implementations.py"
+    / "experiments/tracking_validation/compare_br24_imm_implementations.py"
 )
 
 

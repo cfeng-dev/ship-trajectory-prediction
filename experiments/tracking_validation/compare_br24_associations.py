@@ -1,4 +1,4 @@
-"""Compare IMM and Bayesian BR24 target-association decisions cycle by cycle."""
+"""Compare IMM and Bayesian BR24 target association decisions cycle by cycle."""
 
 from pathlib import Path
 
@@ -10,9 +10,10 @@ from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import read_br24_tracking_input
 from bayestraj.observations.paths import data_path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_INPUT_CSV = data_path("processed/BR24Dataset20131107.csv")
 IMM_TRACKED_TRAJECTORY_CSV = data_path("processed/BR24_imm_tracked_trajectory.csv")
-OUTPUT_CSV = data_path("processed/BR24_association_comparison.csv")
+OUTPUT_CSV = PROJECT_ROOT / "results/BR24_association_comparison.csv"
 
 
 def compare_associations(

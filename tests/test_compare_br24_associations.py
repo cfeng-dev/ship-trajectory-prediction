@@ -9,7 +9,18 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-SCRIPT_PATH = PROJECT_ROOT / "experiments/data_exploration/compare_br24_associations.py"
+SCRIPT_PATH = (
+    PROJECT_ROOT / "experiments/tracking_validation/compare_br24_associations.py"
+)
+
+
+def test_default_association_output_is_in_results_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    module = runpy.run_path(SCRIPT_PATH)
+
+    assert module["OUTPUT_CSV"] == (
+        PROJECT_ROOT / "results/BR24_association_comparison.csv"
+    )
 
 
 def test_association_audit_uses_the_imm_initialization_and_records_misses(tmp_path):

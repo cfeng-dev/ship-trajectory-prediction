@@ -1,4 +1,4 @@
-"""Compare MATLAB and local Python BR24 IMM diagnostics cycle by cycle."""
+"""Compare MATLAB and Python BR24 IMM diagnostics cycle by cycle."""
 
 import argparse
 import runpy
