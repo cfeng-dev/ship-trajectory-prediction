@@ -4,6 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.observations.br24 as br24
+from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
+from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import (
     ASSOCIATION_GATE_NIS,
     associate_br24_detections,
@@ -17,6 +21,43 @@ from bayestraj.observations.br24 import (
     position_measurement_noise,
     read_br24_tracking_input,
 )
+
+
+def test_missing_external_imm_does_not_block_bayesian_tracking(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        br24,
+        "_IMM_IMPLEMENTATION_PATH",
+        tmp_path / "missing" / "br24_imm.py",
+        raising=False,
+    )
+    detection = br24.BR24Detection(1, 10.0, 0.0, 0.5, 0.01)
+    first = br24.BR24RadarCycle(0.0, 1, np.array([100.0, -20.0]), 0.0, (detection,))
+    second = br24.BR24RadarCycle(1.0, 2, np.array([100.0, -20.0]), 0.0, (detection,))
+    tracker = BR24BayesianRadarTracker.initialize(
+        first,
+        initial_detection_id=1,
+        priors=BayesianCTRVPriors(),
+        config=SequentialMonteCarloCTRVConfig(
+            particle_count=128, posterior_draw_count=16
+        ),
+    )
+    assert tracker.process_cycle(second).detection_id == 1
+    assert np.all(np.isfinite(tracker.estimated_position))
+
+
+def test_imm_export_reports_a_missing_external_implementation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        br24,
+        "_IMM_IMPLEMENTATION_PATH",
+        tmp_path / "missing" / "br24_imm.py",
+        raising=False,
+    )
+    with pytest.raises(FileNotFoundError, match="external/IMM/br24_imm.py"):
+        export_br24_target_radar_trajectory(
+            radar_csv=tmp_path / "radar.csv",
+            sensor_csv=tmp_path / "sensor.csv",
+            output_csv=tmp_path / "output.csv",
+        )
 
 
 def test_br24_measurement_position_and_covariance_use_only_sensor_and_detection():
@@ -171,6 +212,10 @@ def test_associate_br24_detections_selects_the_nearest_detection_and_rejects_gat
     )
 
 
+@pytest.mark.skipif(
+    not br24._IMM_IMPLEMENTATION_PATH.is_file(),
+    reason="Optional external IMM implementation is not available",
+)
 def test_br24_export_uses_radar_and_sensor_csvs_without_target_reference(tmp_path):
     radar_csv = tmp_path / "BR24_radar_detections.csv"
     sensor_csv = tmp_path / "BR24_sensor_state.csv"

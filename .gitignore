@@ -39,5 +39,5 @@ data/**
 !data/simulated/
 !data/simulated/example_simulated_trajectory.csv
 
-# External IMM MATLAB reference implementation
+# Optional local IMM reference and Python implementation
 external/IMM/
