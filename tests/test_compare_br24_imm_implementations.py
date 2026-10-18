@@ -219,10 +219,13 @@ def test_python_imm_trace_preserves_initial_state_and_missed_cycles():
     )
 
 
-def test_main_writes_cyclewise_comparison_without_overwriting(
+def test_main_replaces_cyclewise_comparison_at_fixed_output_path(
     tmp_path, monkeypatch, capsys
 ):
     module = runpy.run_path(SCRIPT)
+    assert module["OUTPUT_CSV"] == (
+        SCRIPT.parents[2] / "results/BR24_imm_implementation_comparison.csv"
+    )
     if not module["IMM_PYTHON"].is_file():
         pytest.skip("Optional external IMM implementation is not available")
     input_csv = tmp_path / "radar.csv"
@@ -268,16 +271,11 @@ def test_main_writes_cyclewise_comparison_without_overwriting(
     assert table["association_comparison"].tolist() == ["same", "same"]
     assert table["cycle_counter"].tolist() == [1, 2]
     np.testing.assert_allclose(table["time_python"], [10.012, 10.971])
-    original = output.read_bytes()
+    output.write_text("outdated result", encoding="utf-8")
     main()
-    second_output = tmp_path / "comparison_1.csv"
-    assert output.read_bytes() == original
-    assert second_output.is_file()
-    pd.testing.assert_frame_equal(pd.read_csv(second_output), table)
-    assert str(second_output) in capsys.readouterr().out
-    main()
-    assert (tmp_path / "comparison_2.csv").is_file()
-    assert second_output.read_bytes() == original
+    pd.testing.assert_frame_equal(pd.read_csv(output), table)
+    assert not (tmp_path / "comparison_1.csv").exists()
+    assert str(output) in capsys.readouterr().out
 
 
 def test_python_trace_processes_real_br24_cycles_when_available():

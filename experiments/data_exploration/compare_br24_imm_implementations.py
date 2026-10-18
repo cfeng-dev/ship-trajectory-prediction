@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
 INPUT_CSV = data_path("processed/BR24Dataset20131107_with_reference.csv")
 MATLAB_TRACE = data_path("processed/BR24_imm_matlab_trace.mat")
-OUTPUT_CSV = data_path("processed/BR24_imm_implementation_comparison.csv")
+OUTPUT_CSV = PROJECT_ROOT / "results/BR24_imm_implementation_comparison.csv"
 
 
 NUMERIC_FIELDS = (
@@ -297,7 +297,7 @@ def compare_traces(matlab: pd.DataFrame, python: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(matlab_trace=None, output_csv=None) -> pd.DataFrame:
-    """Compare configured traces and write a new cyclewise CSV without overwrite."""
+    """Compare configured traces and replace the cyclewise results CSV."""
     matlab_trace = MATLAB_TRACE if matlab_trace is None else Path(matlab_trace)
     output_csv = OUTPUT_CSV if output_csv is None else Path(output_csv)
     cycles = read_br24_tracking_input(INPUT_CSV)
@@ -306,18 +306,8 @@ def main(matlab_trace=None, output_csv=None) -> pd.DataFrame:
     python = track_python_trace(cycles)
     comparison = compare_traces(matlab, python)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    candidate = output_csv
-    suffix = 0
-    while True:
-        try:
-            comparison.to_csv(candidate, index=False, mode="x")
-            break
-        except FileExistsError:
-            suffix += 1
-            candidate = output_csv.with_name(
-                f"{output_csv.stem}_{suffix}{output_csv.suffix}"
-            )
-    print(f"Compared {len(comparison)} cycles; output: {candidate}")
+    comparison.to_csv(output_csv, index=False)
+    print(f"Compared {len(comparison)} cycles; output: {output_csv}")
     print("Association counts:")
     print(comparison["association_comparison"].value_counts().to_string())
     for field in NUMERIC_FIELDS:
