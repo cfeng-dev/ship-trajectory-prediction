@@ -34,6 +34,9 @@ Thumbs.db
 # Ignore datasets by default
 data/**
 
+# Ignore generated results
+/results/
+
 # Keep documentation and simulated example data
 !data/README.md
 !data/simulated/
