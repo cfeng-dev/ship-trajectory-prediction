@@ -121,23 +121,25 @@ def plot_trajectory_comparison(result: SequentialVIResult):
         data.observed_positions[:, 1],
         "o-",
         color="#202020",
-        label="Observed",
+        label="Beobachtungen",
     )
     axis.plot(
         data.predictive_positions[:, 0, 1],
         data.predictive_positions[:, 1, 1],
         "o-",
         color="#d97706",
-        label="Predictive median",
+        label="Prädiktiver Median",
     )
     axis.plot(
         data.filtered_positions[:, 0, 1],
         data.filtered_positions[:, 1, 1],
         "o-",
         color="#176b87",
-        label="Filtered median",
+        label="Gefilterter Median",
     )
-    axis.set(xlabel="Easting x [m]", ylabel="Northing y [m]", title="Sequential VI")
+    axis.set(
+        xlabel="Ostposition x [m]", ylabel="Nordposition y [m]", title="Sequential VI"
+    )
     _style_axis(axis)
     axis.legend()
     axis.grid(alpha=0.25)
@@ -149,28 +151,28 @@ def plot_motion_state_comparison(result: SequentialVIResult):
     """Plot predictive and filtered speed, heading, and turn-rate summaries."""
     data = extract_sequential_vi_plot_data(result)
     names = ("speed", "heading", "turn_rate")
-    labels = ("Speed [m/s]", "Heading [rad]", "Turn rate [rad/s]")
+    labels = ("Geschwindigkeit [m/s]", "Kurswinkel [rad]", "Drehrate [rad/s]")
     figure, axes = plt.subplots(3, 1, sharex=True, figsize=(8.0, 7.0))
     for axis, name, label in zip(axes, names, labels, strict=True):
         _plot_summary(
             axis,
             data.time_seconds,
             data.predictive_motion[name],
-            label="Predictive",
+            label="Prädiktiv",
             color="#d97706",
         )
         _plot_summary(
             axis,
             data.time_seconds,
             data.filtered_motion[name],
-            label="Filtered",
+            label="Gefiltert",
             color="#176b87",
         )
         axis.set_ylabel(label)
         axis.grid(alpha=0.25)
-    axes[0].set_title("Motion state")
+    axes[0].set_title("Bewegungszustand")
     axes[0].legend()
-    axes[-1].set_xlabel("Time [s]")
+    axes[-1].set_xlabel("Zeit [s]")
     for axis in axes:
         _style_axis(axis)
     figure.tight_layout()
@@ -181,28 +183,32 @@ def plot_uncertainty_parameter_comparison(result: SequentialVIResult):
     """Plot predictive and filtered CTRV uncertainty parameters."""
     data = extract_sequential_vi_plot_data(result)
     names = tuple(data.filtered_parameters)
-    labels = ("Observation [m]", "Speed process [m/s]", "Turn process [rad/s]")
+    labels = (
+        "Beobachtung [m]",
+        "Geschwindigkeitsprozess [m/s]",
+        "Drehratenprozess [rad/s]",
+    )
     figure, axes = plt.subplots(3, 1, sharex=True, figsize=(8.0, 7.0))
     for axis, name, label in zip(axes, names, labels, strict=True):
         _plot_summary(
             axis,
             data.time_seconds,
             data.predictive_parameters[name],
-            label="Predictive",
+            label="Prädiktiv",
             color="#d97706",
         )
         _plot_summary(
             axis,
             data.time_seconds,
             data.filtered_parameters[name],
-            label="Filtered",
+            label="Gefiltert",
             color="#176b87",
         )
         axis.set_ylabel(label)
         axis.grid(alpha=0.25)
-    axes[0].set_title("Uncertainty parameters")
+    axes[0].set_title("Unsicherheitsparameter")
     axes[0].legend()
-    axes[-1].set_xlabel("Time [s]")
+    axes[-1].set_xlabel("Zeit [s]")
     for axis in axes:
         _style_axis(axis)
     figure.tight_layout()
@@ -218,16 +224,16 @@ def plot_runtime_comparison(result: SequentialVIResult):
         data.runtime_seconds,
         "o-",
         color="#176b87",
-        label="Update",
+        label="Aktualisierung",
     )
     axis.plot(
         data.time_seconds,
         data.cumulative_runtime_seconds,
         "o-",
         color="#b42318",
-        label="Cumulative",
+        label="Kumuliert",
     )
-    axis.set(xlabel="Time [s]", ylabel="Runtime [s]", title="Sequential VI runtime")
+    axis.set(xlabel="Zeit [s]", ylabel="Laufzeit [s]", title="Sequential-VI-Laufzeit")
     _style_axis(axis)
     axis.legend()
     axis.grid(alpha=0.25)

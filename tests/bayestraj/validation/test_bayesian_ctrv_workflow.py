@@ -388,7 +388,7 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
 
     figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
         predictions,
-        inference_selection="smc",
+        inference_selection="smc_expanding",
     )
 
     expected_plots = (
@@ -398,7 +398,7 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "#0072B2",
             [np.sqrt(89 / 3), np.sqrt(84.5)],
             7.3195498508,
-            "Mean RMSE: 7.32 m",
+            "Mittlerer RMSE: 7.32 m",
         ),
         (
             "Log predictive density",
@@ -406,25 +406,25 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "#CC79A7",
             [-3.0, -6.0],
             -4.5,
-            "Mean log predictive density: -4.500",
+            "Mittlere log predictive density: -4.500",
         ),
-        ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mean ADE: 6.75 m"),
-        ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mean FDE: 10.00 m"),
+        ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mittlerer ADE: 6.75 m"),
+        ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mittlerer FDE: 10.00 m"),
         (
             "Energy Score [m]",
             "Energy Score",
             "#009E73",
             [4.0, 8.0],
             6.0,
-            "Mean Energy Score: 6.00 m",
+            "Mittlerer Energy Score: 6.00 m",
         ),
         (
-            "Inference time [s]",
-            "Inference time",
+            "Inferenzzeit [s]",
+            "Inferenzzeit",
             "#56B4E9",
             [1.0, 2.0],
             1.5,
-            "Mean inference time: 1.500 s",
+            "Mittlere Inferenzzeit: 1.500 s",
         ),
     )
     assert len(figures) == len(expected_plots)
@@ -436,9 +436,16 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
     ):
         assert figure._suptitle.get_fontsize() == 13
         assert figure._suptitle.get_fontweight() == "bold"
-        assert axis.get_xlabel() == "Time [s]"
+        assert figure._suptitle.get_text() == "Bayesian CTRV (SMC, wachsendes Fenster)"
+        assert axis.get_xlabel() == "Zeit [s]"
         assert axis.get_title() == ""
         assert axis.get_ylabel() == ylabel
+        for gridlines in (axis.get_xgridlines(), axis.get_ygridlines()):
+            assert gridlines
+            assert all(line.get_visible() for line in gridlines)
+            assert all(line.get_alpha() == 0.2 for line in gridlines)
+            assert all(line.get_color() == "0.7" for line in gridlines)
+        assert axis.get_axisbelow() is True
         np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 20.0])
         np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
         assert axis.lines[0].get_color() == color

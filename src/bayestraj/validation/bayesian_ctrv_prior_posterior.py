@@ -33,6 +33,14 @@ TITLE_PAD_POINTS = 12
 PRIOR_COLOR = "#6B7280"
 POSTERIOR_COLOR = "#24557A"
 POSTERIOR_FILL_COLOR = "#4C956C"
+_STANDALONE_PARAMETER_TITLES = {
+    "current_speed": "Aktuelle Geschwindigkeit",
+    "current_heading": "Aktueller Kurswinkel",
+    "current_turn_rate": "Aktuelle Drehrate",
+    "position_observation_noise": "Positionsbeobachtungsrauschen",
+    "speed_process_noise": "Geschwindigkeitsprozessrauschen",
+    "turn_rate_process_noise": "Drehratenprozessrauschen",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,11 +254,11 @@ class PriorPosteriorNavigator:
             color=PRIOR_COLOR,
             linestyle="--",
             linewidth=2.0,
-            label="Initial prior",
+            label="Initialer Prior",
         )
 
         if self._stage_index == 0:
-            status = "N = 0 — Initial prior without observations"
+            status = "N = 0 — Initialer Prior ohne Beobachtungen"
         else:
             update = self._updates_by_count[self.observation_count]
             posterior_density = evaluate_posterior_density(
@@ -263,7 +271,7 @@ class PriorPosteriorNavigator:
                 posterior_density,
                 color=POSTERIOR_COLOR,
                 linewidth=2.2,
-                label="Posterior density",
+                label="Posterior-Dichte",
             )
             self.axis.fill_between(
                 self.x_values,
@@ -274,7 +282,8 @@ class PriorPosteriorNavigator:
             status = f"N = {update.observation_count}"
 
         self.axis.set_title(
-            f"Prior-to-posterior update: {self.spec.title}\n{status}",
+            f"Prior-Posterior-Aktualisierung: "
+            f"{_STANDALONE_PARAMETER_TITLES.get(self.spec.parameter_name, self.spec.title)}\n{status}",
             fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_size,
             fontweight=DEFAULT_SHIP_DATA_PLOT_STYLE.title_font_weight,
             pad=TITLE_PAD_POINTS,
@@ -284,7 +293,7 @@ class PriorPosteriorNavigator:
             fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size,
         )
         self.axis.set_ylabel(
-            "Density", fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size
+            "Dichte", fontsize=DEFAULT_SHIP_DATA_PLOT_STYLE.axis_label_font_size
         )
         self.axis.set_xlim(float(self.x_values[0]), float(self.x_values[-1]))
         if self.spec.support == "circular":

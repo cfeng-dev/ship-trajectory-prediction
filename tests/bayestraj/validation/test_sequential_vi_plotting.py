@@ -98,6 +98,29 @@ def test_sequential_vi_plot_functions_return_figures_without_showing(
         sequential_vi_plotting.plot_runtime_comparison(_result()),
     ]
 
+    trajectory_axis = figures[0][1]
+    assert trajectory_axis.get_xlabel() == "Ostposition x [m]"
+    assert trajectory_axis.get_ylabel() == "Nordposition y [m]"
+    assert [line.get_label() for line in trajectory_axis.lines] == [
+        "Beobachtungen",
+        "Prädiktiver Median",
+        "Gefilterter Median",
+    ]
+    motion_axes = figures[1][1]
+    assert motion_axes[0].get_title() == "Bewegungszustand"
+    assert [axis.get_ylabel() for axis in motion_axes] == [
+        "Geschwindigkeit [m/s]",
+        "Kurswinkel [rad]",
+        "Drehrate [rad/s]",
+    ]
+    assert motion_axes[-1].get_xlabel() == "Zeit [s]"
+    uncertainty_axes = figures[2][1]
+    assert uncertainty_axes[0].get_title() == "Unsicherheitsparameter"
+    assert uncertainty_axes[-1].get_xlabel() == "Zeit [s]"
+    runtime_axis = figures[3][1]
+    assert runtime_axis.get_xlabel() == "Zeit [s]"
+    assert runtime_axis.get_ylabel() == "Laufzeit [s]"
+
     for figure, axes in figures:
         assert figure.axes
         assert axes is not None

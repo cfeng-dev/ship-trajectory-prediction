@@ -7,29 +7,29 @@ import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
-    ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mean RMSE: {mean:.2f} m"),
+    ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
     (
         "Log predictive density",
         "Log predictive density",
         "#CC79A7",
         "mean_log_predictive_density",
-        "Mean log predictive density: {mean:.3f}",
+        "Mittlere log predictive density: {mean:.3f}",
     ),
-    ("ADE [m]", "ADE", "#E69F00", "ade_m", "Mean ADE: {mean:.2f} m"),
-    ("FDE [m]", "FDE", "#D55E00", "fde_m", "Mean FDE: {mean:.2f} m"),
+    ("ADE [m]", "ADE", "#E69F00", "ade_m", "Mittlerer ADE: {mean:.2f} m"),
+    ("FDE [m]", "FDE", "#D55E00", "fde_m", "Mittlerer FDE: {mean:.2f} m"),
     (
         "Energy Score [m]",
         "Energy Score",
         "#009E73",
         "energy_score_m",
-        "Mean Energy Score: {mean:.2f} m",
+        "Mittlerer Energy Score: {mean:.2f} m",
     ),
     (
-        "Inference time [s]",
-        "Inference time",
+        "Inferenzzeit [s]",
+        "Inferenzzeit",
         "#56B4E9",
         "fit_runtime_seconds",
-        "Mean inference time: {mean:.3f} s",
+        "Mittlere Inferenzzeit: {mean:.3f} s",
     ),
 )
 
@@ -115,7 +115,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             label=mean_label.format(mean=mean),
         )
         axis.set_xlabel(
-            "Time [s]",
+            "Zeit [s]",
             fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
         )
         axis.set_ylabel(
@@ -126,6 +126,8 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
             axis="both",
             labelsize=RUNTIME_PLOT_STYLE.axis_tick_font_size,
         )
+        axis.set_axisbelow(True)
+        axis.grid(True, which="major", axis="both", color="0.7", alpha=0.2)
         axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
         figure.suptitle(
             f"Bayesian CTRV ({inference_title})",
@@ -234,5 +236,9 @@ def _format_inference_title(inference_selection):
     inference_method, separator, window_mode = inference_selection.partition("_")
     title = inference_method.upper()
     if separator and window_mode in {"sliding", "expanding"}:
-        return f"{title}, {window_mode.title()} Window"
+        window_labels = {
+            "sliding": "gleitendes Fenster",
+            "expanding": "wachsendes Fenster",
+        }
+        return f"{title}, {window_labels[window_mode]}"
     return title
