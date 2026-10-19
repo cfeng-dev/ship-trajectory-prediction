@@ -22,11 +22,6 @@ PROJECT_ROOT = Path(__file__).parents[1]
             [0.0, 3.0, 6.0],
         ),
         (
-            "plot_br24_reference_trajectory.py",
-            "BR24-Ziel-Referenztrajektorie mit Fahrtrichtung",
-            [0.0, 3.0, 6.0],
-        ),
-        (
             "plot_br24_imm_tracked_trajectory.py",
             "IMM-getrackte BR24-Zieltrajektorie mit Fahrtrichtung",
             [0.0, 3.0, 6.0],
@@ -64,6 +59,34 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
             trajectory_axis.lines[0].get_xdata(),
             expected_x_coordinates,
         )
+    finally:
+        plt.close("all")
+
+
+def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monkeypatch):
+    reference_csv = tmp_path / "reference.csv"
+    sensor_csv = tmp_path / "sensor.csv"
+    pd.DataFrame(
+        {
+            "time": [1.0, 5.0, 7.0, 10.0, 12.0],
+            "x": [0.0, 3.0, 6.0, 9.0, 12.0],
+            "y": [0.0, 4.0, 8.0, 12.0, 16.0],
+        }
+    ).to_csv(reference_csv, index=False)
+    pd.DataFrame({"Time": [10.0, 5.0]}).to_csv(sensor_csv, index=False)
+    script = (
+        PROJECT_ROOT / "experiments/data_exploration/plot_br24_reference_trajectory.py"
+    )
+    module = runpy.run_path(script)
+    monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", reference_csv)
+    monkeypatch.setitem(module["main"].__globals__, "SENSOR_CSV", sensor_csv)
+    monkeypatch.setattr(module["plotting"].plt, "show", lambda: None)
+
+    try:
+        module["main"]()
+        line = plt.gcf().axes[0].lines[0]
+        np.testing.assert_allclose(line.get_xdata(), [3.0, 6.0, 9.0])
+        np.testing.assert_allclose(line.get_ydata(), [4.0, 8.0, 12.0])
     finally:
         plt.close("all")
 
