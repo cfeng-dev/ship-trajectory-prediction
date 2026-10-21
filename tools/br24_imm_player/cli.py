@@ -1,6 +1,13 @@
-"""Launch the local interactive BR24 IMM forecast player."""
+"""Launch the local desktop BR24 IMM forecast player."""
 
 import argparse
+
+
+def _import_player_app():
+    """Delay Tk and player imports until after command-line help has run."""
+    from .gui import BR24IMMPlayerApp
+
+    return BR24IMMPlayerApp
 
 
 def main(argv=None):
@@ -8,7 +15,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args(argv)
     try:
-        from .player import run_br24_imm_player
+        import tkinter as tk
+    except ModuleNotFoundError as error:
+        parser.exit(
+            2,
+            f"Tkinter is not available in this Python installation: {error}\n",
+        )
+    try:
+        BR24IMMPlayerApp = _import_player_app()
     except ModuleNotFoundError as error:
         if error.name != "bayestraj" and not error.name.startswith("bayestraj."):
             raise
@@ -17,4 +31,9 @@ def main(argv=None):
             "BR24 IMM Player requires the shared bayestraj package. Run it from "
             "the complete project environment with `uv run br24-imm-player`.\n",
         )
-    run_br24_imm_player()
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        parser.exit(2, f"The Tk window could not start: {error}\n")
+    root.br24_imm_player_app = BR24IMMPlayerApp(root)
+    root.mainloop()

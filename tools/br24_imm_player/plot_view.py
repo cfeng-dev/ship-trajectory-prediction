@@ -1,0 +1,382 @@
+"""Embedded Matplotlib route and IMM forecast panels for the Tk player."""
+
+from __future__ import annotations
+
+import tkinter as tk
+
+import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
+from matplotlib.patches import Ellipse
+from scipy.stats import chi2
+
+from .player import CONFIDENCE_LEVELS, IMMDisplayState, IMMPlaybackStore
+from .view import ACCENT_COLOR, BUTTON_BACKGROUND, FONT, PLOT_BACKGROUND, TEXT_COLOR
+
+MODE_NAMES = ("CV", "CTRV", "CA")
+MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
+
+
+class IMMPlotView(tk.Frame):
+    """Render and play the cached online IMM stages inside a Tk container."""
+
+    def __init__(
+        self,
+        parent,
+        *,
+        store: IMMPlaybackStore,
+        initial_state: IMMDisplayState,
+        on_stage_changed,
+        on_settings_visibility_change,
+        settings_visible: bool,
+    ) -> None:
+        super().__init__(parent, bg=PLOT_BACKGROUND)
+        self.store = store
+        self.current_state = initial_state
+        self._on_stage_changed = on_stage_changed
+        self._on_settings_visibility_change = on_settings_visibility_change
+        self._playing = False
+        self._after_id = None
+        self._updating_slider = False
+        self.follow_ship_var = tk.BooleanVar(self, value=True)
+        self.show_reference_var = tk.BooleanVar(self, value=store.reference is not None)
+        self.settings_visible_var = tk.BooleanVar(self, value=settings_visible)
+
+        self.figure = Figure(figsize=(12.5, 7.5), facecolor=PLOT_BACKGROUND)
+        grid = self.figure.add_gridspec(
+            2,
+            2,
+            width_ratios=(2.2, 1.0),
+            height_ratios=(1.0, 1.0),
+            left=0.075,
+            right=0.975,
+            bottom=0.10,
+            top=0.91,
+            wspace=0.26,
+            hspace=0.36,
+        )
+        self.route_axis = self.figure.add_subplot(grid[:, 0])
+        self.mode_axis = self.figure.add_subplot(grid[0, 1])
+        self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        self._build_controls()
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
+        self.toolbar.update()
+        self.toolbar.pack(fill="x", side="bottom")
+        self._draw()
+
+    def _build_controls(self) -> None:
+        controls = tk.Frame(self, bg=PLOT_BACKGROUND)
+        controls.pack(fill="x", side="bottom", padx=8, pady=(5, 2))
+        self.playback_button = tk.Button(
+            controls,
+            text="Start",
+            command=self.toggle_playback,
+            bg=BUTTON_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+            width=10,
+        )
+        self.playback_button.pack(side="left", padx=(0, 12))
+        tk.Label(controls, text="N", bg=PLOT_BACKGROUND, fg=TEXT_COLOR, font=FONT).pack(
+            side="left"
+        )
+        self.slider = tk.Scale(
+            controls,
+            from_=self.store.config.initial_observation_count,
+            to=self.store.maximum_observation_count,
+            orient="horizontal",
+            command=self._on_slider_change,
+            showvalue=True,
+            resolution=1,
+            highlightthickness=0,
+            bg=PLOT_BACKGROUND,
+            activebackground=ACCENT_COLOR,
+            troughcolor="#D4DFE7",
+            length=480,
+        )
+        self.slider.set(self.current_state.stage.observation_count)
+        self.slider.pack(side="left", fill="x", expand=True, padx=(5, 16))
+        tk.Checkbutton(
+            controls,
+            text="Follow ship",
+            variable=self.follow_ship_var,
+            command=self._draw,
+            bg=PLOT_BACKGROUND,
+            fg=TEXT_COLOR,
+            selectcolor=PLOT_BACKGROUND,
+            activebackground=PLOT_BACKGROUND,
+            font=FONT,
+        ).pack(side="left", padx=5)
+        tk.Checkbutton(
+            controls,
+            text="Show reference",
+            variable=self.show_reference_var,
+            command=self._draw,
+            state="normal" if self.store.reference is not None else "disabled",
+            bg=PLOT_BACKGROUND,
+            fg=TEXT_COLOR,
+            selectcolor=PLOT_BACKGROUND,
+            activebackground=PLOT_BACKGROUND,
+            font=FONT,
+        ).pack(side="left", padx=5)
+        self.settings_checkbox = tk.Checkbutton(
+            controls,
+            text="Show settings",
+            variable=self.settings_visible_var,
+            command=self._toggle_settings,
+            bg=PLOT_BACKGROUND,
+            fg=TEXT_COLOR,
+            selectcolor=PLOT_BACKGROUND,
+            activebackground=PLOT_BACKGROUND,
+            font=FONT,
+        )
+        self.settings_checkbox.pack(side="left", padx=(5, 0))
+
+    def _on_slider_change(self, value) -> None:
+        if self._updating_slider:
+            return
+        observation_count = int(round(float(value)))
+        if observation_count == self.current_state.stage.observation_count:
+            return
+        self.set_stage(self.store.display_state_for(observation_count))
+
+    def set_stage(self, state: IMMDisplayState) -> None:
+        """Set the online display stage and synchronize every visible component."""
+        self.current_state = state
+        self._updating_slider = True
+        self.slider.set(state.stage.observation_count)
+        self._updating_slider = False
+        self._on_stage_changed(state)
+        self._draw()
+
+    def toggle_playback(self) -> None:
+        self._playing = not self._playing
+        self.playback_button.configure(text="Pause" if self._playing else "Start")
+        if self._playing:
+            self._schedule_next_step()
+        else:
+            self._cancel_timer()
+
+    def _schedule_next_step(self) -> None:
+        self._cancel_timer()
+        self._after_id = self.after(
+            self.store.config.playback_interval_ms,
+            self._advance_playback,
+        )
+
+    def _advance_playback(self) -> None:
+        self._after_id = None
+        if not self._playing:
+            return
+        current_count = self.current_state.stage.observation_count
+        if current_count >= self.store.maximum_observation_count:
+            self.toggle_playback()
+            return
+        self.set_stage(self.store.display_state_for(current_count + 1))
+        self._schedule_next_step()
+
+    def _cancel_timer(self) -> None:
+        if self._after_id is not None:
+            self.after_cancel(self._after_id)
+            self._after_id = None
+
+    def _toggle_settings(self) -> None:
+        self._on_settings_visibility_change(self.settings_visible_var.get())
+
+    def set_settings_visible(self, visible: bool) -> None:
+        self.settings_visible_var.set(visible)
+
+    def reset_view(self) -> None:
+        """Return to the full trajectory extent without touching IMM state."""
+        self.follow_ship_var.set(False)
+        self.toolbar.home()
+        self._draw()
+
+    def _draw(self) -> None:
+        self._draw_route()
+        self._draw_mode_probabilities()
+        self._draw_uncertainty()
+        self.figure.suptitle(
+            "BR24 IMM online update - "
+            f"N = {self.current_state.stage.observation_count}",
+            fontsize=16,
+            fontweight="bold",
+            color=TEXT_COLOR,
+        )
+        self.canvas.draw_idle()
+
+    def _draw_route(self) -> None:
+        axis = self.route_axis
+        axis.clear()
+        axis.set_facecolor("#FFFFFF")
+        axis.grid(True, color="#DCE5EC", linewidth=0.7)
+        axis.set_title("Ship movement", fontsize=12)
+        axis.set_xlabel("Easting x [m]")
+        axis.set_ylabel("Northing y [m]")
+        axis.set_aspect("equal", adjustable="box")
+        stage = self.current_state.stage
+        tracked = np.asarray(stage.tracked_positions, dtype=float)
+        if self.show_reference_var.get() and self.store.reference is not None:
+            axis.plot(
+                self.store.reference.x_meters,
+                self.store.reference.y_meters,
+                color="#7B8794",
+                linestyle="--",
+                linewidth=1.4,
+                label="Reference (evaluation only)",
+                zorder=1,
+            )
+        axis.plot(
+            tracked[:, 0],
+            tracked[:, 1],
+            color=ACCENT_COLOR,
+            linewidth=2.1,
+            label="IMM track",
+            zorder=3,
+        )
+        axis.scatter(
+            tracked[-1, 0],
+            tracked[-1, 1],
+            s=55,
+            color="#174B70",
+            edgecolor="white",
+            linewidth=1.0,
+            label="Current posterior",
+            zorder=5,
+        )
+        means = np.asarray(stage.forecast.position_means, dtype=float)
+        forecast_route = np.vstack((tracked[-1], means))
+        axis.plot(
+            forecast_route[:, 0],
+            forecast_route[:, 1],
+            color="#D95F02",
+            linestyle="--",
+            marker="o",
+            markersize=4,
+            linewidth=2.1,
+            label="IMM forecast mean",
+            zorder=4,
+        )
+        for step, (mean, covariance) in enumerate(
+            zip(means, stage.forecast.position_covariances, strict=True), start=1
+        ):
+            self._draw_covariance_ellipses(axis, mean, covariance, step)
+        self._set_route_limits(axis, tracked, means)
+        axis.legend(loc="best", fontsize=8, framealpha=0.95)
+
+    def _draw_covariance_ellipses(
+        self, axis, mean, covariance, horizon_step: int
+    ) -> None:
+        covariance = _regularize_covariance(covariance)
+        eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+        direction = eigenvectors[:, -1]
+        angle = float(np.degrees(np.arctan2(direction[1], direction[0])))
+        for probability, alpha in zip(CONFIDENCE_LEVELS, (0.11, 0.20), strict=True):
+            radius = float(np.sqrt(chi2.ppf(probability, df=2)))
+            axis.add_patch(
+                Ellipse(
+                    xy=mean,
+                    width=2.0 * radius * np.sqrt(eigenvalues[-1]),
+                    height=2.0 * radius * np.sqrt(eigenvalues[0]),
+                    angle=angle,
+                    facecolor="#F6A04D",
+                    edgecolor="#D95F02",
+                    linewidth=1.0,
+                    alpha=alpha,
+                    zorder=2,
+                )
+            )
+        axis.annotate(
+            f"+{horizon_step}",
+            xy=mean,
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=8,
+            color="#9C4000",
+            zorder=6,
+        )
+
+    def _set_route_limits(self, axis, tracked: np.ndarray, means: np.ndarray) -> None:
+        if self.follow_ship_var.get():
+            center = tracked[-1]
+            half_span = self.store.config.follow_ship_view_span_meters / 2.0
+            axis.set_xlim(center[0] - half_span, center[0] + half_span)
+            axis.set_ylim(center[1] - half_span, center[1] + half_span)
+            return
+        points = [tracked, means]
+        if self.show_reference_var.get() and self.store.reference is not None:
+            points.append(
+                np.column_stack(
+                    (self.store.reference.x_meters, self.store.reference.y_meters)
+                )
+            )
+        all_points = np.vstack(points)
+        lower = np.min(all_points, axis=0)
+        upper = np.max(all_points, axis=0)
+        margin = np.maximum(10.0, 0.05 * (upper - lower))
+        axis.set_xlim(lower[0] - margin[0], upper[0] + margin[0])
+        axis.set_ylim(lower[1] - margin[1], upper[1] + margin[1])
+
+    def _draw_mode_probabilities(self) -> None:
+        axis = self.mode_axis
+        axis.clear()
+        axis.set_facecolor("#FFFFFF")
+        axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
+        stage = self.current_state.stage
+        offsets = (
+            np.asarray(stage.forecast.time_seconds) - stage.observation_time_seconds
+        )
+        modes = np.asarray(stage.forecast.mode_probabilities, dtype=float)
+        for index, (name, color) in enumerate(
+            zip(MODE_NAMES, MODE_COLORS, strict=True)
+        ):
+            axis.plot(offsets, modes[:, index], marker="o", color=color, label=name)
+        axis.set_title("Forecast mode probabilities", fontsize=11)
+        axis.set_xlabel("Horizon [s]")
+        axis.set_ylabel("Probability")
+        axis.set_ylim(-0.02, 1.02)
+        axis.legend(loc="best", fontsize=8, framealpha=0.95)
+
+    def _draw_uncertainty(self) -> None:
+        axis = self.uncertainty_axis
+        axis.clear()
+        axis.set_facecolor("#FFFFFF")
+        axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
+        stage = self.current_state.stage
+        offsets = (
+            np.asarray(stage.forecast.time_seconds) - stage.observation_time_seconds
+        )
+        uncertainty = self.current_state.uncertainty
+        axis.plot(
+            offsets,
+            uncertainty.radius_50_meters,
+            marker="o",
+            color="#5A9C65",
+            label="50% radius",
+        )
+        axis.plot(
+            offsets,
+            uncertainty.radius_90_meters,
+            marker="o",
+            color="#D95F02",
+            label="90% radius",
+        )
+        axis.set_title("Forecast uncertainty", fontsize=11)
+        axis.set_xlabel("Horizon [s]")
+        axis.set_ylabel("Equivalent radius [m]")
+        axis.legend(loc="best", fontsize=8, framealpha=0.95)
+
+    def destroy(self) -> None:
+        """Cancel scheduled playback before the enclosing Tk view is discarded."""
+        self._playing = False
+        self._cancel_timer()
+        super().destroy()
+
+
+def _regularize_covariance(covariance) -> np.ndarray:
+    covariance = np.asarray(covariance, dtype=float)
+    eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.T))
+    return (eigenvectors * np.maximum(eigenvalues, 1e-12)) @ eigenvectors.T
