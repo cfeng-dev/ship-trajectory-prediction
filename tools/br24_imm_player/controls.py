@@ -231,8 +231,18 @@ class IMMControls(tk.Frame):
         self._values["log_density"].set(
             _format_optional(metrics.predictive_log_density, "")
         )
-        self._values["coverage_50"].set(_format_percentage(metrics.joint_coverage_50))
-        self._values["coverage_90"].set(_format_percentage(metrics.joint_coverage_90))
+        self._values["coverage_50"].set(
+            _format_coverage(
+                metrics.joint_coverage_50_count,
+                metrics.joint_coverage_total,
+            )
+        )
+        self._values["coverage_90"].set(
+            _format_coverage(
+                metrics.joint_coverage_90_count,
+                metrics.joint_coverage_total,
+            )
+        )
         self._values["association_status"].set(
             "Associated"
             if stage.detection_id is not None
@@ -251,7 +261,7 @@ def _format_optional(value: float | None, unit: str) -> str:
     return f"{value:.2f}{suffix}"
 
 
-def _format_percentage(value: float | None) -> str:
-    if value is None or not np.isfinite(value):
+def _format_coverage(covered_count: int, total_count: int) -> str:
+    if total_count < 1:
         return "-"
-    return f"{value:.1%}"
+    return f"{100 * covered_count / total_count:.1f}% ({covered_count}/{total_count})"

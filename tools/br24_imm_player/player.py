@@ -89,8 +89,9 @@ class IMMForecastMetrics:
     rmse_m: float | None
     energy_score_m: float | None
     predictive_log_density: float | None
-    joint_coverage_50: float | None
-    joint_coverage_90: float | None
+    joint_coverage_50_count: int
+    joint_coverage_90_count: int
+    joint_coverage_total: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +165,13 @@ class IMMPlaybackStore:
             self._display_states[observation_count] = IMMDisplayState(
                 stage=stage,
                 movement=_movement_state(stage),
-                metrics=_forecast_metrics(stage, self.reference),
+                metrics=_forecast_metrics(
+                    stage,
+                    self.reference,
+                    coverage_stages=tuple(
+                        self._stages[count] for count in range(1, observation_count + 1)
+                    ),
+                ),
                 uncertainty=_forecast_uncertainty(stage),
             )
         return self._display_states[observation_count]
@@ -270,10 +277,12 @@ def _movement_state(stage: IMMPlayerStage) -> IMMMovementState:
     )
 
 
-def _forecast_metrics(stage: IMMPlayerStage, reference) -> IMMForecastMetrics:
-    """Score the current Gaussian forecast only after the tracker has updated."""
+def _forecast_metrics(
+    stage: IMMPlayerStage, reference, *, coverage_stages
+) -> IMMForecastMetrics:
+    """Score the current forecast and aggregate joint coverage through this stage."""
     if reference is None:
-        return IMMForecastMetrics(None, None, None, None, None, None, None)
+        return IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
     forecast = stage.forecast
     means = np.asarray(forecast.position_means, dtype=float)
     covariances = _regularize_covariances(forecast.position_covariances)
@@ -305,13 +314,9 @@ def _forecast_metrics(stage: IMMPlayerStage, reference) -> IMMForecastMetrics:
             )
         ]
     )
-    squared_mahalanobis = np.asarray(
-        [
-            _squared_mahalanobis(target - mean, covariance)
-            for target, mean, covariance in zip(
-                targets, means, covariances, strict=True
-            )
-        ]
+    covered_50_count, covered_90_count, total_count = _joint_coverage_counts(
+        coverage_stages,
+        reference,
     )
     return IMMForecastMetrics(
         ade_m=float(errors.mean()),
@@ -319,9 +324,40 @@ def _forecast_metrics(stage: IMMPlayerStage, reference) -> IMMForecastMetrics:
         rmse_m=float(np.sqrt(np.mean(errors**2))),
         energy_score_m=float(energy_scores.mean()),
         predictive_log_density=float(log_densities.mean()),
-        joint_coverage_50=float(np.mean(squared_mahalanobis <= chi2.ppf(0.5, 2))),
-        joint_coverage_90=float(np.mean(squared_mahalanobis <= chi2.ppf(0.9, 2))),
+        joint_coverage_50_count=covered_50_count,
+        joint_coverage_90_count=covered_90_count,
+        joint_coverage_total=total_count,
     )
+
+
+def _joint_coverage_counts(stages, reference) -> tuple[int, int, int]:
+    """Aggregate 2D 50% and 90% coverage over each forecast through the stage."""
+    covered_50_count, covered_90_count, total_count = 0, 0, 0
+    threshold_50 = chi2.ppf(0.5, 2)
+    threshold_90 = chi2.ppf(0.9, 2)
+    for stage in stages:
+        forecast = stage.forecast
+        means = np.asarray(forecast.position_means, dtype=float)
+        covariances = _regularize_covariances(forecast.position_covariances)
+        target_indices = np.arange(
+            stage.observation_count,
+            stage.observation_count + means.shape[0],
+        )
+        targets = np.column_stack(
+            (reference.x_meters[target_indices], reference.y_meters[target_indices])
+        )
+        squared_mahalanobis = np.asarray(
+            [
+                _squared_mahalanobis(target - mean, covariance)
+                for target, mean, covariance in zip(
+                    targets, means, covariances, strict=True
+                )
+            ]
+        )
+        covered_50_count += int(np.count_nonzero(squared_mahalanobis <= threshold_50))
+        covered_90_count += int(np.count_nonzero(squared_mahalanobis <= threshold_90))
+        total_count += len(squared_mahalanobis)
+    return covered_50_count, covered_90_count, total_count
 
 
 def _forecast_uncertainty(stage: IMMPlayerStage) -> IMMForecastUncertainty:

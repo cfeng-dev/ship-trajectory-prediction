@@ -50,17 +50,6 @@ class BR24IMMPlayerApp:
             justify="center",
         )
         self.placeholder.pack(fill="both", expand=True)
-        self.status = tk.StringVar(root, value="Ready.")
-        tk.Label(
-            root,
-            textvariable=self.status,
-            bg="#E7EEF4",
-            fg=view.TEXT_COLOR,
-            anchor="w",
-            font=("Arial", 9),
-            padx=8,
-            pady=3,
-        ).grid(row=1, column=0, columnspan=2, sticky="ew")
         view.create_menu_bar(self)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._prepare_analysis(self.config)
@@ -76,9 +65,6 @@ class BR24IMMPlayerApp:
         self.controls.clear_display_state()
         self.controls.set_analysis_active(False)
         self.placeholder.pack(fill="both", expand=True)
-        self.status.set(
-            f"Ready to analyze {config.data_file.name}. Click Start analysis."
-        )
 
     def _load_session(
         self, config: IMMPlayerConfig, *, show_error: bool = True
@@ -87,7 +73,6 @@ class BR24IMMPlayerApp:
             store = IMMPlaybackStore(config)
         except Exception as error:
             detail = f"{type(error).__name__}: {error}"
-            self.status.set(f"Load failed: {detail}")
             if show_error:
                 messagebox.showerror("BR24 IMM player", detail, parent=self.root)
             return False
@@ -110,27 +95,13 @@ class BR24IMMPlayerApp:
             settings_visible=self.settings_visible,
         )
         self.plot_view.pack(fill="both", expand=True)
-        self.status.set(
-            f"Initialized {config.data_file.name}. Display N=0/"
-            f"{store.maximum_observation_count}; start playback for the first update."
-        )
         return True
 
     def _show_stage(self, state) -> None:
         if state is None:
             self.controls.clear_display_state()
-            if self.store is not None:
-                self.status.set(
-                    f"Initial IMM display: N=0/{self.store.maximum_observation_count}."
-                )
             return
         self.controls.show_display_state(state)
-        if self.store is not None:
-            self.status.set(
-                f"Online IMM update: N={state.stage.observation_count}/"
-                f"{self.store.maximum_observation_count}, "
-                f"cycle={state.stage.cycle_counter}."
-            )
 
     def start_analysis(self) -> None:
         """Initialize the local IMM and present the pre-update N = 0 view."""
