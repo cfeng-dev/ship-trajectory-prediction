@@ -68,8 +68,6 @@ class IMMControls(tk.Frame):
             "<Configure>",
             lambda event: canvas.itemconfigure(window, width=event.width),
         )
-        canvas.bind("<MouseWheel>", self._on_mouse_wheel)
-        body.bind("<MouseWheel>", self._on_mouse_wheel)
 
         tk.Label(
             body,
@@ -120,9 +118,11 @@ class IMMControls(tk.Frame):
                 ("Cycle", "cycle"),
             ),
         ).grid(row=5, column=0, sticky="ew")
+        self._bind_mouse_wheel()
 
     def _add_analysis_section(self, parent) -> tk.LabelFrame:
         section = self._section(parent, "Analysis")
+        section.columnconfigure(0, weight=1)
         self._analysis_button = create_button(section, "Start analysis", self._on_start)
         self._analysis_button.grid(sticky="ew", padx=8, pady=8)
         return section
@@ -146,9 +146,14 @@ class IMMControls(tk.Frame):
             font=("Arial", 8),
         )
         entry.grid(row=1, column=0, sticky="ew", padx=(8, 4), pady=(0, 7))
-        create_button(section, "Browse...", self.choose_file).grid(
-            row=1, column=1, sticky="e", padx=(0, 8), pady=(0, 7)
-        )
+        create_button(
+            section,
+            "...",
+            self.choose_file,
+            width=0,
+            padx=4,
+            pady=1,
+        ).grid(row=1, column=1, sticky="ns", padx=(0, 8), pady=(0, 7))
         create_button(section, "Reset analysis", self._on_reload).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8)
         )
@@ -190,9 +195,43 @@ class IMMControls(tk.Frame):
         )
 
     def _on_mouse_wheel(self, event):
-        direction = -1 if event.delta > 0 else 1
+        if self._canvas.yview() == (0.0, 1.0):
+            return None
+        direction = -1 if getattr(event, "num", None) == 4 or event.delta > 0 else 1
         self._canvas.yview_scroll(direction, "units")
         return "break"
+
+    def _on_touchpad_scroll(self, event):
+        _delta_x, delta_y = self._canvas.tk.call(
+            "tk::PreciseScrollDeltas",
+            event.delta,
+        )
+        delta_y = float(delta_y)
+        region = self._canvas.bbox("all")
+        if delta_y == 0 or region is None:
+            return "break"
+        content_height = region[3] - region[1]
+        first, last = self._canvas.yview()
+        if content_height > 0 and last - first < 1:
+            new_first = min(
+                max(first - delta_y / content_height, 0), 1 - (last - first)
+            )
+            self._canvas.yview_moveto(new_first)
+        return "break"
+
+    def _bind_mouse_wheel(self) -> None:
+        """Keep scrolling local to the sidebar, including all populated fields."""
+        widgets = [self._canvas]
+        while widgets:
+            widget = widgets.pop()
+            widget.bind("<MouseWheel>", self._on_mouse_wheel)
+            widget.bind("<Button-4>", self._on_mouse_wheel)
+            widget.bind("<Button-5>", self._on_mouse_wheel)
+            try:
+                widget.bind("<TouchpadScroll>", self._on_touchpad_scroll)
+            except tk.TclError:
+                pass  # TouchpadScroll requires Tk 9.
+            widgets.extend(widget.winfo_children())
 
     def choose_file(self) -> None:
         """Ask for a tracking CSV and notify the application only if selected."""

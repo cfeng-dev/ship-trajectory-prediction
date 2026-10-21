@@ -65,19 +65,41 @@ def create_menu_bar(app) -> None:
     app.root.configure(menu=menu_bar)
 
 
-def create_button(parent, text: str, command, *, foreground: str | None = None):
-    """Return a consistently styled Tk button."""
-    return tk.Button(
+def create_button(
+    parent,
+    text: str,
+    command,
+    *,
+    foreground: str | None = None,
+    width: int = 18,
+    padx: int = 10,
+    pady: int = 3,
+):
+    """Match the Predictor's button sizing and blue hover feedback."""
+    button = tk.Button(
         parent,
         text=text,
         command=command,
-        bg=BUTTON_BACKGROUND,
+        width=width,
+        bg="#ffffff",
         fg=foreground or TEXT_COLOR,
-        activebackground="#D8E8F2",
+        activebackground="#b8d8e8",
         activeforeground=foreground or TEXT_COLOR,
         font=FONT,
+        disabledforeground="#7a8790",
         relief="solid",
         borderwidth=1,
-        padx=6,
-        pady=3,
+        highlightthickness=0,
+        padx=padx,
+        pady=pady,
     )
+    button.bind(
+        "<Enter>",
+        lambda _: (
+            button.configure(bg="#b8d8e8")
+            if button.cget("state") != "disabled"
+            else None
+        ),
+    )
+    button.bind("<Leave>", lambda _: button.configure(bg="#ffffff"))
+    return button
