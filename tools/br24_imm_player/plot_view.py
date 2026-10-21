@@ -38,6 +38,8 @@ class IMMPlotView(tk.Frame):
         self._playing = False
         self._after_id = None
         self._updating_slider = False
+        self._route_has_been_drawn = False
+        self._follow_ship_view_needs_focus = True
         self.follow_ship_var = tk.BooleanVar(self, value=True)
         self.show_reference_var = tk.BooleanVar(self, value=store.reference is not None)
         self.settings_visible_var = tk.BooleanVar(self, value=settings_visible)
@@ -103,7 +105,7 @@ class IMMPlotView(tk.Frame):
             controls,
             text="Follow ship",
             variable=self.follow_ship_var,
-            command=self._draw,
+            command=self._follow_ship_changed,
             bg=PLOT_BACKGROUND,
             fg=TEXT_COLOR,
             selectcolor=PLOT_BACKGROUND,
@@ -200,6 +202,8 @@ class IMMPlotView(tk.Frame):
     def reset_view(self) -> None:
         """Return to the full trajectory extent without touching IMM state."""
         self.follow_ship_var.set(False)
+        self._follow_ship_view_needs_focus = False
+        self._route_has_been_drawn = False
         self.toolbar.home()
         self._draw()
 
@@ -217,6 +221,9 @@ class IMMPlotView(tk.Frame):
 
     def _draw_route(self) -> None:
         axis = self.route_axis
+        view_limits = None
+        if self._route_has_been_drawn:
+            view_limits = (axis.get_xlim(), axis.get_ylim())
         axis.clear()
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, color="#DCE5EC", linewidth=0.7)
@@ -240,6 +247,8 @@ class IMMPlotView(tk.Frame):
                 tracked=np.empty((0, 2)),
                 means=np.empty((0, 2)),
             )
+            self._restore_route_limits(axis, view_limits)
+            self._route_has_been_drawn = True
             if self.show_reference_var.get() and self.store.reference is not None:
                 axis.legend(loc="best", fontsize=8, framealpha=0.95)
             else:
@@ -292,6 +301,9 @@ class IMMPlotView(tk.Frame):
         ):
             self._draw_covariance_ellipses(axis, mean, covariance, step)
         self._set_route_limits(axis, tracked, means)
+        self._restore_route_limits(axis, view_limits)
+        self._center_route_on_ship(axis, tracked)
+        self._route_has_been_drawn = True
         axis.legend(loc="best", fontsize=8, framealpha=0.95)
 
     def _draw_covariance_ellipses(
@@ -327,12 +339,6 @@ class IMMPlotView(tk.Frame):
         )
 
     def _set_route_limits(self, axis, tracked: np.ndarray, means: np.ndarray) -> None:
-        if self.follow_ship_var.get() and len(tracked):
-            center = tracked[-1]
-            half_span = self.store.config.follow_ship_view_span_meters / 2.0
-            axis.set_xlim(center[0] - half_span, center[0] + half_span)
-            axis.set_ylim(center[1] - half_span, center[1] + half_span)
-            return
         points = [array for array in (tracked, means) if len(array)]
         if self.show_reference_var.get() and self.store.reference is not None:
             points.append(
@@ -350,6 +356,40 @@ class IMMPlotView(tk.Frame):
         margin = np.maximum(10.0, 0.05 * (upper - lower))
         axis.set_xlim(lower[0] - margin[0], upper[0] + margin[0])
         axis.set_ylim(lower[1] - margin[1], upper[1] + margin[1])
+
+    @staticmethod
+    def _restore_route_limits(axis, view_limits) -> None:
+        if view_limits is not None:
+            axis.set_xlim(view_limits[0])
+            axis.set_ylim(view_limits[1])
+
+    def _follow_ship_changed(self) -> None:
+        """Focus once on enable; retain manual zoom during later redraws."""
+        if self.follow_ship_var.get():
+            self._follow_ship_view_needs_focus = True
+        else:
+            self._follow_ship_view_needs_focus = False
+            self._route_has_been_drawn = False
+        self._draw()
+
+    def _center_route_on_ship(self, axis, tracked: np.ndarray) -> None:
+        """Follow the ship while preserving the current manual x/y spans."""
+        if not self.follow_ship_var.get() or not len(tracked):
+            return
+        center = tracked[-1]
+        if self._follow_ship_view_needs_focus:
+            half_span = self.store.config.follow_ship_view_span_meters / 2.0
+            axis.set_xlim(center[0] - half_span, center[0] + half_span)
+            axis.set_ylim(center[1] - half_span, center[1] + half_span)
+            self._follow_ship_view_needs_focus = False
+            return
+        for get_limits, set_limits, position in (
+            (axis.get_xlim, axis.set_xlim, center[0]),
+            (axis.get_ylim, axis.set_ylim, center[1]),
+        ):
+            lower, upper = get_limits()
+            half_span = (upper - lower) / 2.0
+            set_limits(position - half_span, position + half_span)
 
     def _draw_mode_probabilities(self) -> None:
         axis = self.mode_axis

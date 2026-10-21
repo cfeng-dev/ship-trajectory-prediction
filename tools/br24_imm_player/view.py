@@ -13,14 +13,21 @@ ACCENT_COLOR = "#2878B5"
 BUTTON_BACKGROUND = "#EAF1F6"
 FONT = ("Arial", 10)
 HEADING_FONT = ("Arial", 12, "bold")
+MAIN_WINDOW_WIDTH = 1_400
+MAIN_WINDOW_HEIGHT = 700
+MAIN_WINDOW_VERTICAL_OFFSET = 40
 
 
 def configure_window(root: tk.Tk) -> None:
     """Apply the shared Predictor-like desktop layout to ``root``."""
     root.title(WINDOW_TITLE)
     root.configure(bg=WINDOW_BACKGROUND)
-    root.minsize(1_180, 720)
-    root.geometry("1600x920")
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    left = (screen_width - MAIN_WINDOW_WIDTH) // 2
+    top = (screen_height - MAIN_WINDOW_HEIGHT) // 2 - MAIN_WINDOW_VERTICAL_OFFSET
+    root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}+{left}+{top}")
+    root.minsize(1_000, 620)
     root.grid_rowconfigure(0, weight=1)
     root.grid_columnconfigure(1, weight=1)
 
