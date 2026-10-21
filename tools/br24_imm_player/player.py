@@ -22,7 +22,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
 DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
 
-INITIAL_OBSERVATION_COUNT = 10
 PREDICTION_COUNT = 2
 PLAYBACK_INTERVAL_MS = 1_000
 FOLLOW_SHIP_VIEW_SPAN_METERS = 300.0
@@ -36,7 +35,6 @@ class IMMPlayerConfig:
     """Settings used to construct one isolated local IMM playback session."""
 
     data_file: Path = DATA_FILE
-    initial_observation_count: int = INITIAL_OBSERVATION_COUNT
     prediction_count: int = PREDICTION_COUNT
     playback_interval_ms: int = PLAYBACK_INTERVAL_MS
     follow_ship_view_span_meters: float = FOLLOW_SHIP_VIEW_SPAN_METERS
@@ -44,7 +42,6 @@ class IMMPlayerConfig:
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_file", Path(self.data_file).expanduser())
         for name in (
-            "initial_observation_count",
             "prediction_count",
             "playback_interval_ms",
         ):
@@ -129,10 +126,9 @@ class IMMPlaybackStore:
             [cycle.time_seconds for cycle in self.cycles], dtype=float
         )
         self.maximum_observation_count = len(self.cycles) - config.prediction_count
-        if not 1 <= config.initial_observation_count <= self.maximum_observation_count:
+        if self.maximum_observation_count < 1:
             raise ValueError(
-                "initial_observation_count must leave room for the requested "
-                "prediction horizon."
+                "The BR24 input must leave room for the requested prediction horizon."
             )
         if not self.cycles[0].detections:
             raise ValueError(

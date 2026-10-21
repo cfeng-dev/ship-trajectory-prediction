@@ -32,13 +32,18 @@ class BR24IMMPlayerApp:
             root,
             on_open_file=self.open_csv,
             on_reload=self.reload_session,
+            on_start=self.start_analysis,
         )
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
         self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         self.placeholder = tk.Label(
             self.plot_host,
-            text="BR24 IMM online playback\n\nLoading local radar input...",
+            text=(
+                "Trajectory and IMM evolution\n\n"
+                "Select a BR24 CSV and configure the player on the left.\n"
+                "Then click 'Start analysis'."
+            ),
             bg=view.PLOT_BACKGROUND,
             fg=view.TEXT_COLOR,
             font=("Arial", 12),
@@ -58,14 +63,28 @@ class BR24IMMPlayerApp:
         ).grid(row=1, column=0, columnspan=2, sticky="ew")
         view.create_menu_bar(self)
         root.protocol("WM_DELETE_WINDOW", self.close)
-        self._load_session(self.config)
+        self._prepare_analysis(self.config)
+
+    def _prepare_analysis(self, config: IMMPlayerConfig) -> None:
+        """Return to the unstarted state without initializing the tracker."""
+        if self.plot_view is not None:
+            self.plot_view.destroy()
+            self.plot_view = None
+        self.store = None
+        self.config = config
+        self.controls.set_data_file(config.data_file)
+        self.controls.clear_display_state()
+        self.controls.set_analysis_active(False)
+        self.placeholder.pack(fill="both", expand=True)
+        self.status.set(
+            f"Ready to analyze {config.data_file.name}. Click Start analysis."
+        )
 
     def _load_session(
         self, config: IMMPlayerConfig, *, show_error: bool = True
     ) -> bool:
         try:
             store = IMMPlaybackStore(config)
-            initial_state = store.display_state_for(config.initial_observation_count)
         except Exception as error:
             detail = f"{type(error).__name__}: {error}"
             self.status.set(f"Load failed: {detail}")
@@ -79,25 +98,32 @@ class BR24IMMPlayerApp:
         self.store = store
         self.config = config
         self.controls.set_data_file(config.data_file)
-        self.controls.show_display_state(initial_state)
+        self.controls.clear_display_state()
+        self.controls.set_analysis_active(True)
         self.placeholder.pack_forget()
         self.plot_view = IMMPlotView(
             self.plot_host,
             store=store,
-            initial_state=initial_state,
+            initial_state=None,
             on_stage_changed=self._show_stage,
             on_settings_visibility_change=self.set_settings_visible,
             settings_visible=self.settings_visible,
         )
         self.plot_view.pack(fill="both", expand=True)
         self.status.set(
-            f"Loaded {config.data_file.name}. "
-            f"Display N={initial_state.stage.observation_count}/"
-            f"{store.maximum_observation_count}."
+            f"Initialized {config.data_file.name}. Display N=0/"
+            f"{store.maximum_observation_count}; start playback for the first update."
         )
         return True
 
     def _show_stage(self, state) -> None:
+        if state is None:
+            self.controls.clear_display_state()
+            if self.store is not None:
+                self.status.set(
+                    f"Initial IMM display: N=0/{self.store.maximum_observation_count}."
+                )
+            return
         self.controls.show_display_state(state)
         if self.store is not None:
             self.status.set(
@@ -106,19 +132,24 @@ class BR24IMMPlayerApp:
                 f"cycle={state.stage.cycle_counter}."
             )
 
+    def start_analysis(self) -> None:
+        """Initialize the local IMM and present the pre-update N = 0 view."""
+        if not self._closing:
+            self._load_session(self.config)
+
     def open_csv(self, data_file: Path | None = None) -> None:
-        """Open a selected CSV, preserving the previous player if it is invalid."""
+        """Select a CSV and return to the unstarted analysis state."""
         if self._closing:
             return
         if data_file is None:
             self.controls.choose_file()
             return
-        self._load_session(replace(self.config, data_file=data_file))
+        self._prepare_analysis(replace(self.config, data_file=data_file))
 
     def reload_session(self) -> None:
-        """Discard cache and restart the current file with the current settings."""
+        """Discard any displayed session and return to the unstarted state."""
         if not self._closing:
-            self._load_session(self.config)
+            self._prepare_analysis(self.config)
 
     def toggle_settings(self) -> None:
         """Toggle the sidebar from the View menu."""
@@ -156,7 +187,8 @@ class BR24IMMPlayerApp:
         )
 
     def _apply_settings(self, config: IMMPlayerConfig) -> bool:
-        return self._load_session(config)
+        self._prepare_analysis(config)
+        return True
 
     def show_help(self) -> None:
         if not self._closing:

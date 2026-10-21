@@ -25,7 +25,7 @@ class IMMPlotView(tk.Frame):
         parent,
         *,
         store: IMMPlaybackStore,
-        initial_state: IMMDisplayState,
+        initial_state: IMMDisplayState | None,
         on_stage_changed,
         on_settings_visibility_change,
         settings_visible: bool,
@@ -85,7 +85,7 @@ class IMMPlotView(tk.Frame):
         )
         self.slider = tk.Scale(
             controls,
-            from_=self.store.config.initial_observation_count,
+            from_=0,
             to=self.store.maximum_observation_count,
             orient="horizontal",
             command=self._on_slider_change,
@@ -97,7 +97,7 @@ class IMMPlotView(tk.Frame):
             troughcolor="#D4DFE7",
             length=480,
         )
-        self.slider.set(self.current_state.stage.observation_count)
+        self.slider.set(self._observation_count())
         self.slider.pack(side="left", fill="x", expand=True, padx=(5, 16))
         tk.Checkbutton(
             controls,
@@ -139,15 +139,18 @@ class IMMPlotView(tk.Frame):
         if self._updating_slider:
             return
         observation_count = int(round(float(value)))
-        if observation_count == self.current_state.stage.observation_count:
+        if observation_count == self._observation_count():
+            return
+        if observation_count == 0:
+            self.set_stage(None)
             return
         self.set_stage(self.store.display_state_for(observation_count))
 
-    def set_stage(self, state: IMMDisplayState) -> None:
+    def set_stage(self, state: IMMDisplayState | None) -> None:
         """Set the online display stage and synchronize every visible component."""
         self.current_state = state
         self._updating_slider = True
-        self.slider.set(state.stage.observation_count)
+        self.slider.set(self._observation_count())
         self._updating_slider = False
         self._on_stage_changed(state)
         self._draw()
@@ -171,12 +174,17 @@ class IMMPlotView(tk.Frame):
         self._after_id = None
         if not self._playing:
             return
-        current_count = self.current_state.stage.observation_count
+        current_count = self._observation_count()
         if current_count >= self.store.maximum_observation_count:
             self.toggle_playback()
             return
         self.set_stage(self.store.display_state_for(current_count + 1))
         self._schedule_next_step()
+
+    def _observation_count(self) -> int:
+        if self.current_state is None:
+            return 0
+        return self.current_state.stage.observation_count
 
     def _cancel_timer(self) -> None:
         if self._after_id is not None:
@@ -200,8 +208,7 @@ class IMMPlotView(tk.Frame):
         self._draw_mode_probabilities()
         self._draw_uncertainty()
         self.figure.suptitle(
-            "BR24 IMM online update - "
-            f"N = {self.current_state.stage.observation_count}",
+            f"BR24 IMM online update - N = {self._observation_count()}",
             fontsize=16,
             fontweight="bold",
             color=TEXT_COLOR,
@@ -217,8 +224,6 @@ class IMMPlotView(tk.Frame):
         axis.set_xlabel("Easting x [m]")
         axis.set_ylabel("Northing y [m]")
         axis.set_aspect("equal", adjustable="box")
-        stage = self.current_state.stage
-        tracked = np.asarray(stage.tracked_positions, dtype=float)
         if self.show_reference_var.get() and self.store.reference is not None:
             axis.plot(
                 self.store.reference.x_meters,
@@ -229,6 +234,28 @@ class IMMPlotView(tk.Frame):
                 label="Reference (evaluation only)",
                 zorder=1,
             )
+        if self.current_state is None:
+            self._set_route_limits(
+                axis,
+                tracked=np.empty((0, 2)),
+                means=np.empty((0, 2)),
+            )
+            if self.show_reference_var.get() and self.store.reference is not None:
+                axis.legend(loc="best", fontsize=8, framealpha=0.95)
+            else:
+                axis.text(
+                    0.5,
+                    0.5,
+                    "Reference preview is unavailable.\nFirst IMM update: N = 1.",
+                    transform=axis.transAxes,
+                    ha="center",
+                    va="center",
+                    color="#52616B",
+                )
+            return
+
+        stage = self.current_state.stage
+        tracked = np.asarray(stage.tracked_positions, dtype=float)
         axis.plot(
             tracked[:, 0],
             tracked[:, 1],
@@ -300,19 +327,23 @@ class IMMPlotView(tk.Frame):
         )
 
     def _set_route_limits(self, axis, tracked: np.ndarray, means: np.ndarray) -> None:
-        if self.follow_ship_var.get():
+        if self.follow_ship_var.get() and len(tracked):
             center = tracked[-1]
             half_span = self.store.config.follow_ship_view_span_meters / 2.0
             axis.set_xlim(center[0] - half_span, center[0] + half_span)
             axis.set_ylim(center[1] - half_span, center[1] + half_span)
             return
-        points = [tracked, means]
+        points = [array for array in (tracked, means) if len(array)]
         if self.show_reference_var.get() and self.store.reference is not None:
             points.append(
                 np.column_stack(
                     (self.store.reference.x_meters, self.store.reference.y_meters)
                 )
             )
+        if not points:
+            axis.set_xlim(-1.0, 1.0)
+            axis.set_ylim(-1.0, 1.0)
+            return
         all_points = np.vstack(points)
         lower = np.min(all_points, axis=0)
         upper = np.max(all_points, axis=0)
@@ -325,6 +356,18 @@ class IMMPlotView(tk.Frame):
         axis.clear()
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
+        axis.set_title("Forecast mode probabilities", fontsize=11)
+        if self.current_state is None:
+            axis.text(
+                0.5,
+                0.5,
+                "Available after\nN = 1",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                color="#52616B",
+            )
+            return
         stage = self.current_state.stage
         offsets = (
             np.asarray(stage.forecast.time_seconds) - stage.observation_time_seconds
@@ -334,7 +377,6 @@ class IMMPlotView(tk.Frame):
             zip(MODE_NAMES, MODE_COLORS, strict=True)
         ):
             axis.plot(offsets, modes[:, index], marker="o", color=color, label=name)
-        axis.set_title("Forecast mode probabilities", fontsize=11)
         axis.set_xlabel("Horizon [s]")
         axis.set_ylabel("Probability")
         axis.set_ylim(-0.02, 1.02)
@@ -345,6 +387,18 @@ class IMMPlotView(tk.Frame):
         axis.clear()
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
+        axis.set_title("Forecast uncertainty", fontsize=11)
+        if self.current_state is None:
+            axis.text(
+                0.5,
+                0.5,
+                "Available after\nN = 1",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                color="#52616B",
+            )
+            return
         stage = self.current_state.stage
         offsets = (
             np.asarray(stage.forecast.time_seconds) - stage.observation_time_seconds
@@ -364,7 +418,6 @@ class IMMPlotView(tk.Frame):
             color="#D95F02",
             label="90% radius",
         )
-        axis.set_title("Forecast uncertainty", fontsize=11)
         axis.set_xlabel("Horizon [s]")
         axis.set_ylabel("Equivalent radius [m]")
         axis.legend(loc="best", fontsize=8, framealpha=0.95)

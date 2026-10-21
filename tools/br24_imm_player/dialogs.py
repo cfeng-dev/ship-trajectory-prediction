@@ -22,9 +22,6 @@ class PlaybackSettingsDialog:
         self._config = config
         self._on_apply = on_apply
         self._variables = {
-            "initial_observation_count": tk.StringVar(
-                self.window, value=str(config.initial_observation_count)
-            ),
             "prediction_count": tk.StringVar(
                 self.window, value=str(config.prediction_count)
             ),
@@ -42,7 +39,6 @@ class PlaybackSettingsDialog:
         frame = tk.Frame(self.window, bg=WINDOW_BACKGROUND, padx=16, pady=14)
         frame.grid(sticky="nsew")
         labels = (
-            ("Initial observations", "initial_observation_count"),
             ("Prediction horizon", "prediction_count"),
             ("Playback interval [ms]", "playback_interval_ms"),
             ("Follow-ship span [m]", "follow_ship_view_span_meters"),
@@ -68,9 +64,6 @@ class PlaybackSettingsDialog:
         try:
             config = IMMPlayerConfig(
                 data_file=self._config.data_file,
-                initial_observation_count=int(
-                    self._variables["initial_observation_count"].get()
-                ),
                 prediction_count=int(self._variables["prediction_count"].get()),
                 playback_interval_ms=int(self._variables["playback_interval_ms"].get()),
                 follow_ship_view_span_meters=float(

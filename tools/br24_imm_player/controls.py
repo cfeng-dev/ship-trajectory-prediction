@@ -15,10 +15,12 @@ from .view import CONTROL_BACKGROUND, FONT, HEADING_FONT, TEXT_COLOR, create_but
 class IMMControls(tk.Frame):
     """Expose file, movement, evaluation, and association values in one sidebar."""
 
-    def __init__(self, parent, *, on_open_file, on_reload) -> None:
+    def __init__(self, parent, *, on_open_file, on_reload, on_start) -> None:
         super().__init__(parent, bg=CONTROL_BACKGROUND, width=340)
         self._on_open_file = on_open_file
         self._on_reload = on_reload
+        self._on_start = on_start
+        self._analysis_button: tk.Button | None = None
         self._data_file = tk.StringVar(self, value="")
         self._values = {
             name: tk.StringVar(self, value="-")
@@ -71,7 +73,10 @@ class IMMControls(tk.Frame):
             fg=TEXT_COLOR,
             font=HEADING_FONT,
         ).grid(row=0, column=0, sticky="ew", pady=(4, 12))
-        self._add_data_section(body).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        self._add_analysis_section(body).grid(
+            row=1, column=0, sticky="ew", pady=(0, 10)
+        )
+        self._add_data_section(body).grid(row=2, column=0, sticky="ew", pady=(0, 10))
         self._add_value_section(
             body,
             "Current movement",
@@ -82,7 +87,7 @@ class IMMControls(tk.Frame):
                 ("Turn rate", "turn_rate"),
                 ("Time", "time"),
             ),
-        ).grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 10))
         self._add_value_section(
             body,
             "Evaluation metrics",
@@ -95,7 +100,7 @@ class IMMControls(tk.Frame):
                 ("Joint 50% coverage", "coverage_50"),
                 ("Joint 90% coverage", "coverage_90"),
             ),
-        ).grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 10))
         self._add_value_section(
             body,
             "BR24 radar association",
@@ -104,7 +109,13 @@ class IMMControls(tk.Frame):
                 ("Detection ID", "detection_id"),
                 ("Cycle", "cycle"),
             ),
-        ).grid(row=4, column=0, sticky="ew")
+        ).grid(row=5, column=0, sticky="ew")
+
+    def _add_analysis_section(self, parent) -> tk.LabelFrame:
+        section = self._section(parent, "Analysis")
+        self._analysis_button = create_button(section, "Start analysis", self._on_start)
+        self._analysis_button.grid(sticky="ew", padx=8, pady=8)
+        return section
 
     def _add_data_section(self, parent) -> tk.LabelFrame:
         section = self._section(parent, "Data")
@@ -128,7 +139,7 @@ class IMMControls(tk.Frame):
         create_button(section, "Browse...", self.choose_file).grid(
             row=1, column=1, sticky="e", padx=(0, 8), pady=(0, 7)
         )
-        create_button(section, "Reload player", self._on_reload).grid(
+        create_button(section, "Reset analysis", self._on_reload).grid(
             row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8)
         )
         return section
@@ -186,6 +197,18 @@ class IMMControls(tk.Frame):
     def set_data_file(self, data_file: Path) -> None:
         """Show the successfully loaded data file in the readonly field."""
         self._data_file.set(str(data_file))
+
+    def set_analysis_active(self, active: bool) -> None:
+        """Distinguish an unstarted analysis from a displayed IMM session."""
+        if self._analysis_button is not None:
+            self._analysis_button.configure(
+                text="Restart analysis" if active else "Start analysis"
+            )
+
+    def clear_display_state(self) -> None:
+        """Reset values until the user explicitly starts an analysis."""
+        for value in self._values.values():
+            value.set("-")
 
     def show_display_state(self, state: IMMDisplayState) -> None:
         """Render one stage's movement, metric, and association fields."""

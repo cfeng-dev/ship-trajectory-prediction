@@ -31,7 +31,7 @@ def create_menu_bar(app) -> None:
 
     file_menu = tk.Menu(menu_bar, tearoff=False)
     file_menu.add_command(label="Open BR24 CSV...", command=app.open_csv)
-    file_menu.add_command(label="Reload", command=app.reload_session)
+    file_menu.add_command(label="Reset analysis", command=app.reload_session)
     file_menu.add_separator()
     file_menu.add_command(label="Exit", command=app.close)
     menu_bar.add_cascade(label="File", menu=file_menu)
