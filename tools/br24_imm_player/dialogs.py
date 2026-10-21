@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
-from .player import IMMPlayerConfig
+from .player import PREDICTION_REGION_STYLE_LABELS, IMMPlayerConfig
 from .view import FONT, TEXT_COLOR, WINDOW_BACKGROUND, create_button
 
 
@@ -14,7 +14,7 @@ class PlaybackSettingsDialog:
 
     def __init__(self, parent, config: IMMPlayerConfig, on_apply) -> None:
         self.window = tk.Toplevel(parent)
-        self.window.title("Playback and forecast settings")
+        self.window.title("Playback, forecast and plot settings")
         self.window.configure(bg=WINDOW_BACKGROUND)
         self.window.resizable(False, False)
         self.window.transient(parent)
@@ -22,6 +22,16 @@ class PlaybackSettingsDialog:
         self._config = config
         self._on_apply = on_apply
         self._variables = {
+            "prediction_region_style": tk.StringVar(
+                self.window,
+                value=PREDICTION_REGION_STYLE_LABELS[config.prediction_region_style],
+            ),
+            "show_prediction_region_50": tk.BooleanVar(
+                self.window, value=config.show_prediction_region_50
+            ),
+            "show_prediction_region_90": tk.BooleanVar(
+                self.window, value=config.show_prediction_region_90
+            ),
             "prediction_count": tk.StringVar(
                 self.window, value=str(config.prediction_count)
             ),
@@ -54,8 +64,42 @@ class PlaybackSettingsDialog:
             tk.Entry(
                 frame, textvariable=self._variables[name], width=16, font=FONT
             ).grid(row=row, column=1, sticky="ew", pady=5)
+        row = len(labels)
+        tk.Label(
+            frame,
+            text="Prediction uncertainty",
+            bg=WINDOW_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+        ).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
+        ttk.Combobox(
+            frame,
+            textvariable=self._variables["prediction_region_style"],
+            values=tuple(PREDICTION_REGION_STYLE_LABELS.values()),
+            state="readonly",
+            width=28,
+        ).grid(row=row, column=1, sticky="ew", pady=5)
+        for offset, probability in enumerate((50, 90), start=1):
+            tk.Checkbutton(
+                frame,
+                text=f"Show {probability}% region",
+                variable=self._variables[f"show_prediction_region_{probability}"],
+                bg=WINDOW_BACKGROUND,
+                fg=TEXT_COLOR,
+                font=FONT,
+            ).grid(row=row + offset, column=0, columnspan=2, sticky="w")
+        tk.Label(
+            frame,
+            text="Density views approximate the Gaussian IMM position forecasts.\n"
+            "Horizon views pool positions across forecast steps;\n"
+            "they are not a simultaneous trajectory probability band.",
+            bg=WINDOW_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+            justify="left",
+        ).grid(row=row + 3, column=0, columnspan=2, sticky="w", pady=(8, 0))
         buttons = tk.Frame(frame, bg=WINDOW_BACKGROUND)
-        buttons.grid(row=len(labels), column=0, columnspan=2, sticky="e", pady=(12, 0))
+        buttons.grid(row=row + 4, column=0, columnspan=2, sticky="e", pady=(12, 0))
         create_button(buttons, "Cancel", self.close).pack(side="right")
         create_button(buttons, "Apply", self.apply).pack(side="right", padx=(0, 7))
 
@@ -63,6 +107,17 @@ class PlaybackSettingsDialog:
         """Parse every field before handing one fresh configuration to the app."""
         try:
             config = IMMPlayerConfig(
+                prediction_region_style=next(
+                    key
+                    for key, label in PREDICTION_REGION_STYLE_LABELS.items()
+                    if label == self._variables["prediction_region_style"].get()
+                ),
+                show_prediction_region_50=self._variables[
+                    "show_prediction_region_50"
+                ].get(),
+                show_prediction_region_90=self._variables[
+                    "show_prediction_region_90"
+                ].get(),
                 data_file=self._config.data_file,
                 prediction_count=int(self._variables["prediction_count"].get()),
                 playback_interval_ms=int(self._variables["playback_interval_ms"].get()),

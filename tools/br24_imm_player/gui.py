@@ -13,6 +13,12 @@ from .dialogs import PlaybackSettingsDialog, show_help
 from .player import IMMPlaybackStore, IMMPlayerConfig
 from .plot_view import IMMPlotView
 
+INITIAL_PLACEHOLDER_TEXT = (
+    "Trajectory and IMM evolution\n\n"
+    "Select a BR24 CSV and configure the player on the left.\n"
+    "Then click 'Start analysis'."
+)
+
 
 class BR24IMMPlayerApp:
     """Keep all Tk and embedded Matplotlib access on the main thread."""
@@ -39,11 +45,7 @@ class BR24IMMPlayerApp:
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         self.placeholder = tk.Label(
             self.plot_host,
-            text=(
-                "Trajectory and IMM evolution\n\n"
-                "Select a BR24 CSV and configure the player on the left.\n"
-                "Then click 'Start analysis'."
-            ),
+            text=INITIAL_PLACEHOLDER_TEXT,
             bg=view.PLOT_BACKGROUND,
             fg=view.TEXT_COLOR,
             font=("Arial", 12),
@@ -67,6 +69,7 @@ class BR24IMMPlayerApp:
         self.controls.set_data_file(config.data_file)
         self.controls.clear_display_state()
         self.controls.set_analysis_active(False)
+        self.placeholder.configure(text=INITIAL_PLACEHOLDER_TEXT)
         self.placeholder.pack(fill="both", expand=True)
 
     def _load_session(
@@ -107,9 +110,14 @@ class BR24IMMPlayerApp:
         self.controls.show_display_state(state)
 
     def start_analysis(self) -> None:
-        """Initialize the local IMM and present the pre-update N = 0 view."""
+        """Show preparation feedback before loading the initial N = 0 view."""
         if not self._closing:
-            self._load_session(self.config)
+            self._prepare_analysis(self.config)
+            self.controls.set_analysis_active(True)
+            self.placeholder.configure(text="Preparing analysis …")
+            self.root.update_idletasks()
+            if not self._load_session(self.config):
+                self._prepare_analysis(self.config)
 
     def open_csv(self, data_file: Path | None = None) -> None:
         """Select a CSV and return to the unstarted analysis state."""
@@ -185,7 +193,20 @@ class BR24IMMPlayerApp:
         )
 
     def _apply_settings(self, config: IMMPlayerConfig) -> bool:
-        self._prepare_analysis(config)
+        previous_session_config = replace(
+            config,
+            prediction_region_style=self.config.prediction_region_style,
+            show_prediction_region_50=self.config.show_prediction_region_50,
+            show_prediction_region_90=self.config.show_prediction_region_90,
+        )
+        if previous_session_config == self.config:
+            self.config = config
+            if self.store is not None:
+                self.store.config = config
+            if self.plot_view is not None:
+                self.plot_view._draw()
+        else:
+            self._prepare_analysis(config)
         return True
 
     def show_help(self) -> None:

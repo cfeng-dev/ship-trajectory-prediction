@@ -82,11 +82,9 @@ class IMMControls(tk.Frame):
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             font=HEADING_FONT,
-        ).grid(row=0, column=0, sticky="ew", pady=(4, 12))
-        self._add_analysis_section(body).grid(
-            row=1, column=0, sticky="ew", pady=(0, 10)
-        )
-        self._add_data_section(body).grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=0, column=0, sticky="ew", pady=(14, 10))
+        self._add_analysis_section(body).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self._add_data_section(body).grid(row=2, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
             "Current IMM estimate",
@@ -97,7 +95,7 @@ class IMMControls(tk.Frame):
                 ("Turn rate", "turn_rate"),
                 ("Time", "time"),
             ),
-        ).grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
             "Evaluation metrics",
@@ -111,7 +109,7 @@ class IMMControls(tk.Frame):
                 ("Joint 90% coverage", "coverage_90"),
                 ("Update time", "update_time"),
             ),
-        ).grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
             "BR24 radar association",
@@ -129,9 +127,10 @@ class IMMControls(tk.Frame):
 
     def _add_analysis_section(self, parent) -> tk.LabelFrame:
         section = self._section(parent, "Analysis")
+        section.configure(pady=10)
         section.columnconfigure(0, weight=1)
         self._analysis_button = create_button(section, "Start analysis", self._on_start)
-        self._analysis_button.grid(sticky="ew", padx=8, pady=8)
+        self._analysis_button.grid(sticky="ew")
         return section
 
     def _add_data_section(self, parent) -> tk.LabelFrame:
@@ -143,7 +142,7 @@ class IMMControls(tk.Frame):
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             font=FONT,
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 2))
         entry = tk.Entry(
             section,
             textvariable=self._data_file,
@@ -152,7 +151,7 @@ class IMMControls(tk.Frame):
             fg="#3D617A",
             font=("Arial", 8),
         )
-        entry.grid(row=1, column=0, sticky="ew", padx=(8, 4), pady=(0, 7))
+        entry.grid(row=1, column=0, sticky="ew", padx=(0, 4))
         create_button(
             section,
             "...",
@@ -160,7 +159,7 @@ class IMMControls(tk.Frame):
             width=0,
             padx=4,
             pady=1,
-        ).grid(row=1, column=1, sticky="ns", padx=(0, 8), pady=(0, 7))
+        ).grid(row=1, column=1, sticky="ns")
         return section
 
     def _add_value_section(self, parent, title: str, rows) -> tk.LabelFrame:
@@ -174,7 +173,7 @@ class IMMControls(tk.Frame):
                 fg=TEXT_COLOR,
                 font=("Arial", 9, "bold"),
                 anchor="w",
-            ).grid(row=row, column=0, sticky="nw", padx=(8, 5), pady=3)
+            ).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=(2, 3))
             tk.Label(
                 section,
                 textvariable=self._values[name],
@@ -184,7 +183,7 @@ class IMMControls(tk.Frame):
                 justify="left",
                 anchor="w",
                 wraplength=185,
-            ).grid(row=row, column=1, sticky="ew", padx=(0, 8), pady=3)
+            ).grid(row=row, column=1, sticky="ew", pady=(2, 3))
         return section
 
     def _section(self, parent, title: str) -> tk.LabelFrame:
@@ -192,10 +191,10 @@ class IMMControls(tk.Frame):
             parent,
             text=title,
             bg=CONTROL_BACKGROUND,
-            fg="#123B59",
+            fg=TEXT_COLOR,
             font=FONT,
-            relief="groove",
-            borderwidth=1,
+            padx=10,
+            pady=8,
         )
 
     def _on_mouse_wheel(self, event):

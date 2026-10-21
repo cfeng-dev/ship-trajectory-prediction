@@ -8,12 +8,14 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib.layout_engine import LayoutEngine
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, Patch
 from matplotlib.widgets import Button, CheckButtons, Slider
 from scipy.stats import chi2
 
-from .player import CONFIDENCE_LEVELS, IMMDisplayState, IMMPlaybackStore
-from .view import ACCENT_COLOR, PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
+from bayestraj.validation import prediction_plotting
+
+from .player import IMMDisplayState, IMMPlaybackStore
+from .view import PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
 
 MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
@@ -299,19 +301,18 @@ class IMMPlotView(tk.Frame):
             view_limits = (axis.get_xlim(), axis.get_ylim())
         axis.clear()
         axis.set_facecolor("#FFFFFF")
-        axis.grid(True, color="#DCE5EC", linewidth=0.7)
-        axis.set_title("Ship movement", fontsize=12)
-        axis.set_xlabel("Easting x [m]")
-        axis.set_ylabel("Northing y [m]")
+        axis.grid(True, alpha=0.25, linewidth=0.8)
+        axis.set_title("Ship movement", fontsize=13, pad=10)
+        axis.set_xlabel("Easting x [m]", fontsize=11)
+        axis.set_ylabel("Northing y [m]", fontsize=11)
         axis.set_aspect("equal", adjustable="box")
         if self.show_reference_var.get() and self.store.reference is not None:
             axis.plot(
                 self.store.reference.x_meters,
                 self.store.reference.y_meters,
-                color="#7B8794",
-                linestyle="--",
-                linewidth=1.4,
-                label="Reference (evaluation only)",
+                color="#9CA3AF",
+                linewidth=1.5,
+                label="Recorded trajectory",
                 zorder=1,
             )
         if self.current_state is None:
@@ -323,7 +324,7 @@ class IMMPlotView(tk.Frame):
             self._restore_route_limits(axis, view_limits)
             self._route_has_been_drawn = True
             if self.show_reference_var.get() and self.store.reference is not None:
-                axis.legend(loc="best", fontsize=8, framealpha=0.95)
+                axis.legend(loc="upper right", fontsize=9, framealpha=0.9)
             else:
                 axis.text(
                     0.5,
@@ -341,19 +342,17 @@ class IMMPlotView(tk.Frame):
         axis.plot(
             tracked[:, 0],
             tracked[:, 1],
-            color=ACCENT_COLOR,
-            linewidth=2.1,
-            label="IMM track",
+            color="#24557A",
+            linewidth=2.2,
+            label="IMM estimates through N",
             zorder=3,
         )
         axis.scatter(
             tracked[-1, 0],
             tracked[-1, 1],
-            s=55,
-            color="#174B70",
-            edgecolor="white",
-            linewidth=1.0,
-            label="Current posterior",
+            s=45,
+            color="#D97706",
+            label="Current position",
             zorder=5,
         )
         means = np.asarray(stage.forecast.position_means, dtype=float)
@@ -361,32 +360,109 @@ class IMMPlotView(tk.Frame):
         axis.plot(
             forecast_route[:, 0],
             forecast_route[:, 1],
-            color="#D95F02",
-            linestyle="--",
-            marker="o",
+            color="#DC2626",
+            marker=".",
             markersize=4,
-            linewidth=2.1,
-            label="IMM forecast mean",
+            linewidth=2.2,
+            label="Forecast (mean)",
             zorder=4,
         )
-        for step, (mean, covariance) in enumerate(
-            zip(means, stage.forecast.position_covariances, strict=True), start=1
-        ):
-            self._draw_covariance_ellipses(axis, mean, covariance, step)
+        region_handles = self._draw_prediction_uncertainty(axis, stage)
+        if len(means):
+            horizon = stage.forecast.time_seconds[-1] - stage.observation_time_seconds
+            axis.set_title(
+                f"Ship movement · Forecast +{horizon:g} s", fontsize=13, pad=10
+            )
         self._set_route_limits(axis, tracked, means)
         self._restore_route_limits(axis, view_limits)
         self._center_route_on_ship(axis, tracked)
         self._route_has_been_drawn = True
-        axis.legend(loc="best", fontsize=8, framealpha=0.95)
+        handles, labels = axis.get_legend_handles_labels()
+        axis.legend(
+            handles=handles + region_handles,
+            labels=labels + [handle.get_label() for handle in region_handles],
+            loc="upper right",
+            fontsize=9,
+            framealpha=0.9,
+        )
 
-    def _draw_covariance_ellipses(
-        self, axis, mean, covariance, horizon_step: int
-    ) -> None:
+    def _draw_prediction_uncertainty(self, axis, stage) -> list:
+        """Render IMM Gaussian marginals using the Predictor's region styles."""
+        config = self.store.config
+        probabilities = tuple(
+            probability
+            for probability, enabled in (
+                (0.5, config.show_prediction_region_50),
+                (0.9, config.show_prediction_region_90),
+            )
+            if enabled
+        )
+        style = config.prediction_region_style
+        means = np.asarray(stage.forecast.position_means)
+        if style == "none" or not probabilities or not len(means):
+            return []
+        if style == "ellipses":
+            for mean, covariance in zip(
+                means, stage.forecast.position_covariances, strict=True
+            ):
+                self._draw_covariance_ellipses(axis, mean, covariance, probabilities)
+            return [
+                Patch(
+                    facecolor=prediction_plotting.POSTERIOR_COLOR,
+                    edgecolor="none",
+                    alpha=_region_alpha(probability),
+                    label=f"Covariance ellipse ({100 * probability:g} %)",
+                )
+                for probability in probabilities
+            ]
+        # Fixed visualization samples of each Gaussian marginal. Their row
+        # pairing has no temporal meaning and is never drawn as sample paths.
+        normal_draws = np.random.default_rng(42).standard_normal((512, 2))
+        draws = np.stack(
+            [
+                mean
+                + normal_draws
+                @ np.linalg.cholesky(_regularize_covariance(covariance)).T
+                for mean, covariance in zip(
+                    means, stage.forecast.position_covariances, strict=True
+                )
+            ],
+            axis=1,
+        )
+        posterior_draws = (draws[:, :, 0], draws[:, :, 1])
+        if style in {"funnel", "horizon_density_contours"}:
+            draw = (
+                prediction_plotting._draw_horizon_prediction_density_regions
+                if style == "funnel"
+                else prediction_plotting._draw_horizon_prediction_density_contours
+            )
+            return draw(axis, posterior_draws, region_probabilities=probabilities)
+        draw = (
+            prediction_plotting._draw_prediction_density_regions
+            if style == "density_regions"
+            else prediction_plotting._draw_prediction_density_contours
+        )
+        times = np.concatenate(
+            (
+                [0.0],
+                np.asarray(stage.forecast.time_seconds)
+                - stage.observation_time_seconds,
+            )
+        )
+        return draw(
+            axis,
+            posterior_draws,
+            times,
+            annotate_time=False,
+            region_probabilities=probabilities,
+        )
+
+    def _draw_covariance_ellipses(self, axis, mean, covariance, probabilities) -> None:
         covariance = _regularize_covariance(covariance)
         eigenvalues, eigenvectors = np.linalg.eigh(covariance)
         direction = eigenvectors[:, -1]
         angle = float(np.degrees(np.arctan2(direction[1], direction[0])))
-        for probability, alpha in zip(CONFIDENCE_LEVELS, (0.11, 0.20), strict=True):
+        for probability in sorted(probabilities, reverse=True):
             radius = float(np.sqrt(chi2.ppf(probability, df=2)))
             axis.add_patch(
                 Ellipse(
@@ -394,22 +470,13 @@ class IMMPlotView(tk.Frame):
                     width=2.0 * radius * np.sqrt(eigenvalues[-1]),
                     height=2.0 * radius * np.sqrt(eigenvalues[0]),
                     angle=angle,
-                    facecolor="#F6A04D",
-                    edgecolor="#D95F02",
-                    linewidth=1.0,
-                    alpha=alpha,
-                    zorder=2,
+                    facecolor=prediction_plotting.POSTERIOR_COLOR,
+                    edgecolor=prediction_plotting.POSTERIOR_COLOR,
+                    linewidth=prediction_plotting.PREDICTION_REGION_EDGE_LINE_WIDTH,
+                    alpha=_region_alpha(probability),
+                    zorder=1,
                 )
             )
-        axis.annotate(
-            f"+{horizon_step}",
-            xy=mean,
-            xytext=(5, 5),
-            textcoords="offset points",
-            fontsize=8,
-            color="#9C4000",
-            zorder=6,
-        )
 
     def _set_route_limits(self, axis, tracked: np.ndarray, means: np.ndarray) -> None:
         points = [array for array in (tracked, means) if len(array)]
@@ -556,3 +623,11 @@ def _regularize_covariance(covariance) -> np.ndarray:
     covariance = np.asarray(covariance, dtype=float)
     eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.T))
     return (eigenvectors * np.maximum(eigenvalues, 1e-12)) @ eigenvectors.T
+
+
+def _region_alpha(probability: float) -> float:
+    return (
+        prediction_plotting.PREDICTION_REGION_50_ALPHA
+        if probability == 0.5
+        else prediction_plotting.PREDICTION_REGION_90_ALPHA
+    )

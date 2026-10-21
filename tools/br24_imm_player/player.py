@@ -25,8 +25,16 @@ DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
 
 PREDICTION_COUNT = 2
 PLAYBACK_INTERVAL_MS = 1_000
-FOLLOW_SHIP_VIEW_SPAN_METERS = 300.0
+FOLLOW_SHIP_VIEW_SPAN_METERS = 100.0
 CONFIDENCE_LEVELS = (0.5, 0.9)
+PREDICTION_REGION_STYLE_LABELS = {
+    "funnel": "Horizon density region",
+    "density_regions": "Per-step density regions",
+    "ellipses": "Covariance ellipses",
+    "horizon_density_contours": "Horizon density contours",
+    "density_contours": "Per-step density contours",
+    "none": "No uncertainty region",
+}
 GAUSS_HERMITE_ORDER = 12
 RESIDUAL_POSITION_NOISE_FLOOR_M = 1e-6
 
@@ -39,9 +47,17 @@ class IMMPlayerConfig:
     prediction_count: int = PREDICTION_COUNT
     playback_interval_ms: int = PLAYBACK_INTERVAL_MS
     follow_ship_view_span_meters: float = FOLLOW_SHIP_VIEW_SPAN_METERS
+    prediction_region_style: str = "funnel"
+    show_prediction_region_50: bool = True
+    show_prediction_region_90: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_file", Path(self.data_file).expanduser())
+        if self.prediction_region_style not in PREDICTION_REGION_STYLE_LABELS:
+            raise ValueError("Unsupported prediction uncertainty style.")
+        for name in ("show_prediction_region_50", "show_prediction_region_90"):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be a boolean.")
         for name in (
             "prediction_count",
             "playback_interval_ms",

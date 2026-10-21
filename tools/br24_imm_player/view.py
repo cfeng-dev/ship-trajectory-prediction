@@ -7,7 +7,7 @@ import tkinter as tk
 WINDOW_TITLE = "BR24 IMM - Ship Trajectory Player"
 WINDOW_BACKGROUND = "#F3F7FA"
 CONTROL_BACKGROUND = "#E3EFF6"
-PLOT_BACKGROUND = "#F9FBFD"
+PLOT_BACKGROUND = "#f4f9fc"
 TEXT_COLOR = "#172B3A"
 ACCENT_COLOR = "#2878B5"
 BUTTON_BACKGROUND = "#EAF1F6"
@@ -50,6 +50,7 @@ def create_menu_bar(app) -> None:
         command=app.toggle_settings,
     )
     view_menu.add_command(label="Reset plot view", command=app.reset_plot_view)
+    view_menu.add_command(label="Plot display...", command=app.show_settings)
     menu_bar.add_cascade(label="View", menu=view_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=False)
