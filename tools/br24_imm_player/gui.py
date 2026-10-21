@@ -31,7 +31,7 @@ class BR24IMMPlayerApp:
         self.controls = IMMControls(
             root,
             on_open_file=self.open_csv,
-            on_reload=self.reload_session,
+            on_cancel=self.reload_session,
             on_start=self.start_analysis,
         )
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)

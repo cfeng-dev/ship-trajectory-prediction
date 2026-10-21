@@ -93,13 +93,19 @@ def create_button(
         padx=padx,
         pady=pady,
     )
+    set_button_palette(button, background="#ffffff", hover_background="#b8d8e8")
+    return button
+
+
+def set_button_palette(button, *, background: str, hover_background: str) -> None:
+    """Keep a button's resting, pressed, and hover colors consistent."""
+    button.configure(bg=background, activebackground=hover_background)
     button.bind(
         "<Enter>",
         lambda _: (
-            button.configure(bg="#b8d8e8")
+            button.configure(bg=hover_background)
             if button.cget("state") != "disabled"
             else None
         ),
     )
-    button.bind("<Leave>", lambda _: button.configure(bg="#ffffff"))
-    return button
+    button.bind("<Leave>", lambda _: button.configure(bg=background))

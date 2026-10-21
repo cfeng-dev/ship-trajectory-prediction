@@ -9,16 +9,23 @@ from tkinter import filedialog
 import numpy as np
 
 from .player import IMMDisplayState
-from .view import CONTROL_BACKGROUND, FONT, HEADING_FONT, TEXT_COLOR, create_button
+from .view import (
+    CONTROL_BACKGROUND,
+    FONT,
+    HEADING_FONT,
+    TEXT_COLOR,
+    create_button,
+    set_button_palette,
+)
 
 
 class IMMControls(tk.Frame):
     """Expose file, movement, evaluation, and association values in one sidebar."""
 
-    def __init__(self, parent, *, on_open_file, on_reload, on_start) -> None:
+    def __init__(self, parent, *, on_open_file, on_cancel, on_start) -> None:
         super().__init__(parent, bg=CONTROL_BACKGROUND, width=340)
         self._on_open_file = on_open_file
-        self._on_reload = on_reload
+        self._on_cancel = on_cancel
         self._on_start = on_start
         self._analysis_button: tk.Button | None = None
         self._data_file = tk.StringVar(self, value="")
@@ -154,9 +161,6 @@ class IMMControls(tk.Frame):
             padx=4,
             pady=1,
         ).grid(row=1, column=1, sticky="ns", padx=(0, 8), pady=(0, 7))
-        create_button(section, "Reset analysis", self._on_reload).grid(
-            row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8)
-        )
         return section
 
     def _add_value_section(self, parent, title: str, rows) -> tk.LabelFrame:
@@ -248,10 +252,16 @@ class IMMControls(tk.Frame):
         self._data_file.set(str(data_file))
 
     def set_analysis_active(self, active: bool) -> None:
-        """Distinguish an unstarted analysis from a displayed IMM session."""
+        """Offer the Predictor-style red cancel action for an active session."""
         if self._analysis_button is not None:
             self._analysis_button.configure(
-                text="Restart analysis" if active else "Start analysis"
+                text="Cancel analysis" if active else "Start analysis",
+                command=self._on_cancel if active else self._on_start,
+            )
+            set_button_palette(
+                self._analysis_button,
+                background="#f7d9d9" if active else "#ffffff",
+                hover_background="#efbcbc" if active else "#b8d8e8",
             )
 
     def clear_display_state(self) -> None:
