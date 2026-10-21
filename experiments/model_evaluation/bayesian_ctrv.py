@@ -15,10 +15,10 @@ DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
 # - Batch: "vi" or "mcmc" with a fixed sliding window.
 # - Online: "rbpf", "smc", or "sequential_vi".
 EXPERIMENT = config.RollingExperimentConfig(
-    prediction_count=10,
+    prediction_count=2,
     position_noise_std_m=0.0,
     position_noise_seed=2026,
-    stride=1,  # Start a new three-step forecast after every observed position.
+    stride=1,  # Forecast-origin step: one new forecast per radar cycle.
     inference_method="smc",
     inference_seed=42,
 )

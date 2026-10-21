@@ -23,8 +23,9 @@ OUTPUT_CSV = PROJECT_ROOT / "results/BR24_imm_forecast_evaluation.csv"
 
 # Match experiments/model_evaluation/bayesian_ctrv.py for a direct comparison.
 INITIAL_OBSERVATION_COUNT = 10
-PREDICTION_COUNT = 10
-STRIDE = 1
+PREDICTION_COUNT = 2
+STRIDE = 1  # Forecast-origin step: one new forecast per radar cycle.
+MAX_WINDOWS = None
 CREDIBLE_INTERVAL = 0.9
 GAUSSIAN_PLOT_DRAWS = 1_000
 PLOT_SEED = 42
@@ -214,7 +215,7 @@ def _parse_arguments(argv) -> IMMOptions:
     parser.add_argument(
         "--max-windows",
         type=int,
-        default=None,
+        default=MAX_WINDOWS,
         help="Optional limit for a short local run.",
     )
     parser.add_argument(
