@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 
 import numpy as np
 
@@ -135,31 +135,32 @@ class IMMControls(tk.Frame):
 
     def _add_data_section(self, parent) -> tk.LabelFrame:
         section = self._section(parent, "Data")
-        section.columnconfigure(0, weight=1)
+        section.columnconfigure(1, weight=1)
         tk.Label(
             section,
-            text="BR24 CSV file",
+            text="CSV file",
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             font=FONT,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 2))
-        entry = tk.Entry(
-            section,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+        file_frame = tk.Frame(section, bg=CONTROL_BACKGROUND)
+        file_frame.grid(row=0, column=1, sticky="ew", pady=(6, 0))
+        file_frame.columnconfigure(0, weight=1)
+        entry = ttk.Entry(
+            file_frame,
             textvariable=self._data_file,
             state="readonly",
-            readonlybackground="#FFFFFF",
-            fg="#3D617A",
-            font=("Arial", 8),
+            width=16,
+            style="IMMPlayer.TEntry",
         )
-        entry.grid(row=1, column=0, sticky="ew", padx=(0, 4))
-        create_button(
-            section,
-            "...",
-            self.choose_file,
-            width=0,
-            padx=4,
-            pady=1,
-        ).grid(row=1, column=1, sticky="ns")
+        entry.grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            file_frame,
+            text="…",
+            command=self.choose_file,
+            width=2,
+            style="IMMPlayer.TButton",
+        ).grid(row=0, column=1, sticky="ns", padx=(5, 0))
         return section
 
     def _add_value_section(self, parent, title: str, rows) -> tk.LabelFrame:

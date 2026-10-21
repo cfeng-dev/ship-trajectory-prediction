@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 
 WINDOW_TITLE = "BR24 IMM - Ship Trajectory Player"
 WINDOW_BACKGROUND = "#F3F7FA"
@@ -22,6 +23,7 @@ def configure_window(root: tk.Tk) -> None:
     """Apply the shared Predictor-like desktop layout to ``root``."""
     root.title(WINDOW_TITLE)
     root.configure(bg=WINDOW_BACKGROUND)
+    configure_input_styles(root)
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     left = (screen_width - MAIN_WINDOW_WIDTH) // 2
@@ -30,6 +32,36 @@ def configure_window(root: tk.Tk) -> None:
     root.minsize(1_000, 620)
     root.grid_rowconfigure(0, weight=1)
     root.grid_columnconfigure(1, weight=1)
+
+
+def configure_input_styles(root) -> None:
+    """Match the Predictor's themed CSV field and compact file button."""
+    style = ttk.Style(root)
+    if root.tk.call("tk", "windowingsystem") == "aqua":
+        style.theme_use("clam")
+    style.configure(
+        "IMMPlayer.TEntry",
+        fieldbackground="#ffffff",
+        foreground="#1f2933",
+        insertcolor="#1f2933",
+        insertwidth=2,
+    )
+    style.map(
+        "IMMPlayer.TEntry",
+        fieldbackground=[("disabled", "#e7edf1"), ("readonly", "#ffffff")],
+        foreground=[("disabled", "#687783"), ("!disabled", "#1f2933")],
+    )
+    style.configure(
+        "IMMPlayer.TButton",
+        background="#ffffff",
+        foreground="#1f2933",
+        padding=(4, 0),
+    )
+    style.map(
+        "IMMPlayer.TButton",
+        background=[("disabled", "#e7edf1"), ("active", "#b8d8e8")],
+        foreground=[("disabled", "#687783"), ("!disabled", "#1f2933")],
+    )
 
 
 def create_menu_bar(app) -> None:
