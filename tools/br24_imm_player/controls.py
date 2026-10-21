@@ -37,8 +37,13 @@ class IMMControls(tk.Frame):
                 "log_density",
                 "coverage_50",
                 "coverage_90",
+                "update_time",
                 "association_status",
                 "detection_id",
+                "nis",
+                "cov_xx",
+                "cov_xy",
+                "cov_yy",
                 "cycle",
             )
         }
@@ -79,7 +84,7 @@ class IMMControls(tk.Frame):
         self._add_data_section(body).grid(row=2, column=0, sticky="ew", pady=(0, 10))
         self._add_value_section(
             body,
-            "Current movement",
+            "Current IMM estimate",
             (
                 ("Position", "position"),
                 ("Speed", "speed"),
@@ -99,6 +104,7 @@ class IMMControls(tk.Frame):
                 ("Predictive log density", "log_density"),
                 ("Joint 50% coverage", "coverage_50"),
                 ("Joint 90% coverage", "coverage_90"),
+                ("Update time", "update_time"),
             ),
         ).grid(row=4, column=0, sticky="ew", pady=(0, 10))
         self._add_value_section(
@@ -107,6 +113,10 @@ class IMMControls(tk.Frame):
             (
                 ("Status", "association_status"),
                 ("Detection ID", "detection_id"),
+                ("NIS", "nis"),
+                ("cov_xx [m²]", "cov_xx"),
+                ("cov_xy [m²]", "cov_xy"),
+                ("cov_yy [m²]", "cov_yy"),
                 ("Cycle", "cycle"),
             ),
         ).grid(row=5, column=0, sticky="ew")
@@ -223,7 +233,7 @@ class IMMControls(tk.Frame):
         self._values["turn_rate"].set(
             _format_optional(movement.turn_rate_degrees_per_second, "deg/s")
         )
-        self._values["time"].set(f"{movement.time_seconds:.3f} s")
+        self._values["time"].set(_format_elapsed_time(movement.time_seconds))
         self._values["ade"].set(_format_optional(metrics.ade_m, "m"))
         self._values["fde"].set(_format_optional(metrics.fde_m, "m"))
         self._values["rmse"].set(_format_optional(metrics.rmse_m, "m"))
@@ -243,22 +253,62 @@ class IMMControls(tk.Frame):
                 metrics.joint_coverage_total,
             )
         )
+        self._values["update_time"].set(
+            _format_optional(stage.update_time_seconds, "s", decimals=3)
+        )
         self._values["association_status"].set(
-            "Associated"
+            "Initial measurement"
+            if stage.observation_count == 1
+            else "Associated"
             if stage.detection_id is not None
-            else "No associated detection"
+            else "Prediction only"
         )
         self._values["detection_id"].set(
             "-" if stage.detection_id is None else str(stage.detection_id)
         )
+        self._values["nis"].set(_format_optional(stage.nis, ""))
+        covariance = stage.measurement_covariance
+        self._values["cov_xx"].set(
+            _format_optional(
+                None if covariance is None else covariance[0, 0],
+                "",
+                decimals=3,
+            )
+        )
+        self._values["cov_xy"].set(
+            _format_optional(
+                None if covariance is None else covariance[0, 1],
+                "",
+                decimals=3,
+            )
+        )
+        self._values["cov_yy"].set(
+            _format_optional(
+                None if covariance is None else covariance[1, 1],
+                "",
+                decimals=3,
+            )
+        )
         self._values["cycle"].set(str(stage.cycle_counter))
 
 
-def _format_optional(value: float | None, unit: str) -> str:
+def _format_optional(value: float | None, unit: str, *, decimals: int = 2) -> str:
     if value is None or not np.isfinite(value):
         return "-"
     suffix = f" {unit}" if unit else ""
-    return f"{value:.2f}{suffix}"
+    return f"{value:.{decimals}f}{suffix}"
+
+
+def _format_elapsed_time(seconds: float) -> str:
+    """Match the Trajectory Predictor's concise elapsed-time display."""
+    if seconds < 60:
+        return f"{seconds:.1f} s"
+    whole_seconds = round(seconds)
+    minutes, remaining_seconds = divmod(whole_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} h {minutes:02d} min {remaining_seconds:02d} s"
+    return f"{minutes} min {remaining_seconds:02d} s"
 
 
 def _format_coverage(covered_count: int, total_count: int) -> str:

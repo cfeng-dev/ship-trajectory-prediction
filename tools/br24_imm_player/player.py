@@ -8,6 +8,7 @@ display and evaluation values.
 from __future__ import annotations
 
 import runpy
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,9 @@ class IMMPlayerStage:
     cycle_counter: int
     observation_time_seconds: float
     detection_id: int | None
+    nis: float | None
+    measurement_covariance: np.ndarray | None
+    update_time_seconds: float
     tracked_times_seconds: np.ndarray
     tracked_positions: np.ndarray
     forecast: Any
@@ -138,6 +142,7 @@ class IMMPlaybackStore:
 
         tracker_type = _load_optional_imm_tracker()
         initial_detection = self.cycles[0].detections[0]
+        initial_update_started = time.perf_counter()
         self._tracker = tracker_type.initialize(
             self.cycles[0], initial_detection_id=initial_detection.detection_id
         )
@@ -146,9 +151,20 @@ class IMMPlaybackStore:
             np.asarray(self._tracker.estimated_position, dtype=float).copy()
         ]
         self._detection_ids = [initial_detection.detection_id]
+        self._nis: list[float | None] = [None]
+        self._measurement_covariances: list[np.ndarray | None] = [
+            br24.br24_measurement_covariance(
+                range_m=initial_detection.range_m,
+                azimuth_rad=initial_detection.azimuth_rad,
+                std_range_m=initial_detection.std_range_m,
+                std_azimuth_rad=initial_detection.std_azimuth_rad,
+            )
+        ]
         self._stages: dict[int, IMMPlayerStage] = {}
         self._display_states: dict[int, IMMDisplayState] = {}
-        self._capture_stage()
+        self._capture_stage(
+            update_time_seconds=time.perf_counter() - initial_update_started
+        )
 
     def stage_for(self, observation_count: int) -> IMMPlayerStage:
         """Return the forecast refreshed after exactly ``observation_count`` cycles."""
@@ -182,15 +198,24 @@ class IMMPlaybackStore:
         if observation_count < self._processed_cycle_count:
             raise RuntimeError("An earlier IMM stage was not cached.")
         while self._processed_cycle_count < observation_count:
+            update_started = time.perf_counter()
             step = self._tracker.process_cycle(self.cycles[self._processed_cycle_count])
             self._tracked_positions.append(
                 np.asarray(self._tracker.estimated_position, dtype=float).copy()
             )
             self._detection_ids.append(step.detection_id)
+            self._nis.append(step.nis)
+            self._measurement_covariances.append(
+                None
+                if step.measurement_covariance is None
+                else np.asarray(step.measurement_covariance, dtype=float).copy()
+            )
             self._processed_cycle_count += 1
-            self._capture_stage()
+            self._capture_stage(
+                update_time_seconds=time.perf_counter() - update_started
+            )
 
-    def _capture_stage(self) -> None:
+    def _capture_stage(self, *, update_time_seconds: float) -> None:
         observation_count = self._processed_cycle_count
         future_times = self.times[
             observation_count : observation_count + self.config.prediction_count
@@ -205,6 +230,13 @@ class IMMPlaybackStore:
             cycle_counter=self.cycles[observation_count - 1].cycle_counter,
             observation_time_seconds=float(self._tracker.last_observation_time_seconds),
             detection_id=self._detection_ids[-1],
+            nis=self._nis[-1],
+            measurement_covariance=(
+                None
+                if self._measurement_covariances[-1] is None
+                else self._measurement_covariances[-1].copy()
+            ),
+            update_time_seconds=float(update_time_seconds),
             tracked_times_seconds=self.times[:observation_count].copy(),
             tracked_positions=np.asarray(self._tracked_positions, dtype=float).copy(),
             forecast=forecast,
