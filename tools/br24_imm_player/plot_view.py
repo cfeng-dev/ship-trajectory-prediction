@@ -7,14 +7,65 @@ import tkinter as tk
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
+from matplotlib.layout_engine import LayoutEngine
 from matplotlib.patches import Ellipse
+from matplotlib.widgets import Button, CheckButtons, Slider
 from scipy.stats import chi2
 
 from .player import CONFIDENCE_LEVELS, IMMDisplayState, IMMPlaybackStore
-from .view import ACCENT_COLOR, BUTTON_BACKGROUND, FONT, PLOT_BACKGROUND, TEXT_COLOR
+from .view import ACCENT_COLOR, PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
 
 MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
+
+
+class _IMMPlayerLayout(LayoutEngine):
+    """Use the Predictor's fixed-point plot margins and footer spacing."""
+
+    _adjust_compatible = False
+    _colorbar_gridspec = False
+
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+
+    def execute(self, figure):
+        view = self.view
+        width = max(400.0, figure.get_figwidth() * 72)
+        height = max(320.0, figure.get_figheight() * 72)
+        grid = view.route_axis.get_subplotspec().get_gridspec()
+        panel_height = max(1.0, (height - 116 - 52 - 58) / 2)
+        grid.update(
+            left=max(0.06, 76 / width),
+            right=0.98,
+            bottom=116 / height,
+            top=1 - 52 / height,
+            hspace=58 / panel_height,
+            wspace=0.28,
+        )
+        for axis in (view.route_axis, view.mode_axis, view.uncertainty_axis):
+            axis.set_position(axis.get_subplotspec().get_position(figure))
+        playback_width = max(0.085, 64 / width)
+        view.playback_button.ax.set_position(
+            (0.025, 18 / height, playback_width, 28 / height)
+        )
+        slider_left = 0.07 + playback_width
+        view.slider.ax.set_position(
+            (slider_left, 29 / height, 0.70 - slider_left, 10 / height)
+        )
+        for checkbox, offset, checkbox_width in (
+            (view.follow_checkbox, 0, 95),
+            (view.settings_checkbox, 100, 110),
+            (view.reference_checkbox, 215, 125),
+        ):
+            checkbox.ax.set_position(
+                (
+                    0.025 + offset / width,
+                    54 / height,
+                    checkbox_width / width,
+                    24 / height,
+                )
+            )
 
 
 class IMMPlotView(tk.Frame):
@@ -44,11 +95,11 @@ class IMMPlotView(tk.Frame):
         self.show_reference_var = tk.BooleanVar(self, value=store.reference is not None)
         self.settings_visible_var = tk.BooleanVar(self, value=settings_visible)
 
-        self.figure = Figure(figsize=(12.5, 7.5), facecolor=PLOT_BACKGROUND)
+        self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
         grid = self.figure.add_gridspec(
             2,
             2,
-            width_ratios=(2.2, 1.0),
+            width_ratios=(1.25, 1.0),
             height_ratios=(1.0, 1.0),
             left=0.075,
             right=0.975,
@@ -67,81 +118,61 @@ class IMMPlotView(tk.Frame):
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
         )
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
-
         self._build_controls()
+        self.figure.set_layout_engine(_IMMPlayerLayout(self))
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
+        configure_plot_toolbar(self.toolbar)
         self.toolbar.update()
         self.toolbar.pack(fill="x", side="bottom")
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self._draw()
 
     def _build_controls(self) -> None:
-        controls = tk.Frame(self, bg=PLOT_BACKGROUND)
-        controls.pack(fill="x", side="bottom", padx=8, pady=(5, 2))
-        self.playback_button = tk.Button(
-            controls,
-            text="Start",
-            command=self.toggle_playback,
-            bg=BUTTON_BACKGROUND,
-            fg=TEXT_COLOR,
-            font=FONT,
-            width=10,
+        self.playback_button = Button(
+            self.figure.add_axes((0.025, 0.05, 0.085, 0.055)), "Start"
         )
-        self.playback_button.pack(side="left", padx=(0, 12))
-        tk.Label(controls, text="N", bg=PLOT_BACKGROUND, fg=TEXT_COLOR, font=FONT).pack(
-            side="left"
+        self.playback_button.on_clicked(lambda _: self.toggle_playback())
+        self.slider = Slider(
+            self.figure.add_axes((0.15, 0.065, 0.55, 0.035)),
+            "N",
+            0,
+            self.store.maximum_observation_count,
+            valinit=self._observation_count(),
+            valstep=1,
+            valfmt="%0.0f",
         )
-        self.slider = tk.Scale(
-            controls,
-            from_=0,
-            to=self.store.maximum_observation_count,
-            orient="horizontal",
-            command=self._on_slider_change,
-            showvalue=True,
-            resolution=1,
-            highlightthickness=0,
-            bg=PLOT_BACKGROUND,
-            activebackground=ACCENT_COLOR,
-            troughcolor="#D4DFE7",
-            length=480,
+        self.slider.on_changed(self._on_slider_change)
+
+        def checkbox(label, variable, callback):
+            axis = self.figure.add_axes((0.025, 0.12, 0.2, 0.04))
+            axis.set_frame_on(False)
+            control = CheckButtons(
+                axis,
+                (label,),
+                (variable.get(),),
+                useblit=False,
+                label_props={"fontsize": [10]},
+                frame_props={"s": [196], "linewidth": [1.2]},
+                check_props={"s": [196], "linewidth": [1.5]},
+            )
+
+            def changed(_label):
+                variable.set(control.get_status()[0])
+                callback()
+
+            control.on_clicked(changed)
+            return control
+
+        self.follow_checkbox = checkbox(
+            "Follow ship", self.follow_ship_var, self._follow_ship_changed
         )
-        self.slider.set(self._observation_count())
-        self.slider.pack(side="left", fill="x", expand=True, padx=(5, 16))
-        tk.Checkbutton(
-            controls,
-            text="Follow ship",
-            variable=self.follow_ship_var,
-            command=self._follow_ship_changed,
-            bg=PLOT_BACKGROUND,
-            fg=TEXT_COLOR,
-            selectcolor=PLOT_BACKGROUND,
-            activebackground=PLOT_BACKGROUND,
-            font=FONT,
-        ).pack(side="left", padx=5)
-        tk.Checkbutton(
-            controls,
-            text="Show reference",
-            variable=self.show_reference_var,
-            command=self._draw,
-            state="normal" if self.store.reference is not None else "disabled",
-            bg=PLOT_BACKGROUND,
-            fg=TEXT_COLOR,
-            selectcolor=PLOT_BACKGROUND,
-            activebackground=PLOT_BACKGROUND,
-            font=FONT,
-        ).pack(side="left", padx=5)
-        self.settings_checkbox = tk.Checkbutton(
-            controls,
-            text="Show settings",
-            variable=self.settings_visible_var,
-            command=self._toggle_settings,
-            bg=PLOT_BACKGROUND,
-            fg=TEXT_COLOR,
-            selectcolor=PLOT_BACKGROUND,
-            activebackground=PLOT_BACKGROUND,
-            font=FONT,
+        self.settings_checkbox = checkbox(
+            "Show settings", self.settings_visible_var, self._toggle_settings
         )
-        self.settings_checkbox.pack(side="left", padx=(5, 0))
+        self.reference_checkbox = checkbox(
+            "Show reference", self.show_reference_var, self._draw
+        )
+        self.reference_checkbox.active = self.store.reference is not None
 
     def _on_slider_change(self, value) -> None:
         if self._updating_slider:
@@ -158,7 +189,7 @@ class IMMPlotView(tk.Frame):
         """Set the online display stage and synchronize every visible component."""
         self.current_state = state
         self._updating_slider = True
-        self.slider.set(self._observation_count())
+        self.slider.set_val(self._observation_count())
         self._updating_slider = False
         self._on_stage_changed(state)
         self._draw()
@@ -170,7 +201,8 @@ class IMMPlotView(tk.Frame):
         ):
             self.set_stage(None)
         self._playing = not self._playing
-        self.playback_button.configure(text="Pause" if self._playing else "Start")
+        self.playback_button.label.set_text("Pause" if self._playing else "Start")
+        self.canvas.draw_idle()
         if self._playing:
             self._schedule_next_step()
         else:
@@ -235,10 +267,14 @@ class IMMPlotView(tk.Frame):
 
     def set_settings_visible(self, visible: bool) -> None:
         self.settings_visible_var.set(visible)
+        self.settings_checkbox.eventson = False
+        self.settings_checkbox.set_active(0, state=bool(visible))
+        self.settings_checkbox.eventson = True
 
     def reset_view(self) -> None:
         """Return to the full trajectory extent without touching IMM state."""
         self.follow_ship_var.set(False)
+        self.follow_checkbox.set_active(0, state=False)
         self._follow_ship_view_needs_focus = False
         self._route_has_been_drawn = False
         self.toolbar.home()
@@ -505,6 +541,14 @@ class IMMPlotView(tk.Frame):
         self._cancel_timer()
         self.canvas.mpl_disconnect(self._key_press_connection)
         self.canvas.mpl_disconnect(self._focus_connection)
+        for widget in (
+            self.playback_button,
+            self.slider,
+            self.follow_checkbox,
+            self.settings_checkbox,
+            self.reference_checkbox,
+        ):
+            widget.disconnect_events()
         super().destroy()
 
 

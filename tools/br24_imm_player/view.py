@@ -109,3 +109,23 @@ def set_button_palette(button, *, background: str, hover_background: str) -> Non
         ),
     )
     button.bind("<Leave>", lambda _: button.configure(bg=background))
+
+
+def configure_plot_toolbar(toolbar) -> None:
+    """Match the Predictor's light Matplotlib toolbar and blue active buttons."""
+    toolbar.configure(bg=PLOT_BACKGROUND)
+    buttons = tuple(toolbar._buttons.values())
+    for child in toolbar.winfo_children():
+        if child in buttons:
+            child.configure(
+                bg="#ffffff",
+                fg=TEXT_COLOR,
+                activebackground="#b8d8e8",
+                activeforeground=TEXT_COLOR,
+                highlightthickness=0,
+            )
+            if child.winfo_class() == "Checkbutton":
+                child.configure(selectcolor="#b8d8e8")
+            toolbar._set_image_for_button(child)
+        else:
+            child.configure(bg=PLOT_BACKGROUND)
