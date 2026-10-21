@@ -61,6 +61,12 @@ class IMMPlotView(tk.Frame):
         self.mode_axis = self.figure.add_subplot(grid[0, 1])
         self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
+        self._key_press_connection = self.canvas.mpl_connect(
+            "key_press_event", self.handle_key_press
+        )
+        self._focus_connection = self.canvas.mpl_connect(
+            "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
+        )
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
         self._build_controls()
@@ -158,6 +164,11 @@ class IMMPlotView(tk.Frame):
         self._draw()
 
     def toggle_playback(self) -> None:
+        if (
+            not self._playing
+            and self._observation_count() >= self.store.maximum_observation_count
+        ):
+            self.set_stage(None)
         self._playing = not self._playing
         self.playback_button.configure(text="Pause" if self._playing else "Start")
         if self._playing:
@@ -192,6 +203,32 @@ class IMMPlotView(tk.Frame):
         if self._after_id is not None:
             self.after_cancel(self._after_id)
             self._after_id = None
+
+    def handle_key_press(self, event) -> None:
+        """Apply the Predictor's playback shortcuts on the Matplotlib canvas."""
+        self.handle_key(event.key)
+
+    def handle_key(self, key: str) -> bool:
+        """Toggle playback or select the preceding/following online stage."""
+        if key in {" ", "space"}:
+            self.toggle_playback()
+            return True
+        if key not in {"left", "right"}:
+            return False
+        if self._playing:
+            self.toggle_playback()
+        step = -1 if key == "left" else 1
+        observation_count = min(
+            max(self._observation_count() + step, 0),
+            self.store.maximum_observation_count,
+        )
+        if observation_count == self._observation_count():
+            return True
+        if observation_count == 0:
+            self.set_stage(None)
+        else:
+            self.set_stage(self.store.display_state_for(observation_count))
+        return True
 
     def _toggle_settings(self) -> None:
         self._on_settings_visibility_change(self.settings_visible_var.get())
@@ -466,6 +503,8 @@ class IMMPlotView(tk.Frame):
         """Cancel scheduled playback before the enclosing Tk view is discarded."""
         self._playing = False
         self._cancel_timer()
+        self.canvas.mpl_disconnect(self._key_press_connection)
+        self.canvas.mpl_disconnect(self._focus_connection)
         super().destroy()
 
 

@@ -51,6 +51,9 @@ class BR24IMMPlayerApp:
         )
         self.placeholder.pack(fill="both", expand=True)
         view.create_menu_bar(self)
+        root.bind("<space>", self.handle_key, add="+")
+        root.bind("<Left>", self.handle_key, add="+")
+        root.bind("<Right>", self.handle_key, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._prepare_analysis(self.config)
 
@@ -141,6 +144,30 @@ class BR24IMMPlayerApp:
         """Reset only the route viewport, without restarting the tracker."""
         if self.plot_view is not None:
             self.plot_view.reset_view()
+
+    def handle_key(self, event):
+        """Route Predictor-style playback shortcuts outside editable controls."""
+        if self._closing or self.plot_view is None:
+            return None
+        if event.widget is self.plot_view.canvas.get_tk_widget():
+            return None  # The Matplotlib canvas handles its own keyboard events.
+        if event.widget.winfo_class() in {
+            "Entry",
+            "TEntry",
+            "Text",
+            "Spinbox",
+            "TSpinbox",
+            "TCombobox",
+            "Button",
+            "TButton",
+            "Checkbutton",
+            "TCheckbutton",
+            "TRadiobutton",
+        }:
+            return None
+        if self.plot_view.handle_key(event.keysym.lower()):
+            return "break"
+        return None
 
     def show_settings(self) -> None:
         """Open a single transactional playback settings dialog."""
