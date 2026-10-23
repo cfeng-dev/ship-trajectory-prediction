@@ -182,7 +182,7 @@ class IMMControls(tk.Frame):
                 textvariable=self._values[name],
                 bg=CONTROL_BACKGROUND,
                 fg=TEXT_COLOR,
-                font=FONT,
+                font="TkFixedFont",
                 justify="left",
                 anchor="w",
                 wraplength=185,
@@ -281,15 +281,15 @@ class IMMControls(tk.Frame):
         metrics = state.metrics
         stage = state.stage
         scale = 0.001 if coordinate_display_mode == "km" else 1.0
-        decimals = 3 if coordinate_display_mode == "km" else 1
+        decimals = 2
         self._values["position"].set(
             f"x = {movement.position_meters[0] * scale:.{decimals}f} {coordinate_display_mode}\n"
             f"y = {movement.position_meters[1] * scale:.{decimals}f} {coordinate_display_mode}"
         )
         self._values["speed"].set(_format_optional(movement.speed_mps, "m/s"))
-        self._values["heading"].set(_format_optional(movement.heading_degrees, "deg"))
+        self._values["heading"].set(_format_optional(movement.heading_degrees, "°"))
         self._values["turn_rate"].set(
-            _format_optional(movement.turn_rate_degrees_per_second, "deg/s")
+            _format_optional(movement.turn_rate_degrees_per_second, "°/s")
         )
         self._values["time"].set(_format_elapsed_time(movement.time_seconds))
         self._values["ade"].set(_format_optional(metrics.ade_m, "m"))
