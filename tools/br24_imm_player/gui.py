@@ -32,6 +32,7 @@ class BR24IMMPlayerApp:
         self.settings_visible_var = tk.BooleanVar(root, value=True)
         self._settings_dialog: PlaybackSettingsDialog | None = None
         self._closing = False
+        self._analysis_active = False
 
         view.configure_window(root)
         self.controls = IMMControls(
@@ -65,6 +66,8 @@ class BR24IMMPlayerApp:
             self.plot_view.destroy()
             self.plot_view = None
         self.store = None
+        self._analysis_active = False
+        view.set_analysis_menu_enabled(self, True)
         self.config = config
         self.controls.set_data_file(config.data_file)
         self.controls.clear_display_state()
@@ -91,6 +94,8 @@ class BR24IMMPlayerApp:
         self.controls.set_data_file(config.data_file)
         self.controls.clear_display_state()
         self.controls.set_analysis_active(True)
+        self._analysis_active = True
+        view.set_analysis_menu_enabled(self, False)
         self.placeholder.pack_forget()
         self.plot_view = IMMPlotView(
             self.plot_host,
@@ -111,8 +116,10 @@ class BR24IMMPlayerApp:
 
     def start_analysis(self) -> None:
         """Show preparation feedback before loading the initial N = 0 view."""
-        if not self._closing:
+        if not self._closing and not self._analysis_active:
             self._prepare_analysis(self.config)
+            self._analysis_active = True
+            view.set_analysis_menu_enabled(self, False)
             self.controls.set_analysis_active(True)
             self.placeholder.configure(text="Preparing analysis …")
             self.root.update_idletasks()
@@ -121,7 +128,7 @@ class BR24IMMPlayerApp:
 
     def open_csv(self, data_file: Path | None = None) -> None:
         """Select a CSV and return to the unstarted analysis state."""
-        if self._closing:
+        if self._closing or self._analysis_active:
             return
         if data_file is None:
             self.controls.choose_file()
@@ -178,7 +185,17 @@ class BR24IMMPlayerApp:
         return None
 
     def show_settings(self) -> None:
-        """Open a single transactional playback settings dialog."""
+        """Open analysis setup only while the session is inactive."""
+        if self._closing or self._analysis_active:
+            return
+        self._open_settings_dialog(plot_only=False)
+
+    def show_plot_settings(self) -> None:
+        """Keep visual options available without changing analysis settings."""
+        if not self._closing:
+            self._open_settings_dialog(plot_only=True)
+
+    def _open_settings_dialog(self, *, plot_only: bool) -> None:
         if (
             self._settings_dialog is not None
             and self._settings_dialog.window.winfo_exists()
@@ -190,6 +207,7 @@ class BR24IMMPlayerApp:
             self.root,
             self.config,
             self._apply_settings,
+            plot_only=plot_only,
         )
 
     def _apply_settings(self, config: IMMPlayerConfig) -> bool:
@@ -198,14 +216,23 @@ class BR24IMMPlayerApp:
             prediction_region_style=self.config.prediction_region_style,
             show_prediction_region_50=self.config.show_prediction_region_50,
             show_prediction_region_90=self.config.show_prediction_region_90,
+            follow_ship_view_span_meters=self.config.follow_ship_view_span_meters,
         )
         if previous_session_config == self.config:
+            span_changed = (
+                config.follow_ship_view_span_meters
+                != self.config.follow_ship_view_span_meters
+            )
             self.config = config
             if self.store is not None:
                 self.store.config = config
             if self.plot_view is not None:
+                if span_changed:
+                    self.plot_view._follow_ship_view_needs_focus = True
                 self.plot_view._draw()
         else:
+            if self._analysis_active:
+                return False
             self._prepare_analysis(config)
         return True
 

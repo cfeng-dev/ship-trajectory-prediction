@@ -70,6 +70,7 @@ def create_menu_bar(app) -> None:
 
     file_menu = tk.Menu(menu_bar, tearoff=False)
     file_menu.add_command(label="Open BR24 CSV...", command=app.open_csv)
+    app._open_csv_menu_index = file_menu.index("end")
     file_menu.add_command(label="Reset analysis", command=app.reload_session)
     file_menu.add_separator()
     file_menu.add_command(label="Exit", command=app.close)
@@ -82,20 +83,28 @@ def create_menu_bar(app) -> None:
         command=app.toggle_settings,
     )
     view_menu.add_command(label="Reset plot view", command=app.reset_plot_view)
-    view_menu.add_command(label="Plot display...", command=app.show_settings)
+    view_menu.add_command(label="Plot display...", command=app.show_plot_settings)
     menu_bar.add_cascade(label="View", menu=view_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=False)
-    settings_menu.add_command(
-        label="Playback and forecast...", command=app.show_settings
-    )
+    settings_menu.add_command(label="Analysis setup...", command=app.show_settings)
     menu_bar.add_cascade(label="Settings", menu=settings_menu)
+    app._settings_menu_index = menu_bar.index("end")
 
     help_menu = tk.Menu(menu_bar, tearoff=False)
     help_menu.add_command(label="BR24 IMM Player", command=app.show_help)
     menu_bar.add_cascade(label="Help", menu=help_menu)
 
     app.root.configure(menu=menu_bar)
+    app._menu_bar = menu_bar
+    app._file_menu = file_menu
+
+
+def set_analysis_menu_enabled(app, enabled: bool) -> None:
+    """Lock session settings and file selection while analysis is active."""
+    state = "normal" if enabled else "disabled"
+    app._menu_bar.entryconfigure(app._settings_menu_index, state=state)
+    app._file_menu.entryconfigure(app._open_csv_menu_index, state=state)
 
 
 def create_button(

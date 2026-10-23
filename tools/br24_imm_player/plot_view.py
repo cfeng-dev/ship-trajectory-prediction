@@ -355,18 +355,23 @@ class IMMPlotView(tk.Frame):
             label="Current position",
             zorder=5,
         )
-        means = np.asarray(stage.forecast.position_means, dtype=float)
-        forecast_route = np.vstack((tracked[-1], means))
-        axis.plot(
-            forecast_route[:, 0],
-            forecast_route[:, 1],
-            color="#DC2626",
-            marker=".",
-            markersize=4,
-            linewidth=2.2,
-            label="Forecast (mean)",
-            zorder=4,
+        means = (
+            np.empty((0, 2))
+            if stage.forecast is None
+            else np.asarray(stage.forecast.position_means, dtype=float)
         )
+        forecast_route = np.vstack((tracked[-1], means))
+        if len(means):
+            axis.plot(
+                forecast_route[:, 0],
+                forecast_route[:, 1],
+                color="#DC2626",
+                marker=".",
+                markersize=4,
+                linewidth=2.2,
+                label="Forecast (mean)",
+                zorder=4,
+            )
         region_handles = self._draw_prediction_uncertainty(axis, stage)
         if len(means):
             horizon = stage.forecast.time_seconds[-1] - stage.observation_time_seconds
@@ -388,6 +393,8 @@ class IMMPlotView(tk.Frame):
 
     def _draw_prediction_uncertainty(self, axis, stage) -> list:
         """Render IMM Gaussian marginals using the Predictor's region styles."""
+        if stage.forecast is None:
+            return []
         config = self.store.config
         probabilities = tuple(
             probability
@@ -537,6 +544,17 @@ class IMMPlotView(tk.Frame):
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
         axis.set_title("Forecast mode probabilities", fontsize=11)
+        if self.store.config.prediction_count == 0:
+            axis.text(
+                0.5,
+                0.5,
+                "Forecast disabled (0 steps)",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                color="#52616B",
+            )
+            return
         if self.current_state is None:
             axis.text(
                 0.5,
@@ -568,6 +586,17 @@ class IMMPlotView(tk.Frame):
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, axis="y", color="#DCE5EC", linewidth=0.7)
         axis.set_title("Forecast uncertainty", fontsize=11)
+        if self.store.config.prediction_count == 0:
+            axis.text(
+                0.5,
+                0.5,
+                "Forecast disabled (0 steps)",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                color="#52616B",
+            )
+            return
         if self.current_state is None:
             axis.text(
                 0.5,

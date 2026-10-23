@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import runpy
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -50,18 +50,26 @@ class IMMPlayerConfig:
     prediction_region_style: str = "funnel"
     show_prediction_region_50: bool = True
     show_prediction_region_90: bool = True
+    start_index: int = 0
+    position_noise_std_m: float = 0.0
+    position_noise_seed: int = 2026
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_file", Path(self.data_file).expanduser())
+        for name in ("start_index", "position_noise_seed", "prediction_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer.")
+        noise = float(self.position_noise_std_m)
+        if not np.isfinite(noise) or noise < 0:
+            raise ValueError("position_noise_std_m must be finite and non-negative.")
+        object.__setattr__(self, "position_noise_std_m", noise)
         if self.prediction_region_style not in PREDICTION_REGION_STYLE_LABELS:
             raise ValueError("Unsupported prediction uncertainty style.")
         for name in ("show_prediction_region_50", "show_prediction_region_90"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be a boolean.")
-        for name in (
-            "prediction_count",
-            "playback_interval_ms",
-        ):
+        for name in ("playback_interval_ms",):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer.")
@@ -139,10 +147,25 @@ class IMMPlaybackStore:
     def __init__(self, config: IMMPlayerConfig) -> None:
         self.config = config
         self.data_file = config.data_file
-        self.cycles = br24.read_br24_tracking_input(self.data_file)
+        cycles = br24.read_br24_tracking_input(self.data_file)
+        if config.start_index >= len(cycles):
+            raise ValueError(
+                f"Start index {config.start_index} must be smaller than {len(cycles)} radar cycles."
+            )
+        self.cycles = cycles[config.start_index :]
         self.reference = br24.read_br24_tracking_reference(self.data_file)
         if self.reference is not None:
+            self.reference = replace(
+                self.reference,
+                **{
+                    field.name: getattr(self.reference, field.name)[
+                        config.start_index :
+                    ]
+                    for field in fields(self.reference)
+                },
+            )
             self._validate_reference_alignment()
+        self.cycles = _add_position_noise(self.cycles, config)
         self.times = np.asarray(
             [cycle.time_seconds for cycle in self.cycles], dtype=float
         )
@@ -153,7 +176,7 @@ class IMMPlaybackStore:
             )
         if not self.cycles[0].detections:
             raise ValueError(
-                "The earliest BR24 radar cycle has no detection to initialize."
+                "The selected starting BR24 radar cycle has no detection to initialize."
             )
 
         tracker_type = _load_optional_imm_tracker()
@@ -240,7 +263,11 @@ class IMMPlaybackStore:
             raise RuntimeError(
                 "IMM stage does not leave the configured forecast horizon."
             )
-        forecast = self._tracker.forecast(future_times)
+        forecast = (
+            self._tracker.forecast(future_times)
+            if self.config.prediction_count
+            else None
+        )
         self._stages[observation_count] = IMMPlayerStage(
             observation_count=observation_count,
             cycle_counter=self.cycles[observation_count - 1].cycle_counter,
@@ -283,6 +310,36 @@ class IMMPlaybackStore:
             raise ValueError(
                 "BR24 reference labels must align exactly with radar cycles."
             )
+
+
+def _add_position_noise(cycles, config: IMMPlayerConfig):
+    """Perturb radar positions only, retaining nominal sensor uncertainties.
+
+    This is an input robustness experiment, not a retuning of the IMM noise
+    model. Reference positions never participate in generating observations.
+    """
+    if config.position_noise_std_m == 0:
+        return cycles
+    generator = np.random.default_rng(config.position_noise_seed)
+    noisy_cycles = []
+    for cycle in cycles:
+        detections = []
+        for detection in cycle.detections:
+            position = br24.polar_to_cartesian(
+                detection.range_m, detection.azimuth_rad
+            )[0]
+            position = position + generator.normal(
+                0.0, config.position_noise_std_m, size=2
+            )
+            detections.append(
+                replace(
+                    detection,
+                    range_m=float(np.linalg.norm(position)),
+                    azimuth_rad=float(np.arctan2(position[1], position[0])),
+                )
+            )
+        noisy_cycles.append(replace(cycle, detections=tuple(detections)))
+    return tuple(noisy_cycles)
 
 
 def _movement_state(stage: IMMPlayerStage) -> IMMMovementState:
@@ -329,7 +386,7 @@ def _forecast_metrics(
     stage: IMMPlayerStage, reference, *, coverage_stages
 ) -> IMMForecastMetrics:
     """Score the current forecast and aggregate joint coverage through this stage."""
-    if reference is None:
+    if reference is None or stage.forecast is None:
         return IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
     forecast = stage.forecast
     means = np.asarray(forecast.position_means, dtype=float)
@@ -385,6 +442,8 @@ def _joint_coverage_counts(stages, reference) -> tuple[int, int, int]:
     threshold_90 = chi2.ppf(0.9, 2)
     for stage in stages:
         forecast = stage.forecast
+        if forecast is None:
+            continue
         means = np.asarray(forecast.position_means, dtype=float)
         covariances = _regularize_covariances(forecast.position_covariances)
         target_indices = np.arange(
@@ -410,6 +469,8 @@ def _joint_coverage_counts(stages, reference) -> tuple[int, int, int]:
 
 def _forecast_uncertainty(stage: IMMPlayerStage) -> IMMForecastUncertainty:
     """Summarize 2D Gaussian covariances for the display-only uncertainty view."""
+    if stage.forecast is None:
+        return IMMForecastUncertainty(np.empty(0), np.empty(0), np.empty((0, 2)))
     covariances = _regularize_covariances(stage.forecast.position_covariances)
     equivalent_radii = np.sqrt(np.sqrt(np.linalg.det(covariances)))
     return IMMForecastUncertainty(

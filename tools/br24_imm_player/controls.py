@@ -154,13 +154,15 @@ class IMMControls(tk.Frame):
             style="IMMPlayer.TEntry",
         )
         entry.grid(row=0, column=0, sticky="ew")
-        ttk.Button(
+        self._file_entry = entry
+        self._browse_button = ttk.Button(
             file_frame,
             text="…",
             command=self.choose_file,
             width=2,
             style="IMMPlayer.TButton",
-        ).grid(row=0, column=1, sticky="ns", padx=(5, 0))
+        )
+        self._browse_button.grid(row=0, column=1, sticky="ns", padx=(5, 0))
         return section
 
     def _add_value_section(self, parent, title: str, rows) -> tk.LabelFrame:
@@ -253,6 +255,8 @@ class IMMControls(tk.Frame):
 
     def set_analysis_active(self, active: bool) -> None:
         """Offer the Predictor-style red cancel action for an active session."""
+        self._file_entry.configure(state="disabled" if active else "readonly")
+        self._browse_button.configure(state="disabled" if active else "normal")
         if self._analysis_button is not None:
             self._analysis_button.configure(
                 text="Cancel analysis" if active else "Start analysis",
