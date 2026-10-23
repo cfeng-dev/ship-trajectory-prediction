@@ -69,9 +69,8 @@ def create_menu_bar(app) -> None:
     menu_bar = tk.Menu(app.root)
 
     file_menu = tk.Menu(menu_bar, tearoff=False)
-    file_menu.add_command(label="Open BR24 CSV...", command=app.open_csv)
+    file_menu.add_command(label="Open CSV…", command=app.open_csv)
     app._open_csv_menu_index = file_menu.index("end")
-    file_menu.add_command(label="Reset analysis", command=app.reload_session)
     file_menu.add_separator()
     file_menu.add_command(label="Exit", command=app.close)
     menu_bar.add_cascade(label="File", menu=file_menu)
@@ -82,8 +81,16 @@ def create_menu_bar(app) -> None:
         variable=app.settings_visible_var,
         command=app.toggle_settings,
     )
-    view_menu.add_command(label="Reset plot view", command=app.reset_plot_view)
-    view_menu.add_command(label="Plot display...", command=app.show_plot_settings)
+    coordinate_menu = tk.Menu(view_menu, tearoff=False)
+    for label, mode in (("Local [m]", "m"), ("Local [km]", "km")):
+        coordinate_menu.add_radiobutton(
+            label=label,
+            value=mode,
+            variable=app.coordinate_display_mode_var,
+            command=lambda mode=mode: app.set_coordinate_display_mode(mode),
+        )
+    view_menu.add_cascade(label="Coordinate display", menu=coordinate_menu)
+    view_menu.add_command(label="Plot display…", command=app.show_plot_settings)
     menu_bar.add_cascade(label="View", menu=view_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=False)

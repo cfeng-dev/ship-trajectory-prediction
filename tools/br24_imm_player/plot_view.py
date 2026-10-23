@@ -93,8 +93,12 @@ class IMMPlotView(tk.Frame):
         self._updating_slider = False
         self._route_has_been_drawn = False
         self._follow_ship_view_needs_focus = True
+        self._coordinate_display_mode = "m"
         self.follow_ship_var = tk.BooleanVar(self, value=True)
-        self.show_reference_var = tk.BooleanVar(self, value=store.reference is not None)
+        self.show_reference_var = tk.BooleanVar(
+            self,
+            value=store.reference is not None and store.config.show_recorded_trajectory,
+        )
         self.settings_visible_var = tk.BooleanVar(self, value=settings_visible)
 
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
@@ -282,6 +286,23 @@ class IMMPlotView(tk.Frame):
         self.toolbar.home()
         self._draw()
 
+    def _coordinate_scale(self) -> float:
+        return 0.001 if self._coordinate_display_mode == "km" else 1.0
+
+    def set_coordinate_display_mode(self, mode: str) -> None:
+        """Rescale coordinates and the viewport, retaining the physical zoom."""
+        if mode not in {"m", "km"}:
+            raise ValueError("Coordinate display must be 'm' or 'km'.")
+        if mode == self._coordinate_display_mode:
+            return
+        old_scale = self._coordinate_scale()
+        self._coordinate_display_mode = mode
+        ratio = self._coordinate_scale() / old_scale
+        self.route_axis.set_xlim(np.asarray(self.route_axis.get_xlim()) * ratio)
+        self.route_axis.set_ylim(np.asarray(self.route_axis.get_ylim()) * ratio)
+        self.toolbar.update()
+        self._draw()
+
     def _draw(self) -> None:
         self._draw_route()
         self._draw_mode_probabilities()
@@ -303,13 +324,14 @@ class IMMPlotView(tk.Frame):
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, alpha=0.25, linewidth=0.8)
         axis.set_title("Ship movement", fontsize=13, pad=10)
-        axis.set_xlabel("Easting x [m]", fontsize=11)
-        axis.set_ylabel("Northing y [m]", fontsize=11)
+        scale = self._coordinate_scale()
+        axis.set_xlabel(f"Easting x [{self._coordinate_display_mode}]", fontsize=11)
+        axis.set_ylabel(f"Northing y [{self._coordinate_display_mode}]", fontsize=11)
         axis.set_aspect("equal", adjustable="box")
         if self.show_reference_var.get() and self.store.reference is not None:
             axis.plot(
-                self.store.reference.x_meters,
-                self.store.reference.y_meters,
+                self.store.reference.x_meters * scale,
+                self.store.reference.y_meters * scale,
                 color="#9CA3AF",
                 linewidth=1.5,
                 label="Recorded trajectory",
@@ -324,8 +346,9 @@ class IMMPlotView(tk.Frame):
             self._restore_route_limits(axis, view_limits)
             self._route_has_been_drawn = True
             if self.show_reference_var.get() and self.store.reference is not None:
-                axis.legend(loc="upper right", fontsize=9, framealpha=0.9)
-            else:
+                if self.store.config.show_legend:
+                    axis.legend(loc="upper right", fontsize=9, framealpha=0.9)
+            elif self.store.reference is None:
                 axis.text(
                     0.5,
                     0.5,
@@ -338,30 +361,32 @@ class IMMPlotView(tk.Frame):
             return
 
         stage = self.current_state.stage
-        tracked = np.asarray(stage.tracked_positions, dtype=float)
-        axis.plot(
-            tracked[:, 0],
-            tracked[:, 1],
-            color="#24557A",
-            linewidth=2.2,
-            label="IMM estimates through N",
-            zorder=3,
-        )
-        axis.scatter(
-            tracked[-1, 0],
-            tracked[-1, 1],
-            s=45,
-            color="#D97706",
-            label="Current position",
-            zorder=5,
-        )
+        tracked = np.asarray(stage.tracked_positions, dtype=float) * scale
+        if self.store.config.show_imm_track:
+            axis.plot(
+                tracked[:, 0],
+                tracked[:, 1],
+                color="#24557A",
+                linewidth=2.2,
+                label="IMM estimates through N",
+                zorder=3,
+            )
+        if self.store.config.show_current_position:
+            axis.scatter(
+                tracked[-1, 0],
+                tracked[-1, 1],
+                s=45,
+                color="#D97706",
+                label="Current position",
+                zorder=5,
+            )
         means = (
             np.empty((0, 2))
             if stage.forecast is None
-            else np.asarray(stage.forecast.position_means, dtype=float)
+            else np.asarray(stage.forecast.position_means, dtype=float) * scale
         )
         forecast_route = np.vstack((tracked[-1], means))
-        if len(means):
+        if len(means) and self.store.config.show_forecast_mean:
             axis.plot(
                 forecast_route[:, 0],
                 forecast_route[:, 1],
@@ -383,13 +408,14 @@ class IMMPlotView(tk.Frame):
         self._center_route_on_ship(axis, tracked)
         self._route_has_been_drawn = True
         handles, labels = axis.get_legend_handles_labels()
-        axis.legend(
-            handles=handles + region_handles,
-            labels=labels + [handle.get_label() for handle in region_handles],
-            loc="upper right",
-            fontsize=9,
-            framealpha=0.9,
-        )
+        if self.store.config.show_legend and (handles or region_handles):
+            axis.legend(
+                handles=handles + region_handles,
+                labels=labels + [handle.get_label() for handle in region_handles],
+                loc="upper right",
+                fontsize=9,
+                framealpha=0.9,
+            )
 
     def _draw_prediction_uncertainty(self, axis, stage) -> list:
         """Render IMM Gaussian marginals using the Predictor's region styles."""
@@ -405,13 +431,13 @@ class IMMPlotView(tk.Frame):
             if enabled
         )
         style = config.prediction_region_style
-        means = np.asarray(stage.forecast.position_means)
+        scale = self._coordinate_scale()
+        means = np.asarray(stage.forecast.position_means) * scale
+        covariances = np.asarray(stage.forecast.position_covariances) * scale**2
         if style == "none" or not probabilities or not len(means):
             return []
         if style == "ellipses":
-            for mean, covariance in zip(
-                means, stage.forecast.position_covariances, strict=True
-            ):
+            for mean, covariance in zip(means, covariances, strict=True):
                 self._draw_covariance_ellipses(axis, mean, covariance, probabilities)
             return [
                 Patch(
@@ -430,9 +456,7 @@ class IMMPlotView(tk.Frame):
                 mean
                 + normal_draws
                 @ np.linalg.cholesky(_regularize_covariance(covariance)).T
-                for mean, covariance in zip(
-                    means, stage.forecast.position_covariances, strict=True
-                )
+                for mean, covariance in zip(means, covariances, strict=True)
             ],
             axis=1,
         )
@@ -492,6 +516,7 @@ class IMMPlotView(tk.Frame):
                 np.column_stack(
                     (self.store.reference.x_meters, self.store.reference.y_meters)
                 )
+                * self._coordinate_scale()
             )
         if not points:
             axis.set_xlim(-1.0, 1.0)
@@ -500,7 +525,7 @@ class IMMPlotView(tk.Frame):
         all_points = np.vstack(points)
         lower = np.min(all_points, axis=0)
         upper = np.max(all_points, axis=0)
-        margin = np.maximum(10.0, 0.05 * (upper - lower))
+        margin = np.maximum(10.0 * self._coordinate_scale(), 0.05 * (upper - lower))
         axis.set_xlim(lower[0] - margin[0], upper[0] + margin[0])
         axis.set_ylim(lower[1] - margin[1], upper[1] + margin[1])
 
@@ -525,7 +550,11 @@ class IMMPlotView(tk.Frame):
             return
         center = tracked[-1]
         if self._follow_ship_view_needs_focus:
-            half_span = self.store.config.follow_ship_view_span_meters / 2.0
+            half_span = (
+                self.store.config.follow_ship_view_span_meters
+                * self._coordinate_scale()
+                / 2.0
+            )
             axis.set_xlim(center[0] - half_span, center[0] + half_span)
             axis.set_ylim(center[1] - half_span, center[1] + half_span)
             self._follow_ship_view_needs_focus = False

@@ -273,13 +273,18 @@ class IMMControls(tk.Frame):
         for value in self._values.values():
             value.set("-")
 
-    def show_display_state(self, state: IMMDisplayState) -> None:
+    def show_display_state(
+        self, state: IMMDisplayState, *, coordinate_display_mode="m"
+    ) -> None:
         """Render one stage's movement, metric, and association fields."""
         movement = state.movement
         metrics = state.metrics
         stage = state.stage
+        scale = 0.001 if coordinate_display_mode == "km" else 1.0
+        decimals = 3 if coordinate_display_mode == "km" else 1
         self._values["position"].set(
-            f"x = {movement.position_meters[0]:.1f} m\ny = {movement.position_meters[1]:.1f} m"
+            f"x = {movement.position_meters[0] * scale:.{decimals}f} {coordinate_display_mode}\n"
+            f"y = {movement.position_meters[1] * scale:.{decimals}f} {coordinate_display_mode}"
         )
         self._values["speed"].set(_format_optional(movement.speed_mps, "m/s"))
         self._values["heading"].set(_format_optional(movement.heading_degrees, "deg"))

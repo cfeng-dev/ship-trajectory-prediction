@@ -10,7 +10,7 @@ from tkinter import messagebox
 from . import view
 from .controls import IMMControls
 from .dialogs import PlaybackSettingsDialog, show_help
-from .player import IMMPlaybackStore, IMMPlayerConfig
+from .player import PLOT_DISPLAY_OPTIONS, IMMPlaybackStore, IMMPlayerConfig
 from .plot_view import IMMPlotView
 
 INITIAL_PLACEHOLDER_TEXT = (
@@ -30,7 +30,9 @@ class BR24IMMPlayerApp:
         self.plot_view: IMMPlotView | None = None
         self.settings_visible = True
         self.settings_visible_var = tk.BooleanVar(root, value=True)
+        self.coordinate_display_mode_var = tk.StringVar(root, value="m")
         self._settings_dialog: PlaybackSettingsDialog | None = None
+        self._plot_settings_dialog: PlaybackSettingsDialog | None = None
         self._closing = False
         self._analysis_active = False
 
@@ -105,6 +107,9 @@ class BR24IMMPlayerApp:
             on_settings_visibility_change=self.set_settings_visible,
             settings_visible=self.settings_visible,
         )
+        self.plot_view.set_coordinate_display_mode(
+            self.coordinate_display_mode_var.get()
+        )
         self.plot_view.pack(fill="both", expand=True)
         return True
 
@@ -112,7 +117,9 @@ class BR24IMMPlayerApp:
         if state is None:
             self.controls.clear_display_state()
             return
-        self.controls.show_display_state(state)
+        self.controls.show_display_state(
+            state, coordinate_display_mode=self.coordinate_display_mode_var.get()
+        )
 
     def start_analysis(self) -> None:
         """Show preparation feedback before loading the initial N = 0 view."""
@@ -160,6 +167,16 @@ class BR24IMMPlayerApp:
         if self.plot_view is not None:
             self.plot_view.reset_view()
 
+    def set_coordinate_display_mode(self, mode: str) -> None:
+        """Change plot units without restarting the IMM session."""
+        if mode not in {"m", "km"}:
+            raise ValueError("Coordinate display must be 'm' or 'km'.")
+        self.coordinate_display_mode_var.set(mode)
+        if self.plot_view is not None:
+            self.plot_view.set_coordinate_display_mode(mode)
+            if self.plot_view.current_state is not None:
+                self._show_stage(self.plot_view.current_state)
+
     def handle_key(self, event):
         """Route Predictor-style playback shortcuts outside editable controls."""
         if self._closing or self.plot_view is None:
@@ -196,26 +213,41 @@ class BR24IMMPlayerApp:
             self._open_settings_dialog(plot_only=True)
 
     def _open_settings_dialog(self, *, plot_only: bool) -> None:
-        if (
-            self._settings_dialog is not None
-            and self._settings_dialog.window.winfo_exists()
-        ):
-            self._settings_dialog.window.lift()
-            self._settings_dialog.window.focus_set()
+        attribute = "_plot_settings_dialog" if plot_only else "_settings_dialog"
+        dialog = getattr(self, attribute)
+        if dialog is not None and dialog.window.winfo_exists():
+            dialog.window.lift()
+            dialog.window.focus_set()
             return
-        self._settings_dialog = PlaybackSettingsDialog(
+        config = self.config
+        if plot_only and self.plot_view is not None:
+            config = replace(
+                config, show_recorded_trajectory=self.plot_view.show_reference_var.get()
+            )
+        dialog = PlaybackSettingsDialog(
             self.root,
-            self.config,
-            self._apply_settings,
+            config,
+            self._apply_plot_settings if plot_only else self._apply_settings,
             plot_only=plot_only,
+        )
+        setattr(self, attribute, dialog)
+
+    def _apply_plot_settings(self, config: IMMPlayerConfig) -> bool:
+        """Commit visual fields only, even if the analysis changed since opening."""
+        return self._apply_settings(
+            replace(
+                self.config,
+                **{name: getattr(config, name) for name in PLOT_DISPLAY_OPTIONS},
+                prediction_region_style=config.prediction_region_style,
+                follow_ship_view_span_meters=config.follow_ship_view_span_meters,
+            )
         )
 
     def _apply_settings(self, config: IMMPlayerConfig) -> bool:
         previous_session_config = replace(
             config,
+            **{name: getattr(self.config, name) for name in PLOT_DISPLAY_OPTIONS},
             prediction_region_style=self.config.prediction_region_style,
-            show_prediction_region_50=self.config.show_prediction_region_50,
-            show_prediction_region_90=self.config.show_prediction_region_90,
             follow_ship_view_span_meters=self.config.follow_ship_view_span_meters,
         )
         if previous_session_config == self.config:
@@ -227,6 +259,13 @@ class BR24IMMPlayerApp:
             if self.store is not None:
                 self.store.config = config
             if self.plot_view is not None:
+                visible = (
+                    config.show_recorded_trajectory and self.store.reference is not None
+                )
+                self.plot_view.show_reference_var.set(visible)
+                self.plot_view.reference_checkbox.eventson = False
+                self.plot_view.reference_checkbox.set_active(0, state=visible)
+                self.plot_view.reference_checkbox.eventson = True
                 if span_changed:
                     self.plot_view._follow_ship_view_needs_focus = True
                 self.plot_view._draw()
@@ -245,11 +284,9 @@ class BR24IMMPlayerApp:
         if self._closing:
             return
         self._closing = True
-        if (
-            self._settings_dialog is not None
-            and self._settings_dialog.window.winfo_exists()
-        ):
-            self._settings_dialog.close()
+        for dialog in (self._settings_dialog, self._plot_settings_dialog):
+            if dialog is not None and dialog.window.winfo_exists():
+                dialog.close()
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None

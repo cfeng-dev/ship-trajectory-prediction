@@ -35,6 +35,15 @@ PREDICTION_REGION_STYLE_LABELS = {
     "density_contours": "Per-step density contours",
     "none": "No uncertainty region",
 }
+PLOT_DISPLAY_OPTIONS = {
+    "show_legend": "Show legend",
+    "show_recorded_trajectory": "Show recorded trajectory",
+    "show_imm_track": "Show IMM estimates through N",
+    "show_current_position": "Show current position",
+    "show_forecast_mean": "Show forecast (mean)",
+    "show_prediction_region_50": "Show 50% posterior-predictive region",
+    "show_prediction_region_90": "Show 90% posterior-predictive region",
+}
 GAUSS_HERMITE_ORDER = 12
 RESIDUAL_POSITION_NOISE_FLOOR_M = 1e-6
 
@@ -50,6 +59,11 @@ class IMMPlayerConfig:
     prediction_region_style: str = "funnel"
     show_prediction_region_50: bool = True
     show_prediction_region_90: bool = True
+    show_legend: bool = True
+    show_recorded_trajectory: bool = True
+    show_imm_track: bool = True
+    show_current_position: bool = True
+    show_forecast_mean: bool = True
     start_index: int = 0
     position_noise_std_m: float = 0.0
     position_noise_seed: int = 2026
@@ -66,7 +80,7 @@ class IMMPlayerConfig:
         object.__setattr__(self, "position_noise_std_m", noise)
         if self.prediction_region_style not in PREDICTION_REGION_STYLE_LABELS:
             raise ValueError("Unsupported prediction uncertainty style.")
-        for name in ("show_prediction_region_50", "show_prediction_region_90"):
+        for name in PLOT_DISPLAY_OPTIONS:
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be a boolean.")
         for name in ("playback_interval_ms",):

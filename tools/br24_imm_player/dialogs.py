@@ -6,12 +6,16 @@ import tkinter as tk
 from dataclasses import replace
 from tkinter import messagebox, ttk
 
-from .player import PREDICTION_REGION_STYLE_LABELS, IMMPlayerConfig
+from .player import (
+    PLOT_DISPLAY_OPTIONS,
+    PREDICTION_REGION_STYLE_LABELS,
+    IMMPlayerConfig,
+)
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_button
 
 
 class PlaybackSettingsDialog:
-    """Edit a session configuration transactionally in a small modal dialog."""
+    """Edit local drafts in modal analysis or non-modal plot settings."""
 
     def __init__(
         self, parent, config: IMMPlayerConfig, on_apply, *, plot_only=False
@@ -25,6 +29,10 @@ class PlaybackSettingsDialog:
         self._config = config
         self._on_apply = on_apply
         self._variables = {
+            **{
+                name: tk.BooleanVar(self.window, value=getattr(config, name))
+                for name in PLOT_DISPLAY_OPTIONS
+            },
             "start_index": tk.StringVar(self.window, value=str(config.start_index)),
             "position_noise_std_m": tk.StringVar(
                 self.window, value=f"{config.position_noise_std_m:g}"
@@ -35,12 +43,6 @@ class PlaybackSettingsDialog:
             "prediction_region_style": tk.StringVar(
                 self.window,
                 value=PREDICTION_REGION_STYLE_LABELS[config.prediction_region_style],
-            ),
-            "show_prediction_region_50": tk.BooleanVar(
-                self.window, value=config.show_prediction_region_50
-            ),
-            "show_prediction_region_90": tk.BooleanVar(
-                self.window, value=config.show_prediction_region_90
             ),
             "prediction_count": tk.StringVar(
                 self.window, value=str(config.prediction_count)
@@ -56,26 +58,39 @@ class PlaybackSettingsDialog:
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.window.bind("<Escape>", lambda _: self.close())
         self.window.update_idletasks()
-        width = min(560, max(400, parent.winfo_screenwidth() - 80))
-        height = min(
-            max(320, self._content.winfo_reqheight() + 100),
-            max(320, parent.winfo_screenheight() - 120),
+        width = (
+            max(430, self.window.winfo_reqwidth())
+            if plot_only
+            else min(560, max(400, parent.winfo_screenwidth() - 80))
+        )
+        height = (
+            max(360, self.window.winfo_reqheight())
+            if plot_only
+            else min(
+                max(320, self._content.winfo_reqheight() + 100),
+                max(320, parent.winfo_screenheight() - 120),
+            )
         )
         left = max(0, parent.winfo_rootx() + (parent.winfo_width() - width) // 2)
         top = max(0, parent.winfo_rooty() + (parent.winfo_height() - height) // 2)
         self.window.geometry(f"{width}x{height}+{left}+{top}")
-        self.window.minsize(min(520, width), min(320, height))
+        if plot_only:
+            self.window.resizable(False, False)
+        else:
+            self.window.minsize(min(520, width), min(320, height))
         self.window.deiconify()
-        self.window.grab_set()
+        if not plot_only:
+            self.window.grab_set()
 
     def _build(self) -> None:
+        if self._plot_only:
+            self._build_plot_display()
+            return
         self.window.columnconfigure(0, weight=1)
         self.window.rowconfigure(1, weight=1)
         tk.Label(
             self.window,
-            text="Apply updates the plot immediately."
-            if self._plot_only
-            else "Apply updates these settings.\n"
+            text="Apply updates these settings.\n"
             "A running analysis remains unchanged until \u201cStart analysis\u201d.",
             font=FONT,
             bg=CONTROL_BACKGROUND,
@@ -101,7 +116,7 @@ class PlaybackSettingsDialog:
         )
         frame = tk.LabelFrame(
             self._content,
-            text="Plot display" if self._plot_only else "Analysis setup",
+            text="Analysis setup",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -111,15 +126,11 @@ class PlaybackSettingsDialog:
         frame.pack(fill="x", pady=(0, 8))
         frame.columnconfigure(1, weight=1)
         labels = (
-            (("Follow-ship span [m]", "follow_ship_view_span_meters"),)
-            if self._plot_only
-            else (
-                ("Start index (from 0)", "start_index"),
-                ("Additional position noise [m]", "position_noise_std_m"),
-                ("Position-noise seed", "position_noise_seed"),
-                ("Forecast steps (0 = off)", "prediction_count"),
-                ("Playback interval [s]", "playback_interval_seconds"),
-            )
+            ("Start index (from 0)", "start_index"),
+            ("Additional position noise [m]", "position_noise_std_m"),
+            ("Position-noise seed", "position_noise_seed"),
+            ("Forecast steps (0 = off)", "prediction_count"),
+            ("Playback interval [s]", "playback_interval_seconds"),
         )
         for row, (label, name) in enumerate(labels):
             tk.Label(
@@ -135,8 +146,6 @@ class PlaybackSettingsDialog:
                 width=16,
                 style="IMMPlayer.TEntry",
             ).grid(row=row, column=1, sticky="ew", pady=(6, 0))
-        if self._plot_only:
-            self._build_plot_fields(frame, len(labels))
 
         def scroll(event):
             if canvas.yview() == (0.0, 1.0):
@@ -156,57 +165,82 @@ class PlaybackSettingsDialog:
         create_button(buttons, "Apply", self.apply).pack(side="right", padx=(8, 0))
         create_button(buttons, "Cancel", self.close).pack(side="right")
 
-    def _build_plot_fields(self, frame, row: int) -> None:
+    def _build_plot_display(self) -> None:
         tk.Label(
-            frame,
+            self.window,
+            text="Changes are applied only after selecting Apply.",
+            font=FONT,
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            anchor="w",
+            padx=14,
+            pady=12,
+        ).pack(fill="x")
+        body = tk.Frame(self.window, bg=CONTROL_BACKGROUND, padx=14, pady=4)
+        body.pack(fill="both", expand=True)
+        for name, label in PLOT_DISPLAY_OPTIONS.items():
+            tk.Checkbutton(
+                body,
+                text=label,
+                variable=self._variables[name],
+                bg=CONTROL_BACKGROUND,
+                activebackground=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                font=FONT,
+                anchor="w",
+            ).pack(fill="x", pady=3)
+        row = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        row.pack(fill="x", pady=(8, 3))
+        tk.Label(
+            row,
             text="Prediction uncertainty",
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             font=FONT,
-        ).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=5)
+        ).pack(side="left")
         ttk.Combobox(
-            frame,
+            row,
             textvariable=self._variables["prediction_region_style"],
             values=tuple(PREDICTION_REGION_STYLE_LABELS.values()),
             state="readonly",
-            width=28,
-        ).grid(row=row, column=1, sticky="ew", pady=5)
-        for offset, probability in enumerate((50, 90), start=1):
-            tk.Checkbutton(
-                frame,
-                text=f"Show {probability}% region",
-                variable=self._variables[f"show_prediction_region_{probability}"],
-                bg=CONTROL_BACKGROUND,
-                fg=TEXT_COLOR,
-                font=FONT,
-            ).grid(row=row + offset, column=0, columnspan=2, sticky="w")
+            width=30,
+        ).pack(side="right")
+        row = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        row.pack(fill="x", pady=(8, 3))
         tk.Label(
-            frame,
-            text="Density views approximate the Gaussian IMM position forecasts.\n"
-            "Horizon views pool positions across forecast steps;\n"
-            "they are not a simultaneous trajectory probability band.",
+            row,
+            text="Follow-ship view span [m]",
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
             font=FONT,
-            justify="left",
-        ).grid(row=row + 3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ).pack(side="left")
+        ttk.Entry(
+            row,
+            textvariable=self._variables["follow_ship_view_span_meters"],
+            width=12,
+            style="IMMPlayer.TEntry",
+        ).pack(side="right")
+        actions = tk.Frame(self.window, bg=CONTROL_BACKGROUND, padx=14, pady=12)
+        actions.pack(fill="x")
+        create_button(actions, "Apply", self.apply, width=12).pack(
+            side="right", padx=(8, 0)
+        )
+        create_button(actions, "Cancel", self.close, width=12).pack(side="right")
 
     def apply(self) -> None:
         """Parse every field before handing one fresh configuration to the app."""
         try:
             if self._plot_only:
                 values = dict(
+                    **{
+                        name: self._variables[name].get()
+                        for name in PLOT_DISPLAY_OPTIONS
+                    },
                     prediction_region_style=next(
                         key
                         for key, label in PREDICTION_REGION_STYLE_LABELS.items()
                         if label == self._variables["prediction_region_style"].get()
                     ),
-                    show_prediction_region_50=self._variables[
-                        "show_prediction_region_50"
-                    ].get(),
-                    show_prediction_region_90=self._variables[
-                        "show_prediction_region_90"
-                    ].get(),
                     follow_ship_view_span_meters=float(
                         self._variables["follow_ship_view_span_meters"].get()
                     ),
@@ -234,7 +268,8 @@ class PlaybackSettingsDialog:
             self.close()
 
     def close(self) -> None:
-        self.window.grab_release()
+        if not self._plot_only:
+            self.window.grab_release()
         self.window.destroy()
 
 
