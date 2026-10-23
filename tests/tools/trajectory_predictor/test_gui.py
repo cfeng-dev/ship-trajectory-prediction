@@ -349,6 +349,7 @@ def test_settings_panel_displays_reference_csv_state(root):
             detection_id=7,
             nis=1.25,
             measurement_covariance=np.array([[4.0, 0.5], [0.5, 9.0]]),
+            cycle_counter=42,
         )
     )
     posterior_median_labels = {
@@ -376,7 +377,8 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.posterior_median_values["position_observation_noise"].get() == "4.00 m"
     assert panel.posterior_median_values["speed_process_noise"].get() == "5.00 m/s"
     assert panel.posterior_median_values["turn_rate_process_noise"].get() == "6.00°/s"
-    assert panel.radar_association_values["status"].get() == "accepted"
+    assert panel.radar_association_values["status"].get() == "Associated"
+    assert panel.radar_association_values["cycle"].get() == "42"
     assert panel.radar_association_values["detection_id"].get() == "7"
     assert panel.radar_association_values["nis"].get() == "1.25"
     assert panel.radar_association_values["cov_xx"].get() == "4.000"
@@ -427,7 +429,7 @@ def test_help_explains_analysis_metrics():
 
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
-    assert dict(sections["Analysis metrics"]) == {
+    assert dict(sections["Evaluation metrics"]) == {
         "Forecast ADE": "Mean position error across all forecast steps in meters; lower is better.",
         "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
         "Forecast RMSE": "Root mean squared 2D position error across all forecast steps in meters; lower is better.",

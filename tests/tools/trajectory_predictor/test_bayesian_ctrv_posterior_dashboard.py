@@ -99,6 +99,7 @@ def test_dashboard_exposes_radar_covariance_and_prediction_only_status():
         _dashboard_samples(),
         radar_tracking_active=True,
         radar_detection_id=5,
+        radar_cycle_counter=42,
         radar_nis=1.25,
         radar_measurement_covariance=[[4.0, 0.5], [0.5, 9.0]],
     )
@@ -106,12 +107,15 @@ def test_dashboard_exposes_radar_covariance_and_prediction_only_status():
         3,
         _dashboard_samples(),
         radar_tracking_active=True,
+        radar_cycle_counter=43,
     )
 
     accepted_diagnostics = dashboard.radar_association_diagnostics_at({2: accepted}, 2)
     missed_diagnostics = dashboard.radar_association_diagnostics_at({3: missed}, 3)
 
     assert accepted_diagnostics.detection_id == 5
+    assert accepted_diagnostics.cycle_counter == 42
+    assert missed_diagnostics.cycle_counter == 43
     assert accepted_diagnostics.nis == 1.25
     np.testing.assert_allclose(
         accepted_diagnostics.measurement_covariance,

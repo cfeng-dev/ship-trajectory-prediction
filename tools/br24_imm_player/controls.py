@@ -115,12 +115,12 @@ class IMMControls(tk.Frame):
             "BR24 radar association",
             (
                 ("Status", "association_status"),
+                ("Cycle", "cycle"),
                 ("Detection ID", "detection_id"),
                 ("NIS", "nis"),
                 ("cov_xx [m²]", "cov_xx"),
                 ("cov_xy [m²]", "cov_xy"),
                 ("cov_yy [m²]", "cov_yy"),
-                ("Cycle", "cycle"),
             ),
         ).grid(row=5, column=0, sticky="ew")
         self._bind_mouse_wheel()

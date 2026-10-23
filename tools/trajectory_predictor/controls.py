@@ -291,7 +291,7 @@ class SettingsPanel(tk.Frame):
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.analysis_metrics_section = tk.LabelFrame(
             body,
-            text="Analysis metrics",
+            text="Evaluation metrics",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -344,11 +344,13 @@ class SettingsPanel(tk.Frame):
             "cov_xx": tk.StringVar(self, value="-"),
             "cov_xy": tk.StringVar(self, value="-"),
             "cov_yy": tk.StringVar(self, value="-"),
+            "cycle": tk.StringVar(self, value="-"),
         }
         self.radar_association_section.pack(fill="x", pady=(8, 0))
         for row, (key, label) in enumerate(
             (
                 ("status", "Status"),
+                ("cycle", "Cycle"),
                 ("detection_id", "Detection ID"),
                 ("nis", "NIS"),
                 ("cov_xx", "cov_xx [m²]"),
@@ -448,11 +450,15 @@ class SettingsPanel(tk.Frame):
                 variable.set("-")
             return
         status_labels = {
-            "accepted": "accepted",
-            "initialization": "initial measurement",
-            "prediction_only": "prediction only",
+            "accepted": "Associated",
+            "initialization": "Initial measurement",
+            "prediction_only": "Prediction only",
         }
         self.radar_association_values["status"].set(status_labels[diagnostics.status])
+        cycle_counter = getattr(diagnostics, "cycle_counter", None)
+        self.radar_association_values["cycle"].set(
+            "-" if cycle_counter is None else str(cycle_counter)
+        )
         if diagnostics.status == "prediction_only":
             for key in ("detection_id", "nis", "cov_xx", "cov_xy", "cov_yy"):
                 self.radar_association_values[key].set("-")

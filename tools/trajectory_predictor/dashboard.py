@@ -402,6 +402,7 @@ class PosteriorDashboardUpdate:
     radar_detection_id: int | None = None
     radar_nis: float | None = None
     radar_measurement_covariance: np.ndarray | None = None
+    radar_cycle_counter: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.is_prior_predictive, bool):
@@ -426,6 +427,12 @@ class PosteriorDashboardUpdate:
             not np.isfinite(self.radar_nis) or self.radar_nis < 0
         ):
             raise ValueError("radar_nis must be finite and non-negative or None.")
+        if self.radar_cycle_counter is not None and (
+            isinstance(self.radar_cycle_counter, bool)
+            or not isinstance(self.radar_cycle_counter, (int, np.integer))
+            or self.radar_cycle_counter < 0
+        ):
+            raise ValueError("radar_cycle_counter must be a non-negative integer or None.")
         if not isinstance(self.radar_tracking_active, bool):
             raise TypeError("radar_tracking_active must be a boolean.")
         if self.radar_measurement_covariance is not None:
@@ -493,6 +500,7 @@ class RadarAssociationDiagnostics:
     detection_id: int | None
     nis: float | None
     measurement_covariance: np.ndarray | None
+    cycle_counter: int | None = None
 
 
 def radar_association_diagnostics_at(updates_by_count, observation_count):
@@ -506,12 +514,14 @@ def radar_association_diagnostics_at(updates_by_count, observation_count):
             detection_id=None,
             nis=None,
             measurement_covariance=None,
+            cycle_counter=update.radar_cycle_counter,
         )
     return RadarAssociationDiagnostics(
         status="initialization" if update.radar_nis is None else "accepted",
         detection_id=update.radar_detection_id,
         nis=update.radar_nis,
         measurement_covariance=update.radar_measurement_covariance,
+        cycle_counter=update.radar_cycle_counter,
     )
 
 
@@ -2380,6 +2390,7 @@ def create_br24_radar_dashboard_loader(
             radar_detection_id=detection_id,
             radar_nis=nis,
             radar_measurement_covariance=measurement_covariance,
+            radar_cycle_counter=selected_cycles[observation_count - 1].cycle_counter,
         )
 
     return trajectory, maximum_observation_count, 1, load_radar_update

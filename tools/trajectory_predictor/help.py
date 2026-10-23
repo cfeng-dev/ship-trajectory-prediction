@@ -82,7 +82,7 @@ POSTERIOR_HELP_SECTIONS = (
         ),
     ),
     (
-        "Analysis metrics",
+        "Evaluation metrics",
         (
             (
                 "Forecast ADE",
