@@ -29,6 +29,10 @@ class PlaybackSettingsDialog:
         self._config = config
         self._on_apply = on_apply
         self._variables = {
+            "prediction_sample_count": tk.StringVar(
+                self.window, value=str(config.prediction_sample_count)
+            ),
+            "forecast_seed": tk.StringVar(self.window, value=str(config.forecast_seed)),
             **{
                 name: tk.BooleanVar(self.window, value=getattr(config, name))
                 for name in PLOT_DISPLAY_OPTIONS
@@ -130,6 +134,8 @@ class PlaybackSettingsDialog:
             ("Additional position noise [m]", "position_noise_std_m"),
             ("Position-noise seed", "position_noise_seed"),
             ("Forecast steps (0 = off)", "prediction_count"),
+            ("Future trajectories (0 = off)", "prediction_sample_count"),
+            ("Trajectory-sampling seed", "forecast_seed"),
             ("Playback interval [s]", "playback_interval_seconds"),
         )
         for row, (label, name) in enumerate(labels):
@@ -255,6 +261,10 @@ class PlaybackSettingsDialog:
                         self._variables["position_noise_seed"].get()
                     ),
                     prediction_count=int(self._variables["prediction_count"].get()),
+                    prediction_sample_count=int(
+                        self._variables["prediction_sample_count"].get()
+                    ),
+                    forecast_seed=int(self._variables["forecast_seed"].get()),
                     playback_interval_ms=round(
                         float(self._variables["playback_interval_seconds"].get()) * 1000
                     ),
@@ -280,6 +290,9 @@ def show_help(parent) -> None:
         "Each N step processes one new BR24 radar cycle and refreshes the "
         "multi-step IMM forecast.\n\n"
         "Reference positions, when present in the selected CSV, are displayed "
-        "and evaluated only after the forecast. They are never tracker input.",
+        "and evaluated only after the forecast. They are never tracker input.\n\n"
+        "Sampled IMM trajectories are a Monte Carlo extension using the current "
+        "model states, model switches and process noise. They do not replace "
+        "the analytic forecast mean, covariance regions or evaluation metrics.",
         parent=parent,
     )

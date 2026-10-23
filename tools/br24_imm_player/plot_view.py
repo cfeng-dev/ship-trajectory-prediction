@@ -419,6 +419,23 @@ class IMMPlotView(tk.Frame):
             else np.asarray(stage.forecast.position_means, dtype=float) * scale
         )
         forecast_route = np.vstack((tracked[-1], means))
+        if (
+            self.store.config.show_sample_trajectories
+            and stage.sample_positions is not None
+        ):
+            for index, positions in enumerate(stage.sample_positions):
+                positions = positions * scale
+                axis.plot(
+                    positions[:, 0],
+                    positions[:, 1],
+                    color="#DC2626",
+                    alpha=0.14,
+                    linewidth=0.9,
+                    zorder=2,
+                    label=f"Sampled IMM trajectories (n = {len(stage.sample_positions)})"
+                    if index == 0
+                    else "_nolegend_",
+                )
         if len(means) and self.store.config.show_forecast_mean:
             axis.plot(
                 forecast_route[:, 0],

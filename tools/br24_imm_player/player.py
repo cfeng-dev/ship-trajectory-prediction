@@ -40,6 +40,7 @@ PLOT_DISPLAY_OPTIONS = {
     "show_recorded_trajectory": "Show reference trajectory",
     "show_imm_track": "Show IMM estimates through N",
     "show_current_position": "Show current position",
+    "show_sample_trajectories": "Show sampled IMM trajectories",
     "show_forecast_mean": "Show forecast (mean)",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
@@ -64,13 +65,22 @@ class IMMPlayerConfig:
     show_imm_track: bool = True
     show_current_position: bool = True
     show_forecast_mean: bool = True
+    show_sample_trajectories: bool = True
+    prediction_sample_count: int = 20
+    forecast_seed: int = 42
     start_index: int = 0
     position_noise_std_m: float = 0.0
     position_noise_seed: int = 2026
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_file", Path(self.data_file).expanduser())
-        for name in ("start_index", "position_noise_seed", "prediction_count"):
+        for name in (
+            "start_index",
+            "position_noise_seed",
+            "prediction_count",
+            "prediction_sample_count",
+            "forecast_seed",
+        ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer.")
@@ -109,6 +119,7 @@ class IMMPlayerStage:
     tracked_times_seconds: np.ndarray
     tracked_positions: np.ndarray
     forecast: Any
+    sample_positions: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +293,22 @@ class IMMPlaybackStore:
             if self.config.prediction_count
             else None
         )
+        sample_positions = None
+        if forecast is not None and self.config.prediction_sample_count:
+            seed = int(
+                np.random.SeedSequence(
+                    [
+                        self.config.forecast_seed,
+                        self.cycles[observation_count - 1].cycle_counter,
+                    ]
+                ).generate_state(1)[0]
+            )
+            sample_positions = self._tracker.sample_forecast(
+                future_times,
+                sample_count=self.config.prediction_sample_count,
+                seed=seed,
+            )
+            sample_positions.setflags(write=False)
         self._stages[observation_count] = IMMPlayerStage(
             observation_count=observation_count,
             cycle_counter=self.cycles[observation_count - 1].cycle_counter,
@@ -297,6 +324,7 @@ class IMMPlaybackStore:
             tracked_times_seconds=self.times[:observation_count].copy(),
             tracked_positions=np.asarray(self._tracked_positions, dtype=float).copy(),
             forecast=forecast,
+            sample_positions=sample_positions,
         )
 
     def _validate_observation_count(self, observation_count: int) -> int:
