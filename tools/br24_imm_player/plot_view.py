@@ -58,7 +58,6 @@ class _IMMPlayerLayout(LayoutEngine):
         for checkbox, offset, checkbox_width in (
             (view.follow_checkbox, 0, 95),
             (view.settings_checkbox, 100, 110),
-            (view.reference_checkbox, 215, 125),
         ):
             checkbox.ax.set_position(
                 (
@@ -175,10 +174,6 @@ class IMMPlotView(tk.Frame):
         self.settings_checkbox = checkbox(
             "Show settings", self.settings_visible_var, self._toggle_settings
         )
-        self.reference_checkbox = checkbox(
-            "Show reference", self.show_reference_var, self._draw
-        )
-        self.reference_checkbox.active = self.store.reference is not None
 
     def _on_slider_change(self, value) -> None:
         if self._updating_slider:
@@ -327,7 +322,7 @@ class IMMPlotView(tk.Frame):
         scale = self._coordinate_scale()
         axis.set_xlabel(f"Easting x [{self._coordinate_display_mode}]", fontsize=11)
         axis.set_ylabel(f"Northing y [{self._coordinate_display_mode}]", fontsize=11)
-        axis.set_aspect("equal", adjustable="box")
+        axis.set_aspect("equal", adjustable="datalim")
         if self.show_reference_var.get() and self.store.reference is not None:
             axis.plot(
                 self.store.reference.x_meters * scale,
@@ -671,7 +666,6 @@ class IMMPlotView(tk.Frame):
             self.slider,
             self.follow_checkbox,
             self.settings_checkbox,
-            self.reference_checkbox,
         ):
             widget.disconnect_events()
         super().destroy()

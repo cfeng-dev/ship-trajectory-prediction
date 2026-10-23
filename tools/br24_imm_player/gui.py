@@ -263,9 +263,6 @@ class BR24IMMPlayerApp:
                     config.show_recorded_trajectory and self.store.reference is not None
                 )
                 self.plot_view.show_reference_var.set(visible)
-                self.plot_view.reference_checkbox.eventson = False
-                self.plot_view.reference_checkbox.set_active(0, state=visible)
-                self.plot_view.reference_checkbox.eventson = True
                 if span_changed:
                     self.plot_view._follow_ship_view_needs_focus = True
                 self.plot_view._draw()
