@@ -938,7 +938,7 @@ def test_plot_dialog_contains_display_options(root):
         }
         assert labels == {
             "Show legend",
-            "Show recorded trajectory",
+            "Show reference trajectory",
             "Show observations through N",
             "Show current position",
             "Show possible future trajectories",

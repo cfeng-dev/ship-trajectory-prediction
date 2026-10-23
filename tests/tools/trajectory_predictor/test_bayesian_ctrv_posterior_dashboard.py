@@ -278,7 +278,7 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         reference_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Recorded trajectory"
+            if line.get_label() == "Reference trajectory"
         )
         median_line = next(
             line
@@ -334,7 +334,7 @@ def test_dashboard_falls_back_to_metres_when_gps_is_requested():
         reference_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Recorded trajectory"
+            if line.get_label() == "Reference trajectory"
         )
         np.testing.assert_allclose(reference_line.get_xdata(), trajectory.reference_x)
         np.testing.assert_allclose(reference_line.get_ydata(), trajectory.reference_y)
@@ -402,6 +402,40 @@ def _view_limits(navigator):
     return np.array(
         [navigator.trajectory_axis.get_xlim(), navigator.trajectory_axis.get_ylim()]
     )
+
+
+def test_route_zoom_and_resize_do_not_emit_fixed_limit_warnings(follow_dashboard, caplog):
+    figure, navigator, loads = follow_dashboard
+    canvas = figure.canvas
+    caplog.clear()
+    navigator.slider.set_val(1)
+    navigator.show_selected_observation_count(None)
+    for size in ((10, 6), (14, 9), (11, 8)):
+        figure.set_size_inches(*size)
+        canvas.draw()
+    axis = navigator.trajectory_axis
+    toolbar = NavigationToolbar2(canvas)
+    toolbar.zoom()
+    box = axis.get_window_extent()
+    frame_size = np.array([box.width, box.height])
+    previous_span = np.ptp(axis.get_xlim())
+    start = (box.x0 + 0.3 * box.width, box.y0 + 0.2 * box.height)
+    end = (box.x0 + 0.5 * box.width, box.y0 + 0.6 * box.height)
+    toolbar.press_zoom(MouseEvent("button_press_event", canvas, *start, button=1))
+    toolbar.release_zoom(MouseEvent("button_release_event", canvas, *end, button=1))
+    canvas.draw()
+    new_box = axis.get_window_extent()
+    np.testing.assert_allclose([new_box.width, new_box.height], frame_size)
+    assert np.ptp(axis.get_xlim()) < previous_span
+    assert np.ptp(axis.get_ylim()) / np.ptp(axis.get_xlim()) == pytest.approx(
+        new_box.height / new_box.width
+    )
+    toolbar.back()
+    canvas.draw()
+    toolbar.forward()
+    canvas.draw()
+    assert loads == [1]
+    assert not any("Ignoring fixed" in record.message for record in caplog.records)
 
 
 def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
@@ -1716,7 +1750,7 @@ def test_dashboard_display_options_redraw_without_loading_an_update():
         assert navigator.follow_ship_view_span_m == pytest.approx(250.0)
         assert not navigator.trajectory_axis.get_legend()
         assert not any(
-            line.get_label() == "Recorded trajectory"
+            line.get_label() == "Reference trajectory"
             for line in navigator.trajectory_axis.lines
         )
     finally:
@@ -2425,7 +2459,7 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
             "current_turn_rate",
         )
         assert [line.get_label() for line in navigator.trajectory_axis.lines] == [
-            "Recorded trajectory"
+            "Reference trajectory"
         ]
         assert all(
             [line.get_label() for line in axis.lines] == ["Initial prior"]
@@ -2438,7 +2472,7 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         assert navigator.observation_count == 3
         assert loaded_counts == [1, 2, 3]
         assert [line.get_label() for line in navigator.trajectory_axis.lines] == [
-            "Recorded trajectory",
+            "Reference trajectory",
             "Observations through N",
             "Current position",
         ]
@@ -2733,7 +2767,7 @@ def test_dashboard_keeps_manual_trajectory_zoom_without_aspect_limit_warning(
 
         assert navigator.trajectory_axis.get_xlim() == pytest.approx(zoomed_xlim)
         assert navigator.trajectory_axis.get_ylim() == pytest.approx(zoomed_ylim)
-        assert "Ignoring fixed y limits" in caplog.text
+        assert "Ignoring fixed" not in caplog.text
     finally:
         plt.close(figure)
 

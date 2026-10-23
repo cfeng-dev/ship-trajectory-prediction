@@ -47,6 +47,7 @@ class _IMMPlayerLayout(LayoutEngine):
         )
         for axis in (view.route_axis, view.mode_axis, view.uncertainty_axis):
             axis.set_position(axis.get_subplotspec().get_position(figure))
+        view._fit_route_limits_to_axes()
         playback_width = max(0.085, 64 / width)
         view.playback_button.ax.set_position(
             (0.025, 18 / height, playback_width, 28 / height)
@@ -114,6 +115,7 @@ class IMMPlotView(tk.Frame):
             hspace=0.36,
         )
         self.route_axis = self.figure.add_subplot(grid[:, 0])
+        self.route_axis.set_axes_locator(self._locate_route_axes)
         self.mode_axis = self.figure.add_subplot(grid[0, 1])
         self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
@@ -284,6 +286,41 @@ class IMMPlotView(tk.Frame):
     def _coordinate_scale(self) -> float:
         return 0.001 if self._coordinate_display_mode == "km" else 1.0
 
+    def _locate_route_axes(self, axis, _renderer):
+        # Figure.draw checks aspect before executing the layout engine. This
+        # locator also handles that early pass after resizing or toolbar zoom.
+        self._fit_route_limits_to_axes()
+        return axis.get_position(original=True)
+
+    def _fit_route_limits_to_axes(self) -> None:
+        """Expand the viewport to equal spatial scale before Matplotlib draws.
+
+        Keep the center and contain the selected zoom rectangle. Matching the
+        final layout here prevents datalim aspect correction from overriding
+        fixed limits, including during window resizing and toolbar navigation.
+        """
+        axis = self.route_axis
+        position = axis.get_position(original=True)
+        box_width = position.width * self.figure.get_figwidth()
+        box_height = position.height * self.figure.get_figheight()
+        x_limits, y_limits = np.asarray(axis.get_xlim()), np.asarray(axis.get_ylim())
+        x_span, y_span = abs(np.diff(x_limits)[0]), abs(np.diff(y_limits)[0])
+        if min(box_width, box_height, x_span, y_span) <= 0:
+            return
+        ratio = box_height / box_width
+        if np.isclose(y_span / x_span, ratio, rtol=1e-9, atol=0):
+            return
+        if y_span < ratio * x_span:
+            half_span = ratio * x_span / 2
+            center = y_limits.mean()
+            limits = (center - half_span, center + half_span)
+            axis.set_ylim(limits if y_limits[0] < y_limits[1] else limits[::-1])
+        else:
+            half_span = y_span / ratio / 2
+            center = x_limits.mean()
+            limits = (center - half_span, center + half_span)
+            axis.set_xlim(limits if x_limits[0] < x_limits[1] else limits[::-1])
+
     def set_coordinate_display_mode(self, mode: str) -> None:
         """Rescale coordinates and the viewport, retaining the physical zoom."""
         if mode not in {"m", "km"}:
@@ -328,8 +365,9 @@ class IMMPlotView(tk.Frame):
                 self.store.reference.x_meters * scale,
                 self.store.reference.y_meters * scale,
                 color="#9CA3AF",
+                linestyle="--",
                 linewidth=1.5,
-                label="Recorded trajectory",
+                label="Reference trajectory",
                 zorder=1,
             )
         if self.current_state is None:
@@ -550,8 +588,14 @@ class IMMPlotView(tk.Frame):
                 * self._coordinate_scale()
                 / 2.0
             )
-            axis.set_xlim(center[0] - half_span, center[0] + half_span)
-            axis.set_ylim(center[1] - half_span, center[1] + half_span)
+            position = axis.get_position(original=True)
+            box_ratio = (position.height * self.figure.get_figheight()) / (
+                position.width * self.figure.get_figwidth()
+            )
+            half_width = half_span / max(1.0, box_ratio)
+            half_height = half_span * min(1.0, box_ratio)
+            axis.set_xlim(center[0] - half_width, center[0] + half_width)
+            axis.set_ylim(center[1] - half_height, center[1] + half_height)
             self._follow_ship_view_needs_focus = False
             return
         for get_limits, set_limits, position in (

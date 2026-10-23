@@ -669,6 +669,40 @@ def _forecast_reference_positions(trajectory, update):
     )
 
 
+def _fit_trajectory_limits_to_axes(axis):
+    """Contain the viewport at the requested spatial aspect before drawing."""
+    aspect = axis.get_aspect()
+    if aspect == "auto":
+        return
+    figure = axis.get_figure()
+    position = axis.get_position(original=True)
+    box_width = position.width * figure.get_figwidth()
+    box_height = position.height * figure.get_figheight()
+    x_limits, y_limits = np.asarray(axis.get_xlim()), np.asarray(axis.get_ylim())
+    x_span, y_span = abs(np.diff(x_limits)[0]), abs(np.diff(y_limits)[0])
+    if min(box_width, box_height, x_span, y_span) <= 0:
+        return
+    ratio = box_height / box_width / float(aspect)
+    if np.isclose(y_span / x_span, ratio, rtol=1e-9, atol=0):
+        return
+    if y_span < ratio * x_span:
+        half_span = ratio * x_span / 2
+        center = y_limits.mean()
+        limits = (center - half_span, center + half_span)
+        axis.set_ylim(limits if y_limits[0] < y_limits[1] else limits[::-1])
+    else:
+        half_span = y_span / ratio / 2
+        center = x_limits.mean()
+        limits = (center - half_span, center + half_span)
+        axis.set_xlim(limits if x_limits[0] < x_limits[1] else limits[::-1])
+
+
+def _locate_trajectory_axes(axis, _renderer):
+    # Matplotlib checks aspect before layout as well as when drawing the axes.
+    _fit_trajectory_limits_to_axes(axis)
+    return axis.get_position(original=True)
+
+
 class _PosteriorDashboardLayout(LayoutEngine):
     """Keep text-sized clearances during resize and toolbar view restoration."""
 
@@ -727,6 +761,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.trajectory_axis.set_position(
             self.trajectory_axis.get_subplotspec().get_position(figure)
         )
+        _fit_trajectory_limits_to_axes(self.trajectory_axis)
         motion_axes = self.posterior_axes_by_group["motion"]
         noise_axes = self.posterior_axes_by_group["noise"]
         if self.display_mode == "expanded":
@@ -839,6 +874,7 @@ class PosteriorDashboardNavigator:
     ):
         self.figure = figure
         self.trajectory_axis = trajectory_axis
+        trajectory_axis.set_axes_locator(_locate_trajectory_axes)
         if posterior_axes_by_group is None:
             posterior_axes_by_group = {"motion": tuple(posterior_axes)}
         self.posterior_axes_by_group = {
@@ -1319,8 +1355,9 @@ class PosteriorDashboardNavigator:
                 reference_x,
                 reference_y,
                 color="#9CA3AF",
+                linestyle="--",
                 linewidth=1.5,
-                label="Recorded trajectory",
+                label="Reference trajectory",
                 zorder=1,
             )
         if self.observation_count > 0:
@@ -1415,14 +1452,20 @@ class PosteriorDashboardNavigator:
     def _set_focused_ship_view(self, position) -> None:
         """Show a fixed real-world window around the current ship position."""
         half_span_meters = self.follow_ship_view_span_m / 2.0
+        axes_position = self.trajectory_axis.get_position(original=True)
+        box_ratio = (axes_position.height * self.figure.get_figheight()) / (
+            axes_position.width * self.figure.get_figwidth()
+        )
+        half_width = half_span_meters / max(1.0, box_ratio)
+        half_height = half_span_meters * min(1.0, box_ratio)
         current_x, current_y = position
         x_values, _ = self._display_coordinates(
-            np.asarray([current_x - half_span_meters, current_x + half_span_meters]),
+            np.asarray([current_x - half_width, current_x + half_width]),
             np.asarray([current_y, current_y]),
         )
         _, y_values = self._display_coordinates(
             np.asarray([current_x, current_x]),
-            np.asarray([current_y - half_span_meters, current_y + half_span_meters]),
+            np.asarray([current_y - half_height, current_y + half_height]),
         )
         for get_limits, set_limits, values in (
             (self.trajectory_axis.get_xlim, self.trajectory_axis.set_xlim, x_values),
