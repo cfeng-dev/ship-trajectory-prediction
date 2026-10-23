@@ -164,6 +164,7 @@ class IMMDisplayState:
     movement: IMMMovementState
     metrics: IMMForecastMetrics
     uncertainty: IMMForecastUncertainty
+    reference_state: IMMMovementState | None = None
 
 
 class IMMPlaybackStore:
@@ -253,6 +254,7 @@ class IMMPlaybackStore:
                     ),
                 ),
                 uncertainty=_forecast_uncertainty(stage),
+                reference_state=_reference_state(stage, self.reference),
             )
         return self._display_states[observation_count]
 
@@ -382,6 +384,22 @@ def _add_position_noise(cycles, config: IMMPlayerConfig):
             )
         noisy_cycles.append(replace(cycle, detections=tuple(detections)))
     return tuple(noisy_cycles)
+
+
+def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | None:
+    """Read aligned evaluation labels only after the IMM stage is complete."""
+    if reference is None:
+        return None
+    index = stage.observation_count - 1
+    return IMMMovementState(
+        position_meters=np.array(
+            [reference.x_meters[index], reference.y_meters[index]]
+        ),
+        speed_mps=float(reference.velocity_mps[index]),
+        heading_degrees=float(np.rad2deg(reference.yaw_rad[index])),
+        turn_rate_degrees_per_second=None,  # Not supplied by BR24 reference labels.
+        time_seconds=float(reference.time_seconds[index]),
+    )
 
 
 def _movement_state(stage: IMMPlayerStage) -> IMMMovementState:

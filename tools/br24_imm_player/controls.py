@@ -32,11 +32,15 @@ class IMMControls(tk.Frame):
         self._values = {
             name: tk.StringVar(self, value="-")
             for name in (
+                "reference_position",
+                "reference_speed",
+                "reference_heading",
+                "reference_turn_rate",
+                "reference_time",
                 "position",
                 "speed",
                 "heading",
                 "turn_rate",
-                "time",
                 "ade",
                 "fde",
                 "rmse",
@@ -87,15 +91,25 @@ class IMMControls(tk.Frame):
         self._add_data_section(body).grid(row=2, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
-            "Current IMM estimate",
+            "Reference state",
+            (
+                ("Position", "reference_position"),
+                ("Speed", "reference_speed"),
+                ("Heading", "reference_heading"),
+                ("Turn rate", "reference_turn_rate"),
+                ("Time", "reference_time"),
+            ),
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        self._add_value_section(
+            body,
+            "IMM track state",
             (
                 ("Position", "position"),
                 ("Speed", "speed"),
                 ("Heading", "heading"),
                 ("Turn rate", "turn_rate"),
-                ("Time", "time"),
             ),
-        ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
             "Evaluation metrics",
@@ -109,7 +123,7 @@ class IMMControls(tk.Frame):
                 ("Joint 90% coverage", "coverage_90"),
                 ("Update time", "update_time"),
             ),
-        ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        ).grid(row=5, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
             "BR24 radar association",
@@ -122,7 +136,7 @@ class IMMControls(tk.Frame):
                 ("cov_xy [m²]", "cov_xy"),
                 ("cov_yy [m²]", "cov_yy"),
             ),
-        ).grid(row=5, column=0, sticky="ew")
+        ).grid(row=6, column=0, sticky="ew")
         self._bind_mouse_wheel()
 
     def _add_analysis_section(self, parent) -> tk.LabelFrame:
@@ -280,18 +294,33 @@ class IMMControls(tk.Frame):
         movement = state.movement
         metrics = state.metrics
         stage = state.stage
-        scale = 0.001 if coordinate_display_mode == "km" else 1.0
-        decimals = 2
         self._values["position"].set(
-            f"x = {movement.position_meters[0] * scale:.{decimals}f} {coordinate_display_mode}\n"
-            f"y = {movement.position_meters[1] * scale:.{decimals}f} {coordinate_display_mode}"
+            _format_position(movement.position_meters, coordinate_display_mode)
         )
         self._values["speed"].set(_format_optional(movement.speed_mps, "m/s"))
         self._values["heading"].set(_format_optional(movement.heading_degrees, "°"))
         self._values["turn_rate"].set(
             _format_optional(movement.turn_rate_degrees_per_second, "°/s")
         )
-        self._values["time"].set(_format_elapsed_time(movement.time_seconds))
+        reference = state.reference_state
+        for name in ("position", "speed", "heading", "turn_rate", "time"):
+            self._values[f"reference_{name}"].set("-")
+        if reference is not None:
+            self._values["reference_position"].set(
+                _format_position(reference.position_meters, coordinate_display_mode)
+            )
+            self._values["reference_speed"].set(
+                _format_optional(reference.speed_mps, "m/s")
+            )
+            self._values["reference_heading"].set(
+                _format_optional(reference.heading_degrees, "°")
+            )
+            self._values["reference_turn_rate"].set(
+                _format_optional(reference.turn_rate_degrees_per_second, "°/s")
+            )
+            self._values["reference_time"].set(
+                _format_elapsed_time(reference.time_seconds)
+            )
         self._values["ade"].set(_format_optional(metrics.ade_m, "m"))
         self._values["fde"].set(_format_optional(metrics.fde_m, "m"))
         self._values["rmse"].set(_format_optional(metrics.rmse_m, "m"))
@@ -348,6 +377,14 @@ class IMMControls(tk.Frame):
             )
         )
         self._values["cycle"].set(str(stage.cycle_counter))
+
+
+def _format_position(position, coordinate_display_mode: str) -> str:
+    scale = 0.001 if coordinate_display_mode == "km" else 1.0
+    return (
+        f"x = {position[0] * scale:.2f} {coordinate_display_mode}\n"
+        f"y = {position[1] * scale:.2f} {coordinate_display_mode}"
+    )
 
 
 def _format_optional(value: float | None, unit: str, *, decimals: int = 2) -> str:
