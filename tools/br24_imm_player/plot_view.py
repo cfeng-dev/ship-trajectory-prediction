@@ -432,7 +432,7 @@ class IMMPlotView(tk.Frame):
                     alpha=0.14,
                     linewidth=0.9,
                     zorder=2,
-                    label=f"Sampled IMM trajectories (n = {len(stage.sample_positions)})"
+                    label=f"Possible future trajectories (n = {len(stage.sample_positions)})"
                     if index == 0
                     else "_nolegend_",
                 )

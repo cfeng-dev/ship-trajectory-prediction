@@ -73,6 +73,7 @@ DISPLAY_OPTION_FIELDS = (
     "show_observed_trajectory",
     "show_current_position",
     "show_sample_trajectories",
+    "connect_sample_trajectories",
     "show_median_forecast",
     "show_prediction_region_50",
     "show_prediction_region_90",
@@ -99,6 +100,7 @@ LABELS = {
     "show_observed_trajectory": "Show observations through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show possible future trajectories",
+    "connect_sample_trajectories": "Connect samples to current position",
     "show_median_forecast": "Show forecast (median)",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
@@ -154,6 +156,7 @@ class ExplorerSettings:
     show_observed_trajectory: bool
     show_current_position: bool
     show_sample_trajectories: bool
+    connect_sample_trajectories: bool
     show_median_forecast: bool
     show_prediction_region_50: bool
     show_prediction_region_90: bool
@@ -185,6 +188,7 @@ def _defaults():
             "show_observed_trajectory": True,
             "show_current_position": True,
             "show_sample_trajectories": True,
+            "connect_sample_trajectories": False,
             "show_median_forecast": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
@@ -316,6 +320,8 @@ def _validate_data_options(fields):
         fields["prediction_region_style"] = normalize_prediction_region_style(
             fields["prediction_region_style"]
         )
+
+
 def validate_dialog_values(group, values):
     """Validate one dialog independently, without needing a valid CSV selection."""
     defaults = _defaults()

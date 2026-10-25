@@ -308,9 +308,7 @@ class SequentialBayesianCTRVFilter:
             log_determinants + squared_distances
         )
         with np.errstate(divide="ignore"):
-            log_predictive_density = _logsumexp(
-                np.log(self.weights) + log_likelihood
-        )
+            log_predictive_density = _logsumexp(np.log(self.weights) + log_likelihood)
         self.last_log_predictive_density = log_predictive_density
         self.predictive_log_density_history.append(log_predictive_density)
         with np.errstate(divide="ignore"):
@@ -359,6 +357,7 @@ class SequentialBayesianCTRVFilter:
             < self.config.resample_ess_fraction * self.config.particle_count
         ):
             self._resample_and_rejuvenate()
+
     def sample_current_posterior(
         self,
         *,
@@ -436,6 +435,8 @@ class SequentialBayesianCTRVFilter:
                 ),
             )
         )
+        x_at_origin = states[:, _STATE_X_INDEX].copy()
+        y_at_origin = states[:, _STATE_Y_INDEX].copy()
         speed_at_origin = states[:, _STATE_SPEED_INDEX].copy()
         heading_at_origin = states[:, _STATE_HEADING_INDEX].copy()
         turn_rate_at_origin = states[:, _STATE_TURN_RATE_INDEX].copy()
@@ -475,6 +476,8 @@ class SequentialBayesianCTRVFilter:
 
         return particle_utils.SequentialCTRVFit(
             {
+                "x_at_origin": x_at_origin,
+                "y_at_origin": y_at_origin,
                 "speed_at_origin": speed_at_origin,
                 "heading_at_origin": heading_at_origin,
                 "turn_rate_at_origin": turn_rate_at_origin,

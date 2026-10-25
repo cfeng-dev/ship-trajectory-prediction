@@ -296,7 +296,8 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         assert navigator.trajectory_axis.get_xlabel() == "Easting x [km]"
         assert navigator.trajectory_axis.get_ylabel() == "Northing y [km]"
         legend_labels = [
-            text.get_text() for text in navigator.trajectory_axis.get_legend().get_texts()
+            text.get_text()
+            for text in navigator.trajectory_axis.get_legend().get_texts()
         ]
         assert "Possible future trajectories (n = 1)" in legend_labels
         assert loads == [1]
@@ -408,7 +409,9 @@ def _view_limits(navigator):
     )
 
 
-def test_route_zoom_and_resize_do_not_emit_fixed_limit_warnings(follow_dashboard, caplog):
+def test_route_zoom_and_resize_do_not_emit_fixed_limit_warnings(
+    follow_dashboard, caplog
+):
     figure, navigator, loads = follow_dashboard
     canvas = figure.canvas
     caplog.clear()
@@ -826,6 +829,194 @@ class _FakeFit:
 
     def stan_variable(self, variable_name, **_kwargs):
         return self._variables[variable_name]
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_forecast_keeps_sample_origins_paired_with_selected_future_draws(batch):
+    dashboard = _load_dashboard_module()
+    values = {
+        "x_prediction": np.array([[11.0], [22.0], [33.0], [44.0]]),
+        "y_prediction": np.array([[1.0], [2.0], [3.0], [4.0]]),
+    }
+    if batch:
+        values.update(
+            x_state=np.array([[999, 10], [999, 20], [999, 30], [999, 40]]),
+            y_state=np.array([[999, -1], [999, -2], [999, -3], [999, -4]]),
+        )
+    else:
+        values.update(x_at_origin=[10, 20, 30, 40], y_at_origin=[-1, -2, -3, -4])
+    forecast = dashboard._extract_dashboard_forecast(_FakeFit(values), [1.0], 2)
+    np.testing.assert_array_equal(
+        forecast.sample_origin_positions, [[10, -1], [40, -4]]
+    )
+    np.testing.assert_array_equal(forecast.sample_positions[:, 0], [[11, 1], [44, 4]])
+    assert not forecast.sample_origin_positions.flags.writeable
+
+
+def test_disabling_visible_samples_keeps_full_forecast_draws_and_empty_origins():
+    dashboard = _load_dashboard_module()
+    forecast = dashboard._extract_dashboard_forecast(
+        _FakeFit(
+            {
+                "x_prediction": [[11.0], [22.0]],
+                "y_prediction": [[1.0], [2.0]],
+                "x_at_origin": [10.0, 20.0],
+                "y_at_origin": [-1.0, -2.0],
+            }
+        ),
+        [1.0],
+        0,
+    )
+    assert forecast.sample_positions.shape == (0, 1, 2)
+    assert forecast.sample_origin_positions.shape == (0, 2)
+    np.testing.assert_array_equal(
+        forecast.posterior_positions[:, 0], [[11, 1], [22, 2]]
+    )
+
+
+@pytest.mark.parametrize("origins", [[[1, 2]], [[1, 2], [3, np.nan]]])
+def test_forecast_rejects_unpaired_or_nonfinite_sample_origins(origins):
+    dashboard = _load_dashboard_module()
+    with pytest.raises(ValueError, match="Sample origins"):
+        dashboard.PosteriorDashboardForecast(
+            time_offsets_seconds=[1.0],
+            median_positions=[[2.0, 3.0]],
+            sample_positions=[[[1.0, 2.0]], [[3.0, 4.0]]],
+            sample_origin_positions=origins,
+        )
+
+
+@pytest.mark.parametrize("method", ["smc", "rbpf", "sequential_vi"])
+def test_native_forecasts_export_their_paired_latent_origins(method):
+    import bayestraj.models.ctrv as dynamics
+
+    if method == "sequential_vi":
+        draws = {
+            "x_at_origin": np.array([10.0, 20.0]),
+            "y_at_origin": np.array([-4.0, 6.0]),
+            "speed_at_origin": np.array([2.0, 3.0]),
+            "heading_at_origin": np.array([0.1, 0.2]),
+            "turn_rate_at_origin": np.array([0.0, 0.1]),
+            "sigma_position_observation": np.ones(2),
+            "sigma_speed_process": np.ones(2),
+            "sigma_turn_rate_process": np.ones(2),
+        }
+        fit = sequential_vi._forecast_from_origin_draws(
+            draws,
+            origin_time_seconds=2.0,
+            future_time_seconds=[3.5, 5.0],
+            generator=np.random.default_rng(42),
+        )
+        np.testing.assert_array_equal(fit.stan_variable("x_at_origin"), [10, 20])
+        np.testing.assert_array_equal(fit.stan_variable("y_at_origin"), [-4, 6])
+    else:
+        if method == "smc":
+            filter_type = smc.SequentialMonteCarloCTRVFilter
+            config = smc.SequentialMonteCarloCTRVConfig(
+                particle_count=64, posterior_draw_count=12
+            )
+        else:
+            filter_type = rbpf.SequentialBayesianCTRVFilter
+            config = rbpf.SequentialCTRVFilterConfig(
+                particle_count=64, posterior_draw_count=12
+            )
+        tracker = filter_type.initialize(
+            [0.0, 1.0, 2.0],
+            [0.0, 2.0, 4.0],
+            [0.0, 0.0, 0.0],
+            priors=bayesian_model.BayesianCTRVPriors(),
+            config=config,
+        )
+        fit = tracker.forecast([3.5, 5.0], seed=42)
+    dx, dy = dynamics.displacements(
+        fit.stan_variable("speed_at_origin"),
+        fit.stan_variable("heading_at_origin"),
+        fit.stan_variable("turn_rate_at_origin"),
+        1.5,
+    )
+    np.testing.assert_allclose(
+        fit.stan_variable("x_at_origin") + dx, fit.stan_variable("x_prediction")[:, 0]
+    )
+    np.testing.assert_allclose(
+        fit.stan_variable("y_at_origin") + dy, fit.stan_variable("y_prediction")[:, 0]
+    )
+
+
+@pytest.mark.parametrize("mode", ["m", "km"])
+def test_sample_connection_toggle_only_changes_the_drawn_origin(mode):
+    dashboard = _load_dashboard_module()
+    forecast = dashboard.PosteriorDashboardForecast(
+        time_offsets_seconds=[1.0],
+        median_positions=[[13, 6]],
+        sample_positions=[[[12, 5]], [[14, 7]]],
+        sample_origin_positions=[[10, 4], [11, 6]],
+    )
+    calls = []
+
+    def load(count):
+        calls.append(count)
+        return dashboard.PosteriorDashboardUpdate(
+            count, _dashboard_samples(), forecast=forecast
+        )
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([np.arange(3.0)] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=3,
+        figure=figure,
+        coordinate_display_mode=mode,
+        prediction_region_style="none",
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        before_calls = list(calls)
+        metrics = dashboard.analysis_metrics_at(
+            navigator.trajectory, navigator._updates_by_count, 2
+        )
+        scale = 0.001 if mode == "km" else 1.0
+
+        def paths():
+            return [
+                line
+                for line in navigator.trajectory_axis.lines
+                if line.get_color() == "#DC2626" and line.get_alpha() == 0.14
+            ]
+
+        for line, expected in zip(
+            paths(), ([[10, 4], [12, 5]], [[11, 6], [14, 7]]), strict=True
+        ):
+            np.testing.assert_allclose(line.get_xydata(), np.array(expected) * scale)
+        navigator.set_display_options(
+            show_legend=True,
+            show_reference_trajectory=True,
+            show_observed_trajectory=True,
+            show_current_position=True,
+            show_sample_trajectories=True,
+            show_median_forecast=True,
+            show_prediction_region_50=True,
+            show_prediction_region_90=True,
+            connect_sample_trajectories=True,
+        )
+        for line, endpoint in zip(paths(), ([12, 5], [14, 7]), strict=True):
+            np.testing.assert_allclose(
+                line.get_xydata(), np.array([[1, 1], endpoint]) * scale
+            )
+        assert calls == before_calls
+        assert (
+            dashboard.analysis_metrics_at(
+                navigator.trajectory, navigator._updates_by_count, 2
+            )
+            == metrics
+        )
+        np.testing.assert_array_equal(
+            forecast.sample_origin_positions, [[10, 4], [11, 6]]
+        )
+    finally:
+        navigator.disconnect()
 
 
 class _FakeTimer:

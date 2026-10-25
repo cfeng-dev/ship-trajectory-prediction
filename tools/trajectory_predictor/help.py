@@ -255,6 +255,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "Sampled future paths illustrating uncertainty; their display count does not change the full draws used for regions and metrics",
             ),
             (
+                "Connect samples",
+                "Off by default: paths start at their sampled current latent positions. On: replace the drawn start with the current displayed point for orientation only; forecasts and metrics stay unchanged",
+            ),
+            (
                 "Apply / Cancel",
                 "Apply commits plot changes without restarting inference; Cancel or X discards unapplied edits. Playback stays accessible",
             ),

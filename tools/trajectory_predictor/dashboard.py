@@ -101,8 +101,7 @@ PREDICTION_REGION_STYLE_DISPLAY_LABELS = {
     "none": "No uncertainty region",
 }
 PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = tuple(
-    PREDICTION_REGION_STYLE_DISPLAY_LABELS[style]
-    for style in PREDICTION_REGION_STYLES
+    PREDICTION_REGION_STYLE_DISPLAY_LABELS[style] for style in PREDICTION_REGION_STYLES
 )
 
 
@@ -324,13 +323,15 @@ class PosteriorDashboardForecast:
 
     Positions are local metres; offsets are seconds after the last observation.
     Full paired draws define regions and metrics, while a limited subset is retained
-    separately for displaying sample paths.
+    separately for displaying sample paths. Optional origins belong to that subset
+    at the current observation time, not to the future-only metric arrays.
     """
 
     time_offsets_seconds: np.ndarray
     median_positions: np.ndarray
     sample_positions: np.ndarray
     posterior_positions: np.ndarray | None = None
+    sample_origin_positions: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         offsets = np.asarray(self.time_offsets_seconds, dtype=float).copy()
@@ -340,6 +341,11 @@ class PosteriorDashboardForecast:
             samples.copy()
             if self.posterior_positions is None
             else np.asarray(self.posterior_positions, dtype=float).copy()
+        )
+        origins = (
+            None
+            if self.sample_origin_positions is None
+            else np.asarray(self.sample_origin_positions, dtype=float).copy()
         )
         numeric_validation.validate_finite_vector("time_offsets_seconds", offsets)
         if offsets[0] <= 0 or np.any(np.diff(offsets) <= 0):
@@ -359,6 +365,15 @@ class PosteriorDashboardForecast:
             raise ValueError(
                 "Forecast positions must be finite, matching (time, xy) arrays."
             )
+        if origins is not None:
+            if origins.shape != (samples.shape[0], 2) or not np.all(
+                np.isfinite(origins)
+            ):
+                raise ValueError(
+                    "Sample origins must be finite matching (sample, xy) positions."
+                )
+            origins.setflags(write=False)
+            object.__setattr__(self, "sample_origin_positions", origins)
         for name, values in (
             ("time_offsets_seconds", offsets),
             ("median_positions", median),
@@ -432,7 +447,9 @@ class PosteriorDashboardUpdate:
             or not isinstance(self.radar_cycle_counter, (int, np.integer))
             or self.radar_cycle_counter < 0
         ):
-            raise ValueError("radar_cycle_counter must be a non-negative integer or None.")
+            raise ValueError(
+                "radar_cycle_counter must be a non-negative integer or None."
+            )
         if not isinstance(self.radar_tracking_active, bool):
             raise TypeError("radar_tracking_active must be a boolean.")
         if self.radar_measurement_covariance is not None:
@@ -870,6 +887,7 @@ class PosteriorDashboardNavigator:
         show_observed_trajectory=True,
         show_current_position=True,
         show_sample_trajectories=True,
+        connect_sample_trajectories=False,
         show_median_forecast=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
@@ -906,6 +924,7 @@ class PosteriorDashboardNavigator:
         self.show_observed_trajectory = show_observed_trajectory
         self.show_current_position = show_current_position
         self.show_sample_trajectories = show_sample_trajectories
+        self.connect_sample_trajectories = connect_sample_trajectories
         self.show_median_forecast = show_median_forecast
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
@@ -1571,12 +1590,14 @@ class PosteriorDashboardNavigator:
                         )
                     )
                 elif self.prediction_region_style == "density_regions":
-                    legend_handles = prediction_plotting._draw_prediction_density_regions(
-                        axis,
-                        display_posterior_draws,
-                        np.concatenate(([0.0], forecast.time_offsets_seconds)),
-                        annotate_time=False,
-                        region_probabilities=region_probabilities,
+                    legend_handles = (
+                        prediction_plotting._draw_prediction_density_regions(
+                            axis,
+                            display_posterior_draws,
+                            np.concatenate(([0.0], forecast.time_offsets_seconds)),
+                            annotate_time=False,
+                            region_probabilities=region_probabilities,
+                        )
                     )
                 else:
                     legend_handles = (
@@ -1586,8 +1607,7 @@ class PosteriorDashboardNavigator:
                             region_probabilities=region_probabilities,
                         )
                     )
-            # Connect to the last measured point for orientation, as in the
-            # standalone prediction plot; this does not re-anchor model draws.
+            # Only the rendered start changes; cached forecast draws stay intact.
             for index, positions in enumerate(
                 forecast.sample_positions if self.show_sample_trajectories else ()
             ):
@@ -1598,7 +1618,15 @@ class PosteriorDashboardNavigator:
                 else:
                     sample_x = display_sample_positions[index, :, 0]
                     sample_y = display_sample_positions[index, :, 1]
-                path = np.vstack((origin, np.column_stack((sample_x, sample_y))))
+                path = np.column_stack((sample_x, sample_y))
+                if self.connect_sample_trajectories:
+                    path = np.vstack((origin, path))
+                elif forecast.sample_origin_positions is not None:
+                    sample_origin = forecast.sample_origin_positions[index]
+                    start_x, start_y = self._display_coordinates(
+                        sample_origin[:1], sample_origin[1:]
+                    )
+                    path = np.vstack(([start_x[0], start_y[0]], path))
                 axis.plot(
                     path[:, 0],
                     path[:, 1],
@@ -1656,6 +1684,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast,
         show_prediction_region_50,
         show_prediction_region_90,
+        connect_sample_trajectories=None,
         prediction_region_style=None,
         follow_ship_view_span_m=None,
     ) -> None:
@@ -1670,6 +1699,8 @@ class PosteriorDashboardNavigator:
             "show_prediction_region_50": show_prediction_region_50,
             "show_prediction_region_90": show_prediction_region_90,
         }
+        if connect_sample_trajectories is not None:
+            options["connect_sample_trajectories"] = connect_sample_trajectories
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
@@ -1857,6 +1888,7 @@ def create_sequential_posterior_dashboard_figure(
     show_observed_trajectory=True,
     show_current_position=True,
     show_sample_trajectories=True,
+    connect_sample_trajectories=False,
     show_median_forecast=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
@@ -1952,6 +1984,7 @@ def create_sequential_posterior_dashboard_figure(
         show_observed_trajectory=show_observed_trajectory,
         show_current_position=show_current_position,
         show_sample_trajectories=show_sample_trajectories,
+        connect_sample_trajectories=connect_sample_trajectories,
         show_median_forecast=show_median_forecast,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
@@ -2557,12 +2590,34 @@ def _extract_dashboard_forecast(fit, time_offsets_seconds, sample_count):
     indices = np.linspace(
         0, len(positions) - 1, min(sample_count, len(positions)), dtype=int
     )
+    origins = _extract_forecast_origins(fit, len(positions))
     return PosteriorDashboardForecast(
         time_offsets_seconds=time_offsets_seconds,
         median_positions=np.median(positions, axis=0),
         sample_positions=positions[indices],
         posterior_positions=positions,
+        sample_origin_positions=None if origins is None else origins[indices],
     )
+
+
+def _extract_forecast_origins(fit, draw_count):
+    """Read paired online origins or the final latent state of batch draws."""
+    try:
+        x = reporting.posterior_variable_samples(fit, "x_at_origin")
+        y = reporting.posterior_variable_samples(fit, "y_at_origin")
+    except (KeyError, ValueError):
+        try:
+            x = reporting.posterior_variable_samples(fit, "x_state")[:, -1]
+            y = reporting.posterior_variable_samples(fit, "y_state")[:, -1]
+        except (KeyError, ValueError):
+            # Older custom forecast adapters can provide future positions only.
+            return None
+    origins = np.column_stack((x, y))
+    if origins.shape != (draw_count, 2) or not np.all(np.isfinite(origins)):
+        raise ValueError(
+            "Forecast origins must be finite matching (draw, xy) positions."
+        )
+    return origins
 
 
 def _extract_dashboard_samples(fit, specs):

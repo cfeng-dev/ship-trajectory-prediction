@@ -821,6 +821,8 @@ def _forecast_from_origin_draws(
     return particle_utils.SequentialCTRVFit(
         {
             "speed_at_origin": speed_at_origin,
+            "x_at_origin": draws["x_at_origin"],
+            "y_at_origin": draws["y_at_origin"],
             "heading_at_origin": heading_at_origin,
             "turn_rate_at_origin": turn_rate_at_origin,
             "sigma_position_observation": draws["sigma_position_observation"],
@@ -1175,7 +1177,6 @@ class SequentialCTRVVI:
         self._next_seed += 1
         self._updates.append(record)
         return record
-
 
     def update_many(self, time_seconds, x_observed, y_observed) -> None:
         """Assimilate matching new observations exactly once."""

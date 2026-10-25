@@ -1071,6 +1071,7 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
         "follow_ship_view_span_m": _Value("250"),
     }
     shared_variables = {key: _Value(True) for key in DISPLAY_OPTION_FIELDS} | {
+        "connect_sample_trajectories": _Value(False),
         "prediction_region_style": _Value("Covariance ellipses"),
         "follow_ship_view_span_m": _Value("600"),
     }
@@ -1080,8 +1081,10 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     closed = []
     window.close = lambda: closed.append(True)
 
+    assert shared_variables["connect_sample_trajectories"].get() is False
     window.apply()
 
+    assert shared_variables["connect_sample_trajectories"].get() is True
     assert shared_variables["show_legend"].get() is False
     assert (
         shared_variables["prediction_region_style"].get() == "Per-step density contours"

@@ -56,6 +56,15 @@ def test_default_form_values_use_a_100m_follow_ship_view():
     assert settings.default_form_values()["data"]["follow_ship_view_span_m"] == "100.0"
 
 
+def test_sample_connections_are_off_by_default_and_display_only(form):
+    assert form["data"]["connect_sample_trajectories"] is False
+    disconnected = settings.parse_settings(form)
+    form["data"]["connect_sample_trajectories"] = True
+    connected = settings.parse_settings(form)
+    assert connected.connect_sample_trajectories is True
+    assert connected.analysis == disconnected.analysis
+
+
 def test_inference_method_display_labels_normalize_to_internal_values():
     assert (
         settings.METHOD_DISPLAY_LABELS["rbpf"]
@@ -368,6 +377,7 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_observed_trajectory": True,
         "show_current_position": True,
         "show_sample_trajectories": False,
+        "connect_sample_trajectories": True,
         "show_median_forecast": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,

@@ -370,6 +370,7 @@ class SequentialMonteCarloCTRVFilter:
         self.processed_observation_count += 1
         self.last_effective_sample_size = effective_sample_size
         self.resample_count += int(auxiliary_resampled) + int(resampled)
+
     def advance_without_measurement(self, time_seconds: float) -> None:
         """Advance the posterior to a radar cycle that has no accepted detection."""
         time_seconds = numeric_validation.validate_finite_scalar(
@@ -644,6 +645,8 @@ class SequentialMonteCarloCTRVFilter:
             self.parameter_particles[indices],
             position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
+        x_at_origin = states[:, _STATE_X_INDEX].copy()
+        y_at_origin = states[:, _STATE_Y_INDEX].copy()
         speed_at_origin = states[:, _STATE_SPEED_INDEX].copy()
         heading_at_origin = states[:, _STATE_HEADING_INDEX].copy()
         turn_rate_at_origin = states[:, _STATE_TURN_RATE_INDEX].copy()
@@ -683,6 +686,8 @@ class SequentialMonteCarloCTRVFilter:
 
         return particle_utils.SequentialCTRVFit(
             {
+                "x_at_origin": x_at_origin,
+                "y_at_origin": y_at_origin,
                 "speed_at_origin": speed_at_origin,
                 "heading_at_origin": heading_at_origin,
                 "turn_rate_at_origin": turn_rate_at_origin,
