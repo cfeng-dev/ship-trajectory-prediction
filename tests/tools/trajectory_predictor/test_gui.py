@@ -430,14 +430,14 @@ def test_help_explains_analysis_metrics():
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
     assert dict(sections["Evaluation metrics"]) == {
-        "Forecast ADE": "Mean position error across all forecast steps in meters; lower is better.",
+        "Forecast ADE": "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
         "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
         "Forecast RMSE": "Root mean squared 2D position error across all forecast steps in meters; lower is better.",
         "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
         "Predictive log density": "One-step-ahead log likelihood of the new observation; larger is better.",
-        "Joint 50% coverage": "Share of future position points inside their joint 50% prediction regions; close to 50% is well calibrated.",
-        "Joint 90% coverage": "Share of future position points inside their joint 90% prediction regions; close to 90% is well calibrated.",
-        "Inference time": "Time required for inference; measures computation speed, not forecast accuracy.",
+        "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
+        "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
+        "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",
     }
 
 
@@ -932,7 +932,10 @@ def test_plot_dialog_contains_display_options(root):
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "plot")
     try:
-        assert dialog.variables["prediction_region_style"].get() == "Horizon density region"
+        assert (
+            dialog.variables["prediction_region_style"].get()
+            == "Horizon density region"
+        )
         labels = {
             child.cget("text")
             for child in dialog._form.body.winfo_children()
@@ -986,7 +989,10 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
     closed = []
     window = PlotDisplayWindow(root, panel, on_close=lambda: closed.append(True))
     try:
-        assert window.variables["prediction_region_style"].get() == "Horizon density region"
+        assert (
+            window.variables["prediction_region_style"].get()
+            == "Horizon density region"
+        )
         prediction_region_selector = next(
             child
             for frame in window.winfo_children()
@@ -1078,8 +1084,7 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
 
     assert shared_variables["show_legend"].get() is False
     assert (
-        shared_variables["prediction_region_style"].get()
-        == "Per-step density contours"
+        shared_variables["prediction_region_style"].get() == "Per-step density contours"
     )
     assert shared_variables["follow_ship_view_span_m"].get() == 250.0
     assert closed == [True]
