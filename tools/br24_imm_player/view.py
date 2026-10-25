@@ -99,7 +99,7 @@ def create_menu_bar(app) -> None:
     app._settings_menu_index = menu_bar.index("end")
 
     help_menu = tk.Menu(menu_bar, tearoff=False)
-    help_menu.add_command(label="BR24 IMM Player", command=app.show_help)
+    help_menu.add_command(label="Show Help", command=app.show_help)
     menu_bar.add_cascade(label="Help", menu=help_menu)
 
     app.root.configure(menu=menu_bar)

@@ -9,7 +9,7 @@ from tkinter import messagebox
 
 from . import view
 from .controls import IMMControls
-from .dialogs import PlaybackSettingsDialog, show_help
+from .dialogs import IMMHelpWindow, PlaybackSettingsDialog
 from .player import PLOT_DISPLAY_OPTIONS, IMMPlaybackStore, IMMPlayerConfig
 from .plot_view import IMMPlotView
 
@@ -33,6 +33,7 @@ class BR24IMMPlayerApp:
         self.coordinate_display_mode_var = tk.StringVar(root, value="m")
         self._settings_dialog: PlaybackSettingsDialog | None = None
         self._plot_settings_dialog: PlaybackSettingsDialog | None = None
+        self._help_window: IMMHelpWindow | None = None
         self._closing = False
         self._analysis_active = False
 
@@ -64,6 +65,9 @@ class BR24IMMPlayerApp:
 
     def _prepare_analysis(self, config: IMMPlayerConfig) -> None:
         """Return to the unstarted state without initializing the tracker."""
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
+            self._settings_dialog = None
         if self.plot_view is not None:
             self.plot_view.destroy()
             self.plot_view = None
@@ -244,6 +248,8 @@ class BR24IMMPlayerApp:
         )
 
     def _apply_settings(self, config: IMMPlayerConfig) -> bool:
+        if self._closing:
+            return False
         previous_session_config = replace(
             config,
             **{name: getattr(self.config, name) for name in PLOT_DISPLAY_OPTIONS},
@@ -273,14 +279,25 @@ class BR24IMMPlayerApp:
         return True
 
     def show_help(self) -> None:
-        if not self._closing:
-            show_help(self.root)
+        """Open or focus the persistent non-modal help window."""
+        if self._closing:
+            return
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.lift()
+            self._help_window.focus_set()
+            return
+        self._help_window = IMMHelpWindow(self.root, on_close=self._help_closed)
+
+    def _help_closed(self) -> None:
+        self._help_window = None
 
     def close(self) -> None:
         """Stop playback and close all local Tk resources."""
         if self._closing:
             return
         self._closing = True
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.close()
         for dialog in (self._settings_dialog, self._plot_settings_dialog):
             if dialog is not None and dialog.window.winfo_exists():
                 dialog.close()
