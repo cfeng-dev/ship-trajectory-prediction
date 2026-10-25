@@ -310,13 +310,21 @@ class IMMControls(tk.Frame):
                 _format_position(reference.position_meters, coordinate_display_mode)
             )
             self._values["reference_speed"].set(
-                _format_optional(reference.speed_mps, "m/s")
+                _format_optional(
+                    reference.speed_mps, "m/s", derived=reference.speed_is_derived
+                )
             )
             self._values["reference_heading"].set(
-                _format_optional(reference.heading_degrees, "°")
+                _format_optional(
+                    reference.heading_degrees, "°", derived=reference.heading_is_derived
+                )
             )
             self._values["reference_turn_rate"].set(
-                _format_optional(reference.turn_rate_degrees_per_second, "°/s")
+                _format_optional(
+                    reference.turn_rate_degrees_per_second,
+                    "°/s",
+                    derived=reference.turn_rate_is_derived,
+                )
             )
             self._values["reference_time"].set(
                 _format_elapsed_time(reference.time_seconds)
@@ -387,11 +395,13 @@ def _format_position(position, coordinate_display_mode: str) -> str:
     )
 
 
-def _format_optional(value: float | None, unit: str, *, decimals: int = 2) -> str:
+def _format_optional(
+    value: float | None, unit: str, *, decimals: int = 2, derived=False
+) -> str:
     if value is None or not np.isfinite(value):
         return "-"
     suffix = f" {unit}" if unit else ""
-    return f"{value:.{decimals}f}{suffix}"
+    return f"{value:.{decimals}f}{suffix}" + (" (derived)" if derived else "")
 
 
 def _format_elapsed_time(seconds: float) -> str:

@@ -32,10 +32,19 @@ from bayestraj.observations.br24 import (
     read_br24_tracking_input,
     read_br24_tracking_reference,
 )
+from bayestraj.observations.coordinates import (
+    calculate_motion_from_positions,
+    calculate_signed_turn_rate_from_yaw,
+)
 
 from . import coordinates
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
+REFERENCE_MOTION_COLUMNS = {
+    "speed": ("ground_truth_velocity", "velocity", "speed"),
+    "heading": ("ground_truth_yaw", "yaw", "theta"),
+    "turn_rate": ("ground_truth_turn_rate", "turn_rate", "omega"),
+}
 PARAMETER_GROUPS = {
     "motion": (
         "current_speed",
@@ -208,6 +217,12 @@ class PosteriorDashboardTrajectory:
     reference_longitude: float | None = None
     reference_latitude: float | None = None
     has_reference: bool = True
+    reference_turn_rate_is_derived: bool = False
+    reference_turn_rate_minimum_observation_count: int = 3
+    reference_speed_is_derived: bool = False
+    reference_heading_is_derived: bool = False
+    reference_speed_minimum_observation_count: int = 2
+    reference_heading_minimum_observation_count: int = 2
 
     def __post_init__(self) -> None:
         if not isinstance(self.has_reference, bool):
@@ -305,11 +320,16 @@ class PosteriorDashboardTrajectory:
         return (
             x,
             y,
-            self.reference_heading_degrees[index] if observation_count >= 2 else np.nan,
-            self.reference_speed_mps[index] if observation_count >= 2 else np.nan,
+            self.reference_heading_degrees[index]
+            if observation_count >= self.reference_heading_minimum_observation_count
+            else np.nan,
+            self.reference_speed_mps[index]
+            if observation_count >= self.reference_speed_minimum_observation_count
+            else np.nan,
             (
                 self.reference_turn_rate_degrees_per_second[index]
-                if observation_count >= 3
+                if observation_count
+                >= self.reference_turn_rate_minimum_observation_count
                 else np.nan
             ),
             coordinate_display_mode,
@@ -2358,11 +2378,30 @@ def create_br24_radar_dashboard_loader(
             reference.y_meters[:maximum_observation_count],
             observed_x,
             observed_y,
-            reference_speed_mps=reference.velocity_mps[:maximum_observation_count],
+            reference_speed_mps=reference.resolved_velocity_mps[
+                :maximum_observation_count
+            ],
             reference_heading_degrees=np.rad2deg(
-                reference.yaw_rad[:maximum_observation_count]
+                reference.resolved_yaw_rad[:maximum_observation_count]
             ),
             reference_time_seconds=reference.time_seconds[:maximum_observation_count],
+            reference_turn_rate_degrees_per_second=np.rad2deg(
+                reference.resolved_turn_rate_rad_s[:maximum_observation_count]
+            ),
+            reference_turn_rate_is_derived=reference.turn_rate_is_derived,
+            reference_speed_is_derived=reference.speed_is_derived,
+            reference_heading_is_derived=reference.heading_is_derived,
+            reference_speed_minimum_observation_count=2
+            if reference.speed_is_derived
+            else 1,
+            reference_heading_minimum_observation_count=2
+            if reference.heading_is_derived
+            else 1,
+            reference_turn_rate_minimum_observation_count=(
+                (3 if reference.heading_is_derived else 2)
+                if reference.turn_rate_is_derived
+                else 1
+            ),
             has_reference=True,
         )
     specs = tuple(
@@ -2489,16 +2528,22 @@ def _prepare_posterior_dashboard_trajectory(
     time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
     reference_x = np.asarray(complete_window.x_meters, dtype=float)
     reference_y = np.asarray(complete_window.y_meters, dtype=float)
-    reference_heading_degrees, reference_turn_rate_degrees_per_second = (
-        _reference_heading_and_turn_rate(
-            selected_trajectory_data,
-            start_index=0,
-            count=available_observation_count,
-            time_seconds=time_seconds,
-            reference_x=reference_x,
-            reference_y=reference_y,
-        )
+    (
+        reference_heading_degrees,
+        reference_turn_rate_degrees_per_second,
+        reference_turn_rate_is_derived,
+        reference_turn_rate_minimum_observation_count,
+    ) = _reference_heading_and_turn_rate(
+        selected_trajectory_data,
+        start_index=0,
+        count=available_observation_count,
+        time_seconds=time_seconds,
+        reference_x=reference_x,
+        reference_y=reference_y,
     )
+    selected_reference = selected_trajectory_data.iloc[:available_observation_count]
+    native_speed = _reference_motion_column(selected_reference, "speed")
+    native_heading = _reference_motion_column(selected_reference, "heading")
     observed_x = reference_x.copy()
     observed_y = reference_y.copy()
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
@@ -2526,13 +2571,21 @@ def _prepare_posterior_dashboard_trajectory(
         reference_y,
         observed_x,
         observed_y,
-        reference_speed_mps=_reference_speed_from_positions(
+        reference_speed_mps=native_speed
+        if native_speed is not None
+        else _reference_speed_from_positions(
             time_seconds,
             reference_x,
             reference_y,
         ),
         reference_heading_degrees=reference_heading_degrees,
         reference_turn_rate_degrees_per_second=reference_turn_rate_degrees_per_second,
+        reference_turn_rate_is_derived=reference_turn_rate_is_derived,
+        reference_turn_rate_minimum_observation_count=reference_turn_rate_minimum_observation_count,
+        reference_speed_is_derived=native_speed is None,
+        reference_heading_is_derived=native_heading is None,
+        reference_speed_minimum_observation_count=2 if native_speed is None else 1,
+        reference_heading_minimum_observation_count=2 if native_heading is None else 1,
         reference_time_seconds=time_seconds,
         reference_longitude=complete_window.reference_longitude,
         reference_latitude=complete_window.reference_latitude,
@@ -2636,35 +2689,52 @@ def _reference_heading_and_turn_rate(
         .reset_index(drop=True)
         .iloc[start_index : start_index + count]
     )
-    if {"theta", "omega"}.issubset(ordered_data.columns):
-        heading = np.rad2deg(np.asarray(ordered_data["theta"], dtype=float))
-        turn_rate = np.rad2deg(np.asarray(ordered_data["omega"], dtype=float))
-        if np.all(np.isfinite(heading)) and np.all(np.isfinite(turn_rate)):
-            return heading, turn_rate
-    delta_x = np.diff(reference_x)
-    delta_y = np.diff(reference_y)
-    heading_radians = np.arctan2(delta_y, delta_x)
-    heading = np.empty(count)
-    heading[0] = heading_radians[0]
-    heading[1:] = heading_radians
-    turn_rate = np.empty(count)
-    turn_rate[0] = 0.0
-    turn_rate[1:] = np.diff(np.unwrap(heading)) / np.diff(time_seconds)
-    return np.rad2deg(heading), np.rad2deg(turn_rate)
+    heading = _reference_motion_column(ordered_data, "heading")
+    native_heading = heading is not None
+    if heading is None:
+        _, heading = calculate_motion_from_positions(
+            reference_x, reference_y, time_seconds
+        )
+    turn_rate = _reference_motion_column(ordered_data, "turn_rate")
+    if turn_rate is not None:
+        return np.rad2deg(heading), np.rad2deg(turn_rate), False, 1
+    turn_rate = calculate_signed_turn_rate_from_yaw(heading, time_seconds)
+    return np.rad2deg(heading), np.rad2deg(turn_rate), True, 2 if native_heading else 3
 
 
 def _reference_speed_from_positions(time_seconds, x_meters, y_meters):
     """Derive display-only speeds from successive local positions."""
-    time_seconds = np.asarray(time_seconds, dtype=float)
-    x_meters = np.asarray(x_meters, dtype=float)
-    y_meters = np.asarray(y_meters, dtype=float)
-    speed_mps = np.full(time_seconds.shape, np.nan)
-    if len(time_seconds) < 2:
-        return speed_mps
-    distance_meters = np.hypot(np.diff(x_meters), np.diff(y_meters))
-    speed_mps[1:] = distance_meters / np.diff(time_seconds)
-    speed_mps[0] = speed_mps[1]
-    return speed_mps
+    speed, _ = calculate_motion_from_positions(x_meters, y_meters, time_seconds)
+    return speed
+
+
+def _reference_motion_column(data, quantity):
+    """Return an authoritative native column, without replacing invalid values."""
+    for name in REFERENCE_MOTION_COLUMNS[quantity]:
+        if name in data.columns:
+            values = pd.to_numeric(data[name], errors="raise").to_numpy(dtype=float)
+            if not np.all(np.isfinite(values)):
+                raise ValueError(f"Reference column {name} must contain finite values.")
+            return values
+    return None
+
+
+def read_dashboard_trajectory(csv_path):
+    """Keep optional reference motion locally without changing the shared x/y reader."""
+    data = observations_io.read_processed_trajectory(csv_path)
+    raw = pd.read_csv(csv_path)
+    raw["time"] = pd.to_numeric(raw["time"], errors="raise")
+    raw = raw.sort_values("time").reset_index(drop=True)
+    for names in REFERENCE_MOTION_COLUMNS.values():
+        for name in names:
+            if name in raw.columns:
+                values = pd.to_numeric(raw[name], errors="raise").to_numpy(dtype=float)
+                if not np.all(np.isfinite(values)):
+                    raise ValueError(
+                        f"Reference column {name} must contain finite values."
+                    )
+                data[name] = values
+    return data
 
 
 def create_rbpf_posterior_dashboard_loader(

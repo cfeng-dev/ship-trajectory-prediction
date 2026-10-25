@@ -1186,6 +1186,24 @@ class _Value:
         self.value = value
 
 
+def test_reference_turn_rate_display_marks_only_derived_values():
+    panel = SettingsPanel.__new__(SettingsPanel)
+    panel.posterior_state_values = {key: _Value("") for key in CSV_STATE_ROW_KEYS}
+    state = (11.0, -3.0, 2.0, 2.0, 4.0, "m", 12.5)
+    panel.show_reference_state(
+        state, turn_rate_is_derived=True, speed_is_derived=True, heading_is_derived=True
+    )
+    assert panel.posterior_state_values["turn_rate"].get() == "4.00°/s (derived)"
+    assert panel.posterior_state_values["speed"].get() == "2.00 m/s (derived)"
+    assert panel.posterior_state_values["heading"].get() == "2.00° (derived)"
+    panel.show_reference_state(state)
+    assert panel.posterior_state_values["turn_rate"].get() == "4.00°/s"
+    panel.show_reference_state(
+        (11.0, -3.0, 2.0, 2.0, np.nan, "m", 12.5), turn_rate_is_derived=True
+    )
+    assert panel.posterior_state_values["turn_rate"].get() == "—"
+
+
 def test_toggle_settings_switches_posterior_display_mode():
     app = TrajectoryPredictor.__new__(TrajectoryPredictor)
     app.settings_visible = True

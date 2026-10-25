@@ -376,7 +376,19 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Reference state",
-                "Ground-truth position, speed, heading and time at the current radar cycle, when available. Reference turn rate is not supplied",
+                "Ground-truth position, speed, heading and time at the current radar cycle, when available",
+            ),
+            (
+                "Reference motion",
+                "Position and time are required. Optional ground_truth_velocity [m/s], ground_truth_yaw [rad] and ground_truth_turn_rate [rad/s] take priority independently, including zero. Missing motion quantities are derived and marked (derived); invalid supplied values are reported",
+            ),
+            (
+                "Derived direction",
+                "Without yaw, Heading is the movement course from consecutive positions, not vessel orientation. It is unavailable at rest. Speed/course need two positions; course-change rate needs three",
+            ),
+            (
+                "Reference turn rate",
+                "Use supplied rates, otherwise wrapped yaw differences, or course differences if yaw is absent, over the actual preceding time interval. Shown in degrees/s with (derived); unavailable values show a dash",
             ),
             (
                 "IMM track state",

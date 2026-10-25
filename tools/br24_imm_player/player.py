@@ -131,6 +131,9 @@ class IMMMovementState:
     heading_degrees: float | None
     turn_rate_degrees_per_second: float | None
     time_seconds: float
+    turn_rate_is_derived: bool = False
+    speed_is_derived: bool = False
+    heading_is_derived: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,9 +187,11 @@ class IMMPlaybackStore:
             self.reference = replace(
                 self.reference,
                 **{
-                    field.name: getattr(self.reference, field.name)[
-                        config.start_index :
-                    ]
+                    field.name: (
+                        None
+                        if getattr(self.reference, field.name) is None
+                        else getattr(self.reference, field.name)[config.start_index :]
+                    )
                     for field in fields(self.reference)
                 },
             )
@@ -391,14 +396,20 @@ def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | Non
     if reference is None:
         return None
     index = stage.observation_count - 1
+    turn_rate = float(np.rad2deg(reference.resolved_turn_rate_rad_s[index]))
+    speed = float(reference.resolved_velocity_mps[index])
+    heading = float(np.rad2deg(reference.resolved_yaw_rad[index]))
     return IMMMovementState(
         position_meters=np.array(
             [reference.x_meters[index], reference.y_meters[index]]
         ),
-        speed_mps=float(reference.velocity_mps[index]),
-        heading_degrees=float(np.rad2deg(reference.yaw_rad[index])),
-        turn_rate_degrees_per_second=None,  # Not supplied by BR24 reference labels.
+        speed_mps=speed if np.isfinite(speed) else None,
+        heading_degrees=heading if np.isfinite(heading) else None,
+        turn_rate_degrees_per_second=turn_rate if np.isfinite(turn_rate) else None,
         time_seconds=float(reference.time_seconds[index]),
+        turn_rate_is_derived=reference.turn_rate_is_derived,
+        speed_is_derived=reference.speed_is_derived,
+        heading_is_derived=reference.heading_is_derived,
     )
 
 

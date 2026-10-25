@@ -120,6 +120,18 @@ POSTERIOR_HELP_SECTIONS = (
                 "Unmodified reference position and time; motion values come from reference fields or position differences, not the posterior",
             ),
             (
+                "Reference motion",
+                "Supplied speed, yaw and turn rate take priority independently, including zero values. Missing quantities are marked (derived). Speed/course need two positions; course-change rate needs three. Course is undefined at rest and is not vessel orientation",
+            ),
+            (
+                "Optional CSV columns",
+                "BR24: ground_truth_velocity [m/s], ground_truth_yaw [rad], ground_truth_turn_rate [rad/s]. Processed time,x,y files also accept speed/velocity, theta/yaw and omega/turn_rate. Invalid supplied values are reported, not replaced",
+            ),
+            (
+                "Reference turn rate",
+                "Use supplied reference rates when available; otherwise derive backward wrapped yaw differences, or course differences if yaw is absent, using actual time spacing. Derived values are marked (derived) and displayed in degrees/s; unavailable values show a dash",
+            ),
+            (
                 "Posterior medians",
                 "Estimated speed, heading, turn rate and noise levels after conditioning on the available observations",
             ),

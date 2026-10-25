@@ -823,6 +823,101 @@ def _load_dashboard_module():
         pytest.fail("The Bayesian CTRV posterior dashboard module is missing.")
 
 
+def test_reference_theta_without_omega_uses_yaw_not_position_course():
+    dashboard = _load_dashboard_module()
+    data = pd.DataFrame(
+        {"time": [0.0, 0.5, 2.0], "theta": np.deg2rad([179.0, -179.0, 178.0])}
+    )
+    heading, rate, derived, minimum = dashboard._reference_heading_and_turn_rate(
+        data,
+        start_index=0,
+        count=3,
+        time_seconds=data.time.to_numpy(),
+        reference_x=np.array([0.0, 1.0, 2.0]),
+        reference_y=np.zeros(3),
+    )
+    np.testing.assert_allclose(heading, [179.0, -179.0, 178.0])
+    assert np.isnan(rate[0])
+    np.testing.assert_allclose(rate[1:], [4.0, -2.0])
+    assert derived and minimum == 2
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+@pytest.mark.parametrize("positions_only", [False, True])
+def test_br24_dashboard_displays_reference_yaw_rate_without_using_it_in_filter(
+    tmp_path, supplied, positions_only
+):
+    dashboard = _load_dashboard_module()
+    data = pd.DataFrame(
+        {
+            "time": [10.0, 10.5, 12.0],
+            "cycle_counter": [1, 2, 3],
+            "sensor_x": [0.0] * 3,
+            "sensor_y": [0.0] * 3,
+            "sensor_yaw": [0.0] * 3,
+            "detection_id": [1] * 3,
+            "range": [10.0, 11.0, 12.0],
+            "azimuth": [0.0] * 3,
+            "std_range": [0.5] * 3,
+            "std_azimuth": [0.01] * 3,
+            "x_relative": [10.0, 11.0, 12.0],
+            "y_relative": [0.0] * 3,
+            "ground_truth_x": [10.0, 11.0, 12.0],
+            "ground_truth_y": [0.0] * 3,
+            "ground_truth_yaw": np.deg2rad([179.0, -179.0, 178.0]),
+            "ground_truth_velocity": [2.0] * 3,
+        }
+    )
+    if supplied:
+        data["ground_truth_turn_rate"] = [0.1, 0.2, 0.3]
+    if positions_only:
+        data = data.drop(columns=["ground_truth_yaw", "ground_truth_velocity"])
+    path = tmp_path / "radar.csv"
+    experiment = dashboard.PosteriorDashboardConfig(
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method="smc",
+        inference_seed=42,
+        prediction_count=0,
+    )
+
+    def prepare():
+        data.to_csv(path, index=False)
+        return dashboard.create_br24_radar_dashboard_loader(
+            path,
+            experiment=experiment,
+            priors=bayesian_model.BayesianCTRVPriors(),
+            smc_config=smc.SequentialMonteCarloCTRVConfig(
+                particle_count=64, posterior_draw_count=16
+            ),
+        )
+
+    trajectory, _, _, load = prepare()
+    assert trajectory.reference_turn_rate_is_derived is not supplied
+    assert trajectory.reference_speed_is_derived is positions_only
+    assert trajectory.reference_heading_is_derived is positions_only
+    if positions_only and not supplied:
+        assert np.isnan(trajectory.reference_state_at(2)[4])
+    else:
+        assert trajectory.reference_state_at(2)[4] == pytest.approx(
+            np.rad2deg(0.2) if supplied else 4.0
+        )
+    if not supplied:
+        assert np.isnan(trajectory.reference_state_at(1)[4])
+    before = load(2)
+    data["ground_truth_yaw"] = [0.0, 0.0, 0.0]
+    if supplied:
+        data["ground_truth_turn_rate"] = [9.0, 9.0, 9.0]
+    _, _, _, other_load = prepare()
+    after = other_load(2)
+    for name in before.samples_by_parameter:
+        np.testing.assert_array_equal(
+            before.samples_by_parameter[name], after.samples_by_parameter[name]
+        )
+
+
 class _FakeFit:
     def __init__(self, variables):
         self._variables = variables
@@ -1303,7 +1398,9 @@ def test_dashboard_preparation_preserves_processed_state_despite_gui_noise():
         _dashboard_trajectory_data(), experiment=experiment, reserve_prediction=0
     )
 
-    assert trajectory.reference_speed_mps == pytest.approx([5.0, 5.0, 5.0, 5.0])
+    np.testing.assert_allclose(
+        trajectory.reference_speed_mps, [np.nan, 5.0, 5.0, 5.0], equal_nan=True
+    )
     assert trajectory.reference_heading_degrees == pytest.approx(
         [0.0, 10.0, 20.0, 30.0]
     )

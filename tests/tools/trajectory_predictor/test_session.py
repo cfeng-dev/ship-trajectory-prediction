@@ -20,6 +20,50 @@ def _update(observation_count):
     )
 
 
+@pytest.mark.parametrize("supplied", [False, True])
+def test_processed_csv_reference_motion_preserves_native_values_or_derives(
+    tmp_path, supplied
+):
+    data = pd.DataFrame(
+        {
+            "time": [2.0, 0.5, 0.0, 3.0],
+            "x": [1.0, 1.0, 0.0, 1.0],
+            "y": [2.0, 0.0, 0.0, 2.0],
+        }
+    )
+    if supplied:
+        data["speed"] = 0.0
+        data["theta"] = 0.0
+        data["omega"] = 0.0
+    path = tmp_path / "processed.csv"
+    data.to_csv(path, index=False)
+    values = default_form_values()
+    values["data"].update(
+        data_file=str(path), inference_method="smc", prediction_count="0"
+    )
+    trajectory, _, _, _ = prepare_analysis(parse_settings(values).analysis)
+    assert trajectory.reference_speed_is_derived is not supplied
+    assert trajectory.reference_heading_is_derived is not supplied
+    assert trajectory.reference_turn_rate_is_derived is not supplied
+    np.testing.assert_allclose(
+        trajectory.reference_speed_mps,
+        np.zeros(4) if supplied else [np.nan, 2.0, 4 / 3, 0.0],
+        equal_nan=True,
+    )
+    np.testing.assert_allclose(
+        trajectory.reference_heading_degrees,
+        np.zeros(4) if supplied else [np.nan, 0.0, 90.0, np.nan],
+        equal_nan=True,
+    )
+    np.testing.assert_allclose(
+        trajectory.reference_turn_rate_degrees_per_second,
+        np.zeros(4) if supplied else [np.nan, np.nan, 60.0, np.nan],
+        equal_nan=True,
+    )
+    if supplied:
+        assert trajectory.reference_state_at(1)[2:5] == (0.0, 0.0, 0.0)
+
+
 @pytest.fixture
 def analysis(tmp_path):
     values = default_form_values()

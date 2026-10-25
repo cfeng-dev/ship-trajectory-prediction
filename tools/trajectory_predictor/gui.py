@@ -306,7 +306,12 @@ class TrajectoryPredictor:
                 maximum,
                 minimum,
                 self.worker.request,
-                self.controls.show_reference_state,
+                lambda state: self.controls.show_reference_state(
+                    state,
+                    turn_rate_is_derived=trajectory.reference_turn_rate_is_derived,
+                    speed_is_derived=trajectory.reference_speed_is_derived,
+                    heading_is_derived=trajectory.reference_heading_is_derived,
+                ),
                 self.controls.show_analysis_metrics,
                 self.controls.show_posterior_medians,
                 self.controls.show_radar_association,

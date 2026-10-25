@@ -375,7 +375,14 @@ class SettingsPanel(tk.Frame):
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
 
-    def show_reference_state(self, state):
+    def show_reference_state(
+        self,
+        state,
+        *,
+        turn_rate_is_derived=False,
+        speed_is_derived=False,
+        heading_is_derived=False,
+    ):
         """Show the unmodified reference state for the selected CSV row."""
         if state is None:
             for variable in self.posterior_state_values.values():
@@ -388,13 +395,19 @@ class SettingsPanel(tk.Frame):
             )
         )
         self.posterior_state_values["heading"].set(
-            f"{heading:.2f}°" if np.isfinite(heading) else "—"
+            f"{heading:.2f}°" + (" (derived)" if heading_is_derived else "")
+            if np.isfinite(heading)
+            else "—"
         )
         self.posterior_state_values["speed"].set(
-            f"{speed:.2f} m/s" if np.isfinite(speed) else "—"
+            f"{speed:.2f} m/s" + (" (derived)" if speed_is_derived else "")
+            if np.isfinite(speed)
+            else "—"
         )
         self.posterior_state_values["turn_rate"].set(
-            f"{turn_rate:.2f}°/s" if np.isfinite(turn_rate) else "—"
+            f"{turn_rate:.2f}°/s" + (" (derived)" if turn_rate_is_derived else "")
+            if np.isfinite(turn_rate)
+            else "—"
         )
         self.posterior_state_values["time"].set(
             format_elapsed_time(time_seconds) if np.isfinite(time_seconds) else "—"

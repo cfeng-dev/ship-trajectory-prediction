@@ -10,6 +10,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 
+from .coordinates import (
+    calculate_motion_from_positions,
+    calculate_signed_turn_rate_from_yaw,
+)
+
 ASSOCIATION_GATE_NIS = float(chi2.ppf(0.99, df=2))
 _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD = np.deg2rad(0.5)
 _IMM_IMPLEMENTATION_PATH = (
@@ -94,8 +99,9 @@ class BR24TrackingReference:
     time_seconds: np.ndarray
     x_meters: np.ndarray
     y_meters: np.ndarray
-    yaw_rad: np.ndarray
-    velocity_mps: np.ndarray
+    yaw_rad: np.ndarray | None = None
+    velocity_mps: np.ndarray | None = None
+    turn_rate_rad_s: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         arrays = {
@@ -105,10 +111,11 @@ class BR24TrackingReference:
                 "time_seconds",
                 "x_meters",
                 "y_meters",
-                "yaw_rad",
-                "velocity_mps",
             )
         }
+        for name in ("yaw_rad", "velocity_mps", "turn_rate_rad_s"):
+            if getattr(self, name) is not None:
+                arrays[name] = np.asarray(getattr(self, name), dtype=float).copy()
         if (
             any(values.ndim != 1 for values in arrays.values())
             or len({values.shape for values in arrays.values()}) != 1
@@ -130,6 +137,50 @@ class BR24TrackingReference:
         for name, values in arrays.items():
             values.setflags(write=False)
             object.__setattr__(self, name, values)
+
+    @property
+    def speed_is_derived(self) -> bool:
+        return self.velocity_mps is None
+
+    @property
+    def heading_is_derived(self) -> bool:
+        return self.yaw_rad is None
+
+    @property
+    def resolved_velocity_mps(self) -> np.ndarray:
+        if self.velocity_mps is not None:
+            return self.velocity_mps
+        speed, _ = calculate_motion_from_positions(
+            self.x_meters, self.y_meters, self.time_seconds
+        )
+        speed.setflags(write=False)
+        return speed
+
+    @property
+    def resolved_yaw_rad(self) -> np.ndarray:
+        """Use native yaw when supplied; otherwise return the movement course."""
+        if self.yaw_rad is not None:
+            return self.yaw_rad
+        _, course = calculate_motion_from_positions(
+            self.x_meters, self.y_meters, self.time_seconds
+        )
+        course.setflags(write=False)
+        return course
+
+    @property
+    def turn_rate_is_derived(self) -> bool:
+        return self.turn_rate_rad_s is None
+
+    @property
+    def resolved_turn_rate_rad_s(self) -> np.ndarray:
+        """Use supplied evaluation labels or derive causal rates from reference yaw."""
+        if self.turn_rate_rad_s is not None:
+            return self.turn_rate_rad_s
+        rates = calculate_signed_turn_rate_from_yaw(
+            self.resolved_yaw_rad, self.time_seconds
+        )
+        rates.setflags(write=False)
+        return rates
 
 
 def polar_to_cartesian(range_m, azimuth_rad) -> np.ndarray:
@@ -415,8 +466,9 @@ def read_br24_tracking_reference(
     """Read optional evaluation labels without exposing them to the tracker.
 
     ``None`` means that the flattened BR24 input has no reference labels.  When
-    present, every label must be supplied and be identical for all detections in
-    one radar cycle.
+    present, x/y are required. Yaw [rad], velocity [m/s], and turn rate [rad/s]
+    are independent optional columns; absent motion values are derived only for
+    display/evaluation. Supplied values must be finite and identical within a cycle.
     """
     csv_path = Path(csv_path)
     if not csv_path.is_file():
@@ -424,15 +476,24 @@ def read_br24_tracking_reference(
     normalized_columns = {
         str(column).lower() for column in pd.read_csv(csv_path, nrows=0).columns
     }
-    available_columns = set(_TRACKING_REFERENCE_COLUMNS) & normalized_columns
+    supported_columns = (*_TRACKING_REFERENCE_COLUMNS, "ground_truth_turn_rate")
+    available_columns = set(supported_columns) & normalized_columns
     if not available_columns:
         return None
-    if available_columns != set(_TRACKING_REFERENCE_COLUMNS):
-        missing = sorted(set(_TRACKING_REFERENCE_COLUMNS) - available_columns)
+    required_columns = ("ground_truth_x", "ground_truth_y")
+    if not set(required_columns).issubset(available_columns):
+        missing = sorted(set(required_columns) - available_columns)
         raise ValueError(f"Missing BR24 reference columns: {missing}")
+    selected_columns = tuple(
+        name for name in supported_columns if name in available_columns
+    )
     data = _read_csv_with_columns(
         csv_path,
-        required=("time", "cycle_counter", *_TRACKING_REFERENCE_COLUMNS),
+        required=(
+            "time",
+            "cycle_counter",
+            *selected_columns,
+        ),
     )
     _validate_finite_columns(data, data.columns, source="BR24 tracking reference")
     _validate_integral_column(
@@ -441,7 +502,7 @@ def read_br24_tracking_reference(
         source="BR24 tracking reference",
     )
     cycle_references = []
-    reference_columns = ("time", *_TRACKING_REFERENCE_COLUMNS)
+    reference_columns = ("time", *selected_columns)
     for cycle_counter, group in data.groupby("cycle_counter", sort=True):
         values = group.loc[:, reference_columns].to_numpy(dtype=float)
         if not np.allclose(values, values[0], rtol=0.0, atol=0.0):
@@ -450,13 +511,17 @@ def read_br24_tracking_reference(
             )
         cycle_references.append((int(cycle_counter), *values[0]))
     reference = np.asarray(cycle_references, dtype=float)
+    values_by_column = {
+        name: reference[:, index + 1] for index, name in enumerate(reference_columns)
+    }
     return BR24TrackingReference(
         cycle_counters=reference[:, 0],
         time_seconds=reference[:, 1],
         x_meters=reference[:, 2],
         y_meters=reference[:, 3],
-        yaw_rad=reference[:, 4],
-        velocity_mps=reference[:, 5],
+        yaw_rad=values_by_column.get("ground_truth_yaw"),
+        velocity_mps=values_by_column.get("ground_truth_velocity"),
+        turn_rate_rad_s=values_by_column.get("ground_truth_turn_rate"),
     )
 
 

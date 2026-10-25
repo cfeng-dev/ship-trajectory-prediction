@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import bayestraj.observations.br24 as br24
+import bayestraj.observations.coordinates as coordinates
 from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
@@ -21,6 +22,115 @@ from bayestraj.observations.br24 import (
     position_measurement_noise,
     read_br24_tracking_input,
 )
+
+
+def test_reference_yaw_rate_uses_wrapped_backward_differences_and_real_intervals():
+    rate = coordinates.calculate_signed_turn_rate_from_yaw(
+        np.deg2rad([179.0, -179.0, 178.0, 178.0]),
+        [10.0, 10.5, 12.0, 15.0],
+    )
+    assert np.isnan(rate[0])
+    np.testing.assert_allclose(np.rad2deg(rate[1:]), [4.0, -2.0, 0.0])
+    changed_future = coordinates.calculate_signed_turn_rate_from_yaw(
+        np.deg2rad([179.0, -179.0, -20.0, 30.0]),
+        [10.0, 10.5, 12.0, 15.0],
+    )
+    assert changed_future[1] == pytest.approx(rate[1])
+
+
+def test_reference_yaw_rate_leaves_invalid_intervals_missing():
+    rate = coordinates.calculate_signed_turn_rate_from_yaw(
+        [0.0, np.nan, 0.2, 0.3, 0.4, 0.5],
+        [0.0, 1.0, 2.0, 2.0, 1.0, 3.0],
+    )
+    assert np.isnan(rate[:5]).all()
+    assert rate[5] == pytest.approx(0.05)
+
+
+def test_position_motion_uses_backward_intervals_and_no_course_at_rest():
+    speed, yaw = coordinates.calculate_motion_from_positions(
+        [0.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 2.0, 2.0],
+        [0.0, 0.5, 2.0, 3.0],
+    )
+    np.testing.assert_allclose(speed, [np.nan, 2.0, 4 / 3, 0.0], equal_nan=True)
+    np.testing.assert_allclose(yaw, [np.nan, 0.0, np.pi / 2, np.nan], equal_nan=True)
+
+
+@pytest.mark.parametrize("has_speed", [False, True])
+@pytest.mark.parametrize("has_yaw", [False, True])
+@pytest.mark.parametrize("has_rate", [False, True])
+def test_reference_motion_columns_are_independently_optional(
+    tmp_path, has_speed, has_yaw, has_rate
+):
+    data = pd.DataFrame(
+        {
+            "cycle_counter": [1, 2, 3, 4],
+            "time": [0.0, 0.5, 2.0, 3.0],
+            "ground_truth_x": [0.0, 1.0, 1.0, 1.0],
+            "ground_truth_y": [0.0, 0.0, 2.0, 2.0],
+        }
+    )
+    if has_speed:
+        data["ground_truth_velocity"] = (
+            0.0  # A supplied zero must not trigger fallback.
+        )
+    if has_yaw:
+        data["ground_truth_yaw"] = 0.0
+    if has_rate:
+        data["ground_truth_turn_rate"] = 0.0
+    path = tmp_path / "reference.csv"
+    data.to_csv(path, index=False)
+    reference = br24.read_br24_tracking_reference(path)
+    np.testing.assert_allclose(
+        reference.resolved_velocity_mps,
+        np.zeros(4) if has_speed else [np.nan, 2.0, 4 / 3, 0.0],
+        equal_nan=True,
+    )
+    np.testing.assert_allclose(
+        reference.resolved_yaw_rad,
+        np.zeros(4) if has_yaw else [np.nan, 0.0, np.pi / 2, np.nan],
+        equal_nan=True,
+    )
+    expected_rate = (
+        np.zeros(4)
+        if has_rate
+        else (
+            [np.nan, 0.0, 0.0, 0.0] if has_yaw else [np.nan, np.nan, np.pi / 3, np.nan]
+        )
+    )
+    np.testing.assert_allclose(
+        reference.resolved_turn_rate_rad_s, expected_rate, equal_nan=True
+    )
+    assert reference.speed_is_derived is not has_speed
+    assert reference.heading_is_derived is not has_yaw
+    assert reference.turn_rate_is_derived is not has_rate
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+def test_br24_reference_turn_rate_prefers_optional_csv_values(tmp_path, supplied):
+    data = pd.DataFrame(
+        {
+            "cycle_counter": [1, 1, 2],
+            "time": [10.0, 10.0, 10.5],
+            "ground_truth_x": [0.0, 0.0, 1.0],
+            "ground_truth_y": [0.0, 0.0, 0.0],
+            "ground_truth_yaw": np.deg2rad([179.0, 179.0, -179.0]),
+            "ground_truth_velocity": [2.0, 2.0, 2.0],
+        }
+    )
+    if supplied:
+        data["ground_truth_turn_rate"] = [0.1, 0.1, 0.2]  # rad/s
+    path = tmp_path / "reference.csv"
+    data.to_csv(path, index=False)
+    reference = br24.read_br24_tracking_reference(path)
+    if supplied:
+        np.testing.assert_allclose(reference.resolved_turn_rate_rad_s, [0.1, 0.2])
+        assert not reference.turn_rate_is_derived
+    else:
+        assert np.isnan(reference.resolved_turn_rate_rad_s[0])
+        assert np.rad2deg(reference.resolved_turn_rate_rad_s[1]) == pytest.approx(4.0)
+        assert reference.turn_rate_is_derived
 
 
 def test_missing_external_imm_does_not_block_bayesian_tracking(tmp_path, monkeypatch):

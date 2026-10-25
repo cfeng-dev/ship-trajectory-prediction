@@ -13,7 +13,6 @@ from queue import Empty, Queue
 from threading import Condition, Thread
 from time import perf_counter
 
-import bayestraj.observations.io as observations_io
 from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
@@ -58,7 +57,7 @@ def prepare_analysis(settings: AnalysisSettings):
             smc_config=settings.smc_config,
         )
     data = (
-        observations_io.read_processed_trajectory(settings.data_file)
+        dashboard.read_dashboard_trajectory(settings.data_file)
         .sort_values("time")
         .reset_index(drop=True)
     )

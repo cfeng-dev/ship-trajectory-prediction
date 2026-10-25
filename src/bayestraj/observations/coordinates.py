@@ -245,6 +245,58 @@ def calculate_signed_curvature_from_gps(
     return curvature
 
 
+def calculate_motion_from_positions(x_meters, y_meters, time_seconds):
+    """Return backward interval speed [m/s] and course [rad] for reference display.
+
+    The first values are unknown. A stationary interval has zero speed but no
+    defined course. No later position is used to fill an earlier value.
+    """
+    x, y, times = (
+        np.asarray(values, dtype=float) for values in (x_meters, y_meters, time_seconds)
+    )
+    if x.ndim != 1 or y.shape != x.shape or times.shape != x.shape:
+        raise ValueError("Position and time must be matching one-dimensional vectors.")
+    speeds = np.full(x.shape, np.nan)
+    courses = np.full(x.shape, np.nan)
+    dx, dy, dt = np.diff(x), np.diff(y), np.diff(times)
+    valid = np.isfinite(dx) & np.isfinite(dy) & np.isfinite(dt) & (dt > 0.0)
+    distance = np.hypot(dx, dy)
+    np.divide(distance, dt, out=speeds[1:], where=valid)
+    moving = valid & (distance > 0.0)
+    courses[1:][moving] = np.arctan2(dy[moving], dx[moving])
+    return speeds, courses
+
+
+def calculate_signed_turn_rate_from_yaw(yaw_rad, time_seconds):
+    """Return backward, wrapped yaw differences in rad/s, without future data.
+
+    Each rate is the average over the preceding interval. The first sample and
+    pairs with non-finite yaw/time or non-positive time spacing remain NaN.
+    """
+    yaw = np.asarray(yaw_rad, dtype=float)
+    times = np.asarray(time_seconds, dtype=float)
+    if yaw.ndim != 1 or times.shape != yaw.shape:
+        raise ValueError("Yaw and time must be matching one-dimensional vectors.")
+    rates = np.full(yaw.shape, np.nan)
+    intervals = np.diff(times)
+    changes = np.diff(yaw)
+    valid = (
+        np.isfinite(yaw[:-1])
+        & np.isfinite(yaw[1:])
+        & np.isfinite(times[:-1])
+        & np.isfinite(times[1:])
+        & np.isfinite(intervals)
+        & (intervals > 0.0)
+    )
+    np.divide(
+        np.arctan2(np.sin(changes), np.cos(changes)),
+        intervals,
+        out=rates[1:],
+        where=valid,
+    )
+    return rates
+
+
 def calculate_signed_turn_rate_from_gps(
     data,
     *,
