@@ -571,7 +571,7 @@ def _imm_motion_stage(*, zero_variance=False):
     )
 
 
-def _headless_imm_panels(stage, *, figure_size=(10, 6)):
+def _headless_imm_panels(stage, *, figure_size=(10, 6), settings_visible=True):
     from imm_predictor.player import IMMPlayerConfig
     from imm_predictor.plot_view import IMMPlotView, _IMMPredictorLayout
     from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -593,7 +593,7 @@ def _headless_imm_panels(stage, *, figure_size=(10, 6)):
     view._after_id = None
     view.show_reference_var = SimpleNamespace(get=lambda: False)
     view.follow_ship_var = SimpleNamespace(get=lambda: False)
-    view.settings_visible_var = SimpleNamespace(get=lambda: True)
+    view.settings_visible_var = _Value(settings_visible)
     view._build_axes()
     view._build_controls()
     view.figure.set_layout_engine(_IMMPredictorLayout(view))
@@ -967,6 +967,126 @@ def test_imm_panel_switch_preserves_stage_route_and_readable_layout(figure_size)
     assert view.motion_axes[0].lines[0].get_xdata()[200] == pytest.approx(4.0)
     view.disable_navigation()
     assert not view.group_selector.active
+
+
+@pytest.mark.parametrize("selected_group", [0, 1])
+def test_imm_hiding_settings_shows_both_live_panel_groups_and_restores_selection(
+    selected_group,
+):
+    from dataclasses import replace
+
+    from imm_predictor.player import IMMStatePosterior, _forecast_uncertainty
+
+    stage = replace(
+        _imm_motion_stage(),
+        forecast=SimpleNamespace(
+            position_means=np.array([[12.0, 23.0], [13.0, 24.0]]),
+            time_seconds=np.array([2.0, 3.0]),
+            position_covariances=np.repeat(np.eye(2)[None], 2, axis=0),
+            mode_probabilities=np.array([[0.8, 0.1, 0.1], [0.7, 0.2, 0.1]]),
+        ),
+    )
+    view = _headless_imm_panels(stage, figure_size=(16, 8))
+    view.store.config = replace(
+        view.store.config, prediction_count=2, prediction_region_style="none"
+    )
+    view.current_state = SimpleNamespace(
+        stage=stage, uncertainty=_forecast_uncertainty(stage)
+    )
+    view._on_settings_visibility_change = view.set_settings_visible
+    view._draw()
+    view.group_selector.set_active(selected_group)
+    previous_selection = view.group_selector.value_selected
+    limits = view.route_axis.get_xlim(), view.route_axis.get_ylim()
+    compact_slider_width = view.slider.ax.get_position().width
+
+    view.settings_checkbox.set_active(0, state=False)
+
+    assert view.settings_visible_var.get() is False
+    assert all(
+        axis.get_visible()
+        for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
+    )
+    assert not view.group_selector.ax.get_visible()
+    assert not view.group_selector.active
+    assert not view.group_selector._buttons.get_visible()
+    assert all(not label.get_visible() for label in view.group_selector.labels)
+    assert view.slider.ax.get_position().width > compact_slider_width
+    assert view.route_axis.get_position().x1 < view.motion_axes[0].get_position().x0
+    assert view.motion_axes[0].get_position().x1 < view.mode_axis.get_position().x0
+    assert view.current_state.stage is stage
+    np.testing.assert_allclose(
+        (view.route_axis.get_xlim(), view.route_axis.get_ylim()), limits
+    )
+    renderer = view.canvas.get_renderer()
+    assert (
+        view.motion_axes[0].get_tightbbox(renderer).x1
+        < view.mode_axis.get_tightbbox(renderer).x0
+    )
+
+    next_stage = replace(
+        stage,
+        observation_count=3,
+        posterior=IMMStatePosterior([11, 22, 0.3, 0.01, 6.0], np.eye(5)),
+        forecast=SimpleNamespace(
+            **(
+                vars(stage.forecast)
+                | {"mode_probabilities": np.array([[0.4, 0.3, 0.3], [0.3, 0.4, 0.3]])}
+            )
+        ),
+    )
+    view.current_state = SimpleNamespace(
+        stage=next_stage, uncertainty=_forecast_uncertainty(next_stage)
+    )
+    view._draw()
+    x, density = view.motion_axes[0].lines[0].get_data()
+    assert x[np.argmax(density)] == pytest.approx(6.0)
+    np.testing.assert_array_equal(view.mode_axis.lines[0].get_ydata(), [0.4, 0.3])
+
+    view.settings_checkbox.set_active(0, state=True)
+
+    assert view.group_selector.value_selected == previous_selection
+    assert view.group_selector.active
+    assert view.group_selector.ax.get_visible()
+    assert all(axis.get_visible() == (selected_group == 0) for axis in view.motion_axes)
+    assert view.mode_axis.get_visible() == (selected_group == 1)
+    assert view.uncertainty_axis.get_visible() == (selected_group == 1)
+    assert view.current_state.stage is next_stage
+    view.disable_navigation()
+    view.set_settings_visible(False)
+    view.set_settings_visible(True)
+    assert not view.group_selector.active
+
+
+@pytest.mark.parametrize("initial_stage", [None, "posterior"])
+def test_imm_initially_hidden_settings_keep_both_groups_visible_after_resize(
+    initial_stage,
+):
+    stage = None if initial_stage is None else _imm_motion_stage()
+    view = _headless_imm_panels(stage, figure_size=(14, 8), settings_visible=False)
+    view._draw()
+    view.figure.set_size_inches(18, 9)
+    view.canvas.draw()
+
+    assert all(
+        axis.get_visible()
+        for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
+    )
+    assert not view.group_selector.ax.get_visible()
+    assert not view.group_selector.active
+    assert view.mode_axis.get_title() == "Forecast mode probabilities"
+    assert view.uncertainty_axis.get_title() == "Forecast uncertainty"
+    assert "Forecast disabled (0 steps)" in [
+        text.get_text() for text in view.mode_axis.texts
+    ]
+    assert view.motion_axes[0].get_title() == "Speed posterior"
+    renderer = view.canvas.get_renderer()
+    for upper, lower in zip(view.motion_axes[:-1], view.motion_axes[1:], strict=True):
+        assert upper.get_tightbbox(renderer).y0 > lower.get_tightbbox(renderer).y1
+    assert (
+        view.mode_axis.get_tightbbox(renderer).y0
+        > view.uncertainty_axis.get_tightbbox(renderer).y1
+    )
 
 
 def test_imm_motion_panels_show_no_invented_prior_at_n_zero():

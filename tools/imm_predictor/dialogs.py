@@ -337,7 +337,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Display group",
-                "Switch between Motion state (three current-state marginals) and Forecast diagnostics (future model probabilities and forecast uncertainty)",
+                "With Show settings enabled, switch between Motion state (three current-state marginals) and Forecast diagnostics (future model probabilities and forecast uncertainty). Hide settings to show both groups side by side; showing settings again restores the selected group",
             ),
             (
                 "Motion state",

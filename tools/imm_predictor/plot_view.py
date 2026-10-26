@@ -114,6 +114,7 @@ class _IMMPredictorLayout(LayoutEngine):
 
     def execute(self, figure):
         view = self.view
+        expanded = not view.settings_visible_var.get()
         width = max(400.0, figure.get_figwidth() * 72)
         height = max(320.0, figure.get_figheight() * 72)
         grid = view.route_axis.get_subplotspec().get_gridspec()
@@ -141,11 +142,15 @@ class _IMMPredictorLayout(LayoutEngine):
             view.uncertainty_axis,
             *view.motion_axes,
         ):
-            axis.set_position(axis.get_subplotspec().get_position(figure))
+            spec = axis.get_subplotspec()
+            if axis is not view.route_axis and not expanded:
+                # Compact groups each occupy the combined right-hand columns.
+                spec = spec.get_gridspec()[spec.rowspan.start : spec.rowspan.stop, 1:]
+            axis.set_position(spec.get_position(figure))
         for axis in view.motion_axes:
-            axis.set_visible(view._panel_group == "motion")
+            axis.set_visible(expanded or view._panel_group == "motion")
         for axis in (view.mode_axis, view.uncertainty_axis):
-            axis.set_visible(view._panel_group == "forecast")
+            axis.set_visible(expanded or view._panel_group == "forecast")
         view._fit_route_limits_to_axes()
         playback_width = max(0.085, 64 / width)
         view.playback_button.ax.set_position(
@@ -154,13 +159,19 @@ class _IMMPredictorLayout(LayoutEngine):
         slider_left = 0.07 + playback_width
         selector_width = max(0.21, 160 / width)
         selector_left = 0.98 - selector_width
-        slider_right = min(0.70, selector_left - 24 / width)
+        slider_right = 0.94 if expanded else min(0.70, selector_left - 24 / width)
         view.slider.ax.set_position(
             (slider_left, 29 / height, slider_right - slider_left, 10 / height)
         )
         view.group_selector.ax.set_position(
             (selector_left, 18 / height, selector_width, 44 / height)
         )
+        view.group_selector.ax.set_visible(not expanded)
+        view.group_selector.ax.title.set_visible(not expanded)
+        view.group_selector._buttons.set_visible(not expanded)
+        for label in view.group_selector.labels:
+            label.set_visible(not expanded)
+        view.group_selector.active = not (expanded or view._failed or view._destroyed)
         for checkbox, offset, checkbox_width in (
             (view.follow_checkbox, 0, 95),
             (view.settings_checkbox, 100, 110),
@@ -239,9 +250,9 @@ class IMMPlotView(tk.Frame):
         self._draw()
 
     def _build_axes(self) -> None:
-        """Keep the route fixed while selecting two or three right-hand panels."""
+        """Keep the route fixed while compact groups share the right-hand area."""
         options = dict(
-            width_ratios=(1.25, 1.0),
+            width_ratios=(1.25, 0.5, 0.5),
             left=0.075,
             right=0.975,
             bottom=0.10,
@@ -249,12 +260,12 @@ class IMMPlotView(tk.Frame):
             wspace=0.26,
             hspace=0.36,
         )
-        grid = self.figure.add_gridspec(2, 2, **options)
-        motion_grid = self.figure.add_gridspec(3, 2, **options)
+        grid = self.figure.add_gridspec(2, 3, **options)
+        motion_grid = self.figure.add_gridspec(3, 3, **options)
         self.route_axis = self.figure.add_subplot(grid[:, 0])
         self.route_axis.set_axes_locator(self._locate_route_axes)
-        self.mode_axis = self.figure.add_subplot(grid[0, 1])
-        self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
+        self.mode_axis = self.figure.add_subplot(grid[0, 2])
+        self.uncertainty_axis = self.figure.add_subplot(grid[1, 2])
         self.motion_axes = tuple(
             self.figure.add_subplot(motion_grid[index, 1]) for index in range(3)
         )
@@ -469,12 +480,15 @@ class IMMPlotView(tk.Frame):
         self._on_settings_visibility_change(self.settings_visible_var.get())
 
     def set_settings_visible(self, visible: bool) -> None:
+        """Synchronize the checkbox and compact/expanded diagnostic panels."""
         self.settings_visible_var.set(visible)
+        eventson = self.settings_checkbox.eventson
         self.settings_checkbox.eventson = False
         try:
             self.settings_checkbox.set_active(0, state=bool(visible))
         finally:
-            self.settings_checkbox.eventson = True
+            self.settings_checkbox.eventson = eventson
+        self._draw()
 
     def reset_view(self) -> None:
         """Return to the full trajectory extent without touching IMM state."""
@@ -539,9 +553,10 @@ class IMMPlotView(tk.Frame):
 
     def _draw(self) -> None:
         self._draw_route()
-        if self._panel_group == "motion":
+        expanded = not self.settings_visible_var.get()
+        if expanded or self._panel_group == "motion":
             self._draw_motion_posteriors()
-        else:
+        if expanded or self._panel_group == "forecast":
             self._draw_mode_probabilities()
             self._draw_uncertainty()
         self.figure.suptitle(
