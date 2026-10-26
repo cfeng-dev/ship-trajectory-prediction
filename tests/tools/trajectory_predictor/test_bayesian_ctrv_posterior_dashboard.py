@@ -2795,6 +2795,48 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         plt.close(figure)
 
 
+def test_dashboard_legend_follows_the_displayed_positions_when_changing_stages():
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0.0, 10.0],
+        reference_y=[0.0, 20.0],
+        observed_x=[0.1, 10.1],
+        observed_y=[0.2, 20.2],
+    )
+
+    def load_update(count):
+        return dashboard.PosteriorDashboardUpdate(
+            count,
+            _dashboard_samples(),
+            tracked_positions=[[100.0, 200.0], [101.0, 202.0]] if count == 2 else None,
+            radar_tracking_active=True,
+        )
+
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=2,
+    )
+    try:
+        for count, label, expected_x, expected_y in (
+            (1, "Observations through N", [0.1], [0.2]),
+            (2, "Bayesian track through N", [100.0, 101.0], [200.0, 202.0]),
+            (1, "Observations through N", [0.1], [0.2]),
+        ):
+            navigator.slider.set_val(count)
+            navigator.show_selected_observation_count(None)
+
+            line = navigator.trajectory_axis.lines[1]
+            assert line.get_label() == label
+            assert line.get_xdata() == pytest.approx(expected_x)
+            assert line.get_ydata() == pytest.approx(expected_y)
+            assert label in navigator.trajectory_axis.get_legend_handles_labels()[1]
+    finally:
+        navigator.disconnect()
+        plt.close(figure)
+
+
 def test_dashboard_keeps_narrow_uncertainty_posteriors_visible_at_late_stage():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(181.0)

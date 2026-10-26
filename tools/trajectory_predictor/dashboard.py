@@ -1412,12 +1412,18 @@ class PosteriorDashboardNavigator:
         if self.observation_count > 0:
             observed_slice = slice(0, self.observation_count)
             if self.show_observed_trajectory:
+                update = self._updates_by_count.get(self.observation_count)
+                trajectory_label = (
+                    "Bayesian track through N"
+                    if update is not None and update.tracked_positions is not None
+                    else "Observations through N"
+                )
                 axis.plot(
                     observed_x[observed_slice],
                     observed_y[observed_slice],
                     color="#24557A",
                     linewidth=2.2,
-                    label="Observations through N",
+                    label=trajectory_label,
                     zorder=2,
                 )
             current_index = self.observation_count - 1

@@ -1,4 +1,4 @@
-"""Tk dialogs for BR24 IMM player settings and help."""
+"""Tk dialogs for IMM Predictor settings and help."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ class PlaybackSettingsDialog:
                 frame,
                 textvariable=self._variables[name],
                 width=16,
-                style="IMMPlayer.TEntry",
+                style="IMMPredictor.TEntry",
             ).grid(row=row, column=1, sticky="ew", pady=(6, 0))
 
         def scroll(event):
@@ -223,7 +223,7 @@ class PlaybackSettingsDialog:
             row,
             textvariable=self._variables["follow_ship_view_span_meters"],
             width=12,
-            style="IMMPlayer.TEntry",
+            style="IMMPredictor.TEntry",
         ).pack(side="right")
         actions = tk.Frame(self.window, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         actions.pack(fill="x")
@@ -304,7 +304,7 @@ IMM_HELP_SECTIONS = (
                 "File \u2192 Open CSV",
                 "Select a BR24 radar CSV before starting analysis",
             ),
-            ("File \u2192 Exit", "Exit BR24 IMM Player"),
+            ("File \u2192 Exit", "Exit IMM Predictor"),
             (
                 "View",
                 "Show or hide settings; select meters or kilometers; open plot display options",
@@ -531,7 +531,7 @@ class IMMHelpWindow(tk.Toplevel):
         main.pack(fill="both", expand=True)
         tk.Label(
             main,
-            text="BR24 IMM Player",
+            text="IMM Predictor",
             font=("Arial", 13, "bold"),
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,

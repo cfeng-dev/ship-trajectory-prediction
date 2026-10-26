@@ -267,6 +267,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "Dashed gray reference path; visibility does not affect inference or evaluation",
             ),
             (
+                "Blue trajectory",
+                "Observations through N for position CSVs; Bayesian track through N for filtered BR24 positions. The legend follows the displayed data",
+            ),
+            (
                 "Forecast (median)",
                 "Red coordinate-wise median of future latent positions, not a single sampled trajectory",
             ),

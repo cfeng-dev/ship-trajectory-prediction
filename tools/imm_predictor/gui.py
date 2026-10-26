@@ -1,4 +1,4 @@
-"""Tk application orchestration for the local BR24 IMM player."""
+"""Tk application orchestration for the IMM Predictor."""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ LOGGER = logging.getLogger(__name__)
 
 INITIAL_PLACEHOLDER_TEXT = (
     "Trajectory and IMM evolution\n\n"
-    "Select a BR24 CSV and configure the player on the left.\n"
+    "Select a BR24 CSV and configure the analysis on the left.\n"
     "Then click 'Start analysis'."
 )
 
 
-class BR24IMMPlayerApp:
+class IMMPredictorApp:
     """Keep all Tk and embedded Matplotlib access on the main thread."""
 
     def __init__(self, root: tk.Tk) -> None:

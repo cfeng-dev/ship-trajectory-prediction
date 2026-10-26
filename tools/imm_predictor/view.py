@@ -1,11 +1,11 @@
-"""Shared Tk styling and menus for the local BR24 IMM desktop player."""
+"""Shared Tk styling and menus for the IMM Predictor."""
 
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
-WINDOW_TITLE = "BR24 IMM - Ship Trajectory Player"
+WINDOW_TITLE = "IMM — Ship Trajectory Predictor"
 WINDOW_BACKGROUND = "#F3F7FA"
 CONTROL_BACKGROUND = "#E3EFF6"
 PLOT_BACKGROUND = "#f4f9fc"
@@ -40,32 +40,32 @@ def configure_input_styles(root) -> None:
     if root.tk.call("tk", "windowingsystem") == "aqua":
         style.theme_use("clam")
     style.configure(
-        "IMMPlayer.TEntry",
+        "IMMPredictor.TEntry",
         fieldbackground="#ffffff",
         foreground="#1f2933",
         insertcolor="#1f2933",
         insertwidth=2,
     )
     style.map(
-        "IMMPlayer.TEntry",
+        "IMMPredictor.TEntry",
         fieldbackground=[("disabled", "#e7edf1"), ("readonly", "#ffffff")],
         foreground=[("disabled", "#687783"), ("!disabled", "#1f2933")],
     )
     style.configure(
-        "IMMPlayer.TButton",
+        "IMMPredictor.TButton",
         background="#ffffff",
         foreground="#1f2933",
         padding=(4, 0),
     )
     style.map(
-        "IMMPlayer.TButton",
+        "IMMPredictor.TButton",
         background=[("disabled", "#e7edf1"), ("active", "#b8d8e8")],
         foreground=[("disabled", "#687783"), ("!disabled", "#1f2933")],
     )
 
 
 def create_menu_bar(app) -> None:
-    """Create the File, View, Settings, and Help menus for the player."""
+    """Create the File, View, Settings, and Help menus for the predictor."""
     menu_bar = tk.Menu(app.root)
 
     file_menu = tk.Menu(menu_bar, tearoff=False)

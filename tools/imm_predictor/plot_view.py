@@ -1,4 +1,4 @@
-"""Embedded Matplotlib route and IMM forecast panels for the Tk player."""
+"""Embedded Matplotlib route and forecast panels for the IMM Predictor."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
 
 
-class _IMMPlayerLayout(LayoutEngine):
+class _IMMPredictorLayout(LayoutEngine):
     """Use the Predictor's fixed-point plot margins and footer spacing."""
 
     _adjust_compatible = False
@@ -138,7 +138,7 @@ class IMMPlotView(tk.Frame):
             self.settings_checkbox,
         ):
             widget._observers.exception_handler = self._handle_plot_error
-        self.figure.set_layout_engine(_IMMPlayerLayout(self))
+        self.figure.set_layout_engine(_IMMPredictorLayout(self))
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
         configure_plot_toolbar(self.toolbar)
         self.toolbar.update()
@@ -412,7 +412,7 @@ class IMMPlotView(tk.Frame):
         self._draw_mode_probabilities()
         self._draw_uncertainty()
         self.figure.suptitle(
-            f"BR24 IMM online update - N = {self._observation_count()}",
+            f"IMM online update - N = {self._observation_count()}",
             fontsize=16,
             fontweight="bold",
             color=TEXT_COLOR,
@@ -473,7 +473,7 @@ class IMMPlotView(tk.Frame):
                 tracked[:, 1],
                 color="#24557A",
                 linewidth=2.2,
-                label="IMM estimates through N",
+                label="IMM track through N",
                 zorder=3,
             )
         if self.store.config.show_current_position:

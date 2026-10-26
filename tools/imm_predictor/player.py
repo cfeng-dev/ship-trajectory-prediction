@@ -1,4 +1,4 @@
-"""Presentation-safe online session data for the local BR24 IMM player.
+"""Presentation-safe online session data for the IMM Predictor.
 
 This module owns the raw BR24 input and optional local IMM tracker lifetime.
 Reference labels are read only after a forecast has been produced, solely for
@@ -38,7 +38,7 @@ PREDICTION_REGION_STYLE_LABELS = {
 PLOT_DISPLAY_OPTIONS = {
     "show_legend": "Show legend",
     "show_recorded_trajectory": "Show reference trajectory",
-    "show_imm_track": "Show IMM estimates through N",
+    "show_imm_track": "Show IMM track through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show sampled IMM trajectories",
     "show_forecast_mean": "Show forecast (mean)",

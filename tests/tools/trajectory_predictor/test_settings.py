@@ -1,27 +1,31 @@
 """GUI settings are validated without creating a window or starting inference."""
 
 import argparse
+import importlib
 
 import pytest
 from trajectory_predictor import cli, settings
-from trajectory_predictor.cli import main
 
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 
 
-def test_command_help_does_not_open_a_window(capsys):
+@pytest.mark.parametrize(
+    ("package", "description"),
+    [("trajectory_predictor", "trajectory predictor"), ("imm_predictor", "IMM")],
+)
+def test_command_help_does_not_open_a_window(capsys, package, description):
+    main = importlib.import_module(f"{package}.cli").main
     with pytest.raises(SystemExit) as result:
         main(["--help"])
     assert result.value.code == 0
-    assert "trajectory predictor" in capsys.readouterr().out
+    assert description in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("package", ["trajectory_predictor", "br24_imm_player"])
+@pytest.mark.parametrize("package", ["trajectory_predictor", "imm_predictor"])
 @pytest.mark.parametrize("fail", [False, True])
 def test_desktop_startup_and_errors_do_not_create_logs(
     tmp_path, monkeypatch, caplog, package, fail
 ):
-    import importlib
     import logging
     import sys
     from types import SimpleNamespace
@@ -38,7 +42,7 @@ def test_desktop_startup_and_errors_do_not_create_logs(
     importer = (
         "_import_trajectory_predictor"
         if package == "trajectory_predictor"
-        else "_import_player_app"
+        else "_import_predictor_app"
     )
     monkeypatch.setattr(
         module, "__file__", str(tmp_path / "tools" / package / "cli.py")

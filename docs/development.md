@@ -51,6 +51,18 @@ The built-in **Help** window describes the controls, settings, and keyboard
 shortcuts. RBPF and SMC update online; VI and MCMC repeatedly fit the latest 10
 observations and are slower.
 
+### 3. IMM Predictor
+
+Inspect BR24 radar tracking and trajectory forecasts from the CV/CTRV/CA IMM:
+
+```bash
+uv run imm-predictor
+```
+
+The built-in **Help** window describes analysis setup, plot options, and
+keyboard shortcuts. The optional local IMM implementation at
+`external/IMM/br24_imm.py` and a BR24 tracking CSV are required for analysis.
+
 ## Code Quality and Tests
 
 GitHub Actions runs the tests on Python 3.10, 3.12, and 3.14 for every push and

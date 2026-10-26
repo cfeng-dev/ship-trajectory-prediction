@@ -97,7 +97,7 @@ LABELS = {
     "playback_interval_seconds": "Playback interval [s]",
     "show_legend": "Show legend",
     "show_reference_trajectory": "Show reference trajectory",
-    "show_observed_trajectory": "Show observations through N",
+    "show_observed_trajectory": "Show observations / Bayesian track through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show possible future trajectories",
     "connect_sample_trajectories": "Connect samples to current position",

@@ -441,8 +441,19 @@ def test_help_explains_analysis_metrics():
     }
 
 
-def test_main_window_title_identifies_the_ship_trajectory_predictor(monkeypatch):
-    from trajectory_predictor import view
+@pytest.mark.parametrize(
+    ("package", "title"),
+    [
+        ("trajectory_predictor", "Bayesian CTRV — Ship Trajectory Predictor"),
+        ("imm_predictor", "IMM — Ship Trajectory Predictor"),
+    ],
+)
+def test_main_window_title_identifies_the_ship_trajectory_predictor(
+    monkeypatch, package, title
+):
+    import importlib
+
+    view = importlib.import_module(f"{package}.view")
 
     class Window:
         def title(self, value):
@@ -469,11 +480,52 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor(monkeypatch)
         def rowconfigure(self, _row, **_kwargs):
             pass
 
+        grid_columnconfigure = columnconfigure
+        grid_rowconfigure = rowconfigure
+
     window = Window()
     monkeypatch.setattr(view, "configure_input_styles", lambda _root: None)
     view.configure_window(window)
 
-    assert window.title_value == "Bayesian CTRV — Ship Trajectory Predictor"
+    assert window.title_value == title
+
+
+def test_imm_route_legend_identifies_the_filtered_track():
+    from imm_predictor.player import IMMPlayerConfig, IMMPlayerStage
+    from imm_predictor.plot_view import IMMPlotView
+    from matplotlib.figure import Figure
+
+    stage = IMMPlayerStage(
+        observation_count=2,
+        cycle_counter=2,
+        observation_time_seconds=1.0,
+        detection_id=1,
+        nis=0.5,
+        measurement_covariance=np.eye(2),
+        update_time_seconds=0.01,
+        tracked_times_seconds=np.array([0.0, 1.0]),
+        tracked_positions=np.array([[10.0, 20.0], [11.0, 22.0]]),
+        forecast=None,
+    )
+    view = IMMPlotView.__new__(IMMPlotView)
+    view.figure = Figure()
+    view.route_axis = view.figure.subplots()
+    view.store = SimpleNamespace(config=IMMPlayerConfig(), reference=None)
+    view.current_state = SimpleNamespace(stage=stage)
+    view._coordinate_display_mode = "m"
+    view._route_has_been_drawn = False
+    view.show_reference_var = SimpleNamespace(get=lambda: False)
+    view.follow_ship_var = SimpleNamespace(get=lambda: False)
+
+    view._draw_route()
+
+    assert [text.get_text() for text in view.route_axis.get_legend().get_texts()] == [
+        "IMM track through N",
+        "Current position",
+    ]
+    track = view.route_axis.lines[0]
+    np.testing.assert_array_equal(track.get_xdata(), [10.0, 11.0])
+    np.testing.assert_array_equal(track.get_ydata(), [20.0, 22.0])
 
 
 @pytest.fixture
@@ -944,7 +996,7 @@ def test_plot_dialog_contains_display_options(root):
         assert labels == {
             "Show legend",
             "Show reference trajectory",
-            "Show observations through N",
+            "Show observations / Bayesian track through N",
             "Show current position",
             "Show possible future trajectories",
             "Show forecast (median)",

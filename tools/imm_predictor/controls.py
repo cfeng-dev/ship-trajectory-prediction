@@ -1,4 +1,4 @@
-"""Scrollable left sidebar for the BR24 IMM desktop player."""
+"""Scrollable left sidebar for the IMM Predictor."""
 
 from __future__ import annotations
 
@@ -165,7 +165,7 @@ class IMMControls(tk.Frame):
             textvariable=self._data_file,
             state="readonly",
             width=16,
-            style="IMMPlayer.TEntry",
+            style="IMMPredictor.TEntry",
         )
         entry.grid(row=0, column=0, sticky="ew")
         self._file_entry = entry
@@ -174,7 +174,7 @@ class IMMControls(tk.Frame):
             text="…",
             command=self.choose_file,
             width=2,
-            style="IMMPlayer.TButton",
+            style="IMMPredictor.TButton",
         )
         self._browse_button.grid(row=0, column=1, sticky="ns", padx=(5, 0))
         return section
