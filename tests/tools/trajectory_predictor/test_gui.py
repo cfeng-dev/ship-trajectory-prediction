@@ -455,11 +455,8 @@ def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
     assert "on by default" in display["Forecast (median)"]
     assert "off by default" in display["Forecast (mean)"]
     assert "together" in display["Forecast (mean)"]
-    metric_basis = "median" if tool == "bayesian" else "mean"
     for label in ("ADE", "FDE", "RMSE"):
-        assert f"Forecast {label} ({metric_basis})" in dict(
-            sections["Evaluation metrics"]
-        )
+        assert f"Forecast {label} (median)" in dict(sections["Evaluation metrics"])
 
 
 @pytest.mark.parametrize(
@@ -730,7 +727,32 @@ def test_imm_motion_panels_preserve_weighted_mixture_peaks():
     assert np.trapezoid(density, x) == pytest.approx(1, abs=1e-4)
     assert np.trapezoid(x * density, x) == pytest.approx(4.6, abs=1e-3)
     assert density[np.argmin(abs(x - 1))] > density[np.argmin(abs(x - 3))]
-    assert "IMM mixture posterior" in axis.get_legend_handles_labels()[1]
+    assert "Posterior density" in axis.get_legend_handles_labels()[1]
+
+
+@pytest.mark.parametrize("mixture_backend", [False, True])
+def test_imm_motion_panels_share_one_density_legend(mixture_backend):
+    from dataclasses import replace
+
+    stage = _imm_mixture_stage() if mixture_backend else _imm_motion_stage()
+    view = _headless_imm_panels(stage)
+    view._draw()
+    curves = [axis.lines[0].get_xydata().copy() for axis in view.motion_axes]
+    expected_label = (
+        "Posterior density" if mixture_backend else "Gaussian approximation"
+    )
+    for show_legend in (True, False, True):
+        view.store.config = replace(view.store.config, show_legend=show_legend)
+        view._draw()
+        legend = view.motion_axes[0].get_legend()
+        if show_legend:
+            assert [text.get_text() for text in legend.get_texts()] == [expected_label]
+        else:
+            assert legend is None
+        assert all(axis.get_legend() is None for axis in view.motion_axes[1:])
+        assert view.current_state.stage is stage
+        for axis, curve in zip(view.motion_axes, curves, strict=True):
+            np.testing.assert_array_equal(axis.lines[0].get_xydata(), curve)
 
 
 def test_imm_motion_panels_keep_cv_turn_rate_mass_separate_from_density():
@@ -744,6 +766,8 @@ def test_imm_motion_panels_keep_cv_turn_rate_mass_separate_from_density():
     assert axis.get_ylabel() == "Density"
     assert "Point mass at 0: 60.0%" in axis.get_legend_handles_labels()[1]
     assert axis.lines[1].get_xdata() == pytest.approx([0, 0])
+    assert axis.get_legend() is None
+    assert "Point mass at 0: 60.0%" in [text.get_text() for text in axis.texts]
 
 
 def test_imm_motion_panels_refresh_the_model_weights_without_adding_axes():
@@ -955,6 +979,7 @@ def test_imm_panel_switch_preserves_stage_route_and_readable_layout(figure_size)
         assert upper.get_tightbbox(renderer).y0 > lower.get_tightbbox(renderer).y1
 
     view.group_selector.set_active(1)
+    assert view.group_selector.value_selected == "Forecast uncertainty"
     assert all(not axis.get_visible() for axis in view.motion_axes)
     assert view.mode_axis.get_visible() and view.uncertainty_axis.get_visible()
     assert view.mode_axis.get_title() == "Forecast mode probabilities"

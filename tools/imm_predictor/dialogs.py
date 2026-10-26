@@ -337,19 +337,19 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Display group",
-                "With Show settings enabled, switch between Motion state (three current-state marginals) and Forecast diagnostics (future model probabilities and forecast uncertainty). Hide settings to show both groups side by side; showing settings again restores the selected group",
+                "With Show settings enabled, switch between Motion state (three current-state marginals) and Forecast uncertainty (future model probabilities and position uncertainty, not inferred noise parameters). Hide settings to show both groups side by side; showing settings again restores the selected group",
             ),
             (
                 "Motion state",
                 "Weighted CV/CTRV/CA posterior mixture, using the same local Gaussian state conversions as MATLAB output fusion but keeping the model components separate. Available from N = 1; each cycle and its model probabilities are cached",
             ),
             (
-                "IMM mixture posterior",
-                "The blue curve sums model densities with their current probabilities; it can have several peaks. This remains a filter approximation, not an exact nonlinear posterior. Headings use one local angle branch; Gaussian tails are not truncated, so negative speeds or angles outside the usual range can appear",
+                "Posterior density",
+                "The shared legend appears only in the Speed posterior plot. Each blue curve sums model densities with their current probabilities; it can have several peaks. This remains an IMM filter approximation, not an exact nonlinear posterior. Headings use one local angle branch; Gaussian tails are not truncated, so negative speeds or angles outside the usual range can appear",
             ),
             (
                 "Point masses",
-                "Zero-variance model components are not given artificial noise. CV assumes exactly zero turn rate. Discrete probability is shown in the legend (or an annotation if hidden) and as a dotted guide beside a continuous density; the continuous area excludes that mass. For a purely discrete marginal, stem heights show probability. This is a model assumption, not physical certainty",
+                "Zero-variance model components are not given artificial noise. CV assumes exactly zero turn rate. Discrete probabilities remain annotated in their own plot, even when legends are hidden. A dotted guide beside a continuous density marks the atom; the continuous area excludes that mass. For a purely discrete marginal, stem heights show probability. This is a model assumption, not physical certainty",
             ),
             (
                 "Gaussian approximation",
@@ -440,16 +440,16 @@ IMM_HELP_SECTIONS = (
         "Evaluation metrics",
         (
             (
-                "Forecast ADE (mean)",
-                "Mean 2D position error of the analytic IMM mean across the current forecast steps in meters; lower is better",
+                "Forecast ADE (median)",
+                "Mean 2D position error of the coordinate-wise IMM median across the current forecast steps in meters; lower is better",
             ),
             (
-                "Forecast FDE (mean)",
-                "Position error of the analytic IMM mean at the final forecast step in meters; lower is better",
+                "Forecast FDE (median)",
+                "Position error of the coordinate-wise IMM median at the final forecast step in meters; lower is better",
             ),
             (
-                "Forecast RMSE (mean)",
-                "Root mean squared 2D position error of the analytic IMM mean across the current forecast steps in meters; lower is better",
+                "Forecast RMSE (median)",
+                "Root mean squared 2D position error of the coordinate-wise IMM median across the current forecast steps in meters; lower is better",
             ),
             (
                 "Forecast Energy Score",
@@ -539,8 +539,8 @@ IMM_HELP_SECTIONS = (
                 "Monte Carlo extension with uncertain posterior origins, model switches and process noise. Sample moments need not match the analytic IMM forecast exactly",
             ),
             (
-                "Forecast mean / metrics",
-                "ADE, FDE and RMSE always evaluate the analytic mean. Gaussian covariance regions and all scores stay unchanged by forecast-line switches or the displayed path count",
+                "Forecast summaries / metrics",
+                "ADE, FDE and RMSE always evaluate the cached coordinate-wise IMM median. Energy Score, predictive log density and coverage retain the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
             ),
         ),
     ),

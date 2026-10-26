@@ -347,6 +347,105 @@ def test_imm_forecast_medians_are_cached_without_visualization_samples(
         assert stage.forecast_median_positions is None
 
 
+@pytest.fixture
+def imm_forecast_case():
+    from types import SimpleNamespace
+
+    from imm_predictor.player import IMMPlayerStage
+
+    stage = IMMPlayerStage(
+        observation_count=1,
+        cycle_counter=1,
+        observation_time_seconds=0.0,
+        detection_id=1,
+        nis=None,
+        measurement_covariance=np.eye(2),
+        update_time_seconds=0.01,
+        tracked_times_seconds=np.array([0.0]),
+        tracked_positions=np.array([[999.0, 999.0]]),
+        forecast=SimpleNamespace(
+            time_seconds=np.array([1.0, 2.0]),
+            position_means=np.array([[10.0, 3.0], [4.0, 15.0]]),
+            position_covariances=np.repeat((4 * np.eye(2))[None], 2, axis=0),
+            mode_probabilities=np.tile([0.7, 0.2, 0.1], (2, 1)),
+        ),
+        forecast_median_positions=np.array([[2.0, 0.0], [0.0, 5.0]]),
+    )
+    reference = SimpleNamespace(
+        x_meters=np.array([999.0, 2.0, 4.0]),
+        y_meters=np.array([999.0, 3.0, 5.0]),
+    )
+    return stage, reference
+
+
+@pytest.mark.parametrize("displayed_sample_count", [0, 1, 20])
+def test_imm_point_metrics_use_medians_without_changing_distribution_scores(
+    imm_forecast_case, displayed_sample_count
+):
+    from dataclasses import replace
+
+    from imm_predictor.player import _forecast_metrics
+
+    stage, reference = imm_forecast_case
+    stage = replace(
+        stage, sample_positions=np.full((displayed_sample_count, 3, 2), 1e6)
+    )
+    result = _forecast_metrics(stage, reference, coverage_stages=(stage,))
+
+    # Reference indices 1 and 2 give median errors 3 m and 4 m, not mean errors 8 m and 10 m.
+    assert result.ade_m == 3.5
+    assert result.fde_m == 4.0
+    assert result.rmse_m == pytest.approx(np.sqrt(12.5))
+    original_gaussian_stage = replace(
+        stage, forecast_median_positions=stage.forecast.position_means
+    )
+    gaussian_scores = _forecast_metrics(
+        original_gaussian_stage, reference, coverage_stages=(original_gaussian_stage,)
+    )
+    assert result.energy_score_m == gaussian_scores.energy_score_m
+    assert result.predictive_log_density == gaussian_scores.predictive_log_density
+    assert (
+        result.joint_coverage_50_count == gaussian_scores.joint_coverage_50_count == 0
+    )
+    assert (
+        result.joint_coverage_90_count == gaussian_scores.joint_coverage_90_count == 0
+    )
+    assert result.joint_coverage_total == gaussian_scores.joint_coverage_total == 2
+
+
+def test_imm_point_metrics_keep_fused_gaussian_mean_equals_median_fallback(
+    imm_forecast_case,
+):
+    from dataclasses import replace
+
+    from imm_predictor.player import _forecast_metrics
+
+    stage, reference = imm_forecast_case
+    stage = replace(stage, forecast_median_positions=None)
+    result = _forecast_metrics(stage, reference, coverage_stages=(stage,))
+    assert result.ade_m == 9.0
+    assert result.fde_m == 10.0
+    assert result.rmse_m == pytest.approx(np.sqrt(82.0))
+
+
+@pytest.mark.parametrize("missing", ["forecast", "reference"])
+def test_imm_median_metrics_stay_unavailable_without_forecast_or_reference(
+    imm_forecast_case, missing
+):
+    from dataclasses import replace
+
+    from imm_predictor.player import IMMForecastMetrics, _forecast_metrics
+
+    stage, reference = imm_forecast_case
+    if missing == "forecast":
+        stage = replace(stage, forecast=None, forecast_median_positions=None)
+    else:
+        reference = None
+    assert _forecast_metrics(
+        stage, reference, coverage_stages=(stage,)
+    ) == IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
+
+
 @pytest.mark.parametrize(
     ("means", "sigmas", "weights", "expected"),
     [

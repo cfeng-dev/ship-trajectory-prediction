@@ -277,7 +277,7 @@ class IMMPosteriorMedians:
 
 @dataclass(frozen=True, slots=True)
 class IMMForecastMetrics:
-    """Evaluation-only score values for the latest Gaussian IMM forecast."""
+    """Median point errors and Gaussian distribution scores for the IMM forecast."""
 
     ade_m: float | None
     fde_m: float | None
@@ -602,7 +602,7 @@ def _forecast_position_medians(tracker, forecast) -> np.ndarray | None:
 def _forecast_metrics(
     stage: IMMPlayerStage, reference, *, coverage_stages
 ) -> IMMForecastMetrics:
-    """Score the current forecast and aggregate joint coverage through this stage."""
+    """Score cached median positions while retaining Gaussian distribution scores."""
     if reference is None or stage.forecast is None:
         return IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
     forecast = stage.forecast
@@ -615,7 +615,13 @@ def _forecast_metrics(
     targets = np.column_stack(
         (reference.x_meters[target_indices], reference.y_meters[target_indices])
     )
-    errors = np.linalg.norm(means - targets, axis=1)
+    # Legacy fused-Gaussian stages have equal marginal means and medians.
+    median_positions = (
+        means
+        if stage.forecast_median_positions is None
+        else np.asarray(stage.forecast_median_positions, dtype=float)
+    )
+    errors = np.linalg.norm(median_positions - targets, axis=1)
     log_densities = np.asarray(
         [
             _gaussian_log_density(

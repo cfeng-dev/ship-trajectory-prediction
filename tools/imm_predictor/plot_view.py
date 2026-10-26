@@ -19,17 +19,16 @@ from .view import PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
 
 MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
-PANEL_GROUP_LABELS = {"motion": "Motion state", "forecast": "Forecast diagnostics"}
+PANEL_GROUP_LABELS = {"motion": "Motion state", "forecast": "Forecast uncertainty"}
 
 
-def _draw_mixture_marginal(
-    axis, mixture: IMMStateMixture, index, scale, point_span, *, show_legend
-):
+def _draw_mixture_marginal(axis, mixture: IMMStateMixture, index, scale, point_span):
     """Draw the continuous density and label any discrete mass without smoothing."""
     weights, means, sigmas = mixture.marginal_parameters(index)
     means *= scale
     sigmas *= scale
     continuous = sigmas > 0
+    density_line = None
     point_masses = {}
     for mean, weight in zip(means[~continuous], weights[~continuous], strict=True):
         point_masses[float(mean)] = point_masses.get(float(mean), 0.0) + float(weight)
@@ -64,8 +63,8 @@ def _draw_mixture_marginal(
                 * np.exp(-0.5 * ((x - mean) / sigma) ** 2)
                 / (sigma * np.sqrt(2 * np.pi))
             )
-        axis.plot(
-            x, density, color="#24557A", linewidth=2, label="IMM mixture posterior"
+        (density_line,) = axis.plot(
+            x, density, color="#24557A", linewidth=2, label="Posterior density"
         )
         axis.fill_between(x, density, color="#24557A", alpha=0.12)
         axis.set_xlim(left, right)
@@ -87,7 +86,7 @@ def _draw_mixture_marginal(
             axis.plot(
                 [mean, mean], [0, weight], color="#24557A", linewidth=2, label=label
             )
-    if point_masses and not show_legend:
+    if point_masses:
         axis.text(
             0.02,
             0.96,
@@ -100,6 +99,7 @@ def _draw_mixture_marginal(
             fontsize=8,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
         )
+    return density_line
 
 
 class _IMMPredictorLayout(LayoutEngine):
@@ -580,6 +580,7 @@ class IMMPlotView(tk.Frame):
         for axis, (title, index, scale, xlabel, point_span) in zip(
             self.motion_axes, specifications, strict=True
         ):
+            show_legend = self.store.config.show_legend and axis is self.motion_axes[0]
             axis.clear()
             axis.set_facecolor("#FFFFFF")
             axis.grid(True, alpha=0.25, linewidth=0.8)
@@ -600,16 +601,20 @@ class IMMPlotView(tk.Frame):
                 )
                 continue
             if mixture is not None:
-                _draw_mixture_marginal(
+                density_line = _draw_mixture_marginal(
                     axis,
                     mixture,
                     index,
                     scale,
                     point_span,
-                    show_legend=self.store.config.show_legend,
                 )
-                if self.store.config.show_legend:
-                    axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
+                if show_legend and density_line is not None:
+                    axis.legend(
+                        handles=[density_line],
+                        loc="upper right",
+                        fontsize=8,
+                        framealpha=0.9,
+                    )
                 continue
             mean = float(posterior.mean[index] * scale)
             sigma = float(np.sqrt(max(0.0, posterior.covariance[index, index])) * scale)
@@ -640,7 +645,7 @@ class IMMPlotView(tk.Frame):
                 )
                 axis.set_xlim(x[0], x[-1])
                 axis.set_ylim(bottom=0.0)
-                if not self.store.config.show_legend:
+                if not show_legend:
                     axis.text(
                         0.98,
                         0.96,
@@ -650,7 +655,7 @@ class IMMPlotView(tk.Frame):
                         va="top",
                         fontsize=8,
                     )
-            if self.store.config.show_legend:
+            if show_legend and sigma > 0:
                 axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
 
     def _draw_route(self) -> None:
