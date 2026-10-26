@@ -30,6 +30,7 @@ class PosteriorPlotView(tk.Frame):
         on_settings_visibility_change=None,
     ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
+        self._destroyed = False
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
@@ -67,7 +68,23 @@ class PosteriorPlotView(tk.Frame):
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
         )
+        self.canvas.callbacks.exception_handler = self._handle_plot_error
+        for widget in (
+            self.navigator.playback_button,
+            self.navigator.slider,
+            self.navigator.group_selector,
+            self.navigator.follow_checkbox,
+            self.navigator.settings_checkbox,
+        ):
+            if widget is not None:
+                widget._observers.exception_handler = self._handle_plot_error
         self.canvas.draw_idle()
+
+    def _handle_plot_error(self, error):
+        if not self._destroyed:
+            self.winfo_toplevel().report_callback_exception(
+                type(error), error, error.__traceback__
+            )
 
     def set_coordinate_display_mode(self, coordinate_display_mode):
         """Redraw the current dashboard in another unit without replacing analysis."""
@@ -93,17 +110,25 @@ class PosteriorPlotView(tk.Frame):
         if self.navigator.settings_checkbox is not None:
             widgets.append(self.navigator.settings_checkbox)
         for widget in widgets:
-            widget.set_active(False)
+            # RadioButtons/CheckButtons override set_active to change selection.
+            widget.active = False
 
     def destroy(self):
         """Release timers and pending Tk draws before destroying the canvas."""
+        if self._destroyed:
+            return
+        self._destroyed = True
         self.navigator.disconnect()
         self.canvas.mpl_disconnect(self._focus_connection)
         # TkAgg can have an idle draw scheduled when a new analysis replaces it.
         for name in ("_idle_draw_id", "_event_loop_id"):
             callback = getattr(self.canvas, name, None)
             if callback is not None:
-                self.canvas.get_tk_widget().after_cancel(callback)
+                try:
+                    self.canvas.get_tk_widget().after_cancel(callback)
+                except tk.TclError:
+                    pass  # The enclosing Tk window may already have been destroyed.
+                setattr(self.canvas, name, None)
                 setattr(self.canvas, name, None)
         self.figure.clear()
         super().destroy()

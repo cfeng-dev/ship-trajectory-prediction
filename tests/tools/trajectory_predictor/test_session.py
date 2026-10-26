@@ -429,3 +429,24 @@ def test_worker_surfaces_sequential_vi_update_failure(analysis):
     finally:
         worker.close()
         worker.join(5)
+
+
+def test_worker_logs_complete_failure_traceback_and_analysis_context(analysis, caplog):
+    def prepare(_):
+        raise ValueError("diagnostic sentinel")
+
+    worker = PosteriorAnalysisWorker(prepare)
+    try:
+        worker.start(analysis)
+        wait_for_event(worker, "error")
+        records = [
+            record
+            for record in caplog.records
+            if "diagnostic sentinel" in record.getMessage() or record.exc_info
+        ]
+        assert records and records[-1].exc_info
+        assert str(analysis.data_file) in records[-1].getMessage()
+        assert "generation=" in records[-1].getMessage()
+    finally:
+        worker.close()
+        worker.join(5)

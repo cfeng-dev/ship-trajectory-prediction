@@ -6,6 +6,7 @@ Closing or replacing a session lets the current fit finish, then discards its re
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -20,6 +21,8 @@ from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import is_br24_tracking_input
 
 from . import dashboard
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,7 @@ class PosteriorAnalysisWorker:
 
     def _run(self):
         generation, loader, next_count, maximum = 0, None, 1, 0
+        settings = None
         while True:
             with self._condition:
                 self._condition.wait_for(
@@ -178,6 +182,13 @@ class PosteriorAnalysisWorker:
                 )
                 next_count += 1
             except Exception as error:
+                LOGGER.exception(
+                    "Analysis failed: generation=%s N=%s csv=%s settings=%r",
+                    generation,
+                    next_count,
+                    settings.data_file if settings is not None else None,
+                    settings,
+                )
                 loader = None
                 self._emit(generation, "error", f"{type(error).__name__}: {error}")
 

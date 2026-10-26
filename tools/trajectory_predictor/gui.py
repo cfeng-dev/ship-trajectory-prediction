@@ -1,5 +1,7 @@
 """Coordinate editable settings, background inference and the embedded plot."""
 
+import logging
+import sys
 import tkinter as tk
 from tkinter import messagebox
 
@@ -16,6 +18,8 @@ from .settings import (
     parse_settings,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 
 class TrajectoryPredictor:
     """One Tk window, with all widget and Matplotlib access on its main thread."""
@@ -26,6 +30,9 @@ class TrajectoryPredictor:
         self.settings_visible = True
         self._settings = None
         self._closing = False
+        self._closed = False
+        self._handling_error = False
+        root.report_callback_exception = self._report_callback_exception
         self._error = None
         self._computing = None
         self._analysis_active = False
@@ -80,6 +87,7 @@ class TrajectoryPredictor:
         self.controls.show_posterior_medians(None)
         self.controls.show_radar_association(None)
         self._settings = settings
+        LOGGER.info("Starting analysis: %r", settings.analysis)
         self._error = None
         self._computing = None
         self._analysis_active = True
@@ -263,38 +271,47 @@ class TrajectoryPredictor:
         return "break"
 
     def _poll(self):
-        if self._closing:
-            if not self.worker.is_alive:
-                self.root.destroy()
-                return
-        else:
-            for event in self.worker.drain():
-                try:
+        self._poll_id = None
+        if self._closed:
+            return
+        try:
+            if self._closing:
+                if not self.worker.is_alive:
+                    self._closed = True
+                    self.root.destroy()
+                    return
+            else:
+                for event in self.worker.drain():
                     self._handle_event(event)
-                except Exception as error:
-                    self._show_error(f"{type(error).__name__}: {error}")
-            if self.plot_view is not None and self._error is None:
-                navigator = self.plot_view.navigator
-                state = "Playing" if navigator.is_playing else "Paused"
-                progress = (
-                    f" · Computing N={self._computing}"
-                    if self._computing is not None
-                    else ""
-                )
-                target = (
-                    f" · Target N={navigator.requested_observation_count}"
-                    if navigator.is_waiting
-                    else ""
-                )
-                self.status.set(
-                    f"{self._settings.analysis.experiment.inference_method.upper()} · "
-                    f"{state} · Anzeige N={navigator.observation_count}/"
-                    f"{navigator.maximum_observation_count}{target}{progress}"
-                )
-        self._poll_id = self.root.after(75, self._poll)
+                if self.plot_view is not None and self._error is None:
+                    navigator = self.plot_view.navigator
+                    state = "Playing" if navigator.is_playing else "Paused"
+                    progress = (
+                        f" · Computing N={self._computing}"
+                        if self._computing is not None
+                        else ""
+                    )
+                    target = (
+                        f" · Target N={navigator.requested_observation_count}"
+                        if navigator.is_waiting
+                        else ""
+                    )
+                    self.status.set(
+                        f"{self._settings.analysis.experiment.inference_method.upper()} · "
+                        f"{state} · Anzeige N={navigator.observation_count}/"
+                        f"{navigator.maximum_observation_count}{target}{progress}"
+                    )
+        except Exception:
+            self._report_callback_exception(*sys.exc_info())
+        finally:
+            if not self._closed:
+                try:
+                    self._poll_id = self.root.after(75, self._poll)
+                except tk.TclError:
+                    self._closed = True
 
     def _handle_event(self, event):
-        if self._settings is None:
+        if self._settings is None or self._error is not None:
             return
         if event.kind == "ready":
             trajectory, maximum, minimum = event.payload
@@ -328,35 +345,89 @@ class TrajectoryPredictor:
             self._show_error(event.payload)
 
     def _show_error(self, detail):
-        messagebox.showerror("Analysis failed", detail, parent=self.root)
-        self._error = detail
-        self._computing = None
-        self._analysis_active = False
-        self.controls.set_analysis_active(False)
-        view.set_analysis_menu_enabled(self, True)
-        self.worker.request(0)
-        if self.plot_view is not None:
-            self.plot_view.disable_navigation()
-        else:
-            self.placeholder.configure(text="Analysis failed. Check settings.")
-        self.status.set(f"Error: {detail} — Start a new analysis to continue.")
+        if (
+            self._closing
+            or getattr(self, "_handling_error", False)
+            or self._error is not None
+        ):
+            return
+        self._handling_error = True
+        try:
+            self._error = detail
+            self._computing = None
+            self._analysis_active = False
+            LOGGER.error("Analysis stopped: %s settings=%r", detail, self._settings)
+            self.worker.request(0)
+            self.controls.set_analysis_active(False)
+            view.set_analysis_menu_enabled(self, True)
+            if self.plot_view is not None:
+                self._cleanup(self.plot_view.disable_navigation, "disable navigation")
+            else:
+                self.placeholder.configure(text="Analysis failed. Check settings.")
+            self.status.set(f"Error: {detail} — Start a new analysis to continue.")
+            messagebox.showerror("Analysis failed", detail, parent=self.root)
+        finally:
+            self._handling_error = False
+
+    def _report_callback_exception(self, exception_type, error, traceback):
+        navigator = getattr(self.plot_view, "navigator", None)
+        LOGGER.error(
+            "GUI callback failed: N=%s settings=%r",
+            getattr(navigator, "observation_count", None),
+            self._settings,
+            exc_info=(exception_type, error, traceback),
+        )
+        try:
+            self._show_error(f"{exception_type.__name__}: {error}")
+        except Exception:
+            LOGGER.exception("Error recovery failed")
+
+    def _cleanup(self, action, description):
+        try:
+            action()
+        except Exception:
+            LOGGER.exception("Cleanup failed: %s", description)
 
     def close(self):
         """Keep Tk responsive while a current fit finishes, then close cleanly."""
         if self._closing:
             return
         self._closing = True
-        self.controls.apply_button.configure(state="disabled")
-        if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
-            self._settings_dialog.cancel()
-        plot_display_window = getattr(self, "_plot_display_window", None)
-        if plot_display_window is not None and plot_display_window.winfo_exists():
-            plot_display_window.close()
-        help_window = getattr(self, "_help_window", None)
-        if help_window is not None and help_window.winfo_exists():
-            help_window.close()
-        if self.plot_view is not None:
-            self.plot_view.destroy()
-            self.plot_view = None
         self.worker.close()
-        self.status.set("Closing … a running calculation is finishing.")
+        self._cleanup(
+            lambda: self.controls.apply_button.configure(state="disabled"),
+            "disable start",
+        )
+        if self._settings_dialog is not None:
+            self._cleanup(
+                lambda: (
+                    self._settings_dialog.cancel()
+                    if self._settings_dialog.winfo_exists()
+                    else None
+                ),
+                "close settings",
+            )
+        plot_display_window = getattr(self, "_plot_display_window", None)
+        if plot_display_window is not None:
+            self._cleanup(
+                lambda: (
+                    plot_display_window.close()
+                    if plot_display_window.winfo_exists()
+                    else None
+                ),
+                "close plot settings",
+            )
+        help_window = getattr(self, "_help_window", None)
+        if help_window is not None:
+            self._cleanup(
+                lambda: help_window.close() if help_window.winfo_exists() else None,
+                "close help",
+            )
+        if self.plot_view is not None:
+            plot_view = self.plot_view
+            self.plot_view = None
+            self._cleanup(plot_view.destroy, "destroy plot")
+        self._cleanup(
+            lambda: self.status.set("Closing … a running calculation is finishing."),
+            "update status",
+        )

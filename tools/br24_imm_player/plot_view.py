@@ -82,8 +82,12 @@ class IMMPlotView(tk.Frame):
         on_stage_changed,
         on_settings_visibility_change,
         settings_visible: bool,
+        on_error=None,
     ) -> None:
         super().__init__(parent, bg=PLOT_BACKGROUND)
+        self._destroyed = False
+        self._failed = False
+        self._on_error = on_error
         self.store = store
         self.current_state = initial_state
         self._on_stage_changed = on_stage_changed
@@ -126,6 +130,14 @@ class IMMPlotView(tk.Frame):
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
         )
         self._build_controls()
+        self.canvas.callbacks.exception_handler = self._handle_plot_error
+        for widget in (
+            self.playback_button,
+            self.slider,
+            self.follow_checkbox,
+            self.settings_checkbox,
+        ):
+            widget._observers.exception_handler = self._handle_plot_error
         self.figure.set_layout_engine(_IMMPlayerLayout(self))
         self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
         configure_plot_toolbar(self.toolbar)
@@ -178,31 +190,84 @@ class IMMPlotView(tk.Frame):
         )
 
     def _on_slider_change(self, value) -> None:
-        if self._updating_slider:
+        if self._updating_slider or self._failed or self._destroyed:
             return
         observation_count = int(round(float(value)))
         if observation_count == self._observation_count():
             return
-        if observation_count == 0:
-            self.set_stage(None)
-            return
-        self.set_stage(self.store.display_state_for(observation_count))
+        self.show_observation_count(observation_count)
 
-    def set_stage(self, state: IMMDisplayState | None) -> None:
+    def show_observation_count(self, observation_count) -> bool:
+        """Stop a failed session; never retry a possibly partially updated filter."""
+        if self._failed or self._destroyed:
+            return False
+        try:
+            state = (
+                None
+                if observation_count == 0
+                else self.store.display_state_for(observation_count)
+            )
+            return self.set_stage(state)
+        except Exception as error:
+            self._handle_plot_error(error)
+            return False
+
+    def set_stage(self, state: IMMDisplayState | None) -> bool:
         """Set the online display stage and synchronize every visible component."""
-        self.current_state = state
-        self._updating_slider = True
-        self.slider.set_val(self._observation_count())
-        self._updating_slider = False
-        self._on_stage_changed(state)
-        self._draw()
+        if self._failed or self._destroyed:
+            return False
+        previous = self.current_state
+        try:
+            self.current_state = state
+            self._updating_slider = True
+            try:
+                self.slider.set_val(self._observation_count())
+            finally:
+                self._updating_slider = False
+            if self._failed:
+                self.current_state = previous
+                return False
+            self._on_stage_changed(state)
+            self._draw()
+            return True
+        except Exception as error:
+            self.current_state = previous
+            self._handle_plot_error(error)
+            return False
+
+    def disable_navigation(self) -> None:
+        self._failed = True
+        self._playing = False
+        self._cancel_timer()
+        self.playback_button.label.set_text("Start")
+        for widget in (
+            self.playback_button,
+            self.slider,
+            self.follow_checkbox,
+            self.settings_checkbox,
+        ):
+            widget.active = False
+
+    def _handle_plot_error(self, error) -> None:
+        if self._destroyed:
+            return
+        self.disable_navigation()
+        if self._on_error is not None:
+            self._on_error(error)
+        else:
+            self.winfo_toplevel().report_callback_exception(
+                type(error), error, error.__traceback__
+            )
 
     def toggle_playback(self) -> None:
+        if self._failed or self._destroyed:
+            return
         if (
             not self._playing
             and self._observation_count() >= self.store.maximum_observation_count
         ):
-            self.set_stage(None)
+            if not self.set_stage(None):
+                return
         self._playing = not self._playing
         self.playback_button.label.set_text("Pause" if self._playing else "Start")
         self.canvas.draw_idle()
@@ -212,6 +277,8 @@ class IMMPlotView(tk.Frame):
             self._cancel_timer()
 
     def _schedule_next_step(self) -> None:
+        if self._failed or self._destroyed or not self._playing:
+            return
         self._cancel_timer()
         self._after_id = self.after(
             self.store.config.playback_interval_ms,
@@ -220,14 +287,14 @@ class IMMPlotView(tk.Frame):
 
     def _advance_playback(self) -> None:
         self._after_id = None
-        if not self._playing:
+        if not self._playing or self._failed or self._destroyed:
             return
         current_count = self._observation_count()
         if current_count >= self.store.maximum_observation_count:
             self.toggle_playback()
             return
-        self.set_stage(self.store.display_state_for(current_count + 1))
-        self._schedule_next_step()
+        if self.show_observation_count(current_count + 1):
+            self._schedule_next_step()
 
     def _observation_count(self) -> int:
         if self.current_state is None:
@@ -236,8 +303,12 @@ class IMMPlotView(tk.Frame):
 
     def _cancel_timer(self) -> None:
         if self._after_id is not None:
-            self.after_cancel(self._after_id)
+            after_id = self._after_id
             self._after_id = None
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:
+                pass  # The enclosing Tk window has already removed its timers.
 
     def handle_key_press(self, event) -> None:
         """Apply the Predictor's playback shortcuts on the Matplotlib canvas."""
@@ -245,6 +316,8 @@ class IMMPlotView(tk.Frame):
 
     def handle_key(self, key: str) -> bool:
         """Toggle playback or select the preceding/following online stage."""
+        if self._failed or self._destroyed:
+            return False
         if key in {" ", "space"}:
             self.toggle_playback()
             return True
@@ -259,10 +332,7 @@ class IMMPlotView(tk.Frame):
         )
         if observation_count == self._observation_count():
             return True
-        if observation_count == 0:
-            self.set_stage(None)
-        else:
-            self.set_stage(self.store.display_state_for(observation_count))
+        self.show_observation_count(observation_count)
         return True
 
     def _toggle_settings(self) -> None:
@@ -271,8 +341,10 @@ class IMMPlotView(tk.Frame):
     def set_settings_visible(self, visible: bool) -> None:
         self.settings_visible_var.set(visible)
         self.settings_checkbox.eventson = False
-        self.settings_checkbox.set_active(0, state=bool(visible))
-        self.settings_checkbox.eventson = True
+        try:
+            self.settings_checkbox.set_active(0, state=bool(visible))
+        finally:
+            self.settings_checkbox.eventson = True
 
     def reset_view(self) -> None:
         """Return to the full trajectory extent without touching IMM state."""
@@ -718,8 +790,19 @@ class IMMPlotView(tk.Frame):
 
     def destroy(self) -> None:
         """Cancel scheduled playback before the enclosing Tk view is discarded."""
+        if self._destroyed:
+            return
+        self._destroyed = True
         self._playing = False
         self._cancel_timer()
+        for name in ("_idle_draw_id", "_event_loop_id"):
+            callback = getattr(self.canvas, name, None)
+            if callback is not None:
+                try:
+                    self.canvas.get_tk_widget().after_cancel(callback)
+                except tk.TclError:
+                    pass
+                setattr(self.canvas, name, None)
         self.canvas.mpl_disconnect(self._key_press_connection)
         self.canvas.mpl_disconnect(self._focus_connection)
         for widget in (

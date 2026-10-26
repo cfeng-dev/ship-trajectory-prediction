@@ -339,6 +339,14 @@ IMM_HELP_SECTIONS = (
                 "N = 0",
                 "Preview only; reference-state, track-state and evaluation values are not displayed",
             ),
+            (
+                "Analysis errors",
+                "Playback stops and settings unlock after an error. Start a new analysis; a possibly partially updated filter is never retried",
+            ),
+            (
+                "Diagnostics",
+                "Error details are printed to the launching terminal. No diagnostic log files are created",
+            ),
         ),
     ),
     (

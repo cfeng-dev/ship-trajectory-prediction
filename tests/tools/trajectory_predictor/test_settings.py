@@ -16,6 +16,54 @@ def test_command_help_does_not_open_a_window(capsys):
     assert "trajectory predictor" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("package", ["trajectory_predictor", "br24_imm_player"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_desktop_startup_and_errors_do_not_create_logs(
+    tmp_path, monkeypatch, caplog, package, fail
+):
+    import importlib
+    import logging
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    module = importlib.import_module(f"{package}.cli")
+    logger = logging.getLogger(package)
+    previous_handlers = list(logger.handlers)
+    previous_level = logger.level
+    root = Mock()
+    if fail:
+        root.mainloop.side_effect = ValueError("desktop error sentinel")
+    app = Mock()
+    importer = (
+        "_import_trajectory_predictor"
+        if package == "trajectory_predictor"
+        else "_import_player_app"
+    )
+    monkeypatch.setattr(
+        module, "__file__", str(tmp_path / "tools" / package / "cli.py")
+    )
+    monkeypatch.setattr(module, importer, lambda: lambda root: app)
+    monkeypatch.setitem(
+        sys.modules, "tkinter", SimpleNamespace(Tk=lambda: root, TclError=RuntimeError)
+    )
+    try:
+        if fail:
+            with pytest.raises(ValueError, match="desktop error sentinel"):
+                module.main([])
+            assert "ValueError: desktop error sentinel" in caplog.text
+        else:
+            module.main([])
+        assert list(tmp_path.iterdir()) == []
+        assert logger.handlers == previous_handlers
+    finally:
+        for handler in list(logger.handlers):
+            if handler not in previous_handlers:
+                logger.removeHandler(handler)
+                handler.close()
+        logger.setLevel(previous_level)
+
+
 def test_missing_shared_bayestraj_package_has_a_clear_startup_error(
     monkeypatch, capsys
 ):

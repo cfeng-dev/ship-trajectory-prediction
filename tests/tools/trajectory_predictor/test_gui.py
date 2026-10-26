@@ -1186,6 +1186,83 @@ class _Value:
         self.value = value
 
 
+def test_failure_disables_real_matplotlib_widgets_without_changing_selection():
+    from unittest.mock import Mock
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
+    from trajectory_predictor.plot_view import PosteriorPlotView
+
+    figure = Figure()
+    FigureCanvasAgg(figure)
+    radio = RadioButtons(
+        figure.add_axes([0.1, 0.1, 0.2, 0.2]), ["Motion", "Noise"], active=1
+    )
+    checks = CheckButtons(figure.add_axes([0.1, 0.4, 0.2, 0.2]), ["Settings"], [True])
+    widgets = [
+        Button(figure.add_axes([0.4, 0.1, 0.2, 0.1]), "Start"),
+        Slider(figure.add_axes([0.4, 0.4, 0.4, 0.1]), "N", 0, 10, valinit=5),
+        radio,
+        checks,
+    ]
+    navigator = SimpleNamespace(
+        pause_playback=Mock(),
+        disconnect=Mock(),
+        playback_button=widgets[0],
+        slider=widgets[1],
+        group_selector=radio,
+        settings_checkbox=checks,
+    )
+    view = SimpleNamespace(navigator=navigator)
+    PosteriorPlotView.disable_navigation(view)
+    PosteriorPlotView.disable_navigation(view)
+    assert all(not widget.active for widget in widgets)
+    assert radio.value_selected == "Noise"
+    assert checks.get_status() == [True]
+    assert widgets[1].val == 5
+
+
+def test_poll_reports_callback_errors_and_keeps_scheduling():
+    from unittest.mock import Mock
+
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app._closing = app._closed = False
+    app._error = None
+    app.root = Mock()
+    app.worker = Mock()
+    app.worker.drain.return_value = [object()]
+    app._handle_event = Mock(side_effect=ValueError("render failed"))
+    app._report_callback_exception = Mock()
+    app.plot_view = None
+    app._poll()
+    assert app._report_callback_exception.call_args.args[0] is ValueError
+    app.root.after.assert_called_once_with(75, app._poll)
+
+
+@pytest.mark.parametrize("failure_stage", ["view", "dialog_query"])
+def test_predictor_close_still_closes_worker_after_view_cleanup_fails(failure_stage):
+    from unittest.mock import Mock
+
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app._closing = False
+    app.controls = Mock()
+    app.worker = Mock()
+    app._settings_dialog = None
+    app._help_window = app._plot_display_window = None
+    app.plot_view = Mock()
+    if failure_stage == "view":
+        app.plot_view.destroy.side_effect = RuntimeError("cleanup failed")
+    else:
+        app._help_window = Mock()
+        app._help_window.winfo_exists.side_effect = tk.TclError("window gone")
+    app.status = Mock()
+    app.close()
+    app.close()
+    app.worker.close.assert_called_once_with()
+    assert app._closing
+
+
 def test_reference_turn_rate_display_marks_only_derived_values():
     panel = SettingsPanel.__new__(SettingsPanel)
     panel.posterior_state_values = {key: _Value("") for key in CSV_STATE_ROW_KEYS}

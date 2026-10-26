@@ -77,6 +77,14 @@ POSTERIOR_HELP_SECTIONS = (
                 "Early updates",
                 "With too few observations, forecasts may remain prior-predictive; the plot title identifies this phase",
             ),
+            (
+                "Analysis errors",
+                "Playback stops and settings unlock after an error. Start a new analysis before continuing; failed filter states are not reused",
+            ),
+            (
+                "Diagnostics",
+                "Error details are printed to the launching terminal. No diagnostic log files are created",
+            ),
         ),
     ),
     (

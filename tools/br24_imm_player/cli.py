@@ -1,6 +1,7 @@
 """Launch the local desktop BR24 IMM forecast player."""
 
 import argparse
+import logging
 
 
 def _import_player_app():
@@ -35,5 +36,19 @@ def main(argv=None):
         root = tk.Tk()
     except tk.TclError as error:
         parser.exit(2, f"The Tk window could not start: {error}\n")
-    root.br24_imm_player_app = BR24IMMPlayerApp(root)
-    root.mainloop()
+    app = None
+    try:
+        app = BR24IMMPlayerApp(root)
+        root.br24_imm_player_app = app
+        root.mainloop()
+    except Exception:
+        logging.getLogger("br24_imm_player").exception("Desktop application failed")
+        raise
+    finally:
+        if app is not None:
+            app.close()
+        else:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass

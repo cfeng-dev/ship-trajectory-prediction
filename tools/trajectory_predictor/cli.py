@@ -1,6 +1,7 @@
 """Launch the Bayesian CTRV trajectory predictor."""
 
 import argparse
+import logging
 
 
 def _import_trajectory_predictor():
@@ -42,9 +43,21 @@ def main(argv=None):
         root = tk.Tk()
     except tk.TclError as error:
         parser.exit(2, f"Das Tk-Fenster konnte nicht gestartet werden: {error}\n")
-    app = TrajectoryPredictor(root)
+    app = None
     try:
+        app = TrajectoryPredictor(root)
         root.mainloop()
+    except Exception:
+        logging.getLogger("trajectory_predictor").exception(
+            "Desktop application failed"
+        )
+        raise
     finally:
-        app.worker.close()
-        app.worker.join()
+        if app is not None:
+            app.worker.close()
+            app.worker.join()
+        else:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass

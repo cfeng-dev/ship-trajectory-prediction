@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +14,8 @@ from .controls import IMMControls
 from .dialogs import IMMHelpWindow, PlaybackSettingsDialog
 from .player import PLOT_DISPLAY_OPTIONS, IMMPlaybackStore, IMMPlayerConfig
 from .plot_view import IMMPlotView
+
+LOGGER = logging.getLogger(__name__)
 
 INITIAL_PLACEHOLDER_TEXT = (
     "Trajectory and IMM evolution\n\n"
@@ -36,6 +40,9 @@ class BR24IMMPlayerApp:
         self._help_window: IMMHelpWindow | None = None
         self._closing = False
         self._analysis_active = False
+        self._error = None
+        self._handling_error = False
+        root.report_callback_exception = self._report_callback_exception
 
         view.configure_window(root)
         self.controls = IMMControls(
@@ -66,12 +73,15 @@ class BR24IMMPlayerApp:
     def _prepare_analysis(self, config: IMMPlayerConfig) -> None:
         """Return to the unstarted state without initializing the tracker."""
         if self._settings_dialog is not None:
-            self._settings_dialog.close()
+            dialog = self._settings_dialog
             self._settings_dialog = None
+            self._cleanup(dialog.close, "close settings")
         if self.plot_view is not None:
-            self.plot_view.destroy()
+            plot_view = self.plot_view
             self.plot_view = None
+            self._cleanup(plot_view.destroy, "destroy plot")
         self.store = None
+        self._error = None
         self._analysis_active = False
         view.set_analysis_menu_enabled(self, True)
         self.config = config
@@ -87,9 +97,9 @@ class BR24IMMPlayerApp:
         try:
             store = IMMPlaybackStore(config)
         except Exception as error:
-            detail = f"{type(error).__name__}: {error}"
+            LOGGER.exception("Cannot initialize IMM session: config=%r", config)
             if show_error:
-                messagebox.showerror("BR24 IMM player", detail, parent=self.root)
+                self._report_callback_exception(type(error), error, error.__traceback__)
             return False
 
         previous_view = self.plot_view
@@ -110,6 +120,9 @@ class BR24IMMPlayerApp:
             on_stage_changed=self._show_stage,
             on_settings_visibility_change=self.set_settings_visible,
             settings_visible=self.settings_visible,
+            on_error=lambda error: self._report_callback_exception(
+                type(error), error, error.__traceback__
+            ),
         )
         self.plot_view.set_coordinate_display_mode(
             self.coordinate_display_mode_var.get()
@@ -128,14 +141,18 @@ class BR24IMMPlayerApp:
     def start_analysis(self) -> None:
         """Show preparation feedback before loading the initial N = 0 view."""
         if not self._closing and not self._analysis_active:
-            self._prepare_analysis(self.config)
-            self._analysis_active = True
-            view.set_analysis_menu_enabled(self, False)
-            self.controls.set_analysis_active(True)
-            self.placeholder.configure(text="Preparing analysis …")
-            self.root.update_idletasks()
-            if not self._load_session(self.config):
+            try:
                 self._prepare_analysis(self.config)
+                LOGGER.info("Starting IMM analysis: config=%r", self.config)
+                self._analysis_active = True
+                view.set_analysis_menu_enabled(self, False)
+                self.controls.set_analysis_active(True)
+                self.placeholder.configure(text="Preparing analysis …")
+                self.root.update_idletasks()
+                if not self._load_session(self.config):
+                    self._prepare_analysis(self.config)
+            except Exception:
+                self._report_callback_exception(*sys.exc_info())
 
     def open_csv(self, data_file: Path | None = None) -> None:
         """Select a CSV and return to the unstarted analysis state."""
@@ -183,7 +200,7 @@ class BR24IMMPlayerApp:
 
     def handle_key(self, event):
         """Route Predictor-style playback shortcuts outside editable controls."""
-        if self._closing or self.plot_view is None:
+        if self._closing or self._error is not None or self.plot_view is None:
             return None
         if event.widget is self.plot_view.canvas.get_tk_widget():
             return None  # The Matplotlib canvas handles its own keyboard events.
@@ -291,17 +308,65 @@ class BR24IMMPlayerApp:
     def _help_closed(self) -> None:
         self._help_window = None
 
+    def _report_callback_exception(self, exception_type, error, traceback):
+        state = getattr(self.plot_view, "current_state", None)
+        stage = getattr(state, "stage", None)
+        LOGGER.error(
+            "IMM callback failed: N=%s config=%r",
+            getattr(stage, "observation_count", None),
+            self.config,
+            exc_info=(exception_type, error, traceback),
+        )
+        if self._closing or self._handling_error or self._error is not None:
+            return
+        self._handling_error = True
+        self._error = f"{exception_type.__name__}: {error}"
+        self._analysis_active = False
+        try:
+            if self.plot_view is not None:
+                self._cleanup(self.plot_view.disable_navigation, "stop failed playback")
+            self.controls.set_analysis_active(False)
+            view.set_analysis_menu_enabled(self, True)
+            messagebox.showerror(
+                "Analysis failed",
+                self._error + "\nStart a new analysis to continue.",
+                parent=self.root,
+            )
+        except Exception:
+            LOGGER.exception("IMM error recovery failed")
+        finally:
+            self._handling_error = False
+
+    def _cleanup(self, action, description):
+        try:
+            action()
+        except Exception:
+            LOGGER.exception("IMM cleanup failed: %s", description)
+
     def close(self) -> None:
         """Stop playback and close all local Tk resources."""
         if self._closing:
             return
         self._closing = True
-        if self._help_window is not None and self._help_window.winfo_exists():
-            self._help_window.close()
+        if self._help_window is not None:
+            self._cleanup(
+                lambda: (
+                    self._help_window.close()
+                    if self._help_window.winfo_exists()
+                    else None
+                ),
+                "close help",
+            )
         for dialog in (self._settings_dialog, self._plot_settings_dialog):
-            if dialog is not None and dialog.window.winfo_exists():
-                dialog.close()
+            if dialog is not None:
+                self._cleanup(
+                    lambda dialog=dialog: (
+                        dialog.close() if dialog.window.winfo_exists() else None
+                    ),
+                    "close settings",
+                )
         if self.plot_view is not None:
-            self.plot_view.destroy()
+            plot_view = self.plot_view
             self.plot_view = None
-        self.root.destroy()
+            self._cleanup(plot_view.destroy, "destroy plot")
+        self._cleanup(self.root.destroy, "destroy main window")
