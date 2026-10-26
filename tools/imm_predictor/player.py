@@ -10,10 +10,13 @@ from __future__ import annotations
 import runpy
 import time
 from dataclasses import dataclass, fields, replace
+from math import fsum
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy.optimize import brentq
+from scipy.special import log_ndtr
 from scipy.stats import chi2
 
 import bayestraj.observations.br24 as br24
@@ -106,6 +109,128 @@ class IMMPlayerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class IMMStatePosterior:
+    """Read-only [x, y, heading, turn rate, speed] Gaussian state moments."""
+
+    mean: np.ndarray
+    covariance: np.ndarray
+
+    def __post_init__(self) -> None:
+        mean = np.asarray(self.mean, dtype=float).copy()
+        covariance = np.asarray(self.covariance, dtype=float).copy()
+        if mean.shape != (5,) or not np.all(np.isfinite(mean)):
+            raise ValueError("IMM posterior mean must be a finite five-element vector.")
+        if covariance.shape != (5, 5) or not np.all(np.isfinite(covariance)):
+            raise ValueError("IMM posterior covariance must be a finite 5-by-5 matrix.")
+        tolerance = 1e-10 * max(1.0, float(np.max(np.abs(covariance))))
+        if not np.allclose(covariance, covariance.T, rtol=0, atol=tolerance):
+            raise ValueError("IMM posterior covariance must be symmetric.")
+        if np.min(np.linalg.eigvalsh(covariance)) < -tolerance:
+            raise ValueError("IMM posterior covariance must be positive semidefinite.")
+        mean.setflags(write=False)
+        covariance.setflags(write=False)
+        object.__setattr__(self, "mean", mean)
+        object.__setattr__(self, "covariance", covariance)
+
+
+@dataclass(frozen=True, slots=True)
+class IMMStateMixture:
+    """Cached CV/CTRV/CA moments in the MATLAB common CTRV coordinates."""
+
+    weights: np.ndarray
+    components: tuple[IMMStatePosterior, ...]
+
+    def __post_init__(self) -> None:
+        weights = np.asarray(self.weights, dtype=float).copy()
+        components = tuple(self.components)
+        if (
+            weights.shape != (3,)
+            or not np.all(np.isfinite(weights))
+            or np.any(weights < 0.0)
+            or not np.isclose(weights.sum(), 1.0, rtol=0, atol=1e-10)
+        ):
+            raise ValueError(
+                "IMM mixture needs three non-negative probabilities summing to one."
+            )
+        if len(components) != 3 or not all(
+            isinstance(component, IMMStatePosterior) for component in components
+        ):
+            raise ValueError("IMM mixture needs CV, CTRV and CA state moments.")
+        weights.setflags(write=False)
+        object.__setattr__(self, "weights", weights)
+        object.__setattr__(self, "components", components)
+
+    def marginal_parameters(
+        self, index: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return active weights, means and standard deviations in native SI units."""
+        active = self.weights > 0
+        weights = self.weights[active]
+        means = np.array([component.mean[index] for component in self.components])[
+            active
+        ]
+        sigmas = np.sqrt(
+            np.maximum(
+                [component.covariance[index, index] for component in self.components], 0
+            )
+        )[active]
+        if index == 2:
+            # Share the plot's local heading branch with scalar summaries.
+            center = np.angle(np.sum(weights * np.exp(1j * means)))
+            means = center + (means - center + np.pi) % (2 * np.pi) - np.pi
+        return weights, means, sigmas
+
+    def marginal_median(self, index: int) -> float:
+        """Return the lower 0.5 quantile, retaining discrete probability jumps."""
+        weights, means, sigmas = self.marginal_parameters(index)
+        continuous = sigmas > 0
+
+        def balance(value: float, *, before_atom=False) -> float:
+            # Sign of F(value)-0.5, scaled in log space so tiny Gaussian tails
+            # neither cancel against 0.5 nor underflow between distant modes.
+            left = means <= value
+            if before_atom:
+                left &= continuous | (means != value)
+            base = float(np.sum(weights[left])) - 0.5
+            log_terms = []
+            signs = []
+            if base:
+                log_terms.append(float(np.log(abs(base))))
+                signs.append(float(np.sign(base)))
+            for weight, mean, sigma, on_left in zip(
+                weights[continuous],
+                means[continuous],
+                sigmas[continuous],
+                left[continuous],
+                strict=True,
+            ):
+                log_terms.append(
+                    float(np.log(weight) + log_ndtr(-abs(value - mean) / sigma))
+                )
+                signs.append(-1.0 if on_left else 1.0)
+            if not log_terms:
+                return 0.0
+            scale = max(log_terms)
+            if not np.isfinite(scale):
+                return 0.0
+            return fsum(
+                sign * np.exp(term - scale)
+                for sign, term in zip(signs, log_terms, strict=True)
+            )
+
+        for atom in np.unique(means[~continuous]):
+            if balance(float(atom), before_atom=True) <= 0 <= balance(float(atom)):
+                return float(atom)
+        lower, upper = float(np.min(means)), float(np.max(means))
+        if lower == upper:
+            return lower
+        padding = 8 * float(np.max(sigmas))
+        return float(
+            brentq(balance, lower - padding, upper + padding, xtol=1e-12, maxiter=200)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class IMMPlayerStage:
     """One online IMM posterior and forecast refreshed at a radar cycle."""
 
@@ -120,11 +245,13 @@ class IMMPlayerStage:
     tracked_positions: np.ndarray
     forecast: Any
     sample_positions: np.ndarray | None = None
+    posterior: IMMStatePosterior | None = None
+    posterior_mixture: IMMStateMixture | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class IMMMovementState:
-    """Display-only movement values derived from the IMM track history."""
+    """Display-only reference motion values, optionally derived from reference data."""
 
     position_meters: np.ndarray
     speed_mps: float | None
@@ -134,6 +261,15 @@ class IMMMovementState:
     turn_rate_is_derived: bool = False
     speed_is_derived: bool = False
     heading_is_derived: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class IMMPosteriorMedians:
+    """Current motion marginal medians, not finite differences of the track."""
+
+    speed_mps: float
+    heading_degrees: float
+    turn_rate_degrees_per_second: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +300,7 @@ class IMMDisplayState:
     """All non-mutating values needed by one player display refresh."""
 
     stage: IMMPlayerStage
-    movement: IMMMovementState
+    posterior_medians: IMMPosteriorMedians | None
     metrics: IMMForecastMetrics
     uncertainty: IMMForecastUncertainty
     reference_state: IMMMovementState | None = None
@@ -250,7 +386,7 @@ class IMMPlaybackStore:
             stage = self._stages[observation_count]
             self._display_states[observation_count] = IMMDisplayState(
                 stage=stage,
-                movement=_movement_state(stage),
+                posterior_medians=_posterior_medians(stage),
                 metrics=_forecast_metrics(
                     stage,
                     self.reference,
@@ -288,6 +424,10 @@ class IMMPlaybackStore:
 
     def _capture_stage(self, *, update_time_seconds: float) -> None:
         observation_count = self._processed_cycle_count
+        posterior_reader = getattr(self._tracker, "posterior_state", None)
+        posterior = posterior_reader() if callable(posterior_reader) else None
+        mixture_reader = getattr(self._tracker, "posterior_mixture", None)
+        posterior_mixture = mixture_reader() if callable(mixture_reader) else None
         future_times = self.times[
             observation_count : observation_count + self.config.prediction_count
         ]
@@ -332,6 +472,8 @@ class IMMPlaybackStore:
             tracked_positions=np.asarray(self._tracked_positions, dtype=float).copy(),
             forecast=forecast,
             sample_positions=sample_positions,
+            posterior=posterior,
+            posterior_mixture=posterior_mixture,
         )
 
     def _validate_observation_count(self, observation_count: int) -> int:
@@ -413,44 +555,17 @@ def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | Non
     )
 
 
-def _movement_state(stage: IMMPlayerStage) -> IMMMovementState:
-    """Derive current movement quantities from track positions and cycle times."""
-    positions = np.asarray(stage.tracked_positions, dtype=float)
-    times = np.asarray(stage.tracked_times_seconds, dtype=float)
-    speed_mps = None
-    heading_degrees = None
-    turn_rate_degrees_per_second = None
-    if len(positions) >= 2:
-        current_delta = positions[-1] - positions[-2]
-        current_interval = float(times[-1] - times[-2])
-        if current_interval <= 0.0:
-            raise ValueError("IMM track times must be strictly increasing.")
-        speed_mps = float(np.linalg.norm(current_delta) / current_interval)
-        if speed_mps > 0.0:
-            heading_radians = float(np.arctan2(current_delta[1], current_delta[0]))
-            heading_degrees = float(np.rad2deg(heading_radians))
-    if len(positions) >= 3 and heading_degrees is not None:
-        previous_delta = positions[-2] - positions[-3]
-        previous_interval = float(times[-2] - times[-3])
-        if previous_interval <= 0.0:
-            raise ValueError("IMM track times must be strictly increasing.")
-        if np.linalg.norm(previous_delta) > 0.0:
-            previous_heading = float(np.arctan2(previous_delta[1], previous_delta[0]))
-            heading_change = np.arctan2(
-                np.sin(np.deg2rad(heading_degrees) - previous_heading),
-                np.cos(np.deg2rad(heading_degrees) - previous_heading),
-            )
-            turn_interval = 0.5 * (previous_interval + current_interval)
-            turn_rate_degrees_per_second = float(
-                np.rad2deg(heading_change) / turn_interval
-            )
-    return IMMMovementState(
-        position_meters=positions[-1].copy(),
-        speed_mps=speed_mps,
-        heading_degrees=heading_degrees,
-        turn_rate_degrees_per_second=turn_rate_degrees_per_second,
-        time_seconds=float(stage.observation_time_seconds),
-    )
+def _posterior_medians(stage: IMMPlayerStage) -> IMMPosteriorMedians | None:
+    """Summarize exactly the cached distribution displayed in the motion panels."""
+    if stage.posterior_mixture is not None:
+        values = [stage.posterior_mixture.marginal_median(index) for index in (4, 2, 3)]
+    elif stage.posterior is not None:
+        # For the labelled fused-only Gaussian fallback, median equals mean.
+        values = stage.posterior.mean[[4, 2, 3]]
+    else:
+        return None
+    heading = float(np.rad2deg((values[1] + np.pi) % (2 * np.pi) - np.pi))
+    return IMMPosteriorMedians(float(values[0]), heading, float(np.rad2deg(values[2])))
 
 
 def _forecast_metrics(
@@ -610,8 +725,35 @@ def _load_optional_imm_tracker():
         )
     module = runpy.run_path(str(IMM_PYTHON))
     try:
-        return module["BR24IMMTracker"]
+        tracker_type = module["BR24IMMTracker"]
     except KeyError as error:
         raise RuntimeError(
             "The local IMM implementation must expose BR24IMMTracker."
         ) from error
+    fuse = module.get("_mix_to_ctrv")
+    if not callable(fuse):
+        return tracker_type
+    to_ctrv = module.get("_to_ctrv")
+
+    class DisplayTracker(tracker_type):
+        """Expose output moments without modifying the optional filter implementation."""
+
+        def posterior_state(self) -> IMMStatePosterior:
+            mean, covariance = fuse(self._state, self._state.mode_probabilities)
+            return IMMStatePosterior(mean, covariance)
+
+        def posterior_mixture(self) -> IMMStateMixture | None:
+            """Read the same model conversions as output fusion, without collapsing."""
+            if not callable(to_ctrv):
+                return None
+            state = self._state
+            return IMMStateMixture(
+                state.mode_probabilities,
+                (
+                    IMMStatePosterior(*to_ctrv(state.cv_state, state.cv_covariance)),
+                    IMMStatePosterior(state.ctrv_state, state.ctrv_covariance),
+                    IMMStatePosterior(*to_ctrv(state.ca_state, state.ca_covariance)),
+                ),
+            )
+
+    return DisplayTracker

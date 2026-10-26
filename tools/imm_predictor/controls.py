@@ -37,7 +37,6 @@ class IMMControls(tk.Frame):
                 "reference_heading",
                 "reference_turn_rate",
                 "reference_time",
-                "position",
                 "speed",
                 "heading",
                 "turn_rate",
@@ -102,9 +101,8 @@ class IMMControls(tk.Frame):
         ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
-            "IMM track state",
+            "Posterior medians",
             (
-                ("Position", "position"),
                 ("Speed", "speed"),
                 ("Heading", "heading"),
                 ("Turn rate", "turn_rate"),
@@ -290,18 +288,17 @@ class IMMControls(tk.Frame):
     def show_display_state(
         self, state: IMMDisplayState, *, coordinate_display_mode="m"
     ) -> None:
-        """Render one stage's movement, metric, and association fields."""
-        movement = state.movement
+        """Render posterior medians, reference, metric, and association fields."""
+        medians = state.posterior_medians
         metrics = state.metrics
         stage = state.stage
-        self._values["position"].set(
-            _format_position(movement.position_meters, coordinate_display_mode)
-        )
-        self._values["speed"].set(_format_optional(movement.speed_mps, "m/s"))
-        self._values["heading"].set(_format_optional(movement.heading_degrees, "°"))
-        self._values["turn_rate"].set(
-            _format_optional(movement.turn_rate_degrees_per_second, "°/s")
-        )
+        for key, attribute, unit in (
+            ("speed", "speed_mps", "m/s"),
+            ("heading", "heading_degrees", "°"),
+            ("turn_rate", "turn_rate_degrees_per_second", "°/s"),
+        ):
+            value = None if medians is None else getattr(medians, attribute)
+            self._values[key].set(_format_optional(value, unit))
         reference = state.reference_state
         for name in ("position", "speed", "heading", "turn_rate", "time"):
             self._values[f"reference_{name}"].set("-")

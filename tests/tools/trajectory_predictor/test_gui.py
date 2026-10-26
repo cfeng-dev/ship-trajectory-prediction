@@ -528,6 +528,373 @@ def test_imm_route_legend_identifies_the_filtered_track():
     np.testing.assert_array_equal(track.get_ydata(), [20.0, 22.0])
 
 
+def _imm_motion_stage(*, zero_variance=False):
+    from imm_predictor.player import IMMPlayerStage, IMMStatePosterior
+
+    scales = [1.0, 1.0, np.deg2rad(10.0), np.deg2rad(0.5), 1.0]
+    return IMMPlayerStage(
+        observation_count=2,
+        cycle_counter=2,
+        observation_time_seconds=1.0,
+        detection_id=1,
+        nis=0.5,
+        measurement_covariance=np.eye(2),
+        update_time_seconds=0.01,
+        tracked_times_seconds=np.array([0.0, 1.0]),
+        tracked_positions=np.array([[10.0, 20.0], [11.0, 22.0]]),
+        forecast=None,
+        posterior=IMMStatePosterior(
+            [11.0, 22.0, np.deg2rad(30.0), np.deg2rad(2.0), 4.0],
+            np.zeros((5, 5)) if zero_variance else np.diag(np.square(scales)),
+        ),
+    )
+
+
+def _headless_imm_panels(stage, *, figure_size=(10, 6)):
+    from imm_predictor.player import IMMPlayerConfig
+    from imm_predictor.plot_view import IMMPlotView, _IMMPredictorLayout
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    view = IMMPlotView.__new__(IMMPlotView)
+    view.figure = Figure(figsize=figure_size)
+    view.canvas = FigureCanvasAgg(view.figure)
+    view.store = SimpleNamespace(
+        config=IMMPlayerConfig(prediction_count=0),
+        reference=None,
+        maximum_observation_count=5,
+    )
+    view.current_state = None if stage is None else SimpleNamespace(stage=stage)
+    view._coordinate_display_mode = "m"
+    view._panel_group = "motion"
+    view._route_has_been_drawn = False
+    view._destroyed = view._failed = False
+    view._after_id = None
+    view.show_reference_var = SimpleNamespace(get=lambda: False)
+    view.follow_ship_var = SimpleNamespace(get=lambda: False)
+    view.settings_visible_var = SimpleNamespace(get=lambda: True)
+    view._build_axes()
+    view._build_controls()
+    view.figure.set_layout_engine(_IMMPredictorLayout(view))
+    return view
+
+
+def test_imm_motion_panels_draw_fused_gaussian_marginals_in_display_units():
+    view = _headless_imm_panels(_imm_motion_stage())
+    view._draw()
+
+    for axis, mean, sigma in zip(
+        view.motion_axes, [4.0, 30.0, 2.0], [1, 10, 0.5], strict=True
+    ):
+        line = axis.lines[0]
+        x, density = line.get_data()
+        peak = np.argmax(density)
+        assert x[peak] == pytest.approx(mean)
+        assert density[peak] == pytest.approx(1 / (sigma * np.sqrt(2 * np.pi)))
+        assert np.trapezoid(density, x) == pytest.approx(1.0, abs=1e-4)
+        assert axis.get_ylabel() == "Density"
+        assert "Gaussian approximation" in axis.get_legend_handles_labels()[1]
+    assert [axis.get_title() for axis in view.motion_axes] == [
+        "Speed posterior",
+        "Heading posterior",
+        "Turn-rate posterior",
+    ]
+
+
+def _imm_mixture_stage(*, weights=(0.2, 0.7, 0.1), point_mass=False, headings=None):
+    from dataclasses import replace
+
+    from imm_predictor.player import IMMStateMixture, IMMStatePosterior
+
+    components = []
+    for index, (speed, sigma) in enumerate(
+        zip([1, 5, 9], [0.2, 0.4, 0.8], strict=True)
+    ):
+        mean = [
+            11,
+            22,
+            np.deg2rad(30 if headings is None else headings[index]),
+            np.deg2rad(2 * index),
+            speed,
+        ]
+        covariance = np.diag([1, 1, np.deg2rad(2) ** 2, np.deg2rad(0.5) ** 2, sigma**2])
+        if point_mass and index == 0:
+            covariance[3, 3] = 0.0
+        components.append(IMMStatePosterior(mean, covariance))
+    return replace(
+        _imm_motion_stage(),
+        posterior_mixture=IMMStateMixture(weights, tuple(components)),
+    )
+
+
+def test_imm_motion_panels_preserve_weighted_mixture_peaks():
+    view = _headless_imm_panels(_imm_mixture_stage())
+    view._draw()
+    axis = view.motion_axes[0]
+    x, density = axis.lines[0].get_data()
+    for speed, expected in zip(
+        [1, 5, 9], [0.39894228, 0.69814918, 0.04986779], strict=True
+    ):
+        assert density[np.argmin(abs(x - speed))] == pytest.approx(expected, abs=1e-6)
+    assert np.trapezoid(density, x) == pytest.approx(1, abs=1e-4)
+    assert np.trapezoid(x * density, x) == pytest.approx(4.6, abs=1e-3)
+    assert density[np.argmin(abs(x - 1))] > density[np.argmin(abs(x - 3))]
+    assert "IMM mixture posterior" in axis.get_legend_handles_labels()[1]
+
+
+def test_imm_motion_panels_keep_cv_turn_rate_mass_separate_from_density():
+    view = _headless_imm_panels(
+        _imm_mixture_stage(weights=(0.6, 0.3, 0.1), point_mass=True)
+    )
+    view._draw()
+    axis = view.motion_axes[2]
+    x, density = axis.lines[0].get_data()
+    assert np.trapezoid(density, x) == pytest.approx(0.4, abs=1e-4)
+    assert axis.get_ylabel() == "Density"
+    assert "Point mass at 0: 60.0%" in axis.get_legend_handles_labels()[1]
+    assert axis.lines[1].get_xdata() == pytest.approx([0, 0])
+
+
+def test_imm_motion_panels_refresh_the_model_weights_without_adding_axes():
+    view = _headless_imm_panels(_imm_mixture_stage())
+    view._draw()
+    x, density = view.motion_axes[0].lines[0].get_data()
+    original = density[np.argmin(abs(x - 1))]
+    axes_count = len(view.figure.axes)
+    view.current_state = SimpleNamespace(
+        stage=_imm_mixture_stage(weights=(0.8, 0.1, 0.1))
+    )
+    view._draw()
+    x, density = view.motion_axes[0].lines[0].get_data()
+    assert density[np.argmin(abs(x - 1))] == pytest.approx(4 * original)
+    assert len(view.figure.axes) == axes_count
+
+
+def test_imm_heading_mixture_uses_one_local_branch_at_the_angle_boundary():
+    view = _headless_imm_panels(
+        _imm_mixture_stage(weights=(0.5, 0.5, 0), headings=(179, -179, 0))
+    )
+    view._draw()
+    axis = view.motion_axes[1]
+    left, right = axis.get_xlim()
+    assert right - left < 25
+    x, density = axis.lines[0].get_data()
+    assert abs(abs(x[np.argmax(density)]) - 180) < 1
+    assert np.trapezoid(density, x) == pytest.approx(1, abs=1e-4)
+
+
+@pytest.mark.parametrize("sigma", [1e-6, 1e-12])
+def test_imm_mixture_does_not_bridge_separated_narrow_peaks(sigma):
+    from dataclasses import replace
+
+    from imm_predictor.player import IMMStateMixture, IMMStatePosterior
+
+    components = tuple(
+        IMMStatePosterior([0, 0, 0, 0, mean], np.diag([1, 1, 1, 1, sigma**2]))
+        for mean in (0, 1, 2)
+    )
+    stage = replace(
+        _imm_motion_stage(),
+        posterior_mixture=IMMStateMixture([0.5, 0.5, 0], components),
+    )
+    view = _headless_imm_panels(stage)
+    view._draw()
+    x, density = view.motion_axes[0].lines[0].get_data()
+    assert np.interp(0.5, x, density) < 1e-6
+    assert np.trapezoid(density, x) == pytest.approx(1, abs=1e-4)
+
+
+def test_imm_point_mass_weights_remain_visible_without_a_legend():
+    from dataclasses import replace
+
+    view = _headless_imm_panels(
+        _imm_mixture_stage(weights=(0.6, 0.3, 0.1), point_mass=True)
+    )
+    view.store.config = replace(view.store.config, show_legend=False)
+    view._draw()
+    axis = view.motion_axes[2]
+    assert axis.get_legend() is None
+    assert any("60.0%" in text.get_text() for text in axis.texts)
+
+
+def test_imm_fused_only_fallback_remains_identified_without_a_legend():
+    from dataclasses import replace
+
+    view = _headless_imm_panels(_imm_motion_stage())
+    view.store.config = replace(view.store.config, show_legend=False)
+    view._draw()
+    for axis in view.motion_axes:
+        assert axis.get_legend() is None
+        assert "Gaussian approximation" in [text.get_text() for text in axis.texts]
+
+
+@pytest.mark.parametrize("show_legend", [False, True])
+def test_imm_zero_variance_fused_fallback_is_identified(show_legend):
+    from dataclasses import replace
+
+    view = _headless_imm_panels(_imm_motion_stage(zero_variance=True))
+    view.store.config = replace(view.store.config, show_legend=show_legend)
+    view._draw()
+    for axis in view.motion_axes:
+        assert any("Fused-state fallback" in text.get_text() for text in axis.texts)
+
+
+def test_imm_pure_cv_turn_rate_uses_a_probability_stem_without_invented_density():
+    view = _headless_imm_panels(_imm_mixture_stage(weights=(1, 0, 0), point_mass=True))
+    view._draw()
+    axis = view.motion_axes[2]
+    assert axis.get_ylabel() == "Probability mass"
+    x, probability = axis.lines[0].get_data()
+    np.testing.assert_array_equal(x, [0, 0])
+    np.testing.assert_array_equal(probability, [0, 1])
+    assert len(axis.lines) == 1
+
+
+@pytest.mark.parametrize("coordinate_mode", ["m", "km"])
+def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_mode):
+    from imm_predictor.controls import IMMControls
+    from imm_predictor.player import IMMForecastMetrics, _posterior_medians
+
+    panel = IMMControls.__new__(IMMControls)
+    panel._values = {
+        name: _Value("old")
+        for name in (
+            "speed",
+            "heading",
+            "turn_rate",
+            "reference_position",
+            "reference_speed",
+            "reference_heading",
+            "reference_turn_rate",
+            "reference_time",
+            "ade",
+            "fde",
+            "rmse",
+            "energy_score",
+            "log_density",
+            "coverage_50",
+            "coverage_90",
+            "update_time",
+            "association_status",
+            "detection_id",
+            "nis",
+            "cov_xx",
+            "cov_xy",
+            "cov_yy",
+            "cycle",
+        )
+    }
+    stage = _imm_mixture_stage(weights=(0.6, 0.3, 0.1), point_mass=True)
+    medians = _posterior_medians(stage)
+    state = SimpleNamespace(
+        stage=stage,
+        posterior_medians=medians,
+        metrics=IMMForecastMetrics(None, None, None, None, None, 0, 0, 0),
+        reference_state=SimpleNamespace(
+            position_meters=np.array([1000, -2000]),
+            speed_mps=3.0,
+            heading_degrees=-4.0,
+            turn_rate_degrees_per_second=0.5,
+            time_seconds=12,
+            speed_is_derived=False,
+            heading_is_derived=False,
+            turn_rate_is_derived=True,
+        ),
+    )
+    panel.show_display_state(state, coordinate_display_mode=coordinate_mode)
+    assert panel._values["speed"].get() == "1.19 m/s"
+    assert panel._values["heading"].get() == "30.00 °"
+    assert panel._values["turn_rate"].get() == "0.00 °/s"
+    assert panel._values["reference_turn_rate"].get() == "0.50 °/s (derived)"
+    assert panel._values["reference_position"].get() == (
+        "x = 1000.00 m\ny = -2000.00 m"
+        if coordinate_mode == "m"
+        else "x = 1.00 km\ny = -2.00 km"
+    )
+    state.posterior_medians = None
+    panel.show_display_state(state, coordinate_display_mode=coordinate_mode)
+    assert all(
+        panel._values[name].get() == "-" for name in ("speed", "heading", "turn_rate")
+    )
+
+
+def test_imm_sidebar_replaces_track_state_with_three_posterior_medians(root):
+    from imm_predictor.controls import IMMControls
+
+    panel = IMMControls(
+        root,
+        on_open_file=lambda _path: None,
+        on_cancel=lambda: None,
+        on_start=lambda: None,
+    )
+    widgets = list(panel.winfo_children())
+    sections = {}
+    while widgets:
+        widget = widgets.pop()
+        if isinstance(widget, tk.LabelFrame):
+            sections[widget.cget("text")] = widget
+        widgets.extend(widget.winfo_children())
+    assert "IMM track state" not in sections
+    labels = [
+        widget.cget("text")
+        for widget in sections["Posterior medians"].winfo_children()
+        if isinstance(widget, tk.Label) and not widget.cget("textvariable")
+    ]
+    assert labels == ["Speed:", "Heading:", "Turn rate:"]
+    assert "position" not in panel._values
+    panel.clear_display_state()
+    assert all(value.get() == "-" for value in panel._values.values())
+
+
+@pytest.mark.parametrize("figure_size", [(6.5, 6), (7, 6), (10, 6), (14, 7.5)])
+def test_imm_panel_switch_preserves_stage_route_and_readable_layout(figure_size):
+    stage = _imm_motion_stage()
+    view = _headless_imm_panels(stage, figure_size=figure_size)
+    view._draw()
+    limits = view.route_axis.get_xlim(), view.route_axis.get_ylim()
+    assert all(axis.get_visible() for axis in view.motion_axes)
+    assert not view.mode_axis.get_visible()
+    renderer = view.canvas.get_renderer()
+    for label in view.group_selector.labels:
+        assert label.get_window_extent(renderer).x1 <= view.figure.bbox.x1
+    slider_box = view.slider.ax.get_window_extent(renderer)
+    selector_box = view.group_selector.ax.get_window_extent(renderer)
+    assert slider_box.x1 < selector_box.x0
+    for upper, lower in zip(view.motion_axes[:-1], view.motion_axes[1:], strict=True):
+        assert upper.get_tightbbox(renderer).y0 > lower.get_tightbbox(renderer).y1
+
+    view.group_selector.set_active(1)
+    assert all(not axis.get_visible() for axis in view.motion_axes)
+    assert view.mode_axis.get_visible() and view.uncertainty_axis.get_visible()
+    assert view.mode_axis.get_title() == "Forecast mode probabilities"
+    assert view.current_state.stage is stage
+    np.testing.assert_allclose(
+        (view.route_axis.get_xlim(), view.route_axis.get_ylim()), limits
+    )
+    view.group_selector.set_active(0)
+    assert all(axis.get_visible() for axis in view.motion_axes)
+    assert view.motion_axes[0].lines[0].get_xdata()[200] == pytest.approx(4.0)
+    view.disable_navigation()
+    assert not view.group_selector.active
+
+
+def test_imm_motion_panels_show_no_invented_prior_at_n_zero():
+    view = _headless_imm_panels(None)
+    view._draw()
+    for axis in view.motion_axes:
+        assert not axis.lines
+        assert "Available after\nN = 1" in [text.get_text() for text in axis.texts]
+
+
+def test_imm_motion_panels_preserve_zero_variance_as_point_masses():
+    view = _headless_imm_panels(_imm_motion_stage(zero_variance=True))
+    view._draw()
+    for axis, mean in zip(view.motion_axes, [4.0, 30.0, 2.0], strict=True):
+        assert axis.get_ylabel() == "Probability mass"
+        assert axis.lines[0].get_xdata() == pytest.approx([mean, mean])
+        assert "Point mass" in axis.get_legend_handles_labels()[1]
+
+
 @pytest.fixture
 def root():
     try:

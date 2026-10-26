@@ -3,6 +3,7 @@
 import argparse
 import importlib
 
+import numpy as np
 import pytest
 from trajectory_predictor import cli, settings
 
@@ -81,6 +82,243 @@ def test_missing_shared_bayestraj_package_has_a_clear_startup_error(
 
     assert result.value.code == 2
     assert "requires the shared bayestraj package" in capsys.readouterr().err
+
+
+def test_imm_posterior_snapshot_uses_the_loaded_output_fusion(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from imm_predictor import player
+
+    mean = np.array([10.0, 20.0, 0.3, 0.02, 4.0])
+    covariance = np.diag([1.0, 2.0, 0.04, 0.01, 0.25])
+    state = SimpleNamespace(mode_probabilities=np.array([0.6, 0.3, 0.1]))
+
+    class Tracker:
+        def __init__(self):
+            self._state = state
+
+    def fuse(actual_state, weights):
+        assert actual_state is state
+        np.testing.assert_array_equal(weights, [0.6, 0.3, 0.1])
+        return mean, covariance
+
+    path = tmp_path / "imm.py"
+    path.touch()
+    monkeypatch.setattr(player, "IMM_PYTHON", path)
+    monkeypatch.setattr(
+        player.runpy,
+        "run_path",
+        lambda _path: {"BR24IMMTracker": Tracker, "_mix_to_ctrv": fuse},
+    )
+    tracker = player._load_optional_imm_tracker()()
+    posterior = tracker.posterior_state()
+    mean[:] = 99.0
+    covariance[:] = 99.0
+
+    np.testing.assert_array_equal(posterior.mean, [10.0, 20.0, 0.3, 0.02, 4.0])
+    np.testing.assert_array_equal(
+        np.diag(posterior.covariance), [1, 2, 0.04, 0.01, 0.25]
+    )
+    assert not posterior.mean.flags.writeable
+    assert not posterior.covariance.flags.writeable
+    np.testing.assert_array_equal(state.mode_probabilities, [0.6, 0.3, 0.1])
+
+
+def test_imm_display_adapter_preserves_local_filter_forecasts():
+    import runpy
+    from copy import deepcopy
+
+    from imm_predictor import player
+
+    if not player.IMM_PYTHON.is_file():
+        pytest.skip("Optional local IMM implementation is unavailable")
+    module = runpy.run_path(str(player.IMM_PYTHON))
+    state = module["_IMMState"](
+        cv_state=np.array([10.0, 3.0, 20.0, 4.0]),
+        cv_covariance=np.zeros((4, 4)),
+        ctrv_state=np.array([10.0, 20.0, np.arctan2(4, 3), 0.2, 5.0]),
+        ctrv_covariance=np.zeros((5, 5)),
+        ca_state=np.array([10.0, 3.0, 0.0, 20.0, 4.0, 0.0]),
+        ca_covariance=np.zeros((6, 6)),
+        mode_probabilities=np.array([0.5, 0.3, 0.2]),
+    )
+    arguments = dict(_last_observation_time_seconds=0.0, _sensor_position=np.zeros(2))
+    original = module["BR24IMMTracker"](_state=deepcopy(state), **arguments)
+    display = player._load_optional_imm_tracker()(_state=deepcopy(state), **arguments)
+    posterior = display.posterior_state()
+    mixture = display.posterior_mixture()
+    np.testing.assert_array_equal(mixture.weights, [0.5, 0.3, 0.2])
+    np.testing.assert_allclose(
+        [component.mean[3] for component in mixture.components], [0.0, 0.2, 0.0]
+    )
+    np.testing.assert_allclose(
+        [component.mean[4] for component in mixture.components], [5.0, 5.0, 5.0]
+    )
+    np.testing.assert_allclose(
+        posterior.mean, [10.0, 20.0, np.arctan2(4, 3), 0.06, 5.0]
+    )
+    assert posterior.covariance[3, 3] == pytest.approx(0.0084)
+    expected, actual = original.forecast([1.0, 2.0]), display.forecast([1.0, 2.0])
+    np.testing.assert_array_equal(actual.position_means, expected.position_means)
+    np.testing.assert_array_equal(
+        actual.position_covariances, expected.position_covariances
+    )
+    np.testing.assert_array_equal(
+        actual.mode_probabilities, expected.mode_probabilities
+    )
+    np.testing.assert_array_equal(display.posterior_state().mean, posterior.mean)
+    np.testing.assert_array_equal(
+        display.posterior_state().covariance, posterior.covariance
+    )
+    np.testing.assert_array_equal(display.posterior_mixture().weights, mixture.weights)
+    assert not mixture.weights.flags.writeable
+    for before, after in zip(
+        mixture.components, display.posterior_mixture().components, strict=True
+    ):
+        np.testing.assert_array_equal(after.mean, before.mean)
+        np.testing.assert_array_equal(after.covariance, before.covariance)
+
+
+def test_imm_cached_posterior_is_not_replaced_by_later_cycles():
+    from types import SimpleNamespace
+
+    from imm_predictor.player import (
+        IMMPlaybackStore,
+        IMMPlayerConfig,
+        IMMStateMixture,
+        IMMStatePosterior,
+    )
+
+    mean = np.array([10.0, 20.0, 0.3, 0.02, 4.0])
+    weights = np.array([0.5, 0.3, 0.2])
+    store = IMMPlaybackStore.__new__(IMMPlaybackStore)
+    store.config = IMMPlayerConfig(prediction_count=0)
+    store.maximum_observation_count = 2
+    store.times = np.array([0.0, 1.0])
+    store.cycles = [SimpleNamespace(cycle_counter=1), SimpleNamespace(cycle_counter=2)]
+    store._tracker = SimpleNamespace(
+        last_observation_time_seconds=0.0,
+        posterior_state=lambda: IMMStatePosterior(mean, np.eye(5)),
+        posterior_mixture=lambda: IMMStateMixture(
+            weights, tuple(IMMStatePosterior(mean, np.eye(5)) for _ in range(3))
+        ),
+    )
+    store._processed_cycle_count = 1
+    store._tracked_positions = [[10.0, 20.0]]
+    store._measurement_covariances = [None]
+    store._detection_ids = [1]
+    store._nis = [None]
+    store._stages = {}
+    store._display_states = {}
+    store.reference = None
+    store._capture_stage(update_time_seconds=0.01)
+
+    mean[4] = 9.0
+    weights[:] = [0.2, 0.7, 0.1]
+    store._processed_cycle_count = 2
+    store._tracked_positions.append([11.0, 21.0])
+    store._capture_stage(update_time_seconds=0.01)
+
+    assert store.stage_for(1).posterior.mean[4] == 4.0
+    assert store.stage_for(2).posterior.mean[4] == 9.0
+    np.testing.assert_array_equal(
+        store.stage_for(1).posterior_mixture.weights, [0.5, 0.3, 0.2]
+    )
+    np.testing.assert_array_equal(
+        store.stage_for(2).posterior_mixture.weights, [0.2, 0.7, 0.1]
+    )
+    assert store.stage_for(1).posterior_mixture.components[0].mean[4] == 4.0
+    assert store.stage_for(2).posterior_mixture.components[0].mean[4] == 9.0
+    first_display = store.display_state_for(1)
+    assert first_display.posterior_medians.speed_mps == 4.0
+    assert store.display_state_for(2).posterior_medians.speed_mps == 9.0
+    assert store.display_state_for(1) is first_display
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [[0, 0, 0], [0.2, 0.2, 0.2], [-0.1, 0.5, 0.6], [np.nan, 0, 1], [0.5, 0.5]],
+)
+def test_imm_mixture_rejects_invalid_model_probabilities(weights):
+    from imm_predictor.player import IMMStateMixture, IMMStatePosterior
+
+    component = IMMStatePosterior(np.zeros(5), np.eye(5))
+    with pytest.raises(ValueError):
+        IMMStateMixture(weights, (component, component, component))
+
+
+@pytest.mark.parametrize(
+    ("means", "sigmas", "weights", "expected"),
+    [
+        ([-10, 5, 1000], [0, 2, 100], [0.25, 0.75, 0], 4.138545401409085),
+        ([0, 8, -3], [0, 1, 1], [0.6, 0.25, 0.15], 0),
+        ([0, -2, 2], [0, 1, 1], [0.3, 0.35, 0.35], 0),
+        ([1, 5, 9], [0, 0, 0], [0.2, 0.7, 0.1], 5),
+        ([1, 5, 9], [0, 0, 0], [0.5, 0.3, 0.2], 1),
+        ([0, 20, 1000], [1, 1, 1], [0.5, 0.5, 0], 10),
+        ([0, 600, 1000], [1, 2, 1], [0.5, 0.5, 0], 200),
+        ([7.5, -1000, 1000], [2, 0, 0], [1, 0, 0], 7.5),
+    ],
+)
+def test_imm_medians_use_the_full_marginal_including_point_masses(
+    means, sigmas, weights, expected
+):
+    from imm_predictor.player import IMMStateMixture, IMMStatePosterior
+
+    components = tuple(
+        IMMStatePosterior([0, 0, 0, 0, mean], np.diag([0, 0, 0, 0, sigma**2]))
+        for mean, sigma in zip(means, sigmas, strict=True)
+    )
+    mixture = IMMStateMixture(weights, components)
+    assert mixture.marginal_median(4) == pytest.approx(expected, abs=1e-10)
+    np.testing.assert_array_equal(mixture.weights, weights)
+
+
+def test_imm_heading_median_matches_the_local_branch_used_for_plotting():
+    from imm_predictor.player import IMMStateMixture, IMMStatePosterior
+
+    components = tuple(
+        IMMStatePosterior(
+            [0, 0, np.deg2rad(heading), 0, 0],
+            np.diag([0, 0, np.deg2rad(1) ** 2, 0, 0]),
+        )
+        for heading in (179, -179, 0)
+    )
+    mixture = IMMStateMixture([0.5, 0.5, 0], components)
+    assert abs(np.rad2deg(mixture.marginal_median(2))) == pytest.approx(180)
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_imm_posterior_medians_use_fused_gaussian_only_as_backend_fallback(available):
+    from types import SimpleNamespace
+
+    from imm_predictor.player import IMMStatePosterior, _posterior_medians
+
+    stage = SimpleNamespace(
+        posterior_mixture=None,
+        posterior=IMMStatePosterior(
+            [1, 2, np.deg2rad(30), np.deg2rad(-2), 4], np.eye(5)
+        )
+        if available
+        else None,
+    )
+    result = _posterior_medians(stage)
+    if available:
+        assert result.speed_mps == 4
+        assert result.heading_degrees == pytest.approx(30)
+        assert result.turn_rate_degrees_per_second == pytest.approx(-2)
+    else:
+        assert result is None
+
+
+@pytest.mark.parametrize("variance", [-1.0, float("nan")])
+def test_imm_posterior_rejects_invalid_covariance(variance):
+    from imm_predictor.player import IMMStatePosterior
+
+    covariance = np.eye(5)
+    covariance[4, 4] = variance
+    with pytest.raises(ValueError):
+        IMMStatePosterior(np.zeros(5), covariance)
 
 
 @pytest.fixture

@@ -9,16 +9,97 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 from matplotlib.layout_engine import LayoutEngine
 from matplotlib.patches import Ellipse, Patch
-from matplotlib.widgets import Button, CheckButtons, Slider
+from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 from scipy.stats import chi2
 
 from bayestraj.validation import prediction_plotting
 
-from .player import IMMDisplayState, IMMPlaybackStore
+from .player import IMMDisplayState, IMMPlaybackStore, IMMStateMixture
 from .view import PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
 
 MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
+PANEL_GROUP_LABELS = {"motion": "Motion state", "forecast": "Forecast diagnostics"}
+
+
+def _draw_mixture_marginal(
+    axis, mixture: IMMStateMixture, index, scale, point_span, *, show_legend
+):
+    """Draw the continuous density and label any discrete mass without smoothing."""
+    weights, means, sigmas = mixture.marginal_parameters(index)
+    means *= scale
+    sigmas *= scale
+    continuous = sigmas > 0
+    point_masses = {}
+    for mean, weight in zip(means[~continuous], weights[~continuous], strict=True):
+        point_masses[float(mean)] = point_masses.get(float(mean), 0.0) + float(weight)
+    if np.any(continuous):
+        # A grid per component retains narrow peaks even beside broad components.
+        left = float(np.min(means - 5 * sigmas))
+        right = float(np.max(means + 5 * sigmas))
+        span = max(right - left, point_span)
+        grids = []
+        for mean, sigma, weight in zip(
+            means[continuous], sigmas[continuous], weights[continuous], strict=True
+        ):
+            # Joining fixed +/-5-sigma grids can bridge distant, very narrow peaks.
+            # Extend their tails until endpoint density * span is below 1e-9.
+            # This only chooses drawing points, not a variance floor or truncation.
+            log_tail_bound = (
+                np.log(weight)
+                + np.log(span)
+                - np.log(sigma)
+                - np.log(np.sqrt(2 * np.pi))
+                - np.log(1e-9)
+            )
+            radius = int(np.ceil(np.sqrt(2 * max(12.5, log_tail_bound))))
+            grids.append(mean + sigma * np.linspace(-radius, radius, 100 * radius + 1))
+        x = np.unique(np.concatenate([*grids, np.array(list(point_masses))]))
+        density = np.zeros_like(x)
+        for mean, sigma, weight in zip(
+            means[continuous], sigmas[continuous], weights[continuous], strict=True
+        ):
+            density += (
+                weight
+                * np.exp(-0.5 * ((x - mean) / sigma) ** 2)
+                / (sigma * np.sqrt(2 * np.pi))
+            )
+        axis.plot(
+            x, density, color="#24557A", linewidth=2, label="IMM mixture posterior"
+        )
+        axis.fill_between(x, density, color="#24557A", alpha=0.12)
+        axis.set_xlim(left, right)
+        axis.set_ylim(bottom=0)
+    else:
+        left, right = float(np.min(means)), float(np.max(means))
+        padding = max(point_span, 0.05 * (right - left))
+        axis.set_xlim(left - padding, right + padding)
+        axis.set_ylim(0, 1.05)
+        axis.set_ylabel("Probability mass")
+    for mean, weight in point_masses.items():
+        label = f"Point mass at {mean:g}: {weight:.1%}"
+        if np.any(continuous):
+            # This guide has no density height: its discrete probability is in the label.
+            axis.axvline(
+                mean, linestyle=":", color="#52616B", linewidth=1.5, label=label
+            )
+        else:
+            axis.plot(
+                [mean, mean], [0, weight], color="#24557A", linewidth=2, label=label
+            )
+    if point_masses and not show_legend:
+        axis.text(
+            0.02,
+            0.96,
+            "\n".join(
+                f"Point mass at {mean:g}: {weight:.1%}"
+                for mean, weight in point_masses.items()
+            ),
+            transform=axis.transAxes,
+            va="top",
+            fontsize=8,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
+        )
 
 
 class _IMMPredictorLayout(LayoutEngine):
@@ -45,16 +126,40 @@ class _IMMPredictorLayout(LayoutEngine):
             hspace=58 / panel_height,
             wspace=0.28,
         )
-        for axis in (view.route_axis, view.mode_axis, view.uncertainty_axis):
+        motion_grid = view.motion_axes[0].get_subplotspec().get_gridspec()
+        motion_grid.update(
+            left=grid.left,
+            right=grid.right,
+            bottom=grid.bottom,
+            top=grid.top,
+            wspace=grid.wspace,
+            hspace=58 / max(1.0, (height - 116 - 52 - 2 * 58) / 3),
+        )
+        for axis in (
+            view.route_axis,
+            view.mode_axis,
+            view.uncertainty_axis,
+            *view.motion_axes,
+        ):
             axis.set_position(axis.get_subplotspec().get_position(figure))
+        for axis in view.motion_axes:
+            axis.set_visible(view._panel_group == "motion")
+        for axis in (view.mode_axis, view.uncertainty_axis):
+            axis.set_visible(view._panel_group == "forecast")
         view._fit_route_limits_to_axes()
         playback_width = max(0.085, 64 / width)
         view.playback_button.ax.set_position(
             (0.025, 18 / height, playback_width, 28 / height)
         )
         slider_left = 0.07 + playback_width
+        selector_width = max(0.21, 160 / width)
+        selector_left = 0.98 - selector_width
+        slider_right = min(0.70, selector_left - 24 / width)
         view.slider.ax.set_position(
-            (slider_left, 29 / height, 0.70 - slider_left, 10 / height)
+            (slider_left, 29 / height, slider_right - slider_left, 10 / height)
+        )
+        view.group_selector.ax.set_position(
+            (selector_left, 18 / height, selector_width, 44 / height)
         )
         for checkbox, offset, checkbox_width in (
             (view.follow_checkbox, 0, 95),
@@ -98,6 +203,7 @@ class IMMPlotView(tk.Frame):
         self._route_has_been_drawn = False
         self._follow_ship_view_needs_focus = True
         self._coordinate_display_mode = "m"
+        self._panel_group = "motion"
         self.follow_ship_var = tk.BooleanVar(self, value=True)
         self.show_reference_var = tk.BooleanVar(
             self,
@@ -106,22 +212,7 @@ class IMMPlotView(tk.Frame):
         self.settings_visible_var = tk.BooleanVar(self, value=settings_visible)
 
         self.figure = Figure(figsize=(11, 8), facecolor=PLOT_BACKGROUND)
-        grid = self.figure.add_gridspec(
-            2,
-            2,
-            width_ratios=(1.25, 1.0),
-            height_ratios=(1.0, 1.0),
-            left=0.075,
-            right=0.975,
-            bottom=0.10,
-            top=0.91,
-            wspace=0.26,
-            hspace=0.36,
-        )
-        self.route_axis = self.figure.add_subplot(grid[:, 0])
-        self.route_axis.set_axes_locator(self._locate_route_axes)
-        self.mode_axis = self.figure.add_subplot(grid[0, 1])
-        self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
+        self._build_axes()
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self._key_press_connection = self.canvas.mpl_connect(
             "key_press_event", self.handle_key_press
@@ -136,6 +227,7 @@ class IMMPlotView(tk.Frame):
             self.slider,
             self.follow_checkbox,
             self.settings_checkbox,
+            self.group_selector,
         ):
             widget._observers.exception_handler = self._handle_plot_error
         self.figure.set_layout_engine(_IMMPredictorLayout(self))
@@ -145,6 +237,27 @@ class IMMPlotView(tk.Frame):
         self.toolbar.pack(fill="x", side="bottom")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self._draw()
+
+    def _build_axes(self) -> None:
+        """Keep the route fixed while selecting two or three right-hand panels."""
+        options = dict(
+            width_ratios=(1.25, 1.0),
+            left=0.075,
+            right=0.975,
+            bottom=0.10,
+            top=0.91,
+            wspace=0.26,
+            hspace=0.36,
+        )
+        grid = self.figure.add_gridspec(2, 2, **options)
+        motion_grid = self.figure.add_gridspec(3, 2, **options)
+        self.route_axis = self.figure.add_subplot(grid[:, 0])
+        self.route_axis.set_axes_locator(self._locate_route_axes)
+        self.mode_axis = self.figure.add_subplot(grid[0, 1])
+        self.uncertainty_axis = self.figure.add_subplot(grid[1, 1])
+        self.motion_axes = tuple(
+            self.figure.add_subplot(motion_grid[index, 1]) for index in range(3)
+        )
 
     def _build_controls(self) -> None:
         self.playback_button = Button(
@@ -188,6 +301,22 @@ class IMMPlotView(tk.Frame):
         self.settings_checkbox = checkbox(
             "Show settings", self.settings_visible_var, self._toggle_settings
         )
+        selector_axis = self.figure.add_axes((0.77, 0.035, 0.21, 0.10))
+        selector_axis.set_title("Display group", fontsize=10)
+        self.group_selector = RadioButtons(
+            selector_axis,
+            tuple(PANEL_GROUP_LABELS.values()),
+            active=0,
+        )
+        self.group_selector.on_clicked(self._select_panel_group)
+
+    def _select_panel_group(self, label) -> None:
+        if self._failed or self._destroyed:
+            return
+        self._panel_group = next(
+            key for key, text in PANEL_GROUP_LABELS.items() if text == label
+        )
+        self._draw()
 
     def _on_slider_change(self, value) -> None:
         if self._updating_slider or self._failed or self._destroyed:
@@ -245,6 +374,7 @@ class IMMPlotView(tk.Frame):
             self.slider,
             self.follow_checkbox,
             self.settings_checkbox,
+            self.group_selector,
         ):
             widget.active = False
 
@@ -409,8 +539,11 @@ class IMMPlotView(tk.Frame):
 
     def _draw(self) -> None:
         self._draw_route()
-        self._draw_mode_probabilities()
-        self._draw_uncertainty()
+        if self._panel_group == "motion":
+            self._draw_motion_posteriors()
+        else:
+            self._draw_mode_probabilities()
+            self._draw_uncertainty()
         self.figure.suptitle(
             f"IMM online update - N = {self._observation_count()}",
             fontsize=16,
@@ -418,6 +551,92 @@ class IMMPlotView(tk.Frame):
             color=TEXT_COLOR,
         )
         self.canvas.draw_idle()
+
+    def _draw_motion_posteriors(self) -> None:
+        """Plot cached model mixtures; retain a labelled fused-only backend fallback."""
+        stage = None if self.current_state is None else self.current_state.stage
+        posterior = None if stage is None else stage.posterior
+        mixture = None if stage is None else stage.posterior_mixture
+        specifications = (
+            ("Speed posterior", 4, 1.0, r"$v_N$ [m/s]", 1.0),
+            ("Heading posterior", 2, 180.0 / np.pi, r"$\theta_N$ [$^\circ$]", 10.0),
+            ("Turn-rate posterior", 3, 180.0 / np.pi, r"$\omega_N$ [$^\circ$/s]", 1.0),
+        )
+        for axis, (title, index, scale, xlabel, point_span) in zip(
+            self.motion_axes, specifications, strict=True
+        ):
+            axis.clear()
+            axis.set_facecolor("#FFFFFF")
+            axis.grid(True, alpha=0.25, linewidth=0.8)
+            axis.set_title(title, fontsize=11)
+            axis.set_xlabel(xlabel)
+            axis.set_ylabel("Density")
+            if posterior is None and mixture is None:
+                axis.text(
+                    0.5,
+                    0.5,
+                    "Available after\nN = 1"
+                    if self.current_state is None
+                    else "Fused state posterior\nunavailable",
+                    transform=axis.transAxes,
+                    ha="center",
+                    va="center",
+                    color="#52616B",
+                )
+                continue
+            if mixture is not None:
+                _draw_mixture_marginal(
+                    axis,
+                    mixture,
+                    index,
+                    scale,
+                    point_span,
+                    show_legend=self.store.config.show_legend,
+                )
+                if self.store.config.show_legend:
+                    axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
+                continue
+            mean = float(posterior.mean[index] * scale)
+            sigma = float(np.sqrt(max(0.0, posterior.covariance[index, index])) * scale)
+            if sigma == 0.0:
+                axis.axvline(mean, color="#24557A", linewidth=2.0, label="Point mass")
+                axis.set_xlim(mean - point_span, mean + point_span)
+                axis.set_yticks([])
+                axis.set_ylabel("Probability mass")
+                axis.text(
+                    0.02,
+                    0.96,
+                    "Fused-state fallback\nPoint mass (100%)",
+                    transform=axis.transAxes,
+                    va="top",
+                    fontsize=8,
+                )
+            else:
+                x = mean + sigma * np.linspace(-4.0, 4.0, 401)
+                density = np.exp(-0.5 * ((x - mean) / sigma) ** 2) / (
+                    sigma * np.sqrt(2.0 * np.pi)
+                )
+                axis.plot(
+                    x,
+                    density,
+                    color="#24557A",
+                    linewidth=2.0,
+                    label="Gaussian approximation",
+                )
+                axis.set_xlim(x[0], x[-1])
+                axis.set_ylim(bottom=0.0)
+                if not self.store.config.show_legend:
+                    axis.text(
+                        0.98,
+                        0.96,
+                        "Gaussian approximation",
+                        transform=axis.transAxes,
+                        ha="right",
+                        va="top",
+                        fontsize=8,
+                    )
+            if self.store.config.show_legend:
+                axis.legend(loc="upper right", fontsize=8, framealpha=0.9)
 
     def _draw_route(self) -> None:
         axis = self.route_axis
@@ -810,6 +1029,7 @@ class IMMPlotView(tk.Frame):
             self.slider,
             self.follow_checkbox,
             self.settings_checkbox,
+            self.group_selector,
         ):
             widget.disconnect_events()
         super().destroy()

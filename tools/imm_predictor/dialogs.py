@@ -336,8 +336,32 @@ IMM_HELP_SECTIONS = (
                 "N counts radar cycles from the selected start; each new cycle refreshes the forecast",
             ),
             (
+                "Display group",
+                "Switch between Motion state (three current-state marginals) and Forecast diagnostics (future model probabilities and forecast uncertainty)",
+            ),
+            (
+                "Motion state",
+                "Weighted CV/CTRV/CA posterior mixture, using the same local Gaussian state conversions as MATLAB output fusion but keeping the model components separate. Available from N = 1; each cycle and its model probabilities are cached",
+            ),
+            (
+                "IMM mixture posterior",
+                "The blue curve sums model densities with their current probabilities; it can have several peaks. This remains a filter approximation, not an exact nonlinear posterior. Headings use one local angle branch; Gaussian tails are not truncated, so negative speeds or angles outside the usual range can appear",
+            ),
+            (
+                "Point masses",
+                "Zero-variance model components are not given artificial noise. CV assumes exactly zero turn rate. Discrete probability is shown in the legend (or an annotation if hidden) and as a dotted guide beside a continuous density; the continuous area excludes that mass. For a purely discrete marginal, stem heights show probability. This is a model assumption, not physical certainty",
+            ),
+            (
+                "Gaussian approximation",
+                "Fallback for older local IMM backends exposing only a fused mean and covariance; it is labelled separately and cannot retain multiple model peaks",
+            ),
+            (
+                "Posterior medians",
+                "Sidebar speed, heading and turn rate are the marginal medians of the same cached model mixture shown in the motion plots, including point masses. No estimated-position field or inferred noise parameters are shown",
+            ),
+            (
                 "N = 0",
-                "Preview only; reference-state, track-state and evaluation values are not displayed",
+                "Preview only; reference-state, posterior-median and evaluation values are not displayed",
             ),
             (
                 "Analysis errors",
@@ -399,8 +423,8 @@ IMM_HELP_SECTIONS = (
                 "Use supplied rates, otherwise wrapped yaw differences, or course differences if yaw is absent, over the actual preceding time interval. Shown in degrees/s with (derived); unavailable values show a dash",
             ),
             (
-                "IMM track state",
-                "Fused IMM position; speed and heading are derived from the latest two track positions, turn rate from three",
+                "Posterior medians",
+                "The 50% quantile of each complete weighted IMM marginal, not an average of model medians or track-position differences. Discrete jumps are retained; if the median lies in the CV zero-turn-rate mass, it is exactly zero. Heading uses the plot's local branch and is displayed in [-180, 180) degrees. A fused-only Gaussian backend uses its mean as median",
             ),
             (
                 "Reference boundary",
