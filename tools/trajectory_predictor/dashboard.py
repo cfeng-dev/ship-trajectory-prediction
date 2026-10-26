@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 import matplotlib.pyplot as plt
@@ -352,6 +352,7 @@ class PosteriorDashboardForecast:
     sample_positions: np.ndarray
     posterior_positions: np.ndarray | None = None
     sample_origin_positions: np.ndarray | None = None
+    mean_positions: np.ndarray | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         offsets = np.asarray(self.time_offsets_seconds, dtype=float).copy()
@@ -402,6 +403,10 @@ class PosteriorDashboardForecast:
         ):
             values.setflags(write=False)
             object.__setattr__(self, name, values)
+        if len(posterior):
+            mean = np.mean(posterior, axis=0)
+            mean.setflags(write=False)
+            object.__setattr__(self, "mean_positions", mean)
 
 
 @dataclass(frozen=True, slots=True)
@@ -909,6 +914,7 @@ class PosteriorDashboardNavigator:
         show_sample_trajectories=True,
         connect_sample_trajectories=False,
         show_median_forecast=True,
+        show_mean_forecast=False,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
         prediction_region_style="funnel",
@@ -946,6 +952,7 @@ class PosteriorDashboardNavigator:
         self.show_sample_trajectories = show_sample_trajectories
         self.connect_sample_trajectories = connect_sample_trajectories
         self.show_median_forecast = show_median_forecast
+        self.show_mean_forecast = show_mean_forecast
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
         self.prediction_region_style = normalize_prediction_region_style(
@@ -1679,6 +1686,32 @@ class PosteriorDashboardNavigator:
                     zorder=4,
                     label="Forecast (median)",
                 )
+            if self.show_mean_forecast:
+                if forecast.mean_positions is not None:
+                    mean_x, mean_y = self._display_coordinates(
+                        forecast.mean_positions[:, 0], forecast.mean_positions[:, 1]
+                    )
+                    mean_path = np.vstack((origin, np.column_stack((mean_x, mean_y))))
+                    axis.plot(
+                        mean_path[:, 0],
+                        mean_path[:, 1],
+                        color="#B91C1C",
+                        linewidth=2.2,
+                        linestyle="--",
+                        marker=".",
+                        markersize=4,
+                        zorder=4,
+                        label="Forecast (mean)",
+                    )
+                else:
+                    axis.text(
+                        0.02,
+                        0.02,
+                        "Mean forecast unavailable: no posterior draws.",
+                        transform=axis.transAxes,
+                        fontsize=8,
+                        va="bottom",
+                    )
             title += f" · Forecast +{forecast.time_offsets_seconds[-1]:g} s"
         elif self.prediction_count:
             message = (
@@ -1710,6 +1743,7 @@ class PosteriorDashboardNavigator:
         show_median_forecast,
         show_prediction_region_50,
         show_prediction_region_90,
+        show_mean_forecast=None,
         connect_sample_trajectories=None,
         prediction_region_style=None,
         follow_ship_view_span_m=None,
@@ -1727,6 +1761,8 @@ class PosteriorDashboardNavigator:
         }
         if connect_sample_trajectories is not None:
             options["connect_sample_trajectories"] = connect_sample_trajectories
+        if show_mean_forecast is not None:
+            options["show_mean_forecast"] = show_mean_forecast
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
@@ -1916,6 +1952,7 @@ def create_sequential_posterior_dashboard_figure(
     show_sample_trajectories=True,
     connect_sample_trajectories=False,
     show_median_forecast=True,
+    show_mean_forecast=False,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
     prediction_region_style="funnel",
@@ -2012,6 +2049,7 @@ def create_sequential_posterior_dashboard_figure(
         show_sample_trajectories=show_sample_trajectories,
         connect_sample_trajectories=connect_sample_trajectories,
         show_median_forecast=show_median_forecast,
+        show_mean_forecast=show_mean_forecast,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
         prediction_region_style=prediction_region_style,

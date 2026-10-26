@@ -44,6 +44,7 @@ PLOT_DISPLAY_OPTIONS = {
     "show_imm_track": "Show IMM track through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show sampled IMM trajectories",
+    "show_forecast_median": "Show forecast (median)",
     "show_forecast_mean": "Show forecast (mean)",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
@@ -67,7 +68,8 @@ class IMMPlayerConfig:
     show_recorded_trajectory: bool = True
     show_imm_track: bool = True
     show_current_position: bool = True
-    show_forecast_mean: bool = True
+    show_forecast_median: bool = True
+    show_forecast_mean: bool = False
     show_sample_trajectories: bool = True
     prediction_sample_count: int = 20
     forecast_seed: int = 42
@@ -247,6 +249,7 @@ class IMMPlayerStage:
     sample_positions: np.ndarray | None = None
     posterior: IMMStatePosterior | None = None
     posterior_mixture: IMMStateMixture | None = None
+    forecast_median_positions: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,6 +443,7 @@ class IMMPlaybackStore:
             if self.config.prediction_count
             else None
         )
+        forecast_medians = _forecast_position_medians(self._tracker, forecast)
         sample_positions = None
         if forecast is not None and self.config.prediction_sample_count:
             seed = int(
@@ -474,6 +478,7 @@ class IMMPlaybackStore:
             sample_positions=sample_positions,
             posterior=posterior,
             posterior_mixture=posterior_mixture,
+            forecast_median_positions=forecast_medians,
         )
 
     def _validate_observation_count(self, observation_count: int) -> int:
@@ -566,6 +571,32 @@ def _posterior_medians(stage: IMMPlayerStage) -> IMMPosteriorMedians | None:
         return None
     heading = float(np.rad2deg((values[1] + np.pi) % (2 * np.pi) - np.pi))
     return IMMPosteriorMedians(float(values[0]), heading, float(np.rad2deg(values[2])))
+
+
+def _forecast_position_medians(tracker, forecast) -> np.ndarray | None:
+    """Read coordinatewise mixture medians independently of display path samples."""
+    if forecast is None:
+        return None
+    reader = getattr(tracker, "forecast_mixtures", None)
+    mixtures = reader(forecast.time_seconds) if callable(reader) else None
+    if mixtures is None:
+        # Older backends expose only a fused Gaussian: its marginal mean = median.
+        positions = np.asarray(forecast.position_means, dtype=float).copy()
+    else:
+        positions = np.array(
+            [
+                [mixture.marginal_median(index) for index in (0, 1)]
+                for mixture in mixtures
+            ]
+        )
+    if positions.shape != np.shape(forecast.position_means) or not np.all(
+        np.isfinite(positions)
+    ):
+        raise ValueError(
+            "IMM forecast medians must be finite matching (time, xy) positions."
+        )
+    positions.setflags(write=False)
+    return positions
 
 
 def _forecast_metrics(
@@ -735,6 +766,18 @@ def _load_optional_imm_tracker():
         return tracker_type
     to_ctrv = module.get("_to_ctrv")
 
+    def state_mixture(state) -> IMMStateMixture | None:
+        if not callable(to_ctrv):
+            return None
+        return IMMStateMixture(
+            state.mode_probabilities,
+            (
+                IMMStatePosterior(*to_ctrv(state.cv_state, state.cv_covariance)),
+                IMMStatePosterior(state.ctrv_state, state.ctrv_covariance),
+                IMMStatePosterior(*to_ctrv(state.ca_state, state.ca_covariance)),
+            ),
+        )
+
     class DisplayTracker(tracker_type):
         """Expose output moments without modifying the optional filter implementation."""
 
@@ -744,16 +787,41 @@ def _load_optional_imm_tracker():
 
         def posterior_mixture(self) -> IMMStateMixture | None:
             """Read the same model conversions as output fusion, without collapsing."""
-            if not callable(to_ctrv):
+            return state_mixture(self._state)
+
+        def forecast_mixtures(
+            self, future_time_seconds
+        ) -> tuple[IMMStateMixture, ...] | None:
+            """Read model components through the unchanged backend forecast equations."""
+            to_world = module.get("_state_in_world_coordinates")
+            predict = module.get("_predict_imm")
+            state_type = module.get("_IMMState")
+            validate_times = module.get("_validate_future_times")
+            if not all(
+                callable(function)
+                for function in (
+                    to_ctrv,
+                    to_world,
+                    predict,
+                    state_type,
+                    validate_times,
+                )
+            ):
                 return None
-            state = self._state
-            return IMMStateMixture(
-                state.mode_probabilities,
-                (
-                    IMMStatePosterior(*to_ctrv(state.cv_state, state.cv_covariance)),
-                    IMMStatePosterior(state.ctrv_state, state.ctrv_covariance),
-                    IMMStatePosterior(*to_ctrv(state.ca_state, state.ca_covariance)),
-                ),
+            times = validate_times(
+                future_time_seconds, after=self._last_observation_time_seconds
             )
+            state = to_world(self._state, self._sensor_position)
+            current_time = self._last_observation_time_seconds
+            mixtures = []
+            for future_time in times:
+                predictions, _, probabilities = predict(
+                    state, float(future_time - current_time), np.zeros(2)
+                )
+                cv, ctrv, ca = predictions
+                state = state_type(*cv, *ctrv, *ca, probabilities)
+                mixtures.append(state_mixture(state))
+                current_time = float(future_time)
+            return tuple(mixtures)
 
     return DisplayTracker

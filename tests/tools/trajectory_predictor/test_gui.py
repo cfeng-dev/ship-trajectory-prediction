@@ -430,15 +430,36 @@ def test_help_explains_analysis_metrics():
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
     assert dict(sections["Evaluation metrics"]) == {
-        "Forecast ADE": "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
-        "Forecast FDE": "Position error at the final forecast step in meters; lower is better.",
-        "Forecast RMSE": "Root mean squared 2D position error across all forecast steps in meters; lower is better.",
+        "Forecast ADE (median)": "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
+        "Forecast FDE (median)": "Position error of the median at the final forecast step in meters; lower is better.",
+        "Forecast RMSE (median)": "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
         "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
         "Predictive log density": "One-step-ahead log likelihood of the new observation; larger is better.",
         "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",
     }
+
+
+@pytest.mark.parametrize("tool", ["bayesian", "imm"])
+def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
+    from imm_predictor.dialogs import IMM_HELP_SECTIONS
+    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
+
+    sections = dict(
+        POSTERIOR_HELP_SECTIONS if tool == "bayesian" else IMM_HELP_SECTIONS
+    )
+    display = dict(
+        sections["Display" if tool == "bayesian" else "Plot display and uncertainty"]
+    )
+    assert "on by default" in display["Forecast (median)"]
+    assert "off by default" in display["Forecast (mean)"]
+    assert "together" in display["Forecast (mean)"]
+    metric_basis = "median" if tool == "bayesian" else "mean"
+    for label in ("ADE", "FDE", "RMSE"):
+        assert f"Forecast {label} ({metric_basis})" in dict(
+            sections["Evaluation metrics"]
+        )
 
 
 @pytest.mark.parametrize(
@@ -577,6 +598,76 @@ def _headless_imm_panels(stage, *, figure_size=(10, 6)):
     view._build_controls()
     view.figure.set_layout_engine(_IMMPredictorLayout(view))
     return view
+
+
+@pytest.mark.parametrize("coordinate_mode", ["m", "km"])
+@pytest.mark.parametrize("forecast_enabled", [False, True])
+def test_imm_forecast_switches_redraw_cached_mean_and_median(
+    coordinate_mode, forecast_enabled
+):
+    from dataclasses import replace
+
+    from imm_predictor.gui import IMMPredictorApp
+
+    means, medians = np.array([[14, 25], [15, 26]]), np.array([[12, 23], [13, 24]])
+    stage = replace(
+        _imm_motion_stage(),
+        forecast=SimpleNamespace(
+            position_means=means,
+            time_seconds=np.array([2.0, 3.0]),
+            position_covariances=np.repeat(np.eye(2)[None], 2, axis=0),
+            mode_probabilities=np.tile([0.7, 0.2, 0.1], (2, 1)),
+        )
+        if forecast_enabled
+        else None,
+        forecast_median_positions=medians if forecast_enabled else None,
+    )
+    view = _headless_imm_panels(stage)
+    view.show_reference_var = _Value(False)
+    view._coordinate_display_mode = coordinate_mode
+    view.store.config = replace(
+        view.store.config,
+        prediction_region_style="none",
+        prediction_count=2 if forecast_enabled else 0,
+    )
+    view._draw()
+    assert "Forecast (mean)" not in [line.get_label() for line in view.route_axis.lines]
+    app = IMMPredictorApp.__new__(IMMPredictorApp)
+    app._closing = False
+    app._analysis_active = True
+    app.config = view.store.config
+    app.store, app.plot_view = view.store, view
+    for show_median, show_mean in [
+        (True, False),
+        (False, True),
+        (True, True),
+        (False, False),
+    ]:
+        assert app._apply_plot_settings(
+            replace(
+                app.config,
+                show_forecast_median=show_median,
+                show_forecast_mean=show_mean,
+            )
+        )
+        lines = {line.get_label(): line for line in view.route_axis.lines}
+        assert ("Forecast (median)" in lines) == (forecast_enabled and show_median)
+        assert ("Forecast (mean)" in lines) == (forecast_enabled and show_mean)
+        scale = 0.001 if coordinate_mode == "km" else 1
+        if forecast_enabled and show_median:
+            np.testing.assert_allclose(
+                lines["Forecast (median)"].get_xydata()[1:], medians * scale
+            )
+        if forecast_enabled and show_mean:
+            np.testing.assert_allclose(
+                lines["Forecast (mean)"].get_xydata()[1:], means * scale
+            )
+        if forecast_enabled and show_mean and show_median:
+            assert (
+                lines["Forecast (mean)"].get_linestyle()
+                != lines["Forecast (median)"].get_linestyle()
+            )
+        assert view.current_state.stage is stage
 
 
 def test_imm_motion_panels_draw_fused_gaussian_marginals_in_display_units():

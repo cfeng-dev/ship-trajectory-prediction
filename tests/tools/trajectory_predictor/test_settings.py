@@ -124,7 +124,11 @@ def test_imm_posterior_snapshot_uses_the_loaded_output_fusion(tmp_path, monkeypa
     np.testing.assert_array_equal(state.mode_probabilities, [0.6, 0.3, 0.1])
 
 
-def test_imm_display_adapter_preserves_local_filter_forecasts():
+@pytest.mark.parametrize("sensor_position", [[0, 0], [100, -50]])
+@pytest.mark.parametrize("future_times", [[1.0, 2.0], [0.4, 2.7, 6.0]])
+def test_imm_display_adapter_preserves_local_filter_forecasts(
+    sensor_position, future_times
+):
     import runpy
     from copy import deepcopy
 
@@ -142,7 +146,10 @@ def test_imm_display_adapter_preserves_local_filter_forecasts():
         ca_covariance=np.zeros((6, 6)),
         mode_probabilities=np.array([0.5, 0.3, 0.2]),
     )
-    arguments = dict(_last_observation_time_seconds=0.0, _sensor_position=np.zeros(2))
+    arguments = dict(
+        _last_observation_time_seconds=0.0,
+        _sensor_position=np.asarray(sensor_position, dtype=float),
+    )
     original = module["BR24IMMTracker"](_state=deepcopy(state), **arguments)
     display = player._load_optional_imm_tracker()(_state=deepcopy(state), **arguments)
     posterior = display.posterior_state()
@@ -158,13 +165,39 @@ def test_imm_display_adapter_preserves_local_filter_forecasts():
         posterior.mean, [10.0, 20.0, np.arctan2(4, 3), 0.06, 5.0]
     )
     assert posterior.covariance[3, 3] == pytest.approx(0.0084)
-    expected, actual = original.forecast([1.0, 2.0]), display.forecast([1.0, 2.0])
+    expected, actual = original.forecast(future_times), display.forecast(future_times)
     np.testing.assert_array_equal(actual.position_means, expected.position_means)
     np.testing.assert_array_equal(
         actual.position_covariances, expected.position_covariances
     )
     np.testing.assert_array_equal(
         actual.mode_probabilities, expected.mode_probabilities
+    )
+    future_mixtures = display.forecast_mixtures(future_times)
+    assert len(future_mixtures) == len(future_times)
+    for index, mixture_at_horizon in enumerate(future_mixtures):
+        weights = mixture_at_horizon.weights
+        positions = np.array(
+            [component.mean[:2] for component in mixture_at_horizon.components]
+        )
+        mean = weights @ positions
+        covariance = sum(
+            weight
+            * (
+                component.covariance[:2, :2]
+                + np.outer(position - mean, position - mean)
+            )
+            for weight, component, position in zip(
+                weights, mixture_at_horizon.components, positions, strict=True
+            )
+        )
+        np.testing.assert_array_equal(weights, expected.mode_probabilities[index])
+        np.testing.assert_allclose(mean, expected.position_means[index])
+        np.testing.assert_allclose(covariance, expected.position_covariances[index])
+    after_read = display.forecast(future_times)
+    np.testing.assert_array_equal(after_read.position_means, expected.position_means)
+    np.testing.assert_array_equal(
+        after_read.position_covariances, expected.position_covariances
     )
     np.testing.assert_array_equal(display.posterior_state().mean, posterior.mean)
     np.testing.assert_array_equal(
@@ -245,6 +278,73 @@ def test_imm_mixture_rejects_invalid_model_probabilities(weights):
     component = IMMStatePosterior(np.zeros(5), np.eye(5))
     with pytest.raises(ValueError):
         IMMStateMixture(weights, (component, component, component))
+
+
+@pytest.mark.parametrize("has_mixture_reader", [False, True])
+@pytest.mark.parametrize("forecast_enabled", [False, True])
+def test_imm_forecast_medians_are_cached_without_visualization_samples(
+    has_mixture_reader, forecast_enabled
+):
+    from types import SimpleNamespace
+
+    from imm_predictor.player import (
+        IMMPlaybackStore,
+        IMMPlayerConfig,
+        IMMStateMixture,
+        IMMStatePosterior,
+    )
+
+    means = np.array([[2.0, 4.0], [3.0, 5.0]])
+    forecast = SimpleNamespace(time_seconds=np.array([1.0, 2.0]), position_means=means)
+    mixtures = tuple(
+        IMMStateMixture(
+            [0.75, 0.25, 0],
+            tuple(
+                IMMStatePosterior([x + step, y + step, 0, 0, 1], np.zeros((5, 5)))
+                for x, y in [(0, 0), (8, 16), (99, 99)]
+            ),
+        )
+        for step in (0, 1)
+    )
+
+    def read_mixtures(times):
+        assert forecast_enabled
+        np.testing.assert_array_equal(times, [1, 2])
+        return mixtures
+
+    tracker = SimpleNamespace(
+        last_observation_time_seconds=0.0, forecast=lambda times: forecast
+    )
+    if has_mixture_reader:
+        tracker.forecast_mixtures = read_mixtures
+    store = IMMPlaybackStore.__new__(IMMPlaybackStore)
+    store.config = IMMPlayerConfig(
+        prediction_count=2 if forecast_enabled else 0, prediction_sample_count=0
+    )
+    store.maximum_observation_count = 1
+    store.times = np.array([0.0, 1.0, 2.0])
+    store.cycles = [SimpleNamespace(cycle_counter=1)]
+    store._tracker = tracker
+    store._processed_cycle_count = 1
+    store._tracked_positions = [[0.0, 0.0]]
+    store._detection_ids = [1]
+    store._measurement_covariances = [None]
+    store._nis = [None]
+    store._stages = {}
+    store._capture_stage(update_time_seconds=0.01)
+    stage = store.stage_for(1)
+    assert stage.sample_positions is None
+    if forecast_enabled:
+        np.testing.assert_array_equal(
+            stage.forecast_median_positions,
+            [[0, 0], [1, 1]] if has_mixture_reader else means,
+        )
+        assert not stage.forecast_median_positions.flags.writeable
+        means[:] = 99
+        assert stage.forecast_median_positions[0, 0] != 99
+    else:
+        assert stage.forecast is None
+        assert stage.forecast_median_positions is None
 
 
 @pytest.mark.parametrize(
@@ -328,6 +428,23 @@ def form(tmp_path):
     data_file.touch()
     values["data"]["data_file"] = str(data_file)
     return values
+
+
+def test_both_predictors_default_to_median_and_keep_mean_plot_only(form):
+    from imm_predictor.player import IMMPlayerConfig
+
+    result = settings.parse_settings(form)
+    assert result.show_median_forecast is True
+    assert result.show_mean_forecast is False
+    assert IMMPlayerConfig().show_forecast_median is True
+    assert IMMPlayerConfig().show_forecast_mean is False
+    form["data"]["show_mean_forecast"] = True
+    result = settings.parse_settings(form)
+    assert result.show_mean_forecast is True
+    assert not hasattr(result.analysis.experiment, "show_mean_forecast")
+    form["data"]["show_mean_forecast"] = "yes"
+    with pytest.raises(ValueError, match="forecast"):
+        settings.parse_settings(form)
 
 
 @pytest.mark.parametrize("method", ["rbpf", "smc", "sequential_vi", "vi", "mcmc"])
@@ -669,6 +786,7 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_sample_trajectories": False,
         "connect_sample_trajectories": True,
         "show_median_forecast": True,
+        "show_mean_forecast": False,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
         "prediction_region_style": display_style,

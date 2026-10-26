@@ -709,7 +709,11 @@ class IMMPlotView(tk.Frame):
             if stage.forecast is None
             else np.asarray(stage.forecast.position_means, dtype=float) * scale
         )
-        forecast_route = np.vstack((tracked[-1], means))
+        medians = (
+            means
+            if stage.forecast_median_positions is None
+            else np.asarray(stage.forecast_median_positions, dtype=float) * scale
+        )
         if (
             self.store.config.show_sample_trajectories
             and stage.sample_positions is not None
@@ -727,24 +731,42 @@ class IMMPlotView(tk.Frame):
                     if index == 0
                     else "_nolegend_",
                 )
-        if len(means) and self.store.config.show_forecast_mean:
-            axis.plot(
-                forecast_route[:, 0],
-                forecast_route[:, 1],
-                color="#DC2626",
-                marker=".",
-                markersize=4,
-                linewidth=2.2,
-                label="Forecast (mean)",
-                zorder=4,
-            )
+        for positions, enabled, label, color, linestyle in (
+            (
+                medians,
+                self.store.config.show_forecast_median,
+                "Forecast (median)",
+                "#DC2626",
+                "-",
+            ),
+            (
+                means,
+                self.store.config.show_forecast_mean,
+                "Forecast (mean)",
+                "#B91C1C",
+                "--",
+            ),
+        ):
+            if len(positions) and enabled:
+                forecast_route = np.vstack((tracked[-1], positions))
+                axis.plot(
+                    forecast_route[:, 0],
+                    forecast_route[:, 1],
+                    color=color,
+                    linestyle=linestyle,
+                    marker=".",
+                    markersize=4,
+                    linewidth=2.2,
+                    label=label,
+                    zorder=4,
+                )
         region_handles = self._draw_prediction_uncertainty(axis, stage)
         if len(means):
             horizon = stage.forecast.time_seconds[-1] - stage.observation_time_seconds
             axis.set_title(
                 f"Ship movement · Forecast +{horizon:g} s", fontsize=13, pad=10
             )
-        self._set_route_limits(axis, tracked, means)
+        self._set_route_limits(axis, tracked, np.vstack((means, medians)))
         self._restore_route_limits(axis, view_limits)
         self._center_route_on_ship(axis, tracked)
         self._route_has_been_drawn = True

@@ -440,16 +440,16 @@ IMM_HELP_SECTIONS = (
         "Evaluation metrics",
         (
             (
-                "Forecast ADE",
-                "Mean 2D position error across the current forecast steps in meters; lower is better",
+                "Forecast ADE (mean)",
+                "Mean 2D position error of the analytic IMM mean across the current forecast steps in meters; lower is better",
             ),
             (
-                "Forecast FDE",
-                "Position error at the final forecast step in meters; lower is better",
+                "Forecast FDE (mean)",
+                "Position error of the analytic IMM mean at the final forecast step in meters; lower is better",
             ),
             (
-                "Forecast RMSE",
-                "Root mean squared 2D position error across the current forecast steps in meters; lower is better",
+                "Forecast RMSE (mean)",
+                "Root mean squared 2D position error of the analytic IMM mean across the current forecast steps in meters; lower is better",
             ),
             (
                 "Forecast Energy Score",
@@ -504,7 +504,15 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Display layers",
-                "Toggle the legend, reference trajectory, IMM track, current position, sampled paths and forecast mean",
+                "Toggle the legend, reference trajectory, IMM track, current position, sampled paths, forecast median and mean",
+            ),
+            (
+                "Forecast (median)",
+                "Solid red coordinate-wise median of each future CV/CTRV/CA position mixture, independent of the displayed path count; on by default. For a fused Gaussian-only backend, median equals mean",
+            ),
+            (
+                "Forecast (mean)",
+                "Dashed red analytic IMM mean from the original backend; off by default. Mean and median can be shown together without restarting analysis",
             ),
             (
                 "Prediction uncertainty",
@@ -532,7 +540,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Forecast mean / metrics",
-                "The analytic mean, covariance regions and evaluation metrics are independent of the displayed sampled paths",
+                "ADE, FDE and RMSE always evaluate the analytic mean. Gaussian covariance regions and all scores stay unchanged by forecast-line switches or the displayed path count",
             ),
         ),
     ),

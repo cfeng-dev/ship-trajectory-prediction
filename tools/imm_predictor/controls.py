@@ -112,9 +112,9 @@ class IMMControls(tk.Frame):
             body,
             "Evaluation metrics",
             (
-                ("Forecast ADE", "ade"),
-                ("Forecast FDE", "fde"),
-                ("Forecast RMSE", "rmse"),
+                ("Forecast ADE (mean)", "ade"),
+                ("Forecast FDE (mean)", "fde"),
+                ("Forecast RMSE (mean)", "rmse"),
                 ("Forecast Energy Score", "energy_score"),
                 ("Predictive log density", "log_density"),
                 ("Joint 50% coverage", "coverage_50"),

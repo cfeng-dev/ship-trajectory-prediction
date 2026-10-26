@@ -190,16 +190,16 @@ POSTERIOR_HELP_SECTIONS = (
         "Evaluation metrics",
         (
             (
-                "Forecast ADE",
+                "Forecast ADE (median)",
                 "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
             ),
             (
-                "Forecast FDE",
-                "Position error at the final forecast step in meters; lower is better.",
+                "Forecast FDE (median)",
+                "Position error of the median at the final forecast step in meters; lower is better.",
             ),
             (
-                "Forecast RMSE",
-                "Root mean squared 2D position error across all forecast steps in meters; lower is better.",
+                "Forecast RMSE (median)",
+                "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
             ),
             (
                 "Forecast Energy Score",
@@ -272,7 +272,15 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Forecast (median)",
-                "Red coordinate-wise median of future latent positions, not a single sampled trajectory",
+                "Solid red coordinate-wise median of all future latent-position draws; on by default, not a single sampled trajectory",
+            ),
+            (
+                "Forecast (mean)",
+                "Dashed red mean of all future latent-position draws, independent of the displayed path count; off by default. Mean and median can be shown together",
+            ),
+            (
+                "Forecast metrics",
+                "ADE, FDE and RMSE always evaluate the median, regardless of visible forecast lines; display switches do not change inference, regions or scores",
             ),
             (
                 "Possible future trajectories",

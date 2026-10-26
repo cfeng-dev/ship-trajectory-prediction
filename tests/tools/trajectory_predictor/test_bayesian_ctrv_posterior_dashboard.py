@@ -305,6 +305,137 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
         navigator.disconnect()
 
 
+@pytest.mark.parametrize("display_samples", [0, 1])
+def test_forecast_mean_uses_all_posterior_draws_not_the_display_subset(display_samples):
+    dashboard = _load_dashboard_module()
+    posterior = np.array(
+        [
+            [[0, 0], [1, 1]],
+            [[0, 0], [1, 1]],
+            [[9, 12], [10, 13]],
+        ],
+        dtype=float,
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        [1, 2],
+        [[0, 0], [1, 1]],
+        posterior[2 : 2 + display_samples],
+        posterior_positions=posterior,
+    )
+    posterior[:] = 99
+    np.testing.assert_array_equal(forecast.mean_positions, [[3, 4], [4, 5]])
+    np.testing.assert_array_equal(forecast.median_positions, [[0, 0], [1, 1]])
+    assert not forecast.mean_positions.flags.writeable
+
+
+def test_legacy_forecast_without_any_draws_does_not_invent_a_mean():
+    dashboard = _load_dashboard_module()
+    forecast = dashboard.PosteriorDashboardForecast([1], [[2, 3]], np.empty((0, 1, 2)))
+    assert forecast.mean_positions is None
+
+
+@pytest.mark.parametrize("coordinate_mode", ["m", "km"])
+@pytest.mark.parametrize("forecast_enabled", [False, True])
+def test_forecast_mean_and_median_toggle_independently_without_inference(
+    coordinate_mode, forecast_enabled
+):
+    dashboard = _load_dashboard_module()
+    posterior = np.array(
+        [
+            [[0, 0], [1000, 1000]],
+            [[0, 0], [1000, 1000]],
+            [[9000, 12000], [10000, 13000]],
+        ]
+    )
+    forecast = (
+        dashboard.PosteriorDashboardForecast(
+            [1, 2],
+            [[0, 0], [1000, 1000]],
+            np.empty((0, 2, 2)),
+            posterior_positions=posterior,
+        )
+        if forecast_enabled
+        else None
+    )
+    loads = []
+
+    def load(count):
+        loads.append(count)
+        return dashboard.PosteriorDashboardUpdate(
+            count, _dashboard_samples(), forecast=forecast
+        )
+
+    trajectory = dashboard.PosteriorDashboardTrajectory(*([np.arange(4.0)] * 4))
+    figure = Figure()
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        figure=figure,
+        maximum_observation_count=4,
+        prediction_count=2 if forecast_enabled else 0,
+        coordinate_display_mode=coordinate_mode,
+        prediction_region_style="none",
+    )
+    try:
+        navigator.slider.set_val(1)
+        navigator.show_selected_observation_count(None)
+        before = dashboard.analysis_metrics_at(
+            trajectory, navigator._updates_by_count, 1
+        )
+        assert "Forecast (mean)" not in [
+            line.get_label() for line in navigator.trajectory_axis.lines
+        ]
+        for show_median, show_mean in [
+            (True, False),
+            (False, True),
+            (True, True),
+            (False, False),
+        ]:
+            navigator.set_display_options(
+                show_legend=True,
+                show_reference_trajectory=True,
+                show_observed_trajectory=True,
+                show_current_position=True,
+                show_sample_trajectories=False,
+                show_median_forecast=show_median,
+                show_mean_forecast=show_mean,
+                show_prediction_region_50=False,
+                show_prediction_region_90=False,
+            )
+            lines = {line.get_label(): line for line in navigator.trajectory_axis.lines}
+            assert ("Forecast (median)" in lines) == (forecast_enabled and show_median)
+            assert ("Forecast (mean)" in lines) == (forecast_enabled and show_mean)
+            if forecast_enabled:
+                scale = 0.001 if coordinate_mode == "km" else 1.0
+                if show_mean:
+                    np.testing.assert_allclose(
+                        lines["Forecast (mean)"].get_xydata()[1:],
+                        np.array([[3000, 4000], [4000, 5000]]) * scale,
+                    )
+                if show_median:
+                    np.testing.assert_allclose(
+                        lines["Forecast (median)"].get_xydata()[1:],
+                        np.array([[0, 0], [1000, 1000]]) * scale,
+                    )
+                if show_mean and show_median:
+                    assert (
+                        lines["Forecast (mean)"].get_linestyle()
+                        != lines["Forecast (median)"].get_linestyle()
+                    )
+            assert (
+                dashboard.analysis_metrics_at(
+                    trajectory, navigator._updates_by_count, 1
+                )
+                == before
+            )
+        assert loads == [1]
+        assert navigator._updates_by_count[1].forecast is forecast
+    finally:
+        navigator.disconnect()
+
+
 def test_dashboard_falls_back_to_metres_when_gps_is_requested():
     """Processed trajectories cannot be displayed as GPS coordinates."""
     dashboard = _load_dashboard_module()
