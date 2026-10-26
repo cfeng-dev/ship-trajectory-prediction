@@ -15,6 +15,7 @@ import bayestraj.observations.paths as paths
 import bayestraj.validation.plotting as validation_plotting
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
+import bayestraj.validation.runtime_plotting as runtime_plotting
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
@@ -30,6 +31,7 @@ CREDIBLE_INTERVAL = 0.9
 GAUSSIAN_PLOT_DRAWS = 1_000
 PLOT_SEED = 42
 SHOW_ROLLING_PLOT = True
+SHOW_ROLLING_DIAGNOSTICS_PLOT = True
 
 # The IMM forecast covariance is the complete predictive position uncertainty.
 # This small numerical floor only makes the Gaussian log density well defined.
@@ -77,6 +79,8 @@ def main(argv=None):
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_csv(OUTPUT_CSV, index=False)
     print(f"\nSaved per-forecast IMM metrics: {OUTPUT_CSV}")
+    if options.show_plot and SHOW_ROLLING_DIAGNOSTICS_PLOT:
+        runtime_plotting.plot_imm_rolling_diagnostics(predictions)
     return predictions, summary
 
 
@@ -223,7 +227,7 @@ def _parse_arguments(argv) -> IMMOptions:
         action="store_false",
         dest="show_plot",
         default=SHOW_ROLLING_PLOT,
-        help="Print and export metrics without plotting forecast paths.",
+        help="Print and export metrics without opening plots.",
     )
     arguments = parser.parse_args(argv)
     for name, value in (

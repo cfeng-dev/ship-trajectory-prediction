@@ -1,4 +1,4 @@
-"""Tests for the processed-trajectory plotting entrypoints."""
+"""Tests for trajectory plotting and evaluation entrypoints."""
 
 import runpy
 from pathlib import Path
@@ -11,6 +11,60 @@ import pytest
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 
 PROJECT_ROOT = Path(__file__).parents[1]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "diagnostics_enabled", "expected_plots"),
+    [
+        ([], True, 6),
+        (["--stride", "2"], True, 6),
+        (["--no-plot"], True, 0),
+        ([], False, 0),
+    ],
+)
+def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
+    tmp_path, monkeypatch, arguments, diagnostics_enabled, expected_plots
+):
+    module = runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py")
+    predictions = pd.DataFrame(
+        {
+            "window_index": [0, 0, 1, 1],
+            "forecast_origin_seconds": [100.0, 100.0, 102.5, 102.5],
+            "horizon_step": [1, 2, 1, 2],
+            "position_error_m": [3.0, 4.0, 5.0, 12.0],
+            "log_predictive_density": [-1.0, -3.0, -5.0, -7.0],
+            "energy_score_m": [2.0, 4.0, 6.0, 10.0],
+            "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02],
+            "inference_method": ["imm"] * 4,
+        }
+    )
+    original = predictions.copy(deep=True)
+    summary = object()
+    output_csv = tmp_path / "results" / "imm.csv"
+    namespace = module["main"].__globals__
+
+    def evaluate(options):
+        assert options.show_plot == ("--no-plot" not in arguments)
+        assert options.stride == (2 if "--stride" in arguments else 1)
+        return predictions, summary
+
+    monkeypatch.setitem(namespace, "run_imm_evaluation", evaluate)
+    monkeypatch.setitem(namespace, "OUTPUT_CSV", output_csv)
+    monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", diagnostics_enabled)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    try:
+        result, returned_summary = module["main"](arguments)
+        assert result is predictions and returned_summary is summary
+        pd.testing.assert_frame_equal(result, original)
+        pd.testing.assert_frame_equal(pd.read_csv(output_csv), original)
+        assert len(shown) == expected_plots
+        for figure in shown:
+            assert figure._suptitle.get_text() == "IMM"
+            np.testing.assert_allclose(figure.axes[0].lines[0].get_xdata(), [0, 2.5])
+    finally:
+        for figure in shown:
+            plt.close(figure)
 
 
 @pytest.mark.parametrize(

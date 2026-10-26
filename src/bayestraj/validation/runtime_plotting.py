@@ -65,6 +65,26 @@ def plot_bayesian_ctrv_inference_runtime(predictions, *, inference_selection=Non
 
 def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=None):
     """Plot each rolling Bayesian CTRV metric in its own sequential figure."""
+    return _plot_rolling_diagnostics(
+        predictions,
+        title_template="Bayesian CTRV ({inference_title})",
+        inference_selection=inference_selection,
+    )
+
+
+def plot_imm_rolling_diagnostics(predictions):
+    """Plot rolling IMM metrics in the same style as the Bayesian evaluator."""
+    return _plot_rolling_diagnostics(
+        predictions,
+        title_template="IMM",
+        runtime_label="Update-/Forecast-Laufzeit",
+    )
+
+
+def _plot_rolling_diagnostics(
+    predictions, *, title_template, inference_selection=None, runtime_label=None
+):
+    """Validate, aggregate and render one shared set of rolling metric figures."""
     required_columns = {
         "window_index",
         "forecast_origin_seconds",
@@ -98,6 +118,10 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
         value_name,
         mean_label,
     ) in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+        if value_name == "fit_runtime_seconds" and runtime_label is not None:
+            y_axis_label = f"{runtime_label} [s]"
+            label = runtime_label
+            mean_label = f"Mittlere {runtime_label}: {{mean:.3f}} s"
         figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
         axis.plot(
             elapsed_time_seconds,
@@ -130,7 +154,7 @@ def plot_bayesian_ctrv_rolling_diagnostics(predictions, *, inference_selection=N
         axis.grid(True, which="major", axis="both", color="0.7", alpha=0.2)
         axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
         figure.suptitle(
-            f"Bayesian CTRV ({inference_title})",
+            title_template.format(inference_title=inference_title),
             fontsize=RUNTIME_PLOT_STYLE.title_font_size,
             fontweight=RUNTIME_PLOT_STYLE.title_font_weight,
         )

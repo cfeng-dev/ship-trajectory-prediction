@@ -364,8 +364,10 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
     assert axis.legend_location == "upper right"
 
 
+@pytest.mark.parametrize("model", ["bayesian", "imm"])
 def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_titles(
     monkeypatch,
+    model,
 ):
     predictions = pd.DataFrame(
         {
@@ -376,9 +378,10 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "log_predictive_density": [-5.0, -1.0, -7.0, -3.0, -5.0],
             "energy_score_m": [6.0, 2.0, 10.0, 4.0, 6.0],
             "fit_runtime_seconds": [2.0, 1.0, 2.0, 1.0, 1.0],
-            "inference_method": ["smc", "smc", "smc", "smc", "smc"],
+            "inference_method": ["smc" if model == "bayesian" else "imm"] * 5,
         }
     )
+    original = predictions.copy(deep=True)
     shown_figures = []
     monkeypatch.setattr(
         runtime_plotting.plt,
@@ -386,9 +389,15 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         lambda: shown_figures.append(runtime_plotting.plt.gcf()),
     )
 
-    figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
-        predictions,
-        inference_selection="smc_expanding",
+    if model == "bayesian":
+        figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
+            predictions,
+            inference_selection="smc_expanding",
+        )
+    else:
+        figures = runtime_plotting.plot_imm_rolling_diagnostics(predictions)
+    runtime_label = (
+        "Inferenzzeit" if model == "bayesian" else "Update-/Forecast-Laufzeit"
     )
 
     expected_plots = (
@@ -419,12 +428,12 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "Mittlerer Energy Score: 6.00 m",
         ),
         (
-            "Inferenzzeit [s]",
-            "Inferenzzeit",
+            f"{runtime_label} [s]",
+            runtime_label,
             "#56B4E9",
             [1.0, 2.0],
             1.5,
-            "Mittlere Inferenzzeit: 1.500 s",
+            f"Mittlere {runtime_label}: 1.500 s",
         ),
     )
     assert len(figures) == len(expected_plots)
@@ -436,7 +445,12 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
     ):
         assert figure._suptitle.get_fontsize() == 13
         assert figure._suptitle.get_fontweight() == "bold"
-        assert figure._suptitle.get_text() == "Bayesian CTRV (SMC, wachsendes Fenster)"
+        assert figure._suptitle.get_text() == (
+            "Bayesian CTRV (SMC, wachsendes Fenster)" if model == "bayesian" else "IMM"
+        )
+        assert figure.get_size_inches() == pytest.approx(
+            runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
+        )
         assert axis.get_xlabel() == "Zeit [s]"
         assert axis.get_title() == ""
         assert axis.get_ylabel() == ylabel
@@ -455,4 +469,45 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             label,
             mean_label,
         ]
-        figure.clf()
+        runtime_plotting.plt.close(figure)
+    pd.testing.assert_frame_equal(predictions, original)
+
+
+@pytest.mark.parametrize("model", ["bayesian", "imm"])
+@pytest.mark.parametrize(
+    "invalid", ["missing_column", "empty", "mixed_methods", "nonfinite", "mixed_times"]
+)
+def test_rolling_diagnostics_reject_invalid_tables_before_opening_figures(
+    model, invalid
+):
+    predictions = pd.DataFrame(
+        {
+            "window_index": [0, 0],
+            "forecast_origin_seconds": [100.0, 100.0],
+            "horizon_step": [1, 2],
+            "position_error_m": [3.0, 4.0],
+            "log_predictive_density": [-1.0, -2.0],
+            "energy_score_m": [2.0, 3.0],
+            "fit_runtime_seconds": [0.01, 0.01],
+            "inference_method": ["smc" if model == "bayesian" else "imm"] * 2,
+        }
+    )
+    if invalid == "missing_column":
+        predictions = predictions.drop(columns="energy_score_m")
+    elif invalid == "empty":
+        predictions = predictions.iloc[:0]
+    elif invalid == "mixed_methods":
+        predictions.loc[1, "inference_method"] = "other"
+    elif invalid == "nonfinite":
+        predictions.loc[1, "position_error_m"] = np.nan
+    else:
+        predictions.loc[1, "forecast_origin_seconds"] = 101.0
+    plot = (
+        runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics
+        if model == "bayesian"
+        else runtime_plotting.plot_imm_rolling_diagnostics
+    )
+    figures_before = runtime_plotting.plt.get_fignums()
+    with pytest.raises(ValueError):
+        plot(predictions)
+    assert runtime_plotting.plt.get_fignums() == figures_before
