@@ -1,11 +1,15 @@
 """Plot rolling-evaluation diagnostics for trajectory forecasts."""
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
+COMPARISON_MODEL_COLORS = ("#0072B2", "#E69F00")
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
     ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
     (
@@ -79,6 +83,66 @@ def plot_imm_rolling_diagnostics(predictions):
         title_template="IMM",
         runtime_label="Update-/Forecast-Laufzeit",
     )
+
+
+def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
+    """Plot already aligned tables with the evaluator's aggregation and style."""
+    series = [_rolling_window_metric_series(table) for table in (bayesian, imm)]
+    elapsed = series[0][0] - series[0][0][0]
+    style = RUNTIME_PLOT_STYLE
+    labels = (f"Bayesian CTRV ({bayesian['inference_method'].iloc[0].upper()})", "IMM")
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    figures, rows = [], []
+    for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+        if name == "fit_runtime_seconds":
+            ylabel = "Laufzeit [s]"
+        figure, axis = plt.subplots(figsize=style.speed_figure_size)
+        averages = []
+        for (_, values), label, color in zip(
+            series, labels, COMPARISON_MODEL_COLORS, strict=True
+        ):
+            metric = values[name]
+            average = float(np.mean(metric))
+            averages.append(average)
+            axis.plot(
+                elapsed, metric, marker="o", markersize=3, color=color, label=label
+            )
+            axis.axhline(
+                average,
+                color=color,
+                linestyle="--",
+                label=f"{label}: Mittel = {average:.3f}",
+            )
+        axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
+        axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
+        axis.tick_params(axis="both", labelsize=style.axis_tick_font_size)
+        axis.set_axisbelow(True)
+        axis.grid(True, which="major", axis="both", color="0.7", alpha=0.2)
+        axis.legend(loc=style.legend_location)
+        figure.suptitle(
+            "Bayesian CTRV vs. IMM",
+            fontsize=style.title_font_size,
+            fontweight=style.title_font_weight,
+        )
+        figure.tight_layout()
+        if output_dir is not None:
+            figure.savefig(output_dir / f"{name}.png", dpi=150, bbox_inches="tight")
+        if show:
+            plt.show()
+        figures.append((figure, axis))
+        rows.append(
+            {
+                "metric": name,
+                "bayesian_ctrv": averages[0],
+                "imm": averages[1],
+                "preferred": "higher"
+                if name == "mean_log_predictive_density"
+                else "lower",
+            }
+        )
+    return pd.DataFrame(rows), tuple(figures)
 
 
 def _plot_rolling_diagnostics(

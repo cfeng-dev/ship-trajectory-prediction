@@ -8,8 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from bayestraj.validation import comparison, runtime_plotting
+
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "experiments/model_evaluation/compare_bayesian_imm.py"
+SCRIPT = ROOT / "experiments/model_comparison/compare_bayesian_ctrv_imm.py"
 
 
 def _table(model):
@@ -43,12 +45,11 @@ def _table(model):
 
 
 def test_comparison_aligns_by_origin_and_horizon_not_window_id_or_row_order():
-    module = runpy.run_path(SCRIPT)
     bayesian = _table("bayesian").iloc[[3, 0, 2, 1]]
     imm = _table("imm").iloc[[2, 1, 3, 0]]
     original_bayesian, original_imm = bayesian.copy(deep=True), imm.copy(deep=True)
 
-    left, right = module["prepare_comparison"](bayesian, imm)
+    left, right = comparison.prepare_comparison(bayesian, imm)
 
     assert left["window_index"].tolist() == [0, 0, 1, 1]
     assert right["window_index"].tolist() == [10, 10, 20, 20]
@@ -60,28 +61,25 @@ def test_comparison_aligns_by_origin_and_horizon_not_window_id_or_row_order():
 
 
 def test_comparison_uses_only_complete_common_forecast_origins():
-    module = runpy.run_path(SCRIPT)
     imm = _table("imm").iloc[2:]
     with pytest.warns(UserWarning, match="omitted|unmatched"):
-        bayesian, matched_imm = module["prepare_comparison"](_table("bayesian"), imm)
+        bayesian, matched_imm = comparison.prepare_comparison(_table("bayesian"), imm)
     assert bayesian["forecast_origin_seconds"].tolist() == [120, 120]
     assert matched_imm["forecast_origin_seconds"].tolist() == [120, 120]
 
 
 def test_comparison_accepts_equivalent_target_time_zones_and_resolutions():
-    module = runpy.run_path(SCRIPT)
     bayesian = _table("bayesian")
     bayesian["time"] = bayesian["time"].dt.tz_convert("Europe/Berlin").dt.as_unit("us")
-    left, right = module["prepare_comparison"](bayesian, _table("imm"))
+    left, right = comparison.prepare_comparison(bayesian, _table("imm"))
     assert (left["time"] == right["time"]).all()
 
 
 def test_comparison_does_not_truncate_different_complete_forecast_horizons():
-    module = runpy.run_path(SCRIPT)
     imm = _table("imm").iloc[[0, 2]].copy()
     imm["prediction_count"] = 1
     with pytest.raises(ValueError, match="identical complete horizons"):
-        module["prepare_comparison"](_table("bayesian"), imm)
+        comparison.prepare_comparison(_table("bayesian"), imm)
 
 
 @pytest.mark.parametrize(
@@ -104,7 +102,6 @@ def test_comparison_does_not_truncate_different_complete_forecast_horizons():
     ],
 )
 def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
-    module = runpy.run_path(SCRIPT)
     table = _table("bayesian")
     if problem == "empty":
         table = table.iloc[:0]
@@ -137,13 +134,12 @@ def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
         table.loc[0, "horizon_step"] = 1.5
     existing_figures = plt.get_fignums()
     with pytest.raises(ValueError, match=message):
-        module["prepare_comparison"](table, _table("imm"))
+        comparison.prepare_comparison(table, _table("imm"))
     assert plt.get_fignums() == existing_figures
 
 
 @pytest.mark.parametrize("problem", ["reference", "horizons", "time", "no_common"])
 def test_comparison_rejects_incompatible_forecasts(problem):
-    module = runpy.run_path(SCRIPT)
     imm = _table("imm")
     if problem == "reference":
         imm["x_actual"] += 100
@@ -165,15 +161,14 @@ def test_comparison_rejects_incompatible_forecasts(problem):
             imm["forecast_origin_seconds"] + imm["horizon_seconds"], unit="s", utc=True
         )
     with pytest.raises(ValueError, match="reference|horizon|time|common"):
-        module["prepare_comparison"](_table("bayesian"), imm)
+        comparison.prepare_comparison(_table("bayesian"), imm)
 
 
 def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatch):
-    module = runpy.run_path(SCRIPT)
-    left, right = module["prepare_comparison"](_table("bayesian"), _table("imm"))
+    left, right = comparison.prepare_comparison(_table("bayesian"), _table("imm"))
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
-    summary, figures = module["plot_comparison"](left, right)
+    summary, figures = runtime_plotting.plot_bayesian_imm_comparison(left, right)
     try:
         assert len(figures) == len(shown) == 6
         indexed = summary.set_index("metric")
@@ -215,55 +210,129 @@ def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatc
             plt.close(figure)
 
 
-def test_comparison_cli_reads_csv_and_saves_plots_without_running_models(
+def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
     tmp_path, monkeypatch, capsys
 ):
     module = runpy.run_path(SCRIPT)
+    namespace = module["main"].__globals__
+    monkeypatch.setattr("sys.argv", [str(SCRIPT)])
     from imm_predictor import player
 
     from bayestraj.validation import bayesian_ctrv_workflow
 
     def forbidden(*args, **kwargs):
-        pytest.fail("CSV comparison must never run a model")
+        pytest.fail("CSV comparison must not run models")
 
     monkeypatch.setattr(
         bayesian_ctrv_workflow, "run_bayesian_ctrv_evaluation", forbidden
     )
     monkeypatch.setattr(player, "_load_optional_imm_tracker", forbidden)
-    monkeypatch.setattr(plt, "show", forbidden)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     bayesian_csv, imm_csv = tmp_path / "bayesian.csv", tmp_path / "imm.csv"
     _table("bayesian").to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
     originals = [path.read_bytes() for path in (bayesian_csv, imm_csv)]
-    output = tmp_path / "plots"
-    previous_figures = plt.get_fignums()
-    summary = module["main"](
-        [
-            "--bayesian-csv",
-            str(bayesian_csv),
-            "--imm-csv",
-            str(imm_csv),
-            "--output-dir",
-            str(output),
-            "--no-show",
-        ]
-    )
-    assert len(summary) == 6
-    assert len(list(output.glob("*.png"))) == 6
-    assert all(path.stat().st_size > 1_000 for path in output.glob("*.png"))
-    assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == originals
-    assert plt.get_fignums() == previous_figures
-    report = capsys.readouterr().out
-    assert "Matched forecast origins: 2" in report
-    assert "Gaussian" in report and "lower" in report and "higher" in report
+    monkeypatch.setitem(namespace, "BAYESIAN_CSV", bayesian_csv)
+    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+    previous_figures = set(plt.get_fignums())
+    try:
+        summary = module["main"]()
+
+        assert len(summary) == 6
+        assert len(shown) == 6
+        assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
+        assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == originals
+        assert len(set(plt.get_fignums()) - previous_figures) == 6
+        report = capsys.readouterr().out
+        assert "Matched forecast origins: 2" in report
+        assert "Gaussian" in report and "lower" in report and "higher" in report
+    finally:
+        for figure_number in set(plt.get_fignums()) - previous_figures:
+            plt.close(figure_number)
 
 
-def test_comparison_reports_missing_csv_without_creating_outputs(tmp_path, capsys):
+@pytest.mark.parametrize("show", [False, True])
+def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
+    tmp_path, monkeypatch, capsys, show
+):
+    bayesian_csv, imm_csv = tmp_path / "bayesian.csv", tmp_path / "imm.csv"
+    _table("bayesian").iloc[::-1].to_csv(bayesian_csv, index=False)
+    _table("imm").iloc[::-1].to_csv(imm_csv, index=False)
+    original_csvs = [path.read_bytes() for path in (bayesian_csv, imm_csv)]
+    previous_figures = set(plt.get_fignums())
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+
+    try:
+        bayesian, imm = comparison.read_comparison_csvs(str(bayesian_csv), imm_csv)
+        summary = comparison.run_comparison(bayesian, imm, show=show)
+
+        assert bayesian["forecast_origin_seconds"].tolist() == [100, 100, 120, 120]
+        assert imm["window_index"].tolist() == [10, 10, 20, 20]
+        assert len(summary) == 6
+        indexed = summary.set_index("metric")
+        assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
+        assert indexed.loc["ade_m", "imm"] == 9.25
+        assert indexed.loc["fde_m", "bayesian_ctrv"] == 8.0
+        assert indexed.loc["fde_m", "imm"] == 11.5
+        assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
+        assert indexed.loc["fit_runtime_seconds", "imm"] == 0.003
+        assert len(shown) == (6 if show else 0)
+        assert len(set(plt.get_fignums()) - previous_figures) == (6 if show else 0)
+        assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == original_csvs
+        assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
+        report = capsys.readouterr().out
+        assert "Matched forecast origins: 2" in report
+        assert "Matched forecast positions: 4" in report
+        assert "Mean metrics per matched forecast origin" in report
+        assert "Gaussian" in report and "posterior samples" in report
+    finally:
+        for figure_number in set(plt.get_fignums()) - previous_figures:
+            plt.close(figure_number)
+
+
+def test_comparison_script_shows_plots_using_configured_csvs(
+    tmp_path, monkeypatch, capsys
+):
     module = runpy.run_path(SCRIPT)
+    namespace = module["main"].__globals__
+    monkeypatch.setattr("sys.argv", [str(SCRIPT)])
+    bayesian_csv, imm_csv = (
+        tmp_path / "configured_bayesian.csv",
+        tmp_path / "configured_imm.csv",
+    )
+    _table("bayesian").to_csv(bayesian_csv, index=False)
+    _table("imm").to_csv(imm_csv, index=False)
+    monkeypatch.setitem(namespace, "BAYESIAN_CSV", bayesian_csv)
+    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    previous_figures = set(plt.get_fignums())
+
+    try:
+        summary = module["main"]()
+
+        indexed = summary.set_index("metric")
+        assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
+        assert indexed.loc["ade_m", "imm"] == 9.25
+        assert len(shown) == 6
+        assert "Matched forecast positions: 4" in capsys.readouterr().out
+        assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
+    finally:
+        for figure_number in set(plt.get_fignums()) - previous_figures:
+            plt.close(figure_number)
+
+
+def test_comparison_reports_missing_csv_without_creating_outputs(tmp_path, monkeypatch):
+    module = runpy.run_path(SCRIPT)
+    missing_csv = tmp_path / "absent.csv"
+    monkeypatch.setattr("sys.argv", [str(SCRIPT)])
+    monkeypatch.setitem(module["main"].__globals__, "BAYESIAN_CSV", missing_csv)
     with pytest.raises(SystemExit) as result:
-        module["main"](["--bayesian-csv", str(tmp_path / "absent.csv"), "--no-show"])
-    assert result.value.code == 2
-    assert "CSV" in capsys.readouterr().err
+        module["main"]()
+    assert "Evaluation CSV not found" in str(result.value.code)
+    assert str(missing_csv) in str(result.value.code)
     assert list(tmp_path.iterdir()) == []
 
 
