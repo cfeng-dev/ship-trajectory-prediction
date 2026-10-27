@@ -16,7 +16,7 @@ def test_imm_evaluation_imports_without_the_predictor_package(monkeypatch):
     monkeypatch.setitem(sys.modules, "imm_predictor", None)
     monkeypatch.setitem(sys.modules, "imm_predictor.player", None)
     module = runpy.run_path(ROOT / "experiments/model_evaluation/imm.py")
-    assert module["IMMOptions"](10, 2, 1, 3, False).prediction_count == 2
+    assert callable(module["main"])
 
 
 def test_shared_mixture_medians_preserve_atoms_and_immutable_snapshots():

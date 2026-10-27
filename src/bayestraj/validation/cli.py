@@ -50,6 +50,17 @@ class DeterministicCTRVEvaluationOptions:
     show_plot: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class IMMEvaluationOptions:
+    """Command-line settings for one leakage-free IMM evaluation."""
+
+    observation_count: int
+    prediction_count: int
+    stride: int
+    max_windows: int | None
+    show_plot: bool
+
+
 def parse_bayesian_ctrv_evaluation_arguments(
     *,
     description: str | None,
@@ -210,3 +221,55 @@ def parse_deterministic_ctrv_evaluation_arguments(
         max_windows=arguments.max_windows,
         show_plot=arguments.show_plot,
     )
+
+
+def parse_imm_evaluation_arguments(
+    *,
+    description: str | None,
+    observation_count: int,
+    prediction_count: int,
+    stride: int,
+    max_windows: int | None,
+    show_plot: bool,
+    argv: Sequence[str] | None = None,
+) -> IMMEvaluationOptions:
+    """Parse the rolling controls shared with the Bayesian BR24 evaluator."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--observations", type=int, default=observation_count)
+    parser.add_argument("--predictions", type=int, default=prediction_count)
+    parser.add_argument("--stride", type=int, default=stride)
+    parser.add_argument(
+        "--max-windows",
+        type=int,
+        default=max_windows,
+        help="Optional limit for a short local run.",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_false",
+        dest="show_plot",
+        default=show_plot,
+        help="Print and export metrics without opening plots.",
+    )
+    arguments = parser.parse_args(argv)
+    for name, value in (
+        ("observations", arguments.observations),
+        ("predictions", arguments.predictions),
+        ("stride", arguments.stride),
+    ):
+        _validate_imm_positive_integer(name, value)
+    if arguments.max_windows is not None:
+        _validate_imm_positive_integer("max_windows", arguments.max_windows)
+    return IMMEvaluationOptions(
+        observation_count=arguments.observations,
+        prediction_count=arguments.predictions,
+        stride=arguments.stride,
+        max_windows=arguments.max_windows,
+        show_plot=arguments.show_plot,
+    )
+
+
+def _validate_imm_positive_integer(name, value) -> None:
+    """Raise a consistent CLI error for non-positive integer controls."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer.")

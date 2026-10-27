@@ -12,8 +12,8 @@ import pytest
 from imm_predictor import player as imm_player
 
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
+from bayestraj.validation import imm_workflow, rolling, runtime_plotting
 from bayestraj.validation import plotting as validation_plotting
-from bayestraj.validation import rolling, runtime_plotting
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
@@ -87,6 +87,7 @@ def imm_median_case():
     )
     return SimpleNamespace(
         module=runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py"),
+        workflow=imm_workflow,
         forecast=SimpleNamespace(
             time_seconds=np.array([1.0, 2.0]),
             position_means=np.array([[10.0, 3.0], [4.0, 15.0]]),
@@ -102,8 +103,9 @@ def imm_median_case():
 
 
 def _score_imm_case(case, medians):
-    return case.module["_evaluate_forecast"](
+    return case.workflow._evaluate_forecast(
         case.forecast,
+        credible_interval=0.9,
         forecast_median_positions=medians,
         reference=case.reference,
         specification=rolling.build_online_forecast_specs(
@@ -140,7 +142,7 @@ def test_imm_evaluation_uses_median_errors_but_preserves_distribution_scores(
     }
     unchanged = [name for name in table.columns if name not in changed_columns]
     pd.testing.assert_frame_equal(table[unchanged], mean_table[unchanged])
-    summary = case.module["_summarize_predictions"](table)
+    summary = case.workflow._summarize_predictions(table)
     assert summary.ade_m == 3.5
     assert summary.fde_m == 4.0
     _, diagnostics = runtime_plotting._rolling_window_metric_series(table)
@@ -198,7 +200,9 @@ def test_imm_evaluation_exports_and_plots_the_predictor_medians(
             return case.mixtures
 
     output = tmp_path / "metrics.csv"
-    monkeypatch.setitem(namespace, "_load_optional_imm_tracker", lambda: Tracker)
+    monkeypatch.setattr(
+        case.workflow, "_load_optional_imm_tracker", lambda path: Tracker
+    )
     monkeypatch.setitem(namespace, "DATA_FILE", source)
     monkeypatch.setitem(namespace, "OUTPUT_CSV", output)
     monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", False)
@@ -249,7 +253,7 @@ def test_imm_evaluation_loader_matches_predictor_medians_without_changing_filter
         _sensor_position=np.array([100.0, -50.0]),
     )
     original = backend["BR24IMMTracker"](_state=deepcopy(state), **arguments)
-    evaluator = module["_load_optional_imm_tracker"]()(
+    evaluator = imm_workflow._load_optional_imm_tracker(module["IMM_PYTHON"])(
         _state=deepcopy(state), **arguments
     )
     predictor = imm_player._load_optional_imm_tracker()(
@@ -306,12 +310,18 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
     output_csv = tmp_path / "results" / "imm.csv"
     namespace = module["main"].__globals__
 
-    def evaluate(options):
+    def evaluate(**kwargs):
+        options = kwargs["options"]
         assert options.show_plot == ("--no-plot" not in arguments)
         assert options.stride == (2 if "--stride" in arguments else 1)
+        assert kwargs["data_file"] == module["DATA_FILE"]
+        assert kwargs["imm_python"] == module["IMM_PYTHON"]
+        assert kwargs["credible_interval"] == module["CREDIBLE_INTERVAL"]
+        assert kwargs["gaussian_plot_draws"] == module["GAUSSIAN_PLOT_DRAWS"]
+        assert kwargs["plot_seed"] == module["PLOT_SEED"]
         return predictions, summary
 
-    monkeypatch.setitem(namespace, "run_imm_evaluation", evaluate)
+    monkeypatch.setattr(namespace["workflow"], "run_imm_evaluation", evaluate)
     monkeypatch.setitem(namespace, "OUTPUT_CSV", output_csv)
     monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", diagnostics_enabled)
     shown = []
