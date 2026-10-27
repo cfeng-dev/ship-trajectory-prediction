@@ -1,13 +1,13 @@
 """Evaluate local Python BR24 IMM forecasts across rolling radar origins."""
 
 import argparse
-import runpy
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from imm_predictor import player as imm_player
 from scipy.stats import chi2, norm
 
 import bayestraj.observations.br24 as br24
@@ -141,11 +141,14 @@ def run_imm_evaluation(options: IMMOptions):
             future_times,
             seed=PLOT_SEED + specification.window_index,
         )
+        # Share the predictor's exact marginal medians, not a sample median.
+        forecast_medians = imm_player._forecast_position_medians(tracker, forecast)
         forecast_runtime_seconds = time.perf_counter() - runtime_started
 
         # Evaluation labels are read only after the raw-radar tracker forecast.
         table, covariances = _evaluate_forecast(
             forecast,
+            forecast_median_positions=forecast_medians,
             reference=reference,
             specification=specification,
             forecast_origin_time=tracker.last_observation_time_seconds,
@@ -166,6 +169,7 @@ def run_imm_evaluation(options: IMMOptions):
                     forecast_origin_y=float(tracker.estimated_position[1]),
                     x_samples=position_samples[:, :, 0],
                     y_samples=position_samples[:, :, 1],
+                    forecast_positions=forecast_medians,
                     forecast_time_seconds=np.concatenate(
                         (
                             [0.0],
@@ -204,7 +208,7 @@ def run_imm_evaluation(options: IMMOptions):
             observed_route_y=tracked_positions[:, 1],
             observed_trajectory_label="IMM-Trackpositionen",
             title_prefix="Python IMM BR24",
-            forecast_label="IMM-Gaussian-Prognosemittelwerte",
+            forecast_label="IMM-Prognosemediane",
             show_time_labels=False,
         )
     return predictions, summary
@@ -254,13 +258,7 @@ def _load_optional_imm_tracker():
             "Optional IMM implementation not found: external/IMM/br24_imm.py. "
             "Restore the local external IMM files to run this evaluation."
         )
-    module = runpy.run_path(str(IMM_PYTHON))
-    try:
-        return module["BR24IMMTracker"]
-    except KeyError as error:
-        raise RuntimeError(
-            "The local IMM implementation must expose BR24IMMTracker."
-        ) from error
+    return imm_player._load_optional_imm_tracker(imm_python=IMM_PYTHON)
 
 
 def _validate_reference_alignment(cycles, reference) -> None:
@@ -276,6 +274,7 @@ def _validate_reference_alignment(cycles, reference) -> None:
 def _evaluate_forecast(
     forecast,
     *,
+    forecast_median_positions,
     reference,
     specification,
     forecast_origin_time,
@@ -283,17 +282,20 @@ def _evaluate_forecast(
     window_runtime_seconds,
     forecast_runtime_seconds,
 ) -> tuple[pd.DataFrame, np.ndarray]:
-    """Score Gaussian IMM forecast marginals against held-out reference labels."""
+    """Score median positions while retaining Gaussian distribution metrics."""
     prediction_count = specification.prediction_count
     expected_shape = (prediction_count, 2)
     means = np.asarray(forecast.position_means, dtype=float)
+    medians = np.asarray(forecast_median_positions, dtype=float)
     covariances = _regularize_covariances(forecast.position_covariances)
     modes = np.asarray(forecast.mode_probabilities, dtype=float)
     if (
         means.shape != expected_shape
+        or medians.shape != expected_shape
         or covariances.shape != (prediction_count, 2, 2)
         or modes.shape != (prediction_count, 3)
         or not np.all(np.isfinite(means))
+        or not np.all(np.isfinite(medians))
         or not np.all(np.isfinite(modes))
         or not np.allclose(modes.sum(axis=1), 1.0, rtol=0.0, atol=1e-8)
     ):
@@ -309,7 +311,7 @@ def _evaluate_forecast(
     covariance_with_floor = covariances + np.eye(2) * (
         RESIDUAL_POSITION_NOISE_FLOOR_M**2
     )
-    errors = np.linalg.norm(means - actual_positions, axis=1)
+    errors = np.linalg.norm(medians - actual_positions, axis=1)
     log_densities = np.asarray(
         [
             _gaussian_log_density(actual, mean, covariance)
@@ -375,8 +377,8 @@ def _evaluate_forecast(
             "horizon_seconds": horizons,
             "x_actual": actual_positions[:, 0],
             "y_actual": actual_positions[:, 1],
-            "x_median": means[:, 0],
-            "y_median": means[:, 1],
+            "x_median": medians[:, 0],
+            "y_median": medians[:, 1],
             "x_lower": x_lower,
             "x_upper": x_upper,
             "y_lower": y_lower,
@@ -408,8 +410,8 @@ def _evaluate_forecast(
             "forecast_origin_y_route": float(forecast_origin_position[1]),
             "x_actual_route": actual_positions[:, 0],
             "y_actual_route": actual_positions[:, 1],
-            "x_median_route": means[:, 0],
-            "y_median_route": means[:, 1],
+            "x_median_route": medians[:, 0],
+            "y_median_route": medians[:, 1],
             "cov_xx": covariances[:, 0, 0],
             "cov_xy": covariances[:, 0, 1],
             "cov_yy": covariances[:, 1, 1],
@@ -553,6 +555,7 @@ def _print_configuration(options, *, window_count, initial_detection_id) -> None
                 ("Stride", str(options.stride)),
                 ("Forecast origins", str(window_count)),
                 ("Reference labels", "evaluation only"),
+                ("Point forecast", "coordinate-wise posterior median"),
                 ("Uncertainty", "IMM Gaussian position covariance"),
             )
         )

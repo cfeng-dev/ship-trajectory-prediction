@@ -20,6 +20,8 @@ class RollingPosteriorPlotData:
     x_samples: np.ndarray
     y_samples: np.ndarray
     forecast_time_seconds: np.ndarray
+    # Optional exact central path; uncertainty still comes from the samples.
+    forecast_positions: np.ndarray | None = None
 
 
 def plot_bayesian_rolling_predictions(
@@ -53,17 +55,26 @@ def plot_bayesian_rolling_predictions(
     if observed_route_y is None:
         observed_route_y = route_y
 
-    forecast_paths = tuple(
-        (
-            np.concatenate(
-                ([group.forecast_origin_x], np.median(group.x_samples, axis=0))
-            ),
-            np.concatenate(
-                ([group.forecast_origin_y], np.median(group.y_samples, axis=0))
-            ),
+    forecast_paths = []
+    for group in posterior_plot_groups:
+        if group.forecast_positions is None:
+            positions = np.column_stack(
+                (np.median(group.x_samples, axis=0), np.median(group.y_samples, axis=0))
+            )
+        else:
+            positions = np.asarray(group.forecast_positions, dtype=float)
+            if positions.shape != (np.shape(group.x_samples)[1], 2) or not np.all(
+                np.isfinite(positions)
+            ):
+                raise ValueError(
+                    "forecast_positions must be finite matching (horizon, 2) positions."
+                )
+        forecast_paths.append(
+            (
+                np.concatenate(([group.forecast_origin_x], positions[:, 0])),
+                np.concatenate(([group.forecast_origin_y], positions[:, 1])),
+            )
         )
-        for group in posterior_plot_groups
-    )
     forecast_origin_x = [group.forecast_origin_x for group in posterior_plot_groups]
     forecast_origin_y = [group.forecast_origin_y for group in posterior_plot_groups]
     sample_paths = _select_rolling_sample_paths(

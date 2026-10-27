@@ -753,14 +753,15 @@ def _squared_mahalanobis(difference, covariance) -> float:
     return float(difference @ np.linalg.solve(covariance, difference))
 
 
-def _load_optional_imm_tracker():
+def _load_optional_imm_tracker(*, imm_python: Path | None = None):
     """Load the deliberately untracked local IMM implementation when available."""
-    if not IMM_PYTHON.is_file():
+    imm_python = IMM_PYTHON if imm_python is None else Path(imm_python)
+    if not imm_python.is_file():
         raise FileNotFoundError(
             "Optional IMM implementation not found: external/IMM/br24_imm.py. "
             "Restore the local external IMM files to open this player."
         )
-    module = runpy.run_path(str(IMM_PYTHON))
+    module = runpy.run_path(str(imm_python))
     try:
         tracker_type = module["BR24IMMTracker"]
     except KeyError as error:
