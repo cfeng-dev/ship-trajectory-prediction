@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from imm_predictor import player as imm_player
 from scipy.stats import chi2, norm
 
+import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
 import bayestraj.observations.paths as paths
 import bayestraj.validation.plotting as validation_plotting
@@ -142,7 +142,7 @@ def run_imm_evaluation(options: IMMOptions):
             seed=PLOT_SEED + specification.window_index,
         )
         # Share the predictor's exact marginal medians, not a sample median.
-        forecast_medians = imm_player._forecast_position_medians(tracker, forecast)
+        forecast_medians = imm_adapter.forecast_position_medians(tracker, forecast)
         forecast_runtime_seconds = time.perf_counter() - runtime_started
 
         # Evaluation labels are read only after the raw-radar tracker forecast.
@@ -258,7 +258,7 @@ def _load_optional_imm_tracker():
             "Optional IMM implementation not found: external/IMM/br24_imm.py. "
             "Restore the local external IMM files to run this evaluation."
         )
-    return imm_player._load_optional_imm_tracker(imm_python=IMM_PYTHON)
+    return imm_adapter.load_imm_tracker(IMM_PYTHON)
 
 
 def _validate_reference_alignment(cycles, reference) -> None:

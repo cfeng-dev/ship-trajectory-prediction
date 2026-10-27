@@ -89,6 +89,8 @@ def test_imm_posterior_snapshot_uses_the_loaded_output_fusion(tmp_path, monkeypa
 
     from imm_predictor import player
 
+    from bayestraj.inference import imm_adapter
+
     mean = np.array([10.0, 20.0, 0.3, 0.02, 4.0])
     covariance = np.diag([1.0, 2.0, 0.04, 0.01, 0.25])
     state = SimpleNamespace(mode_probabilities=np.array([0.6, 0.3, 0.1]))
@@ -106,7 +108,7 @@ def test_imm_posterior_snapshot_uses_the_loaded_output_fusion(tmp_path, monkeypa
     path.touch()
     monkeypatch.setattr(player, "IMM_PYTHON", path)
     monkeypatch.setattr(
-        player.runpy,
+        imm_adapter.runpy,
         "run_path",
         lambda _path: {"BR24IMMTracker": Tracker, "_mix_to_ctrv": fuse},
     )
