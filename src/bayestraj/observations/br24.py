@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 
+from bayestraj.paths import project_path
+
 from .coordinates import (
     calculate_motion_from_positions,
     calculate_signed_turn_rate_from_yaw,
@@ -17,9 +19,7 @@ from .coordinates import (
 
 ASSOCIATION_GATE_NIS = float(chi2.ppf(0.99, df=2))
 _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD = np.deg2rad(0.5)
-_IMM_IMPLEMENTATION_PATH = (
-    Path(__file__).resolve().parents[3] / "external" / "IMM" / "br24_imm.py"
-)
+_IMM_IMPLEMENTATION_PATH = project_path("external/IMM/br24_imm.py")
 _OUTPUT_COLUMNS = (
     "time",
     "cycle_counter",

@@ -8,12 +8,13 @@ from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import read_br24_tracking_input
-from bayestraj.observations.paths import data_path
+from bayestraj.paths import project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RAW_INPUT_CSV = data_path("processed/BR24Dataset20131107.csv")
-IMM_TRACKED_TRAJECTORY_CSV = data_path("processed/BR24_imm_tracked_trajectory.csv")
-OUTPUT_CSV = PROJECT_ROOT / "results/BR24_association_comparison.csv"
+RAW_INPUT_CSV = project_path("data/processed/BR24Dataset20131107.csv")
+IMM_TRACKED_TRAJECTORY_CSV = project_path(
+    "data/processed/BR24_imm_tracked_trajectory.csv"
+)
+OUTPUT_CSV = project_path("results/BR24_association_comparison.csv")
 
 
 def compare_associations(

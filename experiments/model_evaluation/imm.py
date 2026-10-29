@@ -1,16 +1,13 @@
 """Evaluate local Python BR24 IMM forecasts across rolling radar origins."""
 
-from pathlib import Path
-
-import bayestraj.observations.paths as paths
 import bayestraj.validation.cli as cli
 import bayestraj.validation.imm_workflow as workflow
 import bayestraj.validation.runtime_plotting as runtime_plotting
+from bayestraj.paths import project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
-DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = PROJECT_ROOT / "results/BR24_imm_forecast_evaluation.csv"
+IMM_PYTHON = project_path("external/IMM/br24_imm.py")
+DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+OUTPUT_CSV = project_path("results/BR24_imm_forecast_evaluation.csv")
 
 # Match experiments/model_evaluation/bayesian_ctrv.py for a direct comparison.
 INITIAL_OBSERVATION_COUNT = 10

@@ -4,10 +4,10 @@ import argparse
 
 import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.observations.paths as paths
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
+from bayestraj.paths import project_path
 
-DATA_FILE = paths.data_path("raw/shiptech_data.csv")
+DATA_FILE = project_path("data/raw/shiptech_data.csv")
 RUN_ID = 102
 START_INDEX = 0
 POSITION_NOISE_STD_M = 5.0

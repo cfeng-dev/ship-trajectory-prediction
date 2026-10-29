@@ -4,10 +4,10 @@ from bayestraj.observations.io import (
     read_ship_data,
     resample_trajectory_data,
 )
-from bayestraj.observations.paths import data_path
 from bayestraj.observations.plotting import plot_ship_trajectory
+from bayestraj.paths import project_path
 
-DATA_FILE = data_path("simulated/example_simulated_trajectory.csv")
+DATA_FILE = project_path("data/simulated/example_simulated_trajectory.csv")
 
 # Select one simulation run and, optionally, a UTC time range from the CSV.
 # Keep START_TIME and END_TIME as None to use the complete selected run.

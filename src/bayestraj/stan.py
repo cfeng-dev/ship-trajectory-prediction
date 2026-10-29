@@ -1,8 +1,8 @@
 """Locations of Stan model files."""
 
-from pathlib import Path
+from bayestraj.paths import project_path
 
-STAN_ROOT = Path(__file__).resolve().parents[1] / "stan"
+STAN_ROOT = project_path("src/stan")
 
 
 def stan_path(relative_path):

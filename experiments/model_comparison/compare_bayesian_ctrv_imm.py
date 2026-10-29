@@ -5,13 +5,11 @@ and reference positions. Dashed lines and the terminal table show averages of
 these per-origin metrics, not a pooled RMSE across all forecast positions.
 """
 
-from pathlib import Path
-
 import bayestraj.validation.comparison as comparison
+from bayestraj.paths import project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-BAYESIAN_CSV = PROJECT_ROOT / "results/BR24_bayesian_ctrv_forecast_evaluation.csv"
-IMM_CSV = PROJECT_ROOT / "results/BR24_imm_forecast_evaluation.csv"
+BAYESIAN_CSV = project_path("results/BR24_bayesian_ctrv_forecast_evaluation.csv")
+IMM_CSV = project_path("results/BR24_imm_forecast_evaluation.csv")
 
 
 def main():

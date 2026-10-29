@@ -2,10 +2,10 @@
 
 import pandas as pd
 
-import bayestraj.observations.paths as paths
 import bayestraj.observations.plotting as plotting
+from bayestraj.paths import project_path
 
-INPUT_CSV = paths.data_path("processed/BR24_imm_tracked_trajectory.csv")
+INPUT_CSV = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 TRAJECTORY_LABEL = "IMM-getrackte BR24-Zieltrajektorie"
 DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
 

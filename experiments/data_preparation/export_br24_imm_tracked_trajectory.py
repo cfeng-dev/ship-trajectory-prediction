@@ -1,11 +1,11 @@
 """Export the BR24 target trajectory tracked by Reuter's IMM association."""
 
 import bayestraj.observations.br24 as br24
-import bayestraj.observations.paths as paths
+from bayestraj.paths import project_path
 
-RADAR_CSV = paths.data_path("raw/BR24_radar_detections.csv")
-SENSOR_CSV = paths.data_path("raw/BR24_sensor_state.csv")
-OUTPUT_CSV = paths.data_path("processed/BR24_imm_tracked_trajectory.csv")
+RADAR_CSV = project_path("data/raw/BR24_radar_detections.csv")
+SENSOR_CSV = project_path("data/raw/BR24_sensor_state.csv")
+OUTPUT_CSV = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 
 
 def main() -> None:

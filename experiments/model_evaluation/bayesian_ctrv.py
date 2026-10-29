@@ -1,21 +1,16 @@
 """Evaluate parametric Bayesian CTRV forecasts across rolling windows."""
 
-from pathlib import Path
-
 import bayestraj.forecasting.bayesian_ctrv as config
 import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.observations.paths as paths
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as cli
 import bayestraj.validation.runtime_plotting as runtime_plotting
+from bayestraj.paths import project_path
 
 # Raw detections are tracked online; ground_truth_* is used only for evaluation.
-DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = (
-    Path(__file__).resolve().parents[2]
-    / "results/BR24_bayesian_ctrv_forecast_evaluation.csv"
-)
+DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+OUTPUT_CSV = project_path("results/BR24_bayesian_ctrv_forecast_evaluation.csv")
 
 # Rolling inference:
 # - Batch: "vi" or "mcmc" with a fixed sliding window.

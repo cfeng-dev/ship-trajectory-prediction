@@ -10,13 +10,12 @@ import pandas as pd
 from scipy.io import loadmat
 
 from bayestraj.observations.br24 import polar_to_cartesian, read_br24_tracking_input
-from bayestraj.observations.paths import data_path
+from bayestraj.paths import project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
-INPUT_CSV = data_path("processed/BR24Dataset20131107_with_reference.csv")
-MATLAB_TRACE = data_path("processed/BR24_imm_matlab_trace.mat")
-OUTPUT_CSV = PROJECT_ROOT / "results/BR24_imm_implementation_comparison.csv"
+IMM_PYTHON = project_path("external/IMM/br24_imm.py")
+INPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+MATLAB_TRACE = project_path("data/processed/BR24_imm_matlab_trace.mat")
+OUTPUT_CSV = project_path("results/BR24_imm_implementation_comparison.csv")
 
 
 NUMERIC_FIELDS = (

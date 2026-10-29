@@ -2,11 +2,9 @@
 
 from pathlib import Path
 
+from bayestraj.paths import project_path
+
 
 def default_simulation_data_directory() -> Path:
-    """Return a useful data directory without importing project infrastructure."""
-    for candidate in Path(__file__).resolve().parents:
-        if (candidate / "pyproject.toml").is_file():
-            return (candidate / "data" / "simulated").resolve()
-
-    return (Path.cwd() / "data" / "simulated").resolve()
+    """Return the simulation data directory relative to the project root."""
+    return project_path("data/simulated")

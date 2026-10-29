@@ -1,11 +1,11 @@
 """Export the Shiptech trajectory as position-only processed data."""
 
 import bayestraj.observations.io as observations_io
-import bayestraj.observations.paths as paths
+from bayestraj.paths import project_path
 
-INPUT_CSV = paths.data_path("raw/shiptech_data.csv")
+INPUT_CSV = project_path("data/raw/shiptech_data.csv")
 RUN_ID = 42
-OUTPUT_CSV = paths.data_path("processed/ship_trajectory_run_42.csv")
+OUTPUT_CSV = project_path("data/processed/ship_trajectory_run_42.csv")
 
 
 def main() -> None:

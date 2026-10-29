@@ -2,14 +2,14 @@
 
 import pandas as pd
 
-import bayestraj.observations.paths as paths
 import bayestraj.observations.plotting as plotting
 from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import read_br24_tracking_input
+from bayestraj.paths import project_path
 
-INPUT_CSV = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
+INPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 TRAJECTORY_LABEL = "Bayesian-CTRV-getrackte BR24-Zieltrajektorie"
 DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
 PRIORS = BayesianCTRVPriors()

@@ -1,11 +1,11 @@
 """Attach evaluation-only target reference labels to the raw BR24 tracking input."""
 
 import bayestraj.observations.br24 as br24
-import bayestraj.observations.paths as paths
+from bayestraj.paths import project_path
 
-TRACKING_CSV = paths.data_path("processed/BR24Dataset20131107.csv")
-REFERENCE_CSV = paths.data_path("raw/BR24_reference_trajectory.csv")
-OUTPUT_CSV = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
+TRACKING_CSV = project_path("data/processed/BR24Dataset20131107.csv")
+REFERENCE_CSV = project_path("data/raw/BR24_reference_trajectory.csv")
+OUTPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 
 
 def main() -> None:

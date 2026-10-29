@@ -3,11 +3,11 @@
 import numpy as np
 import pandas as pd
 
-import bayestraj.observations.paths as paths
 import bayestraj.observations.plotting as plotting
+from bayestraj.paths import project_path
 
-INPUT_CSV = paths.data_path("raw/BR24_reference_trajectory.csv")
-SENSOR_CSV = paths.data_path("raw/BR24_sensor_state.csv")
+INPUT_CSV = project_path("data/raw/BR24_reference_trajectory.csv")
+SENSOR_CSV = project_path("data/raw/BR24_sensor_state.csv")
 TRAJECTORY_LABEL = "BR24-Ziel-Referenztrajektorie"
 DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
 POSITION_NOISE_STD_M = 0.0  # Per x/y axis [m]; 0 disables.

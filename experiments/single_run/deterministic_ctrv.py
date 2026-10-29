@@ -3,9 +3,9 @@
 import bayestraj.forecasting.cli as cli
 import bayestraj.forecasting.deterministic_ctrv as config
 import bayestraj.forecasting.deterministic_ctrv_workflow as workflow
-import bayestraj.observations.paths as paths
+from bayestraj.paths import project_path
 
-DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
+DATA_FILE = project_path("data/processed/ship_trajectory_run_42.csv")
 
 EXPERIMENT = config.DeterministicExperimentConfig(
     start_index=0,  # First point of the selected window.

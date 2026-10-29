@@ -12,7 +12,7 @@ from bayestraj.inference.configuration import (
 )
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
-from bayestraj.observations.paths import data_path
+from bayestraj.paths import project_path
 
 from .dashboard import (
     COORDINATE_DISPLAY_MODES as _COORDINATE_DISPLAY_MODES,
@@ -171,7 +171,7 @@ def _defaults():
     return {
         "data": {
             "data_file": str(
-                data_path("processed/BR24Dataset20131107_with_reference.csv")
+                project_path("data/processed/BR24Dataset20131107_with_reference.csv")
             ),
             "inference_method": "smc",
             "start_index": 0,

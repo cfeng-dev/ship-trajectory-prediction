@@ -1,11 +1,11 @@
 """Evaluate deterministic CTRV forecasts across rolling windows."""
 
 import bayestraj.forecasting.deterministic_ctrv as config
-import bayestraj.observations.paths as paths
 import bayestraj.validation.cli as cli
 import bayestraj.validation.deterministic_ctrv_workflow as workflow
+from bayestraj.paths import project_path
 
-DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
+DATA_FILE = project_path("data/processed/ship_trajectory_run_42.csv")
 
 EXPERIMENT = config.DeterministicRollingExperimentConfig(
     window_mode="sliding",  # Fixed "sliding" or growing "expanding" history.

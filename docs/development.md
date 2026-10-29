@@ -65,6 +65,21 @@ The built-in **Help** window describes analysis setup, plot options, and
 keyboard shortcuts. The optional local IMM implementation at
 `external/IMM/br24_imm.py` and a BR24 tracking CSV are required for analysis.
 
+## Project Paths
+
+Resolve project-relative files with the shared helper, independently of the
+working directory used to launch a script:
+
+```python
+from bayestraj.paths import project_path
+
+DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+OUTPUT_CSV = project_path("results/BR24_bayesian_ctrv_forecast_evaluation.csv")
+```
+
+Include the top-level directory, such as `data/`, `results/`, or `figures/`, in
+the argument. Resolving a path does not create its file or directory.
+
 ## Code Quality and Tests
 
 GitHub Actions runs the tests on Python 3.10, 3.12, and 3.14 for every push and

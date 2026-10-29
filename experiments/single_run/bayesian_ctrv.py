@@ -5,9 +5,9 @@ import bayestraj.forecasting.bayesian_ctrv_workflow as workflow
 import bayestraj.forecasting.cli as cli
 import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.observations.paths as paths
+from bayestraj.paths import project_path
 
-DATA_FILE = paths.data_path("processed/ship_trajectory_run_42.csv")
+DATA_FILE = project_path("data/processed/ship_trajectory_run_42.csv")
 
 # Single-window inference:
 # - Batch: "vi" or "mcmc".

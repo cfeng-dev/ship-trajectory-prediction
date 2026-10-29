@@ -17,15 +17,14 @@ from scipy.stats import chi2
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
-import bayestraj.observations.paths as paths
 from bayestraj.inference.imm_adapter import IMMStateMixture, IMMStatePosterior
 from bayestraj.inference.imm_adapter import (
     forecast_position_medians as _forecast_position_medians,
 )
+from bayestraj.paths import project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-IMM_PYTHON = PROJECT_ROOT / "external/IMM/br24_imm.py"
-DATA_FILE = paths.data_path("processed/BR24Dataset20131107_with_reference.csv")
+IMM_PYTHON = project_path("external/IMM/br24_imm.py")
+DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 
 PREDICTION_COUNT = 2
 PLAYBACK_INTERVAL_MS = 1_000
