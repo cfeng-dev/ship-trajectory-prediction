@@ -166,7 +166,15 @@ class ExplorerSettings:
 
 
 def _defaults():
+    vi_optimization_defaults = {
+        "iter": 10_000,
+        "tol_rel_obj": 0.01,
+        "adapt_iter": 250,
+    }
+    vi_defaults = create_default_vi_config()
+    vi_defaults.update(vi_optimization_defaults)
     sequential_vi_defaults = asdict(create_default_sequential_vi_config())
+    sequential_vi_defaults.update(vi_optimization_defaults)
     sequential_vi_defaults["n_bootstrap"] = MIN_OBSERVATION_COUNT
     return {
         "data": {
@@ -200,7 +208,7 @@ def _defaults():
         "priors": asdict(BayesianCTRVPriors()),
         "smc": asdict(create_default_ctrv_smc_config()),
         "sequential_vi": sequential_vi_defaults,
-        "vi": create_default_vi_config(),
+        "vi": vi_defaults,
         "mcmc": create_default_mcmc_config(),
     }
 

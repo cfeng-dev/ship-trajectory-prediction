@@ -114,6 +114,17 @@ def test_br24_session_forwards_each_method_and_its_configs(
     assert captured["mcmc_config"] is selected.mcmc_config
     assert captured["smc_config"] is selected.smc_config
     assert captured["sequential_vi_config"] is selected.sequential_vi_config
+    if method == "vi":
+        assert captured["vi_config"]["iter"] == 10_000
+        assert captured["vi_config"]["tol_rel_obj"] == 0.01
+        assert captured["vi_config"]["adapt_iter"] == 250
+        assert captured["vi_config"]["grad_samples"] == 20
+    elif method == "sequential_vi":
+        config = captured["sequential_vi_config"]
+        assert config.iter == 10_000
+        assert config.tol_rel_obj == 0.01
+        assert config.adapt_iter == 250
+        assert config.grad_samples == 20
 
 
 @pytest.mark.parametrize("method", ["smc"])

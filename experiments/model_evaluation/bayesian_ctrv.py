@@ -4,6 +4,7 @@ import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.inference.configuration as inference_config
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
+from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.paths import project_path
 
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
@@ -32,6 +33,17 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
     sigma_turn_rate_process_prior_upper_deg_s=2.0,
     sigma_turn_rate_process_prior_tail_probability=0.05,
 )
+VI_CONFIG = {
+    **inference_config.create_default_vi_config(),
+    "iter": 10_000,
+    "tol_rel_obj": 0.01,
+    "adapt_iter": 250,
+}
+SEQUENTIAL_VI_CONFIG = SequentialVIConfig(
+    iter=10_000,
+    tol_rel_obj=0.01,
+    adapt_iter=250,
+)
 CREDIBLE_INTERVAL = 0.9
 MAX_WINDOWS = None
 PLOT_EACH_WINDOW = False
@@ -47,6 +59,8 @@ def main(argv=None):
         output_csv=OUTPUT_CSV,
         experiment=EXPERIMENT,
         priors=PRIORS,
+        vi_config=VI_CONFIG,
+        sequential_vi_config=SEQUENTIAL_VI_CONFIG,
         fullrank_grad_samples=inference_config.DEFAULT_FULLRANK_GRAD_SAMPLES,
         credible_interval=CREDIBLE_INTERVAL,
         max_windows=MAX_WINDOWS,

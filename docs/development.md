@@ -82,36 +82,18 @@ the argument. Resolving a path does not create its file or directory.
 
 ## Model Evaluation
 
-Run `experiments/model_evaluation/bayesian_ctrv.py` directly with your IDE's Run
-button. Select the inference method in its `EXPERIMENT` header:
-
-```python
-inference_method="smc",  # "vi", "mcmc", or "sequential_vi"
-```
-
-No arguments are required. The terminal equivalent is:
+Run `experiments/model_evaluation/bayesian_ctrv.py` with your IDE's Run button or:
 
 ```bash
 uv run python experiments/model_evaluation/bayesian_ctrv.py
 ```
 
-The script has an editable header with `DATA_FILE`, `OUTPUT_CSV`, `EXPERIMENT`,
-`PRIORS`, and plot settings. Adjust `prediction_count`, seeds, priors, or other
-settings directly in this header. The shared
-execution code in `src/bayestraj/validation/bayesian_ctrv_evaluation.py` receives
-these settings explicitly. Inference-specific defaults remain in
-`src/bayestraj/inference/configuration.py`. By default each evaluation writes
-`results/bayesian_ctrv_<method>_evaluation.csv`, so different methods
-keep separate results with the same CSV schema.
+Configure the inference method (`smc`, `vi`, `mcmc`, or `sequential_vi`), priors,
+forecast settings, and VI options in the script header.
 
-SMC is the default method. Optional CLI overrides remain supported; the CSV
-filename follows the actual inference method selected for the run through the
-`{inference_method}` placeholder in `OUTPUT_CSV`. You can also set `OUTPUT_CSV`
-to a literal path for a custom filename.
-
-`experiments/model_comparison/compare_bayesian_ctrv_imm.py` reads the SMC CSV and
-the IMM CSV by default. Set its `BAYESIAN_CSV` to another method's saved CSV to
-compare that method without running either model again.
+Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`.
+Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
+evaluation CSVs.
 
 ## Code Quality and Tests
 
