@@ -32,6 +32,7 @@ data {
   real<lower=1e-6> observation_interval_seconds;
   real x_observed;
   real y_observed;
+  matrix[2, 2] measurement_covariance;
   real<lower=1e-6> process_reference_interval_seconds;
   real<lower=1e-12> minimum_positive_scale;
   real<lower=0> sigma_position_observation_floor_m;
@@ -71,6 +72,11 @@ transformed parameters {
   real heading_at_origin = wrap_angle(
       previous_heading + turn_rate_for_interval * observation_interval_seconds);
   real turn_rate_at_origin = turn_rate_for_interval;
+  real variance_x = measurement_covariance[1, 1] + square(sigma_position_observation);
+  real variance_y = measurement_covariance[2, 2] + square(sigma_position_observation);
+  real covariance_xy = measurement_covariance[1, 2];
+  real conditional_y_mean = y_at_origin + covariance_xy / variance_x * (x_observed - x_at_origin);
+  real conditional_y_std = sqrt(variance_y - square(covariance_xy) / variance_x);
 }
 
 model {
@@ -81,14 +87,30 @@ model {
       normal_lpdf(-speed_for_interval | previous_speed, speed_process_scale));
   turn_rate_for_interval ~ normal(previous_turn_rate, turn_rate_process_scale);
 
-  x_observed ~ normal(x_at_origin, sigma_position_observation);
-  y_observed ~ normal(y_at_origin, sigma_position_observation);
+  if (measurement_covariance[1, 1] == 0
+      && measurement_covariance[2, 2] == 0
+      && measurement_covariance[1, 2] == 0) {
+    x_observed ~ normal(x_at_origin, sigma_position_observation);
+    y_observed ~ normal(y_at_origin, sigma_position_observation);
+  } else {
+    x_observed ~ normal(x_at_origin, sqrt(variance_x));
+    y_observed ~ normal(conditional_y_mean, conditional_y_std);
+  }
 }
 
 generated quantities {
   vector[2] log_likelihood;
-  log_likelihood[1] = normal_lpdf(
-      x_observed | x_at_origin, sigma_position_observation);
-  log_likelihood[2] = normal_lpdf(
-      y_observed | y_at_origin, sigma_position_observation);
+  if (measurement_covariance[1, 1] == 0
+      && measurement_covariance[2, 2] == 0
+      && measurement_covariance[1, 2] == 0) {
+    log_likelihood[1] = normal_lpdf(
+        x_observed | x_at_origin, sigma_position_observation);
+    log_likelihood[2] = normal_lpdf(
+        y_observed | y_at_origin, sigma_position_observation);
+  } else {
+    log_likelihood[1] = normal_lpdf(
+        x_observed | x_at_origin, sqrt(variance_x));
+    log_likelihood[2] = normal_lpdf(
+        y_observed | conditional_y_mean, conditional_y_std);
+  }
 }

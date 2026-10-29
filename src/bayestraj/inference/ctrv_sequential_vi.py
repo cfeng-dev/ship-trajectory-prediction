@@ -240,8 +240,26 @@ def _predictive_log_density(
     *,
     x_observed: float,
     y_observed: float,
+    measurement_covariance: np.ndarray | None = None,
 ) -> float:
     """Evaluate the predictive position mixture before the variational update."""
+    if measurement_covariance is not None:
+        covariance = _measurement_covariance(measurement_covariance)
+        variance_x = covariance[0, 0] + predictive_draws.sigma_position_observation**2
+        variance_y = covariance[1, 1] + predictive_draws.sigma_position_observation**2
+        covariance_xy = covariance[0, 1]
+        residual_x = x_observed - predictive_draws.x
+        residual_y = (
+            y_observed - predictive_draws.y - covariance_xy / variance_x * residual_x
+        )
+        conditional_variance_y = variance_y - covariance_xy**2 / variance_x
+        log_components = (
+            -np.log(2.0 * np.pi)
+            - 0.5 * np.log(variance_x * conditional_variance_y)
+            - 0.5
+            * (residual_x**2 / variance_x + residual_y**2 / conditional_variance_y)
+        )
+        return float(_logsumexp(log_components) - np.log(log_components.size))
     squared_error = (x_observed - predictive_draws.x) ** 2 + (
         y_observed - predictive_draws.y
     ) ** 2
@@ -594,6 +612,7 @@ def build_sequential_update_data(
     x_observed: float,
     y_observed: float,
     position_observation_noise_floor_m: float = 0.0,
+    measurement_covariance: np.ndarray | None = None,
 ) -> dict[str, object]:
     """Build scalar Stan data for one position-observation update."""
     if not isinstance(carry, GaussianCarry):
@@ -614,6 +633,7 @@ def build_sequential_update_data(
         ),
         "x_observed": _finite_scalar(x_observed, name="x_observed"),
         "y_observed": _finite_scalar(y_observed, name="y_observed"),
+        "measurement_covariance": _measurement_covariance(measurement_covariance),
         "process_reference_interval_seconds": (
             ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
         ),
@@ -625,6 +645,15 @@ def build_sequential_update_data(
             )
         ),
     }
+
+
+def _measurement_covariance(value: np.ndarray | None) -> np.ndarray:
+    """Validate one known radar covariance, using zero for processed positions."""
+    if value is None:
+        return np.zeros((2, 2))
+    return observation_support.validate_measurement_covariances(
+        np.asarray(value)[None, ...], count=1
+    )[0]
 
 
 def compile_sequential_bayesian_ctrv_model(
@@ -656,6 +685,7 @@ def fit_sequential_update(
     seed: int,
     model: CmdStanModel | None = None,
     position_observation_noise_floor_m: float = 0.0,
+    measurement_covariance: np.ndarray | None = None,
 ):
     """Fit the one-observation posterior update with full-rank ADVI."""
     if not isinstance(config, SequentialVIConfig):
@@ -669,6 +699,7 @@ def fit_sequential_update(
         x_observed=x_observed,
         y_observed=y_observed,
         position_observation_noise_floor_m=position_observation_noise_floor_m,
+        measurement_covariance=measurement_covariance,
     )
     return cmdstan.run_variational_inference(
         model,
@@ -916,6 +947,7 @@ class SequentialCTRVVI:
     _updates: list[SequentialVIUpdate] = field(default_factory=list, repr=False)
     last_log_predictive_density: float | None = None
     predictive_log_density_history: list[float] = field(default_factory=list)
+    processed_cycle_count: int = 0
 
     @classmethod
     def initialize(
@@ -930,6 +962,8 @@ class SequentialCTRVVI:
         batch_fitter: Callable[..., object] | None = None,
         update_fitter: Callable[..., object] | None = None,
         model: CmdStanModel | None = None,
+        measurement_covariances: np.ndarray | None = None,
+        observed_mask: np.ndarray | None = None,
     ) -> SequentialCTRVVI:
         """Bootstrap once, then assimilate only observations after bootstrap."""
         if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
@@ -947,12 +981,30 @@ class SequentialCTRVVI:
                 minimum_count=config.n_bootstrap,
             )
         )
+        validated_observations = observation_support.PositionObservations(
+            time_seconds=time_values,
+            x_meters=x_values,
+            y_meters=y_values,
+            position_noise_std_m=0.0,
+            noise_seed=seed,
+            measurement_covariances=measurement_covariances,
+            observed_mask=observed_mask,
+        )
+        mask = validated_observations.observed_mask
+        if mask is None:
+            mask = np.ones(time_values.size, dtype=bool)
+        accepted_indices = np.flatnonzero(mask)
+        if accepted_indices.size < config.n_bootstrap:
+            raise ValueError(
+                f"Sequential VI requires at least {config.n_bootstrap} accepted measurements."
+            )
+        covariances = validated_observations.measurement_covariances
         if batch_fitter is None:
             batch_fitter = batch_inference.fit_bayesian_ctrv_model
         if update_fitter is None:
             update_fitter = fit_sequential_update
 
-        bootstrap_count = config.n_bootstrap
+        bootstrap_count = int(accepted_indices[config.n_bootstrap - 1]) + 1
         bootstrap_times = time_values[:bootstrap_count]
         last_interval = float(bootstrap_times[-1] - bootstrap_times[-2])
         synthetic_time = float(bootstrap_times[-1] + last_interval)
@@ -981,6 +1033,10 @@ class SequentialCTRVVI:
             y_meters=y_values[:bootstrap_count],
             position_noise_std_m=0.0,
             noise_seed=seed,
+            measurement_covariances=(
+                None if covariances is None else covariances[:bootstrap_count]
+            ),
+            observed_mask=(None if observed_mask is None else mask[:bootstrap_count]),
         )
         started = perf_counter()
         bootstrap_fit = batch_fitter(
@@ -1016,7 +1072,8 @@ class SequentialCTRVVI:
             carry=carry,
             last_observation_time_seconds=float(bootstrap_times[-1]),
             last_process_interval_seconds=last_interval,
-            processed_observation_count=bootstrap_count,
+            processed_observation_count=config.n_bootstrap,
+            processed_cycle_count=bootstrap_count,
             bootstrap_runtime_seconds=bootstrap_runtime,
             bootstrap_converged=_variational_fit_converged(bootstrap_fit),
             bootstrap_draw_count=carry.draw_count,
@@ -1024,11 +1081,18 @@ class SequentialCTRVVI:
             _update_fitter=update_fitter,
             _model=model,
         )
-        instance.update_many(
-            time_values[bootstrap_count:],
-            x_values[bootstrap_count:],
-            y_values[bootstrap_count:],
-        )
+        for index in range(bootstrap_count, time_values.size):
+            if mask[index]:
+                instance.update(
+                    float(time_values[index]),
+                    float(x_values[index]),
+                    float(y_values[index]),
+                    measurement_covariance=(
+                        None if covariances is None else covariances[index]
+                    ),
+                )
+            else:
+                instance.advance_without_measurement(float(time_values[index]))
         return instance
 
     @property
@@ -1036,16 +1100,12 @@ class SequentialCTRVVI:
         """Return immutable records for successful updates."""
         return tuple(self._updates)
 
-    def _predictive_summary(
+    def _predictive_motion_draws(
         self,
         observation_interval_seconds: float,
         *,
         seed: int,
-    ) -> tuple[
-        SequentialVIStateSummary,
-        SequentialVIParameterSummary,
-        SequentialVIPredictiveDraws,
-    ]:
+    ) -> dict[str, np.ndarray]:
         generator = np.random.default_rng(seed)
         draws = sample_gaussian_carry(
             self.carry,
@@ -1081,7 +1141,7 @@ class SequentialCTRVVI:
             states,
             observation_interval_seconds,
         )
-        predictive_mapping = {
+        return {
             **draws,
             "x_at_origin": states[:, ctrv_dynamics.STATE_X_INDEX],
             "y_at_origin": states[:, ctrv_dynamics.STATE_Y_INDEX],
@@ -1089,6 +1149,20 @@ class SequentialCTRVVI:
             "heading_at_origin": states[:, ctrv_dynamics.STATE_HEADING_INDEX],
             "turn_rate_at_origin": states[:, ctrv_dynamics.STATE_TURN_RATE_INDEX],
         }
+
+    def _predictive_summary(
+        self,
+        observation_interval_seconds: float,
+        *,
+        seed: int,
+    ) -> tuple[
+        SequentialVIStateSummary,
+        SequentialVIParameterSummary,
+        SequentialVIPredictiveDraws,
+    ]:
+        predictive_mapping = self._predictive_motion_draws(
+            observation_interval_seconds, seed=seed
+        )
         predictive_draws = SequentialVIPredictiveDraws(
             x=predictive_mapping["x_at_origin"],
             y=predictive_mapping["y_at_origin"],
@@ -1100,11 +1174,59 @@ class SequentialCTRVVI:
             predictive_draws,
         )
 
+    @property
+    def estimated_position(self) -> np.ndarray:
+        """Return the carried latent position mean at the latest raw cycle."""
+        return self.carry.mean[:2].copy()
+
+    @property
+    def expected_position_observation_variance(self) -> float:
+        """Return E[sigma_residual**2] under the log-normal Gaussian carry."""
+        variance = np.sum(self.carry.cholesky[5] ** 2)
+        return float(
+            self.priors.sigma_position_observation_floor_m**2
+            + np.exp(2.0 * self.carry.mean[5] + 2.0 * variance)
+        )
+
+    def predict_position_distribution(
+        self, time_seconds: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Predict latent position for association without consuming filter state."""
+        time_value = _finite_scalar(time_seconds, name="time_seconds")
+        if time_value <= self.last_observation_time_seconds:
+            raise ValueError("time_seconds must follow the previous observation.")
+        draws = self._predictive_motion_draws(
+            time_value - self.last_observation_time_seconds, seed=self._next_seed
+        )
+        positions = np.column_stack((draws["x_at_origin"], draws["y_at_origin"]))
+        return positions.mean(axis=0), np.cov(positions, rowvar=False, ddof=1)
+
+    def advance_without_measurement(self, time_seconds: float) -> None:
+        """Propagate one raw cycle and rematch the carry without a likelihood."""
+        time_value = _finite_scalar(time_seconds, name="time_seconds")
+        if time_value <= self.last_observation_time_seconds:
+            raise ValueError("time_seconds must follow the previous observation.")
+        interval = time_value - self.last_observation_time_seconds
+        draws = self._predictive_motion_draws(interval, seed=self._next_seed)
+        next_carry = build_gaussian_carry(
+            particle_utils.SequentialCTRVFit(draws),
+            covariance_jitter=self.config.covariance_jitter,
+            regularization_attempts=self.config.regularization_attempts,
+            position_observation_noise_floor_m=self.priors.sigma_position_observation_floor_m,
+        )
+        self.carry = next_carry
+        self.last_observation_time_seconds = time_value
+        self.last_process_interval_seconds = interval
+        self.processed_cycle_count += 1
+        self._next_seed += 1
+
     def update(
         self,
         time_seconds: float,
         x_observed: float,
         y_observed: float,
+        *,
+        measurement_covariance: np.ndarray | None = None,
     ) -> SequentialVIUpdate:
         """Assimilate one new position atomically."""
         time_value = _finite_scalar(time_seconds, name="time_seconds")
@@ -1112,6 +1234,8 @@ class SequentialCTRVVI:
             raise ValueError("time_seconds must follow the previous observation.")
         x_value = _finite_scalar(x_observed, name="x_observed")
         y_value = _finite_scalar(y_observed, name="y_observed")
+        if measurement_covariance is not None:
+            measurement_covariance = _measurement_covariance(measurement_covariance)
         observation_interval = time_value - self.last_observation_time_seconds
         started = perf_counter()
         predictive_state, predictive_parameters, predictive_draws = (
@@ -1121,9 +1245,8 @@ class SequentialCTRVVI:
             predictive_draws,
             x_observed=x_value,
             y_observed=y_value,
+            measurement_covariance=measurement_covariance,
         )
-        self.last_log_predictive_density = log_predictive_density
-        self.predictive_log_density_history.append(log_predictive_density)
         fitted = self._update_fitter(
             self.carry,
             process_interval_seconds=self.last_process_interval_seconds,
@@ -1135,6 +1258,11 @@ class SequentialCTRVVI:
             model=self._model,
             position_observation_noise_floor_m=(
                 self.priors.sigma_position_observation_floor_m
+            ),
+            **(
+                {"measurement_covariance": measurement_covariance}
+                if measurement_covariance is not None
+                else {}
             ),
         )
         next_carry = build_gaussian_carry(
@@ -1174,8 +1302,11 @@ class SequentialCTRVVI:
         self.last_observation_time_seconds = time_value
         self.last_process_interval_seconds = observation_interval
         self.processed_observation_count += 1
+        self.processed_cycle_count += 1
         self._next_seed += 1
         self._updates.append(record)
+        self.last_log_predictive_density = log_predictive_density
+        self.predictive_log_density_history.append(log_predictive_density)
         return record
 
     def update_many(self, time_seconds, x_observed, y_observed) -> None:

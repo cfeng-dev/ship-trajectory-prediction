@@ -80,7 +80,6 @@ def dialog_height_for_content(content_height, screen_height):
 def dialog_width_for_group(group, screen_width):
     """Keep concise inference forms narrower than data and prior editors."""
     preferred_width = {
-        "rbpf": INFERENCE_DIALOG_WIDTH,
         "smc": INFERENCE_DIALOG_WIDTH,
         "vi": INFERENCE_DIALOG_WIDTH,
         "mcmc": INFERENCE_DIALOG_WIDTH,
@@ -119,10 +118,7 @@ class PlotDisplayWindow(tk.Toplevel):
         self.variables = create_variables(
             self,
             _plot_display_initial_values(
-                {
-                    key: panel.variables["data"][key].get()
-                    for key in PLOT_DISPLAY_FIELDS
-                }
+                {key: panel.variables["data"][key].get() for key in PLOT_DISPLAY_FIELDS}
             ),
         )
         tk.Label(

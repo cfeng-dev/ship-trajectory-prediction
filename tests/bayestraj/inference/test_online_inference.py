@@ -9,17 +9,122 @@ import pytest
 import bayestraj.forecasting.bayesian_ctrv as ctrv_forecasting
 import bayestraj.forecasting.bayesian_ctrv_workflow as single_ctrv_workflow
 import bayestraj.inference.configuration as inference
-import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.validation.bayesian_ctrv_workflow as ctrv_workflow
 import bayestraj.validation.plotting as plotting
-import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize("with_reference", [False, True])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+def test_single_prediction_accepts_raw_radar_and_keeps_reference_out_of_fitting(
+    tmp_path, monkeypatch, capsys, with_reference, method
+):
+    times = np.arange(5, dtype=float)
+    data = pd.DataFrame(
+        dict(
+            time=times,
+            cycle_counter=np.arange(1, 6),
+            sensor_x=0.0,
+            sensor_y=0.0,
+            sensor_yaw=0.0,
+            detection_id=1,
+            range=10.0 + times,
+            azimuth=0.0,
+            std_range=0.5,
+            std_azimuth=0.1,
+            x_relative=10.0 + times,
+            y_relative=0.0,
+        )
+    )
+    if with_reference:
+        data["ground_truth_x"] = 100.0 + times
+        data["ground_truth_y"] = 0.0
+        data["ground_truth_yaw"] = 0.0
+        data["ground_truth_velocity"] = 1.0
+    input_csv = tmp_path / "radar.csv"
+    data.to_csv(input_csv, index=False)
+    plotted = {}
+
+    class DiagnosticFit(particle_utils.SequentialCTRVFit):
+        converged = False
+
+        def diagnose(self):
+            return "Test sampler diagnostic warning"
+
+    def fitter(*args, **kwargs):
+        return DiagnosticFit(
+            {
+                "x_at_origin": 12.0 + np.linspace(-0.01, 0.01, 16),
+                "y_at_origin": np.linspace(-0.01, 0.01, 16),
+                "speed_at_origin": np.ones(16),
+                "heading_at_origin": np.zeros(16),
+                "turn_rate_at_origin": np.zeros(16),
+                "sigma_position_observation": np.full(16, 0.1),
+                "sigma_speed_process": np.full(16, 0.1),
+                "sigma_turn_rate_process": np.full(16, 0.1),
+            }
+        )
+
+    monkeypatch.setattr(
+        single_ctrv_workflow.batch_inference, "fit_bayesian_ctrv_model", fitter
+    )
+    monkeypatch.setattr(
+        single_ctrv_workflow.prediction_plotting,
+        "plot_prediction",
+        lambda *args, **kwargs: plotted.update(kwargs),
+    )
+    experiment = ctrv_forecasting.ExperimentConfig(
+        start_index=0,
+        observation_count=3,
+        prediction_count=2,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=method,
+        inference_seed=42,
+    )
+
+    result = single_ctrv_workflow.run_bayesian_ctrv_prediction(
+        data_file=input_csv,
+        experiment=experiment,
+        priors=ctrv_model.BayesianCTRVPriors(),
+        smc_config=smc_model.SequentialMonteCarloCTRVConfig(
+            particle_count=64, posterior_draw_count=16
+        ),
+        sequential_vi_config=sequential_vi_model.SequentialVIConfig(
+            n_bootstrap=3, draws=16
+        ),
+        fullrank_grad_samples=20,
+        credible_interval=0.9,
+        inference_method=method,
+        vi_algorithm="fullrank",
+        seed=42,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        require_converged=False,
+        plot_coordinate_mode="m",
+        show_time_labels=False,
+    )
+
+    assert result["fit"].stan_variable("x_prediction").shape == (16, 2)
+    assert result["position_observations"].x_meters.tolist() == [10.0, 11.0, 12.0]
+    assert result["position_observations"].observed_mask.all()
+    assert (result["evaluation"] is not None) == with_reference
+    assert plotted["plot_mode"] == ("evaluation" if with_reference else "operational")
+    assert set(tmp_path.iterdir()) == {input_csv}
+    report = capsys.readouterr().out
+    if method == "vi":
+        assert "VI convergence: False" in report
+    elif method == "sequential_vi":
+        assert "Sequential VI convergence: False" in report
+    elif method == "mcmc":
+        assert "Test sampler diagnostic warning" in report
+        assert result["mcmc_diagnostics_ok"] is False
 
 
 def test_sequential_vi_uses_shared_bayesian_ctrv_evaluation_entrypoint():
@@ -37,7 +142,7 @@ def test_sequential_vi_uses_shared_bayesian_ctrv_single_run_entrypoint():
     assert entrypoint.is_file()
     assert not (single_run / "sequential_bayesian_ctrv.py").exists()
     source = entrypoint.read_text(encoding="utf-8")
-    assert '# - Online: "rbpf", "smc", or "sequential_vi".' in source
+    assert '# - Online: "smc" or "sequential_vi".' in source
 
 
 class _FakeOnlineFilter:
@@ -52,18 +157,17 @@ class _FakeOnlineFilter:
 
 
 def test_single_window_inference_configs_default_to_source_owned_factories():
-    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
-        single_ctrv_workflow._resolve_inference_configs(None, None, None, None)
+    vi_config, mcmc_config, smc_config, sequential_vi_config = (
+        single_ctrv_workflow._resolve_inference_configs(None, None, None)
     )
 
     assert vi_config["algorithm"] == "fullrank"
     assert mcmc_config["chains"] >= 1
-    assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0
     assert isinstance(sequential_vi_config, sequential_vi_model.SequentialVIConfig)
 
 
-@pytest.mark.parametrize("inference_method", ("rbpf", "smc"))
+@pytest.mark.parametrize("inference_method", ("smc",))
 def test_single_window_ctrv_prediction_runs_selected_particle_filter(
     monkeypatch,
     capsys,
@@ -104,10 +208,6 @@ def test_single_window_ctrv_prediction_runs_selected_particle_filter(
         priors=ctrv_model.BayesianCTRVPriors(),
         vi_config=inference.create_default_vi_config(),
         mcmc_config=inference.create_default_mcmc_config(),
-        rbpf_config=rbpf_model.SequentialCTRVFilterConfig(
-            particle_count=128,
-            posterior_draw_count=16,
-        ),
         smc_config=smc_model.SequentialMonteCarloCTRVConfig(
             particle_count=128,
             posterior_draw_count=16,
@@ -256,7 +356,7 @@ def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
         return _FakeOnlineFilter(x_observed)
 
     monkeypatch.setattr(
-        rbpf_model.SequentialBayesianCTRVFilter,
+        smc_model.SequentialMonteCarloCTRVFilter,
         "initialize",
         staticmethod(initialize),
     )
@@ -276,7 +376,6 @@ def test_ctrv_online_evaluation_initializes_once_and_updates_only_new_positions(
             noisy_route_x=values,
             noisy_route_y=-values,
             priors=object(),
-            rbpf_config=object(),
             inference_seed=42,
         )
 
@@ -318,7 +417,6 @@ def test_ctrv_sequential_vi_evaluation_initializes_once_and_never_replays(
             noisy_route_x=values,
             noisy_route_y=-values,
             priors=ctrv_model.BayesianCTRVPriors(),
-            rbpf_config=object(),
             smc_config=object(),
             sequential_vi_config=sequential_vi_model.SequentialVIConfig(
                 n_bootstrap=5,
@@ -349,7 +447,6 @@ def test_ctrv_online_evaluation_dispatches_to_full_state_smc():
         noisy_route_x=values,
         noisy_route_y=np.zeros_like(values),
         priors=ctrv_model.BayesianCTRVPriors(),
-        rbpf_config=object(),
         smc_config=smc_model.SequentialMonteCarloCTRVConfig(
             particle_count=64,
             posterior_draw_count=8,
@@ -364,99 +461,7 @@ def test_ctrv_online_evaluation_dispatches_to_full_state_smc():
     )
 
 
-def test_ctrv_rbpf_forecast_exposes_shared_posterior_variable_interface():
-    fit = rbpf_model.SequentialBayesianCTRVFilter.initialize(
-        np.arange(5, dtype=float),
-        np.arange(5, dtype=float),
-        np.zeros(5),
-        priors=ctrv_model.BayesianCTRVPriors(),
-        config=rbpf_model.SequentialCTRVFilterConfig(
-            particle_count=32,
-            posterior_draw_count=8,
-        ),
-        seed=42,
-    ).forecast(np.arange(5, 8, dtype=float), seed=43)
-
-    variable_names = (
-        "x_prediction",
-        "y_prediction",
-        "x_observation_prediction",
-        "y_observation_prediction",
-    )
-    for variable_name in variable_names:
-        samples = reporting.posterior_variable_samples(fit, variable_name)
-        assert samples.shape == (8, 3)
-        assert np.all(np.isfinite(samples))
-
-
-def test_ctrv_rbpf_exposes_clear_forecast_origin_state_names():
-    fit = rbpf_model.SequentialBayesianCTRVFilter.initialize(
-        np.arange(5, dtype=float),
-        np.arange(5, dtype=float),
-        np.zeros(5),
-        priors=ctrv_model.BayesianCTRVPriors(),
-        config=rbpf_model.SequentialCTRVFilterConfig(
-            particle_count=32,
-            posterior_draw_count=8,
-        ),
-        seed=42,
-    ).forecast(np.arange(5, 8, dtype=float), seed=43)
-
-    for variable_name in ctrv_model.PARAMETER_NAMES:
-        samples = reporting.posterior_variable_samples(fit, variable_name)
-        assert samples.shape == (8,)
-        assert np.all(np.isfinite(samples))
-
-
-def test_ctrv_rbpf_enforces_the_shared_position_noise_floor():
-    priors = ctrv_model.BayesianCTRVPriors()
-    online_filter = rbpf_model.SequentialBayesianCTRVFilter.initialize(
-        np.arange(5, dtype=float),
-        np.arange(5, dtype=float),
-        np.zeros(5),
-        priors=priors,
-        config=rbpf_model.SequentialCTRVFilterConfig(
-            particle_count=32,
-            posterior_draw_count=8,
-        ),
-        seed=42,
-    )
-
-    fit = online_filter.sample_current_posterior(seed=43)
-    observation_noise = reporting.posterior_variable_samples(
-        fit,
-        "sigma_position_observation",
-    )
-
-    assert np.all(observation_noise >= priors.sigma_position_observation_floor_m)
-
-
-def test_ctrv_rbpf_samples_current_posterior_without_advancing_filter():
-    online_filter = rbpf_model.SequentialBayesianCTRVFilter.initialize(
-        np.arange(5, dtype=float),
-        np.arange(5, dtype=float),
-        np.zeros(5),
-        priors=ctrv_model.BayesianCTRVPriors(),
-        config=rbpf_model.SequentialCTRVFilterConfig(
-            particle_count=32,
-            posterior_draw_count=8,
-        ),
-        seed=42,
-    )
-    state_before = online_filter.state_means.copy()
-    observation_count_before = online_filter.processed_observation_count
-
-    fit = online_filter.sample_current_posterior(seed=43)
-
-    for variable_name in ctrv_model.PARAMETER_NAMES:
-        samples = reporting.posterior_variable_samples(fit, variable_name)
-        assert samples.shape == (8,)
-        assert np.all(np.isfinite(samples))
-    assert online_filter.processed_observation_count == observation_count_before
-    assert online_filter.state_means == pytest.approx(state_before)
-
-
-def test_shared_rolling_summary_accepts_online_rbpf_predictions():
+def test_shared_rolling_summary_accepts_online_predictions():
     predictions = pd.DataFrame(
         {
             "window_index": [0, 0],
@@ -471,7 +476,7 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
             "joint_covered_50": [True, False],
             "joint_covered_90": [True, True],
             "inference_mode": ["online", "online"],
-            "inference_method": ["rbpf", "rbpf"],
+            "inference_method": ["smc", "smc"],
             "converged": [None, None],
             "mcmc_diagnostics_ok": [None, None],
             "window_runtime_seconds": [0.1, 0.1],
@@ -481,7 +486,7 @@ def test_shared_rolling_summary_accepts_online_rbpf_predictions():
     summary = rolling.summarize_rolling_predictions(predictions)
 
     assert summary.inference_mode == "online"
-    assert summary.inference_method == "rbpf"
+    assert summary.inference_method == "smc"
     assert summary.vi_convergence_rate is None
     assert summary.mcmc_diagnostics_pass_rate is None
     assert summary.elpd == pytest.approx(-5.0)
@@ -527,7 +532,7 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
 def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
     summary = rolling.RollingPositionSummary(
         inference_mode="online",
-        inference_method="rbpf",
+        inference_method="smc",
         window_count=119,
         forecast_count=357,
         ade_m=20.60,

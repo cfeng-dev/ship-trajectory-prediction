@@ -327,8 +327,12 @@ def test_sequential_stan_model_has_scalar_one_observation_contract() -> None:
     assert "process_interval_seconds" in source
     assert "observation_interval_seconds" in source
     assert "log_sum_exp" in source
-    assert source.count("x_observed ~ normal") == 1
-    assert source.count("y_observed ~ normal") == 1
+    assert source.count("x_observed ~ normal") == 2
+    assert source.count("y_observed ~ normal") == 2
+    assert "x_observed ~ normal(x_at_origin, sigma_position_observation);" in source
+    assert "y_observed ~ normal(y_at_origin, sigma_position_observation);" in source
+    assert "x_observed | x_at_origin, sigma_position_observation" in source
+    assert "y_observed | y_at_origin, sigma_position_observation" in source
     for variable_name in (
         "x_at_origin",
         "y_at_origin",
@@ -442,6 +446,148 @@ def _initialized_online_vi(
         seed=42,
         batch_fitter=batch_fitter,
     )
+
+
+def test_correlated_predictive_density_matches_joint_normal():
+    draws = sequential_vi.SequentialVIPredictiveDraws(
+        x=np.zeros(2), y=np.zeros(2), sigma_position_observation=np.ones(2)
+    )
+    covariance = np.array([[3.0, 1.5], [1.5, 8.0]])
+    total = covariance + np.eye(2)
+    residual = np.array([2.0, -1.0])
+    expected = (
+        -np.log(2 * np.pi)
+        - 0.5 * np.linalg.slogdet(total)[1]
+        - 0.5 * residual @ np.linalg.solve(total, residual)
+    )
+    actual = sequential_vi._predictive_log_density(
+        draws, x_observed=2.0, y_observed=-1.0, measurement_covariance=covariance
+    )
+    assert actual == pytest.approx(expected)
+
+
+def test_zero_known_covariance_preserves_isotropic_predictive_density():
+    draws = sequential_vi.SequentialVIPredictiveDraws(
+        x=np.array([0.0, 1.0]),
+        y=np.array([2.0, 1.0]),
+        sigma_position_observation=np.array([1.0, 3.0]),
+    )
+    independent = sequential_vi._predictive_log_density(
+        draws, x_observed=2.0, y_observed=-1.0
+    )
+    correlated = sequential_vi._predictive_log_density(
+        draws, x_observed=2.0, y_observed=-1.0, measurement_covariance=np.zeros((2, 2))
+    )
+    assert correlated == pytest.approx(independent, abs=1e-14)
+
+
+def test_sequential_update_data_preserves_correlated_known_covariance():
+    covariance = np.array([[4.0, -2.0], [-2.0, 9.0]])
+    data = sequential_vi.build_sequential_update_data(
+        _carry(),
+        process_interval_seconds=1.5,
+        observation_interval_seconds=2.0,
+        x_observed=3.0,
+        y_observed=5.0,
+        measurement_covariance=covariance,
+    )
+    covariance[:] = 0.0
+    np.testing.assert_array_equal(
+        data["measurement_covariance"], [[4.0, -2.0], [-2.0, 9.0]]
+    )
+
+
+def test_missing_cycle_advances_carry_without_fitting_and_predictions_are_pure():
+    online = _initialized_online_vi(draws=200)
+
+    def forbidden_fitter(*args, **kwargs):
+        pytest.fail("A missing radar cycle must not run variational inference.")
+
+    online._update_fitter = forbidden_fitter
+    carry = online.carry
+    next_seed = online._next_seed
+    mean, covariance = online.predict_position_distribution(20.0)
+    again = online.predict_position_distribution(20.0)
+    np.testing.assert_array_equal(mean, again[0])
+    np.testing.assert_array_equal(covariance, again[1])
+    assert online.carry is carry
+    assert online._next_seed == next_seed
+    online.advance_without_measurement(20.0)
+    assert online.carry is not carry
+    assert online.processed_cycle_count == 11
+    assert online.processed_observation_count == 10
+    assert online.last_observation_time_seconds == 20.0
+    assert online._next_seed == next_seed + 1
+    np.testing.assert_allclose(online.estimated_position, mean)
+    assert online.expected_position_observation_variance >= 25.0
+    assert online.updates == ()
+
+
+def test_failed_missing_cycle_projection_leaves_all_state_unchanged(monkeypatch):
+    online = _initialized_online_vi(draws=200)
+    carry = online.carry
+    state = (
+        online._next_seed,
+        online.last_observation_time_seconds,
+        online.last_process_interval_seconds,
+        online.processed_cycle_count,
+        online.processed_observation_count,
+    )
+
+    def failed_projection(*args, **kwargs):
+        raise ValueError("projection failed")
+
+    monkeypatch.setattr(sequential_vi, "build_gaussian_carry", failed_projection)
+    with pytest.raises(ValueError, match="projection failed"):
+        online.advance_without_measurement(20.0)
+    assert online.carry is carry
+    assert state == (
+        online._next_seed,
+        online.last_observation_time_seconds,
+        online.last_process_interval_seconds,
+        online.processed_cycle_count,
+        online.processed_observation_count,
+    )
+
+
+def test_bootstrap_counts_accepted_measurements_and_keeps_missing_cycles():
+    batch_calls = []
+    update_calls = []
+
+    def batch_fitter(window, **options):
+        batch_calls.append((window, options["position_observations"]))
+        return FakeFit(_origin_variables())
+
+    def update_fitter(carry, **options):
+        update_calls.append(options)
+        return FakeFit(_origin_variables())
+
+    times, x, y = _online_observations(8)
+    mask = np.array([True, False, True, False, True, False, True, False])
+    covariances = np.broadcast_to([[4.0, 1.0], [1.0, 9.0]], (8, 2, 2)).copy()
+    online = sequential_vi.SequentialCTRVVI.initialize(
+        times,
+        x,
+        y,
+        observed_mask=mask,
+        measurement_covariances=covariances,
+        priors=BayesianCTRVPriors(),
+        config=sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=100),
+        batch_fitter=batch_fitter,
+        update_fitter=update_fitter,
+    )
+    assert batch_calls[0][0].observation_count == 5
+    np.testing.assert_array_equal(batch_calls[0][1].observed_mask, mask[:5])
+    np.testing.assert_array_equal(
+        batch_calls[0][1].measurement_covariances, covariances[:5]
+    )
+    assert len(update_calls) == 1
+    np.testing.assert_array_equal(
+        update_calls[0]["measurement_covariance"], covariances[6]
+    )
+    assert online.processed_cycle_count == 8
+    assert online.processed_observation_count == 4
+    assert online.last_observation_time_seconds == times[-1]
 
 
 def test_sequential_vi_bootstraps_batch_once_then_updates_unseen_positions() -> None:
@@ -561,6 +707,9 @@ def test_sequential_vi_update_rolls_back_all_state_on_failure() -> None:
     time_before = online_vi.last_observation_time_seconds
     interval_before = online_vi.last_process_interval_seconds
     count_before = online_vi.processed_observation_count
+    cycle_count_before = online_vi.processed_cycle_count
+    history_before = online_vi.predictive_log_density_history.copy()
+    density_before = online_vi.last_log_predictive_density
 
     with pytest.raises(RuntimeError, match="ADVI failed"):
         online_vi.update(22.0, 66.0, -33.0)
@@ -571,6 +720,9 @@ def test_sequential_vi_update_rolls_back_all_state_on_failure() -> None:
     assert online_vi.last_observation_time_seconds == time_before
     assert online_vi.last_process_interval_seconds == interval_before
     assert online_vi.processed_observation_count == count_before
+    assert online_vi.processed_cycle_count == cycle_count_before
+    assert online_vi.predictive_log_density_history == history_before
+    assert online_vi.last_log_predictive_density == density_before
 
 
 def test_sequential_vi_fit_records_terminal_failure_and_stops() -> None:

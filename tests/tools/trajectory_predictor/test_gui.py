@@ -1171,7 +1171,6 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
 @pytest.mark.parametrize(
     ("group", "expected_width"),
     (
-        ("rbpf", 470),
         ("smc", 470),
         ("vi", 470),
         ("mcmc", 470),
@@ -1419,10 +1418,10 @@ def test_analysis_section_contains_method_and_start_button(root):
 
 def test_inference_method_is_grouped_with_analysis_fields():
     analysis, data = split_analysis_data_fields(
-        {"data_file": "route.csv", "inference_method": "rbpf"}
+        {"data_file": "route.csv", "inference_method": "smc"}
     )
 
-    assert analysis == {"inference_method": "rbpf"}
+    assert analysis == {"inference_method": "smc"}
     assert data == {"data_file": "route.csv"}
 
 
@@ -1758,7 +1757,7 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     dialog.variables["speed_prior_upper_mps"].set("30")
     dialog.cancel()
     assert panel.values() == original
-    dialog = SettingsDialog(root, panel, "rbpf")
+    dialog = SettingsDialog(root, panel, "smc")
     errors = []
     monkeypatch.setattr(
         "trajectory_predictor.dialogs.messagebox.showerror",
@@ -1772,8 +1771,8 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     dialog.variables["particle_count"].set("64")
     dialog.apply()
     assert not dialog.winfo_exists()
-    assert panel.variables["rbpf"]["particle_count"].get() == "64"
-    assert panel.values()["smc"] == original["smc"]
+    assert panel.variables["smc"]["particle_count"].get() == "64"
+    assert panel.values()["sequential_vi"] == original["sequential_vi"]
 
 
 def test_data_settings_dialog_keeps_an_empty_observation_interval_after_apply(

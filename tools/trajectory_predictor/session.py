@@ -14,7 +14,6 @@ from queue import Empty, Queue
 from threading import Condition, Thread
 from time import perf_counter
 
-from bayestraj.inference.ctrv_rbpf import SequentialCTRVFilterConfig
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
@@ -34,7 +33,6 @@ class AnalysisSettings:
     priors: BayesianCTRVPriors
     vi_config: dict
     mcmc_config: dict
-    rbpf_config: SequentialCTRVFilterConfig
     smc_config: SequentialMonteCarloCTRVConfig
     sequential_vi_config: SequentialVIConfig
 
@@ -51,13 +49,14 @@ class AnalysisEvent:
 def prepare_analysis(settings: AnalysisSettings):
     """Load the selected route and construct its persistent posterior loader."""
     if is_br24_tracking_input(settings.data_file):
-        if settings.experiment.inference_method != "smc":
-            raise ValueError("BR24 radar tracking requires the SMC inference method.")
         return dashboard.create_br24_radar_dashboard_loader(
             settings.data_file,
             experiment=settings.experiment,
             priors=settings.priors,
             smc_config=settings.smc_config,
+            vi_config=settings.vi_config,
+            mcmc_config=settings.mcmc_config,
+            sequential_vi_config=settings.sequential_vi_config,
         )
     data = (
         dashboard.read_dashboard_trajectory(settings.data_file)
@@ -72,7 +71,6 @@ def prepare_analysis(settings: AnalysisSettings):
         priors=settings.priors,
         vi_config=settings.vi_config,
         mcmc_config=settings.mcmc_config,
-        rbpf_config=settings.rbpf_config,
         smc_config=settings.smc_config,
         sequential_vi_config=settings.sequential_vi_config,
     )

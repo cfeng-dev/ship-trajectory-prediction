@@ -84,7 +84,39 @@ def wait_for_event(worker, kind, timeout=5, *, match=lambda _: True):
     pytest.fail(f"No {kind} event; received {collected}")
 
 
-@pytest.mark.parametrize("method", ["rbpf", "smc"])
+@pytest.mark.parametrize("method", ("vi", "mcmc", "smc", "sequential_vi"))
+def test_br24_session_forwards_each_method_and_its_configs(
+    analysis, method, monkeypatch
+):
+    captured = {}
+    sentinel = object()
+    selected = replace(
+        analysis,
+        experiment=replace(analysis.experiment, inference_method=method),
+    )
+
+    def create_loader(data_file, **options):
+        captured["data_file"] = data_file
+        captured.update(options)
+        return sentinel
+
+    monkeypatch.setattr(
+        "trajectory_predictor.session.is_br24_tracking_input", lambda _path: True
+    )
+    monkeypatch.setattr(dashboard, "create_br24_radar_dashboard_loader", create_loader)
+
+    assert prepare_analysis(selected) is sentinel
+    assert captured["data_file"] == selected.data_file
+    assert captured["experiment"] is selected.experiment
+    assert captured["experiment"].inference_method == method
+    assert captured["priors"] is selected.priors
+    assert captured["vi_config"] is selected.vi_config
+    assert captured["mcmc_config"] is selected.mcmc_config
+    assert captured["smc_config"] is selected.smc_config
+    assert captured["sequential_vi_config"] is selected.sequential_vi_config
+
+
+@pytest.mark.parametrize("method", ["smc"])
 def test_default_worker_reads_csv_and_runs_online_inference(tmp_path, method):
     data_file = tmp_path / "route.csv"
     pd.DataFrame(

@@ -113,8 +113,26 @@ def fit_bayesian_ctrv_model(
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     """Create seeded latent-state initials from the position history."""
     generator = np.random.default_rng(seed)
-    x_true = _smooth_position_initials(stan_data["x_observed"])
-    y_true = _smooth_position_initials(stan_data["y_observed"])
+    observed_mask = np.asarray(
+        stan_data.get("observed_mask", np.ones(stan_data["N_history"])), dtype=bool
+    )
+    time = np.asarray(stan_data["time_observed"])
+    # Missing-cycle placeholders never enter numerical initialization. Interpolation
+    # here constructs optimizer initials only; it does not create observations.
+    x_true = _smooth_position_initials(
+        np.interp(
+            time,
+            time[observed_mask],
+            np.asarray(stan_data["x_observed"])[observed_mask],
+        )
+    )
+    y_true = _smooth_position_initials(
+        np.interp(
+            time,
+            time[observed_mask],
+            np.asarray(stan_data["y_observed"])[observed_mask],
+        )
+    )
     observation_noise_excess_initial = 1.0 / float(
         stan_data["sigma_position_observation_prior_rate"]
     )
@@ -154,9 +172,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         ),
         "turn_rate_state": turn_rate
         + generator.normal(0.0, turn_jitter, transition_count),
-        "sigma_position_observation_excess": float(
-            observation_noise_excess_initial
-        ),
+        "sigma_position_observation_excess": float(observation_noise_excess_initial),
         "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
         "sigma_turn_rate_process": float(
             0.5 / stan_data["sigma_turn_rate_process_prior_rate"]

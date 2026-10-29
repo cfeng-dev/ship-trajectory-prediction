@@ -174,14 +174,81 @@ def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
     )
 
 
-def test_br24_evaluation_requires_smc_and_unmodified_raw_radar_measurements(tmp_path):
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+def test_br24_evaluation_dispatches_the_selected_radar_method(
+    tmp_path, monkeypatch, method
+):
+    input_csv = tmp_path / "radar.csv"
+    _write_br24_evaluation_input(input_csv)
+    tracker_type = workflow.br24_radar_smc.BR24BayesianRadarTracker
+    original_initialize = tracker_type.initialize
+    configured = []
+
+    class FittedFilter:
+        converged = True
+
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.last_fit = type(
+                "SamplerDiagnostics",
+                (),
+                {"diagnose": lambda self: "No problems detected"},
+            )()
+
+        def __getattr__(self, name):
+            return getattr(self.wrapped, name)
+
+    def initialize(cycle, **kwargs):
+        configured.append(kwargs)
+        tracker = original_initialize(
+            cycle,
+            initial_detection_id=kwargs["initial_detection_id"],
+            priors=kwargs["priors"],
+            config=kwargs["config"],
+            seed=kwargs["seed"],
+        )
+        tracker.filter = FittedFilter(tracker.filter)
+        return tracker
+
+    monkeypatch.setattr(tracker_type, "initialize", initialize)
+    predictions, summary = _run_br24_evaluation(input_csv, inference_method=method)
+
+    assert configured[0]["inference_method"] == method
+    assert configured[0]["observation_count"] == 2
+    assert configured[0]["vi_config"]["algorithm"] == "meanfield"
+    assert configured[0]["sequential_vi_config"].n_bootstrap >= 3
+    assert summary.inference_method == method
+    assert set(predictions["inference_method"]) == {method}
+    assert predictions["forecast_origin_seconds"].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_br24_evaluation_requires_unmodified_raw_radar_measurements(tmp_path):
     input_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
     _write_br24_evaluation_input(input_csv)
 
-    with pytest.raises(ValueError, match="requires the SMC"):
-        _run_br24_evaluation(input_csv, inference_method="rbpf")
     with pytest.raises(ValueError, match="artificial position noise"):
         _run_br24_evaluation(input_csv, position_noise_std_m=0.1)
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_radar_prior_forecasts_do_not_count_as_failed_fits(tmp_path, method):
+    input_csv = tmp_path / "radar.csv"
+    _write_br24_evaluation_input(input_csv)
+    predictions, _ = _run_br24_evaluation(input_csv)
+    predictions["inference_mode"] = "batch"
+    predictions["inference_method"] = method
+    predictions["is_prior_predictive"] = [True, False, False]
+    column = "converged" if method == "vi" else "mcmc_diagnostics_ok"
+    predictions[column] = [None, True, False]
+
+    summary = rolling.summarize_rolling_predictions(predictions)
+
+    rate = (
+        summary.vi_convergence_rate
+        if method == "vi"
+        else summary.mcmc_diagnostics_pass_rate
+    )
+    assert rate == 0.5
 
 
 def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys):
@@ -274,13 +341,12 @@ def test_online_filter_diagnostics_are_available_for_benchmark_records():
 
 
 def test_inference_configs_default_to_source_owned_factories():
-    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
+    vi_config, mcmc_config, smc_config, sequential_vi_config = (
         workflow._resolve_inference_configs(None, None, None, None)
     )
 
     assert vi_config["algorithm"] == "fullrank"
     assert mcmc_config["chains"] >= 1
-    assert rbpf_config.particle_count > 0
     assert smc_config.particle_count > 0
     assert isinstance(sequential_vi_config, sequential_vi_model.SequentialVIConfig)
 

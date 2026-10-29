@@ -19,6 +19,8 @@ class PositionObservations:
     y_meters: np.ndarray
     position_noise_std_m: float
     noise_seed: int
+    measurement_covariances: np.ndarray | None = None
+    observed_mask: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         """Copy, validate, and make all observation arrays read-only."""
@@ -36,6 +38,18 @@ class PositionObservations:
             "noise_seed",
             self.noise_seed,
         )
+        measurement_covariances = None
+        if self.measurement_covariances is not None:
+            measurement_covariances = validate_measurement_covariances(
+                self.measurement_covariances, count=time_seconds.size
+            )
+        observed_mask = None
+        if self.observed_mask is not None:
+            observed_mask = np.asarray(self.observed_mask)
+            if observed_mask.shape != time_seconds.shape or observed_mask.dtype != bool:
+                raise ValueError("observed_mask must be a matching boolean vector.")
+            observed_mask = observed_mask.copy()
+            observed_mask.setflags(write=False)
         for values in (time_seconds, x_meters, y_meters):
             values.setflags(write=False)
         object.__setattr__(self, "time_seconds", time_seconds)
@@ -47,6 +61,23 @@ class PositionObservations:
             position_noise_std_m,
         )
         object.__setattr__(self, "noise_seed", noise_seed)
+        object.__setattr__(self, "measurement_covariances", measurement_covariances)
+        object.__setattr__(self, "observed_mask", observed_mask)
+
+
+def validate_measurement_covariances(values, *, count: int) -> np.ndarray:
+    """Copy finite symmetric positive-semidefinite measurement matrices."""
+    covariance = np.asarray(values, dtype=float).copy()
+    if covariance.shape != (count, 2, 2) or not np.all(np.isfinite(covariance)):
+        raise ValueError("measurement_covariances must have finite shape (n, 2, 2).")
+    transpose = covariance.swapaxes(-1, -2)
+    if not np.allclose(covariance, transpose, rtol=1e-12, atol=1e-12):
+        raise ValueError("measurement_covariances must be symmetric.")
+    covariance = 0.5 * (covariance + transpose)
+    if np.any(np.linalg.eigvalsh(covariance) < 0.0):
+        raise ValueError("measurement_covariances must be positive semidefinite.")
+    covariance.setflags(write=False)
+    return covariance
 
 
 def simulate_position_observations(

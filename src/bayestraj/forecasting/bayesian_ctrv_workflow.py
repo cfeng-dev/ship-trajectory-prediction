@@ -2,18 +2,21 @@
 
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
+import bayestraj.inference.br24_radar_smc as radar_inference
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
-import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.observations.br24 as radar_observations
 import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.metrics as metrics
@@ -24,7 +27,6 @@ import bayestraj.validation.reporting as reporting
 def _resolve_inference_configs(
     vi_config,
     mcmc_config,
-    rbpf_config,
     smc_config,
     sequential_vi_config=None,
 ):
@@ -32,9 +34,6 @@ def _resolve_inference_configs(
     return (
         inference.create_default_vi_config() if vi_config is None else vi_config,
         inference.create_default_mcmc_config() if mcmc_config is None else mcmc_config,
-        inference.create_default_ctrv_rbpf_config()
-        if rbpf_config is None
-        else rbpf_config,
         inference.create_default_ctrv_smc_config()
         if smc_config is None
         else smc_config,
@@ -51,7 +50,6 @@ def run_bayesian_ctrv_prediction(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config: Mapping[str, Any] | None = None,
     mcmc_config: Mapping[str, Any] | None = None,
-    rbpf_config: rbpf_model.SequentialCTRVFilterConfig | None = None,
     smc_config: smc_model.SequentialMonteCarloCTRVConfig | None = None,
     sequential_vi_config: sequential_vi_model.SequentialVIConfig | None = None,
     fullrank_grad_samples: int,
@@ -67,11 +65,10 @@ def run_bayesian_ctrv_prediction(
     sample_trajectories_per_forecast=prediction_plotting.DEFAULT_SAMPLE_TRAJECTORIES,
 ):
     """Fit and evaluate one constant-parameter Bayesian CTRV prediction."""
-    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
+    vi_config, mcmc_config, smc_config, sequential_vi_config = (
         _resolve_inference_configs(
             vi_config,
             mcmc_config,
-            rbpf_config,
             smc_config,
             sequential_vi_config,
         )
@@ -82,14 +79,7 @@ def run_bayesian_ctrv_prediction(
     )
     online_mode = inference_mode == "online"
     if online_mode:
-        if inference_method == "rbpf":
-            if not isinstance(rbpf_config, rbpf_model.SequentialCTRVFilterConfig):
-                raise TypeError(
-                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
-                )
-            filter_type = rbpf_model.SequentialBayesianCTRVFilter
-            particle_filter_config = rbpf_config
-        elif inference_method == "smc":
+        if inference_method == "smc":
             if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
                 raise TypeError(
                     "smc_config must be a SequentialMonteCarloCTRVConfig instance."
@@ -120,6 +110,26 @@ def run_bayesian_ctrv_prediction(
     plot_coordinate_mode = prediction_plotting.normalize_plot_coordinate_mode(
         plot_coordinate_mode
     )
+    if Path(data_file).is_file() and radar_observations.is_br24_tracking_input(
+        data_file
+    ):
+        return _run_radar_prediction(
+            data_file=data_file,
+            experiment=experiment,
+            priors=priors,
+            inference_method=inference_method,
+            vi_config=inference_config if inference_method == "vi" else vi_config,
+            mcmc_config=mcmc_config,
+            smc_config=smc_config,
+            sequential_vi_config=sequential_vi_config,
+            seed=seed,
+            position_noise_std_m=position_noise_std_m,
+            position_noise_seed=position_noise_seed,
+            credible_interval=credible_interval,
+            plot_coordinate_mode=plot_coordinate_mode,
+            show_time_labels=show_time_labels,
+            sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+        )
     trajectory_data = observations_io.read_processed_trajectory(data_file)
     window = observation_window.prepare_processed_trajectory_window(
         trajectory_data,
@@ -257,7 +267,7 @@ def run_bayesian_ctrv_prediction(
         converged = None
         print("\nMCMC diagnostics:")
         print(fit.diagnose())
-    elif inference_method in {"rbpf", "smc"}:
+    elif inference_method == "smc":
         converged = None
         latest_update_ess = online_filter.last_effective_sample_size
         if latest_update_ess is None:
@@ -367,3 +377,172 @@ def run_bayesian_ctrv_prediction(
         "evaluation": evaluation,
         "converged": converged,
     }
+
+
+def _run_radar_prediction(
+    *,
+    data_file,
+    experiment,
+    priors,
+    inference_method,
+    vi_config,
+    mcmc_config,
+    smc_config,
+    sequential_vi_config,
+    seed,
+    position_noise_std_m,
+    position_noise_seed,
+    credible_interval,
+    plot_coordinate_mode,
+    show_time_labels,
+    sample_trajectories_per_forecast,
+):
+    """Forecast from past raw cycles, reading optional labels only afterward."""
+    if experiment.start_index != 0:
+        raise ValueError("BR24 radar tracking starts at the lowest cycle counter.")
+    if position_noise_std_m != 0.0:
+        raise ValueError(
+            "BR24 radar prediction does not support artificial position noise."
+        )
+    cycles = radar_observations.read_br24_tracking_input(data_file)
+    observed_count = experiment.observation_count
+    stop = observed_count + experiment.prediction_count
+    if stop > len(cycles):
+        raise ValueError(
+            "The requested observations and predictions exceed BR24 cycles."
+        )
+    if not cycles[0].detections:
+        raise ValueError("The first BR24 radar cycle needs a detection to initialize.")
+    started = time.perf_counter()
+    tracker = radar_inference.BR24BayesianRadarTracker.initialize(
+        cycles[0],
+        initial_detection_id=cycles[0].detections[0].detection_id,
+        priors=priors,
+        inference_method=inference_method,
+        observation_count=observed_count,
+        config=smc_config,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        sequential_vi_config=sequential_vi_config,
+        seed=seed,
+    )
+    detection_ids = [cycles[0].detections[0].detection_id]
+    tracked = [tracker.estimated_position]
+    for cycle in cycles[1:observed_count]:
+        step = tracker.process_cycle(cycle)
+        detection_ids.append(step.detection_id)
+        tracked.append(tracker.estimated_position)
+    future_times = np.array(
+        [cycle.time_seconds for cycle in cycles[observed_count:stop]]
+    )
+    fit = tracker.filter.forecast(future_times, seed=1_000_000 + seed)
+    runtime = time.perf_counter() - started
+
+    # These arrays contain real fixes only; missing-cycle placeholders are masked.
+    positions = np.zeros((observed_count, 2))
+    covariances = np.zeros((observed_count, 2, 2))
+    mask = np.zeros(observed_count, dtype=bool)
+    for index, (cycle, detection_id) in enumerate(
+        zip(cycles, detection_ids, strict=False)
+    ):
+        if detection_id is None:
+            continue
+        detection = next(
+            item for item in cycle.detections if item.detection_id == detection_id
+        )
+        positions[index] = radar_observations.br24_measurement_position(
+            sensor_position=cycle.sensor_position,
+            range_m=detection.range_m,
+            azimuth_rad=detection.azimuth_rad,
+        )
+        covariances[index] = radar_observations.br24_measurement_covariance(
+            range_m=detection.range_m,
+            azimuth_rad=detection.azimuth_rad,
+            std_range_m=detection.std_range_m,
+            std_azimuth_rad=detection.std_azimuth_rad,
+        )
+        mask[index] = True
+    times = np.array([cycle.time_seconds for cycle in cycles[:stop]])
+    observations = bayesian_model.PositionObservations(
+        times[:observed_count],
+        positions[:, 0],
+        positions[:, 1],
+        0.0,
+        position_noise_seed,
+        measurement_covariances=covariances,
+        observed_mask=mask,
+    )
+    reference = radar_observations.read_br24_tracking_reference(data_file)
+    display_positions = np.vstack(
+        (
+            tracked,
+            np.repeat(
+                np.asarray(tracked[-1])[None, :], experiment.prediction_count, axis=0
+            ),
+        )
+    )
+    window = observation_window.TrajectoryWindowData(
+        timestamps=pd.DatetimeIndex(pd.to_datetime(times, unit="s", utc=True)),
+        time_seconds=times,
+        x_meters=reference.x_meters[:stop]
+        if reference is not None
+        else display_positions[:, 0],
+        y_meters=reference.y_meters[:stop]
+        if reference is not None
+        else display_positions[:, 1],
+        reference_longitude=None,
+        reference_latitude=None,
+        gps_speed_mps=np.full(stop, np.nan),
+        observation_count=observed_count,
+    )
+    evaluation = None
+    print(f"Bayesian CTRV BR24 prediction ({inference_method.upper()})")
+    print(f"Radar state: {tracker.fit_status}; processed cycles: {observed_count}")
+    converged = getattr(tracker.filter, "converged", None)
+    mcmc_diagnostics_ok = None
+    if tracker.is_prior_predictive:
+        print("Prior-predictive startup: no posterior fit is available yet.")
+    elif inference_method == "vi":
+        print(f"VI convergence: {converged}")
+    elif inference_method == "sequential_vi":
+        print(f"Sequential VI convergence: {converged}")
+    elif inference_method == "mcmc":
+        diagnosis = tracker.filter.last_fit.diagnose()
+        mcmc_diagnostics_ok = "no problems detected" in diagnosis.lower()
+        print("MCMC sampler diagnostics:")
+        print(diagnosis)
+    print(reporting.posterior_parameter_summary(fit, bayesian_model.PARAMETER_NAMES))
+    if reference is not None:
+        evaluation = metrics.evaluate_position_predictions(
+            fit,
+            window,
+            credible_interval=credible_interval,
+            position_variable_names=("x_prediction", "y_prediction"),
+        )
+        metrics.print_position_evaluation(evaluation, computation_time_seconds=runtime)
+    prediction_plotting.plot_prediction(
+        window,
+        fit,
+        plot_mode="evaluation" if reference is not None else "operational",
+        state_prediction_variable_names=("x_prediction", "y_prediction"),
+        observed_position_values=(np.asarray(tracked)[:, 0], np.asarray(tracked)[:, 1]),
+        observed_trajectory_label="Bayesian CTRV track",
+        position_noise_std_m=0.0,
+        coordinate_mode=plot_coordinate_mode,
+        title=f"Bayesian-CTRV ({inference_method.upper()})",
+        forecast_label="Median der latenten CTRV-Trajektorie",
+        sample_label="Latente CTRV-Trajektorienprognosen",
+        max_sample_trajectories=sample_trajectories_per_forecast,
+        show_time_labels=show_time_labels,
+    )
+    return dict(
+        fit=fit,
+        window=window,
+        position_observations=observations,
+        stan_data=None,
+        evaluation=evaluation,
+        converged=converged,
+        mcmc_diagnostics_ok=mcmc_diagnostics_ok,
+        tracker=tracker,
+        is_prior_predictive=tracker.is_prior_predictive,
+    )

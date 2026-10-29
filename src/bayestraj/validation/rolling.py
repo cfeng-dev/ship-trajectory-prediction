@@ -344,19 +344,35 @@ def summarize_rolling_predictions(
             "mcmc_diagnostics_ok",
         ]
     ].first()
+    if "is_prior_predictive" in prediction_table:
+        prior_flags = prediction_table.groupby("window_index")["is_prior_predictive"]
+        if (
+            not prediction_table["is_prior_predictive"]
+            .map(lambda value: isinstance(value, (bool, np.bool_)))
+            .all()
+            or (prior_flags.nunique(dropna=False) != 1).any()
+        ):
+            raise ValueError(
+                "Each window requires one boolean is_prior_predictive value."
+            )
+        diagnostics_by_window = diagnostics_by_window.loc[~prior_flags.first()]
     if inference_method == "vi":
         if diagnostics_by_window["converged"].isna().any():
             raise ValueError("VI predictions require convergence values.")
-        vi_convergence_rate = float(
-            diagnostics_by_window["converged"].astype(bool).mean()
+        vi_convergence_rate = (
+            float(diagnostics_by_window["converged"].astype(bool).mean())
+            if not diagnostics_by_window.empty
+            else None
         )
         mcmc_diagnostics_pass_rate = None
     elif inference_method == "mcmc":
         if diagnostics_by_window["mcmc_diagnostics_ok"].isna().any():
             raise ValueError("MCMC predictions require sampler diagnostic values.")
         vi_convergence_rate = None
-        mcmc_diagnostics_pass_rate = float(
-            diagnostics_by_window["mcmc_diagnostics_ok"].astype(bool).mean()
+        mcmc_diagnostics_pass_rate = (
+            float(diagnostics_by_window["mcmc_diagnostics_ok"].astype(bool).mean())
+            if not diagnostics_by_window.empty
+            else None
         )
     else:
         vi_convergence_rate = None

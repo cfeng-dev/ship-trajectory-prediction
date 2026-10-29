@@ -62,7 +62,7 @@ POSTERIOR_HELP_SECTIONS = (
             (
                 "VI / MCMC",
                 "Refit the latest "
-                f"{DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT} observations at each update",
+                f"{DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT} steps at each update; BR24 windows count radar cycles, including misses",
             ),
             (
                 "Follow ship",
@@ -228,7 +228,7 @@ POSTERIOR_HELP_SECTIONS = (
         (
             (
                 "Radar input",
-                "Raw BR24 tracking requires SMC and start index 0. Cycles keep their original timestamps; observation spacing and simulated position-noise settings do not modify this input",
+                "Raw BR24 tracking supports SMC, Sequential VI, VI, and MCMC and starts at index 0. Original radar timestamps are retained; set additional position noise to 0",
             ),
             (
                 "Status",

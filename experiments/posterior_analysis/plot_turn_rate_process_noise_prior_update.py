@@ -7,23 +7,21 @@ import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.observations.paths as paths
 import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 
-DATA_FILE = paths.data_path(
-    "raw/shiptech_data.csv"
-)
+DATA_FILE = paths.data_path("raw/shiptech_data.csv")
 RUN_ID = 102
 START_INDEX = 0
 POSITION_NOISE_STD_M = 5.0
 POSITION_NOISE_SEED = 2026
-RBPF_SEED = 42
+SMC_SEED = 42
 CREDIBLE_INTERVAL = 0.90
 SHOW_LEGEND = True
 PRIORS = bayesian_model.BayesianCTRVPriors()
-RBPF_CONFIG = inference.create_default_ctrv_rbpf_config()
+SMC_CONFIG = inference.create_default_ctrv_smc_config()
 PARAMETER_NAME = "turn_rate_process_noise"
 
 
 def main(argv=None):
-    """Update one RBPF point by point and show one interactive plot."""
+    """Update one SMC point by point and show one interactive plot."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-show", action="store_true")
     arguments = parser.parse_args(argv)
@@ -35,8 +33,8 @@ def main(argv=None):
         position_noise_std_m=POSITION_NOISE_STD_M,
         position_noise_seed=POSITION_NOISE_SEED,
         priors=PRIORS,
-        rbpf_config=RBPF_CONFIG,
-        rbpf_seed=RBPF_SEED,
+        smc_config=SMC_CONFIG,
+        smc_seed=SMC_SEED,
         credible_interval=CREDIBLE_INTERVAL,
         show_legend=SHOW_LEGEND,
         show=not arguments.no_show,

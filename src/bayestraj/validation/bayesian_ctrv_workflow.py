@@ -12,7 +12,6 @@ import bayestraj.inference.br24_radar_smc as br24_radar_smc
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
-import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -33,7 +32,6 @@ VI_EXECUTION_RETRIES = 2
 def _resolve_inference_configs(
     vi_config,
     mcmc_config,
-    rbpf_config,
     smc_config,
     sequential_vi_config=None,
 ):
@@ -41,9 +39,6 @@ def _resolve_inference_configs(
     return (
         inference.create_default_vi_config() if vi_config is None else vi_config,
         inference.create_default_mcmc_config() if mcmc_config is None else mcmc_config,
-        inference.create_default_ctrv_rbpf_config()
-        if rbpf_config is None
-        else rbpf_config,
         inference.create_default_ctrv_smc_config()
         if smc_config is None
         else smc_config,
@@ -60,7 +55,6 @@ def run_bayesian_ctrv_evaluation(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config=None,
     mcmc_config=None,
-    rbpf_config=None,
     smc_config=None,
     sequential_vi_config=None,
     fullrank_grad_samples,
@@ -72,11 +66,10 @@ def run_bayesian_ctrv_evaluation(
     show_plot=True,
 ):
     """Evaluate Bayesian CTRV forecasts from a processed trajectory or raw BR24 data."""
-    vi_config, mcmc_config, rbpf_config, smc_config, sequential_vi_config = (
+    vi_config, mcmc_config, smc_config, sequential_vi_config = (
         _resolve_inference_configs(
             vi_config,
             mcmc_config,
-            rbpf_config,
             smc_config,
             sequential_vi_config,
         )
@@ -96,11 +89,23 @@ def run_bayesian_ctrv_evaluation(
         turn_rate_prior_abs_rate_deg_s=options.turn_rate_prior_abs_rate_deg_s,
     )
     if br24_observations.is_br24_tracking_input(data_file):
+        _, radar_vi_config = inference.select_inference_config(
+            "batch",
+            "vi",
+            vi_algorithm=options.vi_algorithm,
+            require_converged=options.require_converged,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+        )
         return _run_br24_radar_evaluation(
             data_file=data_file,
             experiment=configured_experiment,
             priors=configured_priors,
+            vi_config=radar_vi_config,
+            mcmc_config=mcmc_config,
             smc_config=smc_config,
+            sequential_vi_config=sequential_vi_config,
             credible_interval=credible_interval,
             sample_trajectories_per_forecast=sample_trajectories_per_forecast,
             max_windows=options.max_windows,
@@ -115,7 +120,6 @@ def run_bayesian_ctrv_evaluation(
         priors=configured_priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        rbpf_config=rbpf_config,
         smc_config=smc_config,
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
@@ -138,7 +142,6 @@ def _run_evaluation(
     priors,
     vi_config,
     mcmc_config,
-    rbpf_config,
     smc_config,
     sequential_vi_config,
     fullrank_grad_samples,
@@ -159,16 +162,7 @@ def _run_evaluation(
     online_mode = inference_mode == "online"
     if online_mode:
         inference_config = {}
-        if inference_method == "rbpf":
-            if not isinstance(
-                rbpf_config,
-                rbpf_model.SequentialCTRVFilterConfig,
-            ):
-                raise TypeError(
-                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
-                )
-            particle_filter_config = rbpf_config
-        elif inference_method == "smc":
+        if inference_method == "smc":
             if not isinstance(
                 smc_config,
                 smc_model.SequentialMonteCarloCTRVConfig,
@@ -333,7 +327,6 @@ def _run_evaluation(
                 noisy_route_x=noisy_route_x,
                 noisy_route_y=noisy_route_y,
                 priors=priors,
-                rbpf_config=rbpf_config,
                 smc_config=smc_config,
                 sequential_vi_config=sequential_vi_config,
                 inference_method=inference_method,
@@ -366,7 +359,7 @@ def _run_evaluation(
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
-        elif inference_method in {"rbpf", "smc"}:
+        elif inference_method == "smc":
             converged = None
             mcmc_diagnostics_ok = None
             latest_update_ess = online_filter.last_effective_sample_size
@@ -400,7 +393,7 @@ def _run_evaluation(
         )
         diagnostics = _posterior_diagnostics(fit)
         if online_mode:
-            if inference_method in {"rbpf", "smc"}:
+            if inference_method == "smc":
                 diagnostics.update(
                     _online_filter_diagnostics(
                         online_filter,
@@ -502,7 +495,10 @@ def _run_br24_radar_evaluation(
     data_file,
     experiment,
     priors,
+    vi_config,
+    mcmc_config,
     smc_config,
+    sequential_vi_config,
     credible_interval,
     sample_trajectories_per_forecast,
     max_windows,
@@ -512,13 +508,16 @@ def _run_br24_radar_evaluation(
     show_plot,
 ):
     """Evaluate leakage-free rolling forecasts from raw BR24 radar cycles."""
-    if experiment.inference_method != "smc":
-        raise ValueError("BR24 radar evaluation requires the SMC inference method.")
+    inference_mode, inference_method, _ = (
+        inference.normalize_ctrv_rolling_inference_method(experiment.inference_method)
+    )
     if experiment.position_noise_std_m != 0.0:
         raise ValueError(
             "BR24 radar evaluation does not support artificial position noise."
         )
-    if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
+    if inference_method == "smc" and not isinstance(
+        smc_config, smc_model.SequentialMonteCarloCTRVConfig
+    ):
         raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
 
     cycles = br24_observations.read_br24_tracking_input(data_file)
@@ -557,6 +556,11 @@ def _run_br24_radar_evaluation(
         priors=priors,
         config=smc_config,
         seed=experiment.inference_seed,
+        inference_method=inference_method,
+        observation_count=experiment.observation_count,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        sequential_vi_config=sequential_vi_config,
     )
     tracked_positions = [tracker.estimated_position]
     processed_cycle_count = 1
@@ -576,19 +580,20 @@ def _run_br24_radar_evaluation(
     print(f"Data file             : {data_file}")
     print("Trajectory schema     : raw BR24 radar cycles with evaluation labels")
     print("Model                 : Bayesian CTRV radar tracker")
-    print("Inference mode        : ONLINE")
-    print("Inference method      : SMC")
+    print(f"Inference mode        : {inference_mode.upper()}")
+    print(f"Inference method      : {inference_method.upper()}")
     print(f"Initial observations  : {experiment.observation_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Forecast origins      : {len(windows)}")
     print("Position noise        : disabled; raw radar covariance per detection")
     print("Reference labels      : evaluation only")
-    _print_online_configuration(
-        "smc",
-        particle_filter_config=smc_config,
-        sequential_vi_config=None,
-    )
+    if inference_mode == "online":
+        _print_online_configuration(
+            inference_method,
+            particle_filter_config=smc_config,
+            sequential_vi_config=sequential_vi_config,
+        )
 
     prediction_tables = []
     posterior_plot_groups = []
@@ -630,7 +635,16 @@ def _run_br24_radar_evaluation(
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
-        diagnostics.update(_online_filter_diagnostics(tracker.filter, smc_config))
+        diagnostics.update(
+            _radar_filter_diagnostics(tracker, inference_method, smc_config)
+        )
+        converged = getattr(tracker.filter, "converged", None)
+        last_fit = getattr(tracker.filter, "last_fit", None)
+        mcmc_diagnostics_ok = (
+            _mcmc_diagnostics_ok(last_fit)
+            if inference_method == "mcmc" and last_fit is not None
+            else None
+        )
         table = _build_route_prediction_table(
             evaluation.prediction_table,
             specification=specification,
@@ -638,10 +652,10 @@ def _run_br24_radar_evaluation(
             route_x=route_x,
             route_y=route_y,
             forecast_origin_seconds=cycle_times[specification.forecast_start_index - 1],
-            inference_mode="online",
-            inference_method="smc",
-            converged=None,
-            mcmc_diagnostics_ok=None,
+            inference_mode=inference_mode,
+            inference_method=inference_method,
+            converged=converged,
+            mcmc_diagnostics_ok=mcmc_diagnostics_ok,
             diagnostics=diagnostics,
             position_noise_std_m=0.0,
             position_noise_seed=experiment.position_noise_seed,
@@ -670,22 +684,19 @@ def _run_br24_radar_evaluation(
                     observed_positions[:, 0],
                     observed_positions[:, 1],
                 ),
-                observed_trajectory_label="Assoziierte Radar-Trackpositionen",
+                observed_trajectory_label="Bayesian CTRV track",
                 position_noise_std_m=0.0,
                 forecast_label="Median der latenten CTRV-Trajektorie",
                 sample_label="Latente CTRV-Trajektorienprognosen",
                 show_time_labels=show_time_labels,
             )
             plt.close(figure)
-        latest_update_ess = tracker.filter.last_effective_sample_size
-        if latest_update_ess is None:
-            latest_update_ess = tracker.filter.effective_sample_size
         print(
             f"{_window_metric_summary(evaluation)}, "
             f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s, "
-            f"SMC processed={tracker.filter.processed_observation_count}, "
-            f"latest-update ESS={latest_update_ess:.0f}/"
-            f"{smc_config.particle_count}, resamples={tracker.filter.resample_count}"
+            f"{inference_method.upper()} processed="
+            f"{tracker.filter.processed_observation_count}, "
+            f"status={diagnostics['radar_fit_status']}"
         )
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
@@ -717,6 +728,23 @@ def _run_br24_radar_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _radar_filter_diagnostics(tracker, inference_method, smc_config):
+    """Report causal radar progress without inventing particle diagnostics."""
+    diagnostics = {
+        "radar_processed_cycle_count": int(tracker.filter.processed_observation_count),
+        "radar_accepted_measurement_count": getattr(
+            tracker, "accepted_measurement_count", np.nan
+        ),
+        "radar_fit_status": getattr(tracker, "fit_status", "posterior"),
+        "is_prior_predictive": bool(getattr(tracker, "is_prior_predictive", False)),
+    }
+    if inference_method == "smc":
+        diagnostics.update(_online_filter_diagnostics(tracker.filter, smc_config))
+    else:
+        diagnostics.update(getattr(tracker.filter, "diagnostics", {}))
+    return diagnostics
 
 
 def _window_metric_summary(evaluation):
@@ -896,19 +924,15 @@ def _advance_online_filter(
     noisy_route_x,
     noisy_route_y,
     priors,
-    rbpf_config,
     inference_seed,
     smc_config=None,
     sequential_vi_config=None,
-    inference_method="rbpf",
+    inference_method="smc",
 ):
     """Initialize once or update one persistent online CTRV approximation."""
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
-        if inference_method == "rbpf":
-            filter_type = rbpf_model.SequentialBayesianCTRVFilter
-            filter_config = rbpf_config
-        elif inference_method == "smc":
+        if inference_method == "smc":
             filter_type = smc_model.SequentialMonteCarloCTRVFilter
             filter_config = smc_config
         elif inference_method == "sequential_vi":
@@ -1118,7 +1142,7 @@ def _prepare_route_coordinates(trajectory_data):
 
 
 def _prepare_route_time_seconds(trajectory_data):
-    """Return increasing route times required for online RBPF updates."""
+    """Return increasing route times required for online CTRV updates."""
     time_seconds = trajectory_data["time"].to_numpy(dtype=float)
     time_seconds = time_seconds - time_seconds[0]
     if (

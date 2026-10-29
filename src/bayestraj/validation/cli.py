@@ -97,9 +97,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         dest="inference_method",
         choices=inference.CTRV_ROLLING_INFERENCE_METHODS,
         default=experiment.inference_method,
-        help=(
-            "Choose fixed-window VI/MCMC or online RBPF/SMC/Sequential VI inference."
-        ),
+        help="Choose fixed-window VI/MCMC or online SMC/Sequential VI inference.",
     )
     parser.add_argument(
         "--vi-algorithm",

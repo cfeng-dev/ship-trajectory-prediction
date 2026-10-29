@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import bayestraj.inference.cmdstan as inference_support
-import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 
@@ -12,8 +11,8 @@ DEFAULT_FULLRANK_GRAD_SAMPLES = 20
 DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
-ONLINE_INFERENCE_METHODS = ("rbpf",)
-CTRV_ONLINE_INFERENCE_METHODS = ("rbpf", "smc", "sequential_vi")
+ONLINE_INFERENCE_METHODS = ("smc", "sequential_vi")
+CTRV_ONLINE_INFERENCE_METHODS = ONLINE_INFERENCE_METHODS
 WINDOW_MODES = ("sliding", "expanding")
 _CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
     "vi": ("vi", "sliding"),
@@ -59,7 +58,7 @@ def normalize_inference_configuration(
         raise ValueError("inference_mode must be 'batch' or 'online'.")
 
     if not isinstance(inference_method, str):
-        raise ValueError("inference_method must be 'vi', 'mcmc', or 'rbpf'.")
+        raise ValueError("inference_method must be a supported inference method.")
     normalized_method = inference_method.strip().lower()
     allowed_methods = (
         BATCH_INFERENCE_METHODS
@@ -183,11 +182,6 @@ def create_default_mcmc_config() -> dict[str, Any]:
         "adapt_delta": 0.9,
         "max_treedepth": 10,
     }
-
-
-def create_default_ctrv_rbpf_config() -> rbpf_model.SequentialCTRVFilterConfig:
-    """Return independent default settings for the Bayesian CTRV RBPF."""
-    return rbpf_model.SequentialCTRVFilterConfig()
 
 
 def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:

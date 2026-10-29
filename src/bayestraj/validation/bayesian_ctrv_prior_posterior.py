@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib.widgets import Slider
 from scipy.stats import gaussian_kde
 
-import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.io as observations_io
@@ -531,7 +531,7 @@ def create_sequential_prior_posterior_figure(
     return figure, navigator
 
 
-def create_rbpf_posterior_update_loader(
+def create_smc_posterior_update_loader(
     trajectory_data,
     *,
     parameter_name,
@@ -539,11 +539,11 @@ def create_rbpf_posterior_update_loader(
     position_noise_std_m,
     position_noise_seed,
     priors,
-    rbpf_config,
-    rbpf_seed,
+    smc_config,
+    smc_seed,
     initialize_filter=None,
 ):
-    """Create one persistent RBPF and expose its consecutive posterior states."""
+    """Create one persistent SMC and expose its consecutive posterior states."""
     if (
         isinstance(start_index, bool)
         or not isinstance(start_index, int)
@@ -552,8 +552,8 @@ def create_rbpf_posterior_update_loader(
         raise ValueError("start_index must be a non-negative integer.")
     if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance.")
-    if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
-        raise TypeError("rbpf_config must be a SequentialCTRVFilterConfig instance.")
+    if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
+        raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         position_noise_std_m,
@@ -562,9 +562,9 @@ def create_rbpf_posterior_update_loader(
         "position_noise_seed",
         position_noise_seed,
     )
-    rbpf_seed = numeric_validation.validate_non_negative_integer(
-        "rbpf_seed",
-        rbpf_seed,
+    smc_seed = numeric_validation.validate_non_negative_integer(
+        "smc_seed",
+        smc_seed,
     )
     maximum_observation_count = len(trajectory_data) - start_index
     if maximum_observation_count < bayesian_model.MIN_OBSERVATION_COUNT + 1:
@@ -596,7 +596,7 @@ def create_rbpf_posterior_update_loader(
         )
 
     if initialize_filter is None:
-        initialize_filter = rbpf.SequentialBayesianCTRVFilter.initialize
+        initialize_filter = smc.SequentialMonteCarloCTRVFilter.initialize
     if not callable(initialize_filter):
         raise TypeError("initialize_filter must be callable.")
     online_filter = initialize_filter(
@@ -604,8 +604,8 @@ def create_rbpf_posterior_update_loader(
         x_observed[:1],
         y_observed[:1],
         priors=priors,
-        config=rbpf_config,
-        seed=rbpf_seed,
+        config=smc_config,
+        seed=smc_seed,
     )
 
     def load_update(observation_count):
@@ -618,7 +618,7 @@ def create_rbpf_posterior_update_loader(
                 "observation_count must be within the available trajectory prefix."
             )
         if observation_count < online_filter.processed_observation_count:
-            raise ValueError("The RBPF update loader cannot move backward.")
+            raise ValueError("The SMC update loader cannot move backward.")
         while online_filter.processed_observation_count < observation_count:
             index = online_filter.processed_observation_count
             online_filter.update(
@@ -626,12 +626,12 @@ def create_rbpf_posterior_update_loader(
                 x_observed[index],
                 y_observed[index],
             )
-        fit = online_filter.sample_current_posterior(seed=rbpf_seed)
+        fit = online_filter.sample_current_posterior(seed=smc_seed)
         return PosteriorUpdate(
             observation_count=observation_count,
             samples=extract_posterior_samples(fit, spec),
             effective_sample_size=online_filter.effective_sample_size,
-            particle_count=rbpf_config.particle_count,
+            particle_count=smc_config.particle_count,
             resample_count=online_filter.resample_count,
         )
 
@@ -647,13 +647,13 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     position_noise_std_m,
     position_noise_seed,
     priors,
-    rbpf_config,
-    rbpf_seed,
+    smc_config,
+    smc_seed,
     credible_interval,
     show_legend,
     show=True,
 ):
-    """Run one interactive Bayesian CTRV RBPF update analysis."""
+    """Run one interactive Bayesian CTRV SMC update analysis."""
     credible_interval = _validate_credible_interval(credible_interval)
     trajectory_data = (
         observations_io.read_ship_data(data_file, run_id=run_id)
@@ -663,15 +663,15 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     if trajectory_data.empty:
         raise ValueError(f"No trajectory rows found for run_id={run_id}.")
 
-    spec, maximum_observation_count, load_update = create_rbpf_posterior_update_loader(
+    spec, maximum_observation_count, load_update = create_smc_posterior_update_loader(
         trajectory_data,
         parameter_name=parameter_name,
         start_index=start_index,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=position_noise_seed,
         priors=priors,
-        rbpf_config=rbpf_config,
-        rbpf_seed=rbpf_seed,
+        smc_config=smc_config,
+        smc_seed=smc_seed,
     )
     print("=" * 72)
     print("Bayesian CTRV prior-to-posterior update")
@@ -679,7 +679,7 @@ def run_bayesian_ctrv_prior_posterior_analysis(
     print(f"Parameter             : {spec.title}")
     print(f"Run ID                : {run_id}")
     print(f"Start index           : {start_index}")
-    print("Inference method      : RBPF")
+    print("Inference method      : SMC")
     print(
         "Observation stages    : Prior, "
         f"N=1 to N={maximum_observation_count} (step size 1)"
@@ -689,8 +689,8 @@ def run_bayesian_ctrv_prior_posterior_analysis(
         "Computation            : Slider target; missing stages "
         "are processed sequentially."
     )
-    print(f"Particles             : {rbpf_config.particle_count}")
-    print(f"Posterior draws       : {rbpf_config.posterior_draw_count}")
+    print(f"Particles             : {smc_config.particle_count}")
+    print(f"Posterior draws       : {smc_config.posterior_draw_count}")
     print(f"Prior                 : {_describe_prior(spec, priors)}")
 
     def load_and_report_update(observation_count):

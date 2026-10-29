@@ -34,6 +34,8 @@ data {
   vector[N_history] time_observed;
   vector[N_history] x_observed;
   vector[N_history] y_observed;
+  array[N_history] int<lower=0, upper=1> observed_mask;
+  array[N_history] matrix[2, 2] measurement_covariances;
 
   // Future timestamps to forecast after the observed history.
   int<lower=1> N_prediction;
@@ -53,6 +55,15 @@ data {
 
 // Validate timestamp ordering before inference.
 transformed data {
+  int use_isotropic_observations = 1;
+  for (n in 1:N_history) {
+    if (observed_mask[n] == 0
+        || measurement_covariances[n][1, 1] != 0
+        || measurement_covariances[n][2, 2] != 0
+        || measurement_covariances[n][1, 2] != 0) {
+      use_isotropic_observations = 0;
+    }
+  }
   // Require strictly increasing observed and forecast timestamps.
   for (n in 2:N_history) {
     if (time_observed[n] <= time_observed[n - 1]) {
@@ -132,8 +143,23 @@ model {
   sigma_turn_rate_process ~ exponential(sigma_turn_rate_process_prior_rate);
 
   // Likelihood: observed positions are noisy measurements of the deterministic CTRV path.
-  x_observed ~ normal(x_state, sigma_position_observation);
-  y_observed ~ normal(y_state, sigma_position_observation);
+  if (use_isotropic_observations == 1) {
+    // Preserve the original processed/GPS likelihood arithmetic and ordering.
+    x_observed ~ normal(x_state, sigma_position_observation);
+    y_observed ~ normal(y_state, sigma_position_observation);
+  } else {
+    for (n in 1:N_history) {
+      if (observed_mask[n] == 1) {
+        real variance_x = measurement_covariances[n][1, 1] + square(sigma_position_observation);
+        real variance_y = measurement_covariances[n][2, 2] + square(sigma_position_observation);
+        real covariance_xy = measurement_covariances[n][1, 2];
+        x_observed[n] ~ normal(x_state[n], sqrt(variance_x));
+        y_observed[n] ~ normal(
+            y_state[n] + covariance_xy / variance_x * (x_observed[n] - x_state[n]),
+            sqrt(variance_y - square(covariance_xy) / variance_x));
+      }
+    }
+  }
 
   // Scale process noise from the reference interval to each observed time gap.
   for (n in 2:(N_history - 1)) {
@@ -178,8 +204,21 @@ generated quantities {
 
   // Evaluate the fitted observation likelihood at every historical position.
   for (n in 1:N_history) {
-    log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_observation);
-    log_likelihood[N_history + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_observation);
+    log_likelihood[n] = 0;
+    log_likelihood[N_history + n] = 0;
+    if (use_isotropic_observations == 1) {
+      log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sigma_position_observation);
+      log_likelihood[N_history + n] = normal_lpdf(y_observed[n] | y_state[n], sigma_position_observation);
+    } else if (observed_mask[n] == 1) {
+      real variance_x = measurement_covariances[n][1, 1] + square(sigma_position_observation);
+      real variance_y = measurement_covariances[n][2, 2] + square(sigma_position_observation);
+      real covariance_xy = measurement_covariances[n][1, 2];
+      // Marginal x and conditional y factors sum to the joint 2D density.
+      log_likelihood[n] = normal_lpdf(x_observed[n] | x_state[n], sqrt(variance_x));
+      log_likelihood[N_history + n] = normal_lpdf(
+          y_observed[n] | y_state[n] + covariance_xy / variance_x * (x_observed[n] - x_state[n]),
+          sqrt(variance_y - square(covariance_xy) / variance_x));
+    }
   }
 
   // Simulate future CTRV states and predictions one time step at a time.

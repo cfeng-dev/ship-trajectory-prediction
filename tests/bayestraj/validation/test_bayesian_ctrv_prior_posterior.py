@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from matplotlib.backend_bases import KeyEvent
 
-import bayestraj.inference.ctrv_rbpf as rbpf
+import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
 
@@ -315,7 +315,7 @@ def test_sequential_navigator_loads_jump_point_by_point_and_reuses_updates():
         assert navigator.observation_count == 3
         assert loaded_counts == [1, 2, 3]
         assert navigator.axis.get_title().splitlines()[-1] == "N = 3"
-        assert "RBPF" not in navigator.axis.get_title()
+        assert "SMC" not in navigator.axis.get_title()
         assert "ESS" not in navigator.axis.get_title()
         assert "Resamplings" not in navigator.axis.get_title()
 
@@ -463,7 +463,7 @@ def test_heading_summary_uses_circular_center_and_interval():
     assert summary.upper - summary.lower < 10.0
 
 
-def test_rbpf_update_loader_initializes_once_and_processes_one_new_point(capsys):
+def test_smc_update_loader_initializes_once_and_processes_one_new_point(capsys):
     analysis = _load_analysis_module()
     trajectory_data = pd.DataFrame(
         {
@@ -501,7 +501,7 @@ def test_rbpf_update_loader_initializes_once_and_processes_one_new_point(capsys)
                 }
             )
 
-    rbpf_config = rbpf.SequentialCTRVFilterConfig(
+    smc_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=32,
         posterior_draw_count=2,
     )
@@ -520,15 +520,15 @@ def test_rbpf_update_loader_initializes_once_and_processes_one_new_point(capsys)
         )
         return FakeFilter(config)
 
-    spec, maximum_count, load_update = analysis.create_rbpf_posterior_update_loader(
+    spec, maximum_count, load_update = analysis.create_smc_posterior_update_loader(
         trajectory_data,
         parameter_name="current_heading",
         start_index=0,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
         priors=bayesian_model.BayesianCTRVPriors(),
-        rbpf_config=rbpf_config,
-        rbpf_seed=42,
+        smc_config=smc_config,
+        smc_seed=42,
         initialize_filter=initialize_filter,
     )
 
@@ -547,12 +547,61 @@ def test_rbpf_update_loader_initializes_once_and_processes_one_new_point(capsys)
     assert capsys.readouterr().out == ""
 
 
+@pytest.mark.parametrize(
+    "parameter_name",
+    (
+        "current_speed",
+        "current_heading",
+        "current_turn_rate",
+        "position_observation_noise",
+        "speed_process_noise",
+        "turn_rate_process_noise",
+    ),
+)
+def test_smc_loader_exposes_finite_posteriors_from_the_first_observation(
+    parameter_name,
+):
+    analysis = _load_analysis_module()
+    trajectory_data = pd.DataFrame(
+        {
+            "time": pd.date_range("2026-01-01", periods=4, freq="10s", tz="UTC"),
+            "run_id": 102,
+            "gps_latitude": 54.0 + np.arange(4) * 1e-5,
+            "gps_longitude": 10.0 + np.arange(4) * 2e-5,
+            "gps_speed": np.full(4, 18.0),
+        }
+    )
+    _, maximum_count, load_update = analysis.create_smc_posterior_update_loader(
+        trajectory_data,
+        parameter_name=parameter_name,
+        start_index=0,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        smc_config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=32,
+            posterior_draw_count=8,
+        ),
+        smc_seed=42,
+    )
+
+    for count in (1, maximum_count):
+        update = load_update(count)
+        assert update.observation_count == count
+        assert update.samples.shape == (8,)
+        assert np.all(np.isfinite(update.samples))
+        assert update.particle_count == 32
+
+    with pytest.raises(ValueError, match="cannot move backward"):
+        load_update(1)
+
+
 def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     monkeypatch,
 ):
     analysis = _load_analysis_module()
     priors = bayesian_model.BayesianCTRVPriors()
-    rbpf_config = rbpf.SequentialCTRVFilterConfig(
+    smc_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=100,
         posterior_draw_count=20,
     )
@@ -607,7 +656,7 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     monkeypatch.setattr(analysis.observations_io, "read_ship_data", fake_read)
     monkeypatch.setattr(
         analysis,
-        "create_rbpf_posterior_update_loader",
+        "create_smc_posterior_update_loader",
         fake_create_loader,
     )
     monkeypatch.setattr(
@@ -629,8 +678,8 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
             position_noise_std_m=5.0,
             position_noise_seed=2026,
             priors=priors,
-            rbpf_config=rbpf_config,
-            rbpf_seed=42,
+            smc_config=smc_config,
+            smc_seed=42,
             credible_interval=0.9,
             show_legend=True,
             show=True,
@@ -641,13 +690,13 @@ def test_analysis_runner_loads_one_run_and_shows_one_blocking_window(
     assert result == (figure, navigator)
     assert captured["read"] == ("trajectory.csv", 102)
     assert captured["loader"][0].equals(trajectory_data)
-    assert captured["loader"][1]["rbpf_config"] is rbpf_config
-    assert captured["loader"][1]["rbpf_seed"] == 42
+    assert captured["loader"][1]["smc_config"] is smc_config
+    assert captured["loader"][1]["smc_seed"] == 42
     assert captured["figure"] == (spec, priors, 5, True)
     assert loaded_counts == [1]
     assert shown == [True]
     assert closed == [figure]
-    assert "Inference method      : RBPF" in report
+    assert "Inference method      : SMC" in report
     assert "Observation stages" in report
     assert "N=1 to N=5" in report
     assert "Slider" in report

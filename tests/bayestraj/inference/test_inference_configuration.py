@@ -6,7 +6,6 @@ import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.forecasting.cli as forecasting_cli
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
-import bayestraj.inference.ctrv_rbpf as rbpf_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.validation.cli as validation_cli
@@ -110,27 +109,15 @@ def test_default_vi_config_uses_stable_fullrank_optimization():
     assert inference.DEFAULT_FULLRANK_GRAD_SAMPLES == 20
 
 
-def test_online_rbpf_is_valid_without_a_window_mode():
+@pytest.mark.parametrize("method", ("smc", "sequential_vi"))
+def test_online_inference_is_valid_without_a_window_mode(method):
     normalized = inference.normalize_rolling_inference_configuration(
         "online",
-        "rbpf",
+        method,
         None,
     )
 
-    assert normalized == ("online", "rbpf", None)
-
-
-def test_ctrv_online_rbpf_derives_online_mode_without_a_window():
-    config = _ctrv_rolling_config(inference_method="rbpf")
-
-    normalized = inference.normalize_ctrv_rolling_inference_method(
-        config.inference_method
-    )
-
-    assert config.inference_method == "rbpf"
-    assert not hasattr(config, "inference_mode")
-    assert not hasattr(config, "window_mode")
-    assert normalized == ("online", "rbpf", None)
+    assert normalized == ("online", method, None)
 
 
 def test_ctrv_online_smc_is_valid_without_a_window_mode():
@@ -146,23 +133,27 @@ def test_ctrv_online_smc_is_valid_without_a_window_mode():
     assert normalized == ("online", "smc", None)
 
 
-def test_default_online_inference_methods_reject_smc():
-    with pytest.raises(ValueError, match="Online inference requires"):
-        inference.normalize_rolling_inference_configuration(
-            "online",
-            "smc",
-            None,
-        )
+def test_supported_inference_methods_exclude_removed_rbpf():
+    assert inference.ONLINE_INFERENCE_METHODS == ("smc", "sequential_vi")
+    assert inference.CTRV_ROLLING_INFERENCE_METHODS == (
+        "vi",
+        "mcmc",
+        "smc",
+        "sequential_vi",
+    )
+    with pytest.raises(ValueError, match="inference_method must be one of"):
+        inference.normalize_inference_method("rbpf")
+    assert not hasattr(inference, "create_default_ctrv_rbpf_config")
 
 
 @pytest.mark.parametrize(
     ("inference_mode", "inference_method", "window_mode", "message"),
     (
-        ("batch", "rbpf", "sliding", "Batch inference requires"),
+        ("batch", "smc", "sliding", "Batch inference requires"),
         ("online", "vi", None, "Online inference requires"),
         ("online", "mcmc", None, "Online inference requires"),
         ("batch", "vi", "sequential", "Batch inference requires window_mode"),
-        ("online", "rbpf", "sliding", "does not use window_mode"),
+        ("online", "smc", "sliding", "does not use window_mode"),
     ),
 )
 def test_invalid_inference_combinations_fail_early(
@@ -196,11 +187,11 @@ def test_invalid_ctrv_rolling_inference_selection_fails_early(inference_method):
         _ctrv_rolling_config(inference_method=inference_method)
 
 
-def test_cmdstan_configuration_rejects_online_rbpf():
+def test_cmdstan_configuration_rejects_online_smc():
     with pytest.raises(ValueError, match="only used in batch mode"):
         inference.select_inference_config(
             "online",
-            "rbpf",
+            "smc",
             vi_algorithm="meanfield",
             require_converged=False,
             vi_config=inference.create_default_vi_config(),
@@ -281,12 +272,6 @@ def test_mcmc_runner_uses_explicit_initials_and_defaults_parallel_chains():
     assert model.arguments["refresh"] == 0
 
 
-def test_default_ctrv_rbpf_factory_returns_ctrv_config():
-    ctrv_rbpf_config = inference.create_default_ctrv_rbpf_config()
-
-    assert isinstance(ctrv_rbpf_config, rbpf_model.SequentialCTRVFilterConfig)
-
-
 def test_default_ctrv_smc_factory_returns_an_independent_config():
     first_config = inference.create_default_ctrv_smc_config()
     second_config = inference.create_default_ctrv_smc_config()
@@ -296,9 +281,9 @@ def test_default_ctrv_smc_factory_returns_an_independent_config():
     assert first_config is not second_config
 
 
-def test_sequential_vi_is_registered_only_for_ctrv_online_inference():
+def test_sequential_vi_is_registered_for_online_inference():
     assert "sequential_vi" in inference.CTRV_ONLINE_INFERENCE_METHODS
-    assert "sequential_vi" not in inference.ONLINE_INFERENCE_METHODS
+    assert "sequential_vi" in inference.ONLINE_INFERENCE_METHODS
     assert inference.normalize_inference_method(
         "sequential_vi",
         online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
@@ -324,7 +309,6 @@ def test_default_sequential_vi_factory_returns_independent_configs():
     [
         ("vi", ("batch", "vi")),
         ("mcmc", ("batch", "mcmc")),
-        ("rbpf", ("online", "rbpf")),
         ("smc", ("online", "smc")),
     ],
 )
@@ -340,7 +324,7 @@ def test_existing_ctrv_method_normalization_is_unchanged(method, expected):
 
 @pytest.mark.parametrize(
     "inference_method",
-    ("vi", "mcmc", "rbpf", "smc", "sequential_vi"),
+    ("vi", "mcmc", "smc", "sequential_vi"),
 )
 def test_single_window_ctrv_derives_mode_from_inference_method(inference_method):
     config = ctrv_config.ExperimentConfig(
@@ -362,7 +346,6 @@ def test_single_window_ctrv_derives_mode_from_inference_method(inference_method)
     (
         "vi",
         "mcmc",
-        "rbpf",
         "smc",
         "sequential_vi",
     ),
@@ -383,7 +366,7 @@ def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
     assert not hasattr(config, "window_mode")
 
 
-@pytest.mark.parametrize("online_method", ("rbpf", "smc", "sequential_vi"))
+@pytest.mark.parametrize("online_method", ("smc", "sequential_vi"))
 def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
     experiment = ctrv_config.ExperimentConfig(
         start_index=0,
@@ -412,13 +395,12 @@ def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
     (
         "vi",
         "mcmc",
-        "rbpf",
         "smc",
         "sequential_vi",
     ),
 )
 def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
-    experiment = _ctrv_rolling_config(inference_method="rbpf")
+    experiment = _ctrv_rolling_config(inference_method="smc")
 
     options = validation_cli.parse_bayesian_ctrv_evaluation_arguments(
         description=None,
@@ -459,7 +441,7 @@ def test_ctrv_rolling_cli_observations_override_source_owned_default():
 
 
 def test_ctrv_rolling_cli_accepts_turn_rate_prior_threshold_in_degrees_per_second():
-    experiment = _ctrv_rolling_config(inference_method="rbpf")
+    experiment = _ctrv_rolling_config(inference_method="smc")
 
     options = validation_cli.parse_bayesian_ctrv_evaluation_arguments(
         description=None,
@@ -475,7 +457,7 @@ def test_ctrv_rolling_cli_accepts_turn_rate_prior_threshold_in_degrees_per_secon
 
 
 def test_ctrv_rolling_cli_rejects_removed_window_mode_option():
-    experiment = _ctrv_rolling_config(inference_method="rbpf")
+    experiment = _ctrv_rolling_config(inference_method="smc")
 
     with pytest.raises(SystemExit):
         validation_cli.parse_bayesian_ctrv_evaluation_arguments(

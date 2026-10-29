@@ -15,7 +15,6 @@ from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
-import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -2071,7 +2070,6 @@ def create_posterior_dashboard_loader(
     priors,
     vi_config,
     mcmc_config,
-    rbpf_config,
     smc_config,
     sequential_vi_config=None,
     initialize_online_filter=None,
@@ -2135,15 +2133,7 @@ def create_posterior_dashboard_loader(
         )
 
     if online_mode:
-        if inference_method == "rbpf":
-            if not isinstance(rbpf_config, rbpf.SequentialCTRVFilterConfig):
-                raise TypeError(
-                    "rbpf_config must be a SequentialCTRVFilterConfig instance."
-                )
-            filter_type = rbpf.SequentialBayesianCTRVFilter
-            particle_filter_config = rbpf_config
-            minimum_observation_count = 1
-        elif inference_method == "smc":
+        if inference_method == "smc":
             if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
                 raise TypeError(
                     "smc_config must be a SequentialMonteCarloCTRVConfig instance."
@@ -2350,6 +2340,9 @@ def create_br24_radar_dashboard_loader(
     experiment,
     priors,
     smc_config,
+    vi_config=None,
+    mcmc_config=None,
+    sequential_vi_config=None,
 ):
     """Create online dashboard updates directly from raw BR24 radar cycles.
 
@@ -2361,8 +2354,15 @@ def create_br24_radar_dashboard_loader(
         raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
     if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
         raise TypeError("priors must be a BayesianCTRVPriors instance.")
-    if not isinstance(smc_config, smc.SequentialMonteCarloCTRVConfig):
+    method = experiment.inference_method
+    if method == "smc" and not isinstance(
+        smc_config, smc.SequentialMonteCarloCTRVConfig
+    ):
         raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
+    if experiment.position_noise_std_m != 0.0:
+        raise ValueError(
+            "BR24 radar tracking does not support artificial position noise."
+        )
     if experiment.start_index != 0:
         raise ValueError(
             "BR24 radar tracking always starts at the lowest cycle counter."
@@ -2400,6 +2400,11 @@ def create_br24_radar_dashboard_loader(
         priors=priors,
         config=smc_config,
         seed=experiment.inference_seed,
+        inference_method=method,
+        observation_count=inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        sequential_vi_config=sequential_vi_config,
     )
     time_seconds = np.asarray(
         [cycle.time_seconds for cycle in selected_cycles], dtype=float
@@ -2466,6 +2471,7 @@ def create_br24_radar_dashboard_loader(
         ),
     ]
     tracked_positions = [initial_position]
+    cached_updates = {}
 
     def load_radar_update(observation_count):
         _validate_update_observation_count(
@@ -2473,6 +2479,10 @@ def create_br24_radar_dashboard_loader(
             minimum=1,
             maximum=maximum_observation_count,
         )
+        if observation_count in cached_updates:
+            return cached_updates[observation_count]
+        if observation_count < len(steps):
+            raise ValueError("A radar loader cannot refit an uncached past prefix.")
         while len(steps) < observation_count:
             step = tracker.process_cycle(selected_cycles[len(steps)])
             steps.append((step.detection_id, step.nis, step.measurement_covariance))
@@ -2493,13 +2503,18 @@ def create_br24_radar_dashboard_loader(
                 experiment.prediction_sample_count,
             )
         detection_id, nis, measurement_covariance = steps[observation_count - 1]
-        return PosteriorDashboardUpdate(
+        update = PosteriorDashboardUpdate(
             observation_count=observation_count,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
-            effective_sample_size=tracker.filter.effective_sample_size,
-            particle_count=smc_config.particle_count,
-            resample_count=tracker.filter.resample_count,
-            predictive_log_density=tracker.filter.last_log_predictive_density,
+            effective_sample_size=(
+                tracker.filter.effective_sample_size if method == "smc" else None
+            ),
+            particle_count=smc_config.particle_count if method == "smc" else None,
+            resample_count=tracker.filter.resample_count if method == "smc" else None,
+            predictive_log_density=getattr(
+                tracker.filter, "last_log_predictive_density", None
+            ),
+            is_prior_predictive=tracker.is_prior_predictive,
             forecast=forecast,
             tracked_positions=np.asarray(tracked_positions),
             radar_tracking_active=True,
@@ -2508,6 +2523,8 @@ def create_br24_radar_dashboard_loader(
             radar_measurement_covariance=measurement_covariance,
             radar_cycle_counter=selected_cycles[observation_count - 1].cycle_counter,
         )
+        cached_updates[observation_count] = update
+        return update
 
     return trajectory, maximum_observation_count, 1, load_radar_update
 
@@ -2781,25 +2798,25 @@ def read_dashboard_trajectory(csv_path):
     return data
 
 
-def create_rbpf_posterior_dashboard_loader(
+def create_smc_posterior_dashboard_loader(
     trajectory_data,
     *,
     start_index,
     position_noise_std_m,
     position_noise_seed,
     priors,
-    rbpf_config,
-    rbpf_seed,
+    smc_config,
+    smc_seed,
     initialize_filter=None,
 ):
-    """Create one RBPF stream that exposes all dashboard parameters per stage."""
+    """Create one SMC stream that exposes all dashboard parameters per stage."""
     experiment = PosteriorDashboardConfig(
         start_index=start_index,
         maximum_observation_count=None,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=position_noise_seed,
-        inference_method="rbpf",
-        inference_seed=rbpf_seed,
+        inference_method="smc",
+        inference_seed=smc_seed,
         prediction_count=0,  # Preserve this legacy posterior-only convenience API.
     )
     trajectory, maximum_observation_count, _, load_update = (
@@ -2809,8 +2826,7 @@ def create_rbpf_posterior_dashboard_loader(
             priors=priors,
             vi_config={},
             mcmc_config={},
-            rbpf_config=rbpf_config,
-            smc_config=None,
+            smc_config=smc_config,
             initialize_online_filter=initialize_filter,
         )
     )
@@ -2824,7 +2840,6 @@ def run_bayesian_ctrv_posterior_dashboard(
     priors,
     vi_config,
     mcmc_config,
-    rbpf_config,
     smc_config,
     playback_interval_ms,
     show_legend,
@@ -2848,7 +2863,6 @@ def run_bayesian_ctrv_posterior_dashboard(
         "priors": priors,
         "vi_config": vi_config,
         "mcmc_config": mcmc_config,
-        "rbpf_config": rbpf_config,
         "smc_config": smc_config,
     }
     if sequential_vi_config is not None:

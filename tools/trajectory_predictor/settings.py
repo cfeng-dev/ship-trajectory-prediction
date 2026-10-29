@@ -5,7 +5,6 @@ from math import isfinite
 from pathlib import Path
 
 from bayestraj.inference.configuration import (
-    create_default_ctrv_rbpf_config,
     create_default_ctrv_smc_config,
     create_default_mcmc_config,
     create_default_sequential_vi_config,
@@ -37,10 +36,9 @@ COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = _PREDICTION_REGION_STYLE_DISPLAY_LABELS
 PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = _PREDICTION_REGION_STYLE_DISPLAY_OPTIONS
 
-METHODS = ("rbpf", "smc", "sequential_vi", "vi", "mcmc")
+METHODS = ("smc", "sequential_vi", "vi", "mcmc")
 GUI_INFERENCE_METHODS = ("smc", "sequential_vi", "vi", "mcmc")
 METHOD_DISPLAY_LABELS = {
-    "rbpf": "RBPF – Rao-Blackwellized particle filter",
     "smc": "SMC – Sequential Monte Carlo",
     "sequential_vi": "Sequential VI - online variational inference",
     "vi": "VI – Variational inference",
@@ -200,7 +198,6 @@ def _defaults():
             "follow_ship_view_span_m": 100.0,
         },
         "priors": asdict(BayesianCTRVPriors()),
-        "rbpf": asdict(create_default_ctrv_rbpf_config()),
         "smc": asdict(create_default_ctrv_smc_config()),
         "sequential_vi": sequential_vi_defaults,
         "vi": create_default_vi_config(),
@@ -344,8 +341,6 @@ def validate_dialog_values(group, values):
         _validate_data_options(parsed)
     elif group == "priors":
         BayesianCTRVPriors(**parsed)
-    elif group == "rbpf":
-        type(create_default_ctrv_rbpf_config())(**parsed)
     elif group == "smc":
         type(create_default_ctrv_smc_config())(**parsed)
     elif group == "sequential_vi":
@@ -365,9 +360,7 @@ def parse_settings(values) -> ExplorerSettings:
         raise ValueError("Select an existing CSV file.")
     method = data["inference_method"]
     if method not in METHODS:
-        raise ValueError(
-            "Inference method must be rbpf, smc, sequential_vi, vi, or mcmc."
-        )
+        raise ValueError("Inference method must be smc, sequential_vi, vi, or mcmc.")
     maximum = data["maximum_observation_count"]
     try:
         data["maximum_observation_count"] = int(maximum) if maximum else None
@@ -390,7 +383,6 @@ def parse_settings(values) -> ExplorerSettings:
         _validate_sequential_vi(defaults[method])
     else:
         _validate_batch(method, defaults[method])
-    rbpf = type(create_default_ctrv_rbpf_config())(**defaults["rbpf"])
     smc = type(create_default_ctrv_smc_config())(**defaults["smc"])
     sequential_vi = SequentialVIConfig(**defaults["sequential_vi"])
     return ExplorerSettings(
@@ -400,7 +392,6 @@ def parse_settings(values) -> ExplorerSettings:
             priors=priors,
             vi_config=defaults["vi"],
             mcmc_config=defaults["mcmc"],
-            rbpf_config=rbpf,
             smc_config=smc,
             sequential_vi_config=sequential_vi,
         ),

@@ -548,7 +548,7 @@ def test_both_predictors_default_to_median_and_keep_mean_plot_only(form):
         settings.parse_settings(form)
 
 
-@pytest.mark.parametrize("method", ["rbpf", "smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
 def test_settings_preserve_selected_method_and_units(form, method):
     form["data"]["inference_method"] = method
     form["priors"]["sigma_turn_rate_process_prior_upper_deg_s"] = "7.5"
@@ -574,10 +574,7 @@ def test_sample_connections_are_off_by_default_and_display_only(form):
 
 
 def test_inference_method_display_labels_normalize_to_internal_values():
-    assert (
-        settings.METHOD_DISPLAY_LABELS["rbpf"]
-        == "RBPF – Rao-Blackwellized particle filter"
-    )
+    assert "rbpf" not in settings.METHOD_DISPLAY_LABELS
     assert settings.METHOD_DISPLAY_LABELS["vi"] == "VI – Variational inference"
     assert settings.METHOD_DISPLAY_LABELS["mcmc"] == "MCMC – Markov chain Monte Carlo"
     assert (
@@ -590,12 +587,21 @@ def test_inference_method_display_labels_normalize_to_internal_values():
 
 
 def test_gui_inference_method_options_exclude_rbpf():
+    assert "rbpf" not in settings.METHODS
+    assert "rbpf" not in settings.default_form_values()
     assert settings.METHOD_DISPLAY_OPTIONS == (
         settings.METHOD_DISPLAY_LABELS["smc"],
         settings.METHOD_DISPLAY_LABELS["sequential_vi"],
         settings.METHOD_DISPLAY_LABELS["vi"],
         settings.METHOD_DISPLAY_LABELS["mcmc"],
     )
+
+
+def test_removed_rbpf_method_is_rejected(form):
+    form["data"]["inference_method"] = "rbpf"
+
+    with pytest.raises(ValueError, match="Inference method must be"):
+        settings.parse_settings(form)
 
 
 def test_trajectory_predictor_defaults_to_smc():
@@ -629,7 +635,7 @@ def test_settings_do_not_expose_manual_br24_start_selection(form):
 def test_settings_do_not_expose_automatic_track_recovery_controls(form):
     defaults = settings.default_form_values()
 
-    for method in ("smc", "rbpf", "sequential_vi"):
+    for method in ("smc", "sequential_vi"):
         assert "predictive_log_density_threshold" not in defaults[method]
     assert "br24_recovery_nis_gate" not in defaults["smc"]
 
@@ -726,9 +732,9 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
         ("data", "position_noise_std_m", "nan"),
         ("data", "playback_interval_seconds", "0"),
         ("priors", "speed_prior_tail_probability", "1"),
-        ("rbpf", "posterior_draw_count", "1"),
-        ("rbpf", "resample_ess_fraction", "1.1"),
-        ("rbpf", "rejuvenation_scale", "inf"),
+        ("smc", "posterior_draw_count", "1"),
+        ("smc", "resample_ess_fraction", "1.1"),
+        ("smc", "rejuvenation_scale", "inf"),
     ],
 )
 def test_invalid_settings_are_rejected(form, group, field, value):
@@ -791,8 +797,8 @@ def test_batch_options_are_forwarded_without_hidden_overrides(form):
 
 def test_defaults_are_independent_and_missing_file_is_rejected(form):
     values = settings.default_form_values()
-    values["rbpf"]["particle_count"] = "2"
-    assert settings.default_form_values()["rbpf"]["particle_count"] == "4000"
+    values["smc"]["particle_count"] = "2"
+    assert settings.default_form_values()["smc"]["particle_count"] == "4000"
     form["data"]["data_file"] += ".missing"
     with pytest.raises(ValueError, match="CSV"):
         settings.parse_settings(form)
@@ -806,7 +812,7 @@ def test_dialog_validation_is_independent_of_csv_and_other_sections():
     assert values["priors"]["speed_prior_upper_mps"] == "25.5"
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "rbpf", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
 def test_inference_dialog_validates_the_method_being_edited(method):
     values = settings.default_form_values()[method]
     invalid_field = {

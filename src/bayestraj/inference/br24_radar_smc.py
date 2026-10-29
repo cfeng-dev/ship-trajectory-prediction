@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from bayestraj.inference.br24_radar_inference import (
+    CausalBR24RadarFilter,
+    normalize_radar_inference_method,
+)
+from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
     SequentialMonteCarloCTRVConfig,
     SequentialMonteCarloCTRVFilter,
@@ -35,14 +42,30 @@ class BR24TrackerStep:
 
 @dataclass(slots=True)
 class BR24BayesianRadarTracker:
-    """Associate raw BR24 detections and update a Bayesian CTRV SMC filter."""
+    """Associate raw detections using the selected method's predictive state."""
 
-    filter: SequentialMonteCarloCTRVFilter
+    filter: SequentialMonteCarloCTRVFilter | CausalBR24RadarFilter
     association_gate_nis: float = ASSOCIATION_GATE_NIS
+    inference_method: str = "smc"
+    _accepted_measurement_count: int = 1
+
+    @property
+    def accepted_measurement_count(self) -> int:
+        return self._accepted_measurement_count
+
+    @property
+    def is_prior_predictive(self) -> bool:
+        return getattr(self.filter, "is_prior_predictive", False)
+
+    @property
+    def fit_status(self) -> str:
+        return getattr(self.filter, "fit_status", "posterior")
 
     @property
     def estimated_position(self) -> np.ndarray:
         """Return the current weighted posterior position in local metres."""
+        if isinstance(self.filter, CausalBR24RadarFilter):
+            return self.filter.estimated_position
         origins = self.filter.forecast_origin_particles
         if origins is None:
             origins = self.filter.state_particles
@@ -58,21 +81,44 @@ class BR24BayesianRadarTracker:
         config: SequentialMonteCarloCTRVConfig | None = None,
         seed: int = 42,
         residual_observation_noise_floor_m: float = 1e-6,
+        inference_method: str = "smc",
+        observation_count: int = 10,
+        vi_config: Mapping[str, Any] | None = None,
+        mcmc_config: Mapping[str, Any] | None = None,
+        sequential_vi_config: SequentialVIConfig | None = None,
     ) -> BR24BayesianRadarTracker:
         """Start the target track from the documented manual BR24 seed."""
         detection = _detection_by_id(cycle.detections, initial_detection_id)
         position = _measurement_position(cycle, detection)
         covariance = _measurement_covariance(detection)
+        inference_method = normalize_radar_inference_method(inference_method)
+        radar_priors = replace(
+            priors,
+            sigma_position_observation_floor_m=residual_observation_noise_floor_m,
+        )
+        if inference_method != "smc":
+            return cls(
+                filter=CausalBR24RadarFilter.initialize(
+                    cycle.time_seconds,
+                    position,
+                    covariance,
+                    inference_method=inference_method,
+                    priors=radar_priors,
+                    observation_count=observation_count,
+                    vi_config=vi_config,
+                    mcmc_config=mcmc_config,
+                    sequential_vi_config=sequential_vi_config,
+                    seed=seed,
+                ),
+                inference_method=inference_method,
+            )
         if config is None:
             config = SequentialMonteCarloCTRVConfig()
         online_filter = SequentialMonteCarloCTRVFilter.initialize(
             np.array([cycle.time_seconds]),
             np.array([position[0]]),
             np.array([position[1]]),
-            priors=replace(
-                priors,
-                sigma_position_observation_floor_m=(residual_observation_noise_floor_m),
-            ),
+            priors=radar_priors,
             config=config,
             seed=seed,
             initial_measurement_covariance=covariance,
@@ -127,6 +173,7 @@ class BR24BayesianRadarTracker:
             position[1],
             measurement_covariance=covariance,
         )
+        self._accepted_measurement_count += 1
         return BR24TrackerStep(
             time_seconds=cycle.time_seconds,
             cycle_counter=cycle.cycle_counter,
@@ -145,6 +192,11 @@ def track_br24_csv(
     config: SequentialMonteCarloCTRVConfig | None = None,
     seed: int = 42,
     residual_observation_noise_floor_m: float = 1e-6,
+    inference_method: str = "smc",
+    observation_count: int = 10,
+    vi_config: Mapping[str, Any] | None = None,
+    mcmc_config: Mapping[str, Any] | None = None,
+    sequential_vi_config: SequentialVIConfig | None = None,
 ) -> tuple[BR24BayesianRadarTracker, tuple[BR24TrackerStep, ...]]:
     """Track a manually seeded target through later BR24 radar cycles online."""
     cycles = read_br24_tracking_input(input_csv)
@@ -166,6 +218,11 @@ def track_br24_csv(
         config=config,
         seed=seed,
         residual_observation_noise_floor_m=residual_observation_noise_floor_m,
+        inference_method=inference_method,
+        observation_count=observation_count,
+        vi_config=vi_config,
+        mcmc_config=mcmc_config,
+        sequential_vi_config=sequential_vi_config,
     )
     steps = [
         BR24TrackerStep(

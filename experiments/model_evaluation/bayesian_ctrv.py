@@ -19,7 +19,7 @@ OUTPUT_CSV = (
 
 # Rolling inference:
 # - Batch: "vi" or "mcmc" with a fixed sliding window.
-# - Online: "rbpf", "smc", or "sequential_vi".
+# - Online: "smc" or "sequential_vi".
 EXPERIMENT = config.RollingExperimentConfig(
     prediction_count=2,
     position_noise_std_m=0.0,

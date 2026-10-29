@@ -19,7 +19,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
-import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.inference.particle_utils as particle_utils
@@ -1112,7 +1111,7 @@ def test_forecast_rejects_unpaired_or_nonfinite_sample_origins(origins):
         )
 
 
-@pytest.mark.parametrize("method", ["smc", "rbpf", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "sequential_vi"])
 def test_native_forecasts_export_their_paired_latent_origins(method):
     import bayestraj.models.ctrv as dynamics
 
@@ -1136,17 +1135,10 @@ def test_native_forecasts_export_their_paired_latent_origins(method):
         np.testing.assert_array_equal(fit.stan_variable("x_at_origin"), [10, 20])
         np.testing.assert_array_equal(fit.stan_variable("y_at_origin"), [-4, 6])
     else:
-        if method == "smc":
-            filter_type = smc.SequentialMonteCarloCTRVFilter
-            config = smc.SequentialMonteCarloCTRVConfig(
-                particle_count=64, posterior_draw_count=12
-            )
-        else:
-            filter_type = rbpf.SequentialBayesianCTRVFilter
-            config = rbpf.SequentialCTRVFilterConfig(
-                particle_count=64, posterior_draw_count=12
-            )
-        tracker = filter_type.initialize(
+        config = smc.SequentialMonteCarloCTRVConfig(
+            particle_count=64, posterior_draw_count=12
+        )
+        tracker = smc.SequentialMonteCarloCTRVFilter.initialize(
             [0.0, 1.0, 2.0],
             [0.0, 2.0, 4.0],
             [0.0, 0.0, 0.0],
@@ -1521,7 +1513,7 @@ def test_dashboard_preparation_preserves_processed_state_despite_gui_noise():
         maximum_observation_count=None,
         position_noise_std_m=5.0,
         position_noise_seed=2026,
-        inference_method="rbpf",
+        inference_method="smc",
         inference_seed=42,
     )
 
@@ -1541,7 +1533,7 @@ def test_dashboard_preparation_preserves_processed_state_despite_gui_noise():
     assert not np.array_equal(trajectory.reference_x, trajectory.observed_x)
 
 
-@pytest.mark.parametrize("method", ["rbpf", "smc"])
+@pytest.mark.parametrize("method", ["smc"])
 def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
     dashboard = _load_dashboard_module()
     experiment = dashboard.PosteriorDashboardConfig(
@@ -1566,9 +1558,6 @@ def test_online_forecast_uses_only_selected_prefix_and_preserves_filter(method):
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config={},
             mcmc_config={},
-            rbpf_config=rbpf.SequentialCTRVFilterConfig(
-                particle_count=32, posterior_draw_count=30
-            ),
             smc_config=smc.SequentialMonteCarloCTRVConfig(
                 particle_count=32, posterior_draw_count=30
             ),
@@ -1643,7 +1632,6 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         priors=bayesian_model.BayesianCTRVPriors(),
         vi_config={},
         mcmc_config={},
-        rbpf_config=None,
         smc_config=None,
         fit_batch_model=fit_batch,
     )
@@ -2196,7 +2184,7 @@ def test_dashboard_config_rejects_invalid_forecast_settings(field, value):
             maximum_observation_count=None,
             position_noise_std_m=0.0,
             position_noise_seed=2026,
-            inference_method="rbpf",
+            inference_method="smc",
             inference_seed=42,
             **{field: value},
         )
@@ -2256,9 +2244,7 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         navigator.disconnect()
 
 
-@pytest.mark.parametrize(
-    "inference_method", ["vi", "mcmc", "rbpf", "smc", "sequential_vi"]
-)
+@pytest.mark.parametrize("inference_method", ["vi", "mcmc", "smc", "sequential_vi"])
 def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
     dashboard = _load_dashboard_module()
 
@@ -2274,21 +2260,14 @@ def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
     assert experiment.inference_method == inference_method
 
 
-@pytest.mark.parametrize("inference_method", ["rbpf", "smc"])
+@pytest.mark.parametrize("inference_method", ["smc"])
 def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
     dashboard = _load_dashboard_module()
-    rbpf_config = rbpf.SequentialCTRVFilterConfig(
-        particle_count=32,
-        posterior_draw_count=20,
-    )
     smc_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=48,
         posterior_draw_count=24,
     )
-    expected_config = {
-        "rbpf": rbpf_config,
-        "smc": smc_config,
-    }[inference_method]
+    expected_config = smc_config
 
     experiment = dashboard.PosteriorDashboardConfig(
         start_index=0,
@@ -2306,7 +2285,6 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
             mcmc_config=inference.create_default_mcmc_config(),
-            rbpf_config=rbpf_config,
             smc_config=smc_config,
         )
     )
@@ -2409,7 +2387,6 @@ def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap(
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
             mcmc_config=inference.create_default_mcmc_config(),
-            rbpf_config=inference.create_default_ctrv_rbpf_config(),
             smc_config=inference.create_default_ctrv_smc_config(),
             sequential_vi_config=config,
             initialize_online_filter=initialize,
@@ -2523,7 +2500,6 @@ def test_dashboard_loader_extends_prior_phase_to_configured_sequential_bootstrap
         priors=bayesian_model.BayesianCTRVPriors(),
         vi_config=inference.create_default_vi_config(),
         mcmc_config=inference.create_default_mcmc_config(),
-        rbpf_config=inference.create_default_ctrv_rbpf_config(),
         smc_config=inference.create_default_ctrv_smc_config(),
         sequential_vi_config=sequential_vi.SequentialVIConfig(
             n_bootstrap=5,
@@ -2567,7 +2543,6 @@ def test_dashboard_loader_propagates_sequential_vi_update_failure():
         priors=bayesian_model.BayesianCTRVPriors(),
         vi_config=inference.create_default_vi_config(),
         mcmc_config=inference.create_default_mcmc_config(),
-        rbpf_config=inference.create_default_ctrv_rbpf_config(),
         smc_config=inference.create_default_ctrv_smc_config(),
         sequential_vi_config=sequential_vi.SequentialVIConfig(
             n_bootstrap=5,
@@ -2629,7 +2604,6 @@ def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windo
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=vi_config,
             mcmc_config=inference.create_default_mcmc_config(),
-            rbpf_config=inference.create_default_ctrv_rbpf_config(),
             smc_config=inference.create_default_ctrv_smc_config(),
             fit_batch_model=fit_batch_model,
         )
@@ -2691,7 +2665,6 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=vi_config,
             mcmc_config=mcmc_config,
-            rbpf_config=inference.create_default_ctrv_rbpf_config(),
             smc_config=inference.create_default_ctrv_smc_config(),
             fit_batch_model=fit_batch_model,
         )
@@ -2753,7 +2726,6 @@ def test_dashboard_loader_rejects_mcmc_analysis_without_ten_observations():
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
             mcmc_config=inference.create_default_mcmc_config(),
-            rbpf_config=inference.create_default_ctrv_rbpf_config(),
             smc_config=inference.create_default_ctrv_smc_config(),
         )
 
@@ -2781,7 +2753,7 @@ def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
             posterior_seeds.append(seed)
             return _FakeFit(variables)
 
-    rbpf_config = rbpf.SequentialCTRVFilterConfig(
+    smc_config = smc.SequentialMonteCarloCTRVConfig(
         particle_count=32,
         posterior_draw_count=2,
     )
@@ -2801,14 +2773,14 @@ def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():
         return FakeFilter(config)
 
     trajectory, maximum_count, load_update = (
-        dashboard.create_rbpf_posterior_dashboard_loader(
+        dashboard.create_smc_posterior_dashboard_loader(
             trajectory_data,
             start_index=0,
             position_noise_std_m=0.0,
             position_noise_seed=2026,
             priors=bayesian_model.BayesianCTRVPriors(),
-            rbpf_config=rbpf_config,
-            rbpf_seed=42,
+            smc_config=smc_config,
+            smc_seed=42,
             initialize_filter=initialize_filter,
         )
     )
@@ -3123,7 +3095,6 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
     priors = bayesian_model.BayesianCTRVPriors()
     vi_config = inference.create_default_vi_config()
     mcmc_config = inference.create_default_mcmc_config()
-    rbpf_config = inference.create_default_ctrv_rbpf_config()
     smc_config = inference.create_default_ctrv_smc_config()
     loader_calls = []
     figure_calls = []
@@ -3162,7 +3133,6 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
         priors=priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        rbpf_config=rbpf_config,
         smc_config=smc_config,
         playback_interval_ms=750,
         show_legend=False,
@@ -3176,7 +3146,6 @@ def test_dashboard_runner_uses_configured_inference_loader(monkeypatch):
         "priors": priors,
         "vi_config": vi_config,
         "mcmc_config": mcmc_config,
-        "rbpf_config": rbpf_config,
         "smc_config": smc_config,
     }
     assert len(figure_calls) == 1

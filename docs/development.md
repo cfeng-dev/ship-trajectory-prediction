@@ -48,8 +48,10 @@ uv run trajectory-predictor
 ```
 
 The built-in **Help** window describes the controls, settings, and keyboard
-shortcuts. RBPF and SMC update online; VI and MCMC repeatedly fit the latest 10
-observations and are slower.
+shortcuts. SMC and Sequential VI update online; VI and MCMC repeatedly fit the
+latest 10 steps and are slower. For raw BR24 input, these windows count radar
+cycles, including cycles without an accepted detection. Each method associates
+raw detections using its own predicted state; ground truth is evaluation-only.
 
 ### 3. IMM Predictor
 

@@ -160,6 +160,16 @@ def build_stan_data(
         window,
         position_observations,
     )
+    observed_mask = position_observations.observed_mask
+    if observed_mask is None:
+        observed_mask = np.ones(window.observation_count, dtype=bool)
+    if np.count_nonzero(observed_mask) < MIN_OBSERVATION_COUNT:
+        raise ValueError(
+            f"window must contain at least {MIN_OBSERVATION_COUNT} accepted measurements."
+        )
+    measurement_covariances = position_observations.measurement_covariances
+    if measurement_covariances is None:
+        measurement_covariances = np.zeros((window.observation_count, 2, 2))
     time_observed = np.asarray(
         position_observations.time_seconds,
         dtype=float,
@@ -185,6 +195,8 @@ def build_stan_data(
         "time_observed": time_observed,
         "x_observed": x_observed,
         "y_observed": y_observed,
+        "observed_mask": observed_mask.astype(int),
+        "measurement_covariances": measurement_covariances,
         "speed_prior_scale": priors.speed_prior_scale,
         "turn_rate_prior_scale": priors.turn_rate_prior_scale,
         "sigma_position_observation_prior_rate": (

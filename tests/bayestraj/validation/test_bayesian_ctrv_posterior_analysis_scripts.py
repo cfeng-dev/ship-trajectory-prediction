@@ -62,8 +62,8 @@ def test_each_script_opens_only_its_configured_parameter(
     assert calls[0]["parameter_name"] == parameter_name
     assert calls[0]["show"] is False
     assert calls[0]["show_legend"] is True
-    assert calls[0]["rbpf_config"] is script.RBPF_CONFIG
-    assert calls[0]["rbpf_seed"] == script.RBPF_SEED
+    assert calls[0]["smc_config"] is script.SMC_CONFIG
+    assert calls[0]["smc_seed"] == script.SMC_SEED
     assert "inference_method" not in calls[0]
     assert "vi_config" not in calls[0]
     assert "mcmc_config" not in calls[0]

@@ -10,7 +10,6 @@ import pytest
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
-import bayestraj.inference.ctrv_rbpf as rbpf
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.models.ctrv as ctrv_dynamics
@@ -142,7 +141,6 @@ def test_process_noise_uses_one_second_reference_interval():
 
     assert ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
     assert ctrv_model.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
-    assert rbpf.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
     assert smc.ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS == 1.0
     assert stan_data["process_reference_interval_seconds"] == 1.0
 
@@ -222,13 +220,9 @@ def test_turn_rate_prior_uses_a_direct_rate_threshold_in_degrees_per_second():
 
 
 def test_batch_and_online_code_use_one_process_time_scale():
-    rbpf_config = rbpf.SequentialCTRVFilterConfig()
-    rbpf_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter)
     smc_source = inspect.getsource(smc.SequentialMonteCarloCTRVFilter)
     stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
 
-    assert not hasattr(rbpf_config, "process_reference_interval_seconds")
-    assert "ctrv_dynamics.process_time_scale" in rbpf_source
     assert "ctrv_dynamics.process_time_scale" in smc_source
     assert "sqrt(dt / process_reference_interval_seconds)" in stan_source
 
@@ -280,8 +274,10 @@ def test_stan_positions_are_conditional_transitions_with_no_cartesian_jitter():
     assert "y_state[n + 1] = position[2];" in history_source
     assert "x_state[n] ~ normal" not in history_source
     assert "y_state[n] ~ normal" not in history_source
-    assert "x_observed ~ normal(x_state, sigma_position_observation);" in history_source
-    assert "y_observed ~ normal(y_state, sigma_position_observation);" in history_source
+    assert "if (observed_mask[n] == 1)" in history_source
+    assert "x_observed[n] ~ normal(x_state[n], sqrt(variance_x));" in history_source
+    assert "y_observed[n] ~ normal(" in history_source
+    assert "covariance_xy / variance_x" in history_source
     assert "x_prediction[n] = expected_position[1];" in forecast_source
     assert "y_prediction[n] = expected_position[2];" in forecast_source
     assert "normal_rng(expected_position" not in forecast_source
@@ -371,22 +367,6 @@ def test_ctrv_step_uses_current_motion_in_straight_line_limit():
     assert transitioned.heading == state.heading
 
 
-def test_rbpf_propagates_kinematic_process_noise_without_cartesian_q():
-    update_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.update)
-    forecast_source = inspect.getsource(rbpf.SequentialBayesianCTRVFilter.forecast)
-
-    assert "speed_process**2 * process_variance_scale" in update_source
-    assert "turn_rate_process**2 * process_variance_scale" in update_source
-    assert "motion_process" not in update_source
-    assert "motion_process" not in forecast_source
-    assert "predicted_covariances[:, _STATE_X_INDEX" not in update_source
-    assert "predicted_covariances[:, _STATE_Y_INDEX" not in update_source
-    assert "speed_process * process_time_scale" in forecast_source
-    assert "turn_rate_process * process_time_scale" in forecast_source
-    assert "states[:, :2] +=" not in forecast_source
-    assert "observation_noise * process_time_scale" not in forecast_source
-
-
 def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():
     stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
 
@@ -402,7 +382,7 @@ def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():
     ("proposal", "expected_speed"),
     ((4.0, 4.0), (-2.0, 2.0)),
 )
-def test_rbpf_speed_reflection_preserves_heading(proposal, expected_speed):
+def test_speed_reflection_preserves_heading(proposal, expected_speed):
     heading = 0.4
     states = np.asarray([[1.0, 2.0, proposal, heading, 0.01]])
 
@@ -412,7 +392,7 @@ def test_rbpf_speed_reflection_preserves_heading(proposal, expected_speed):
     assert states[0, 3] == pytest.approx(heading)
 
 
-def test_rbpf_speed_reflection_transforms_covariance_without_rotating_heading():
+def test_speed_reflection_transforms_covariance_without_rotating_heading():
     states = np.asarray([[1.0, 2.0, -2.0, 0.4, 0.01]])
     covariance = np.asarray(
         [
@@ -510,26 +490,21 @@ def _controlled_online_filter(
     ).copy()
     state = np.asarray([0.0, 0.0, 4.0, 0.3, 0.01])
     state_means = np.broadcast_to(state, (particle_count, state.size)).copy()
-    state_covariances = np.broadcast_to(
-        1e-12 * np.eye(state.size),
-        (particle_count, state.size, state.size),
-    ).copy()
-    return rbpf.SequentialBayesianCTRVFilter(
-        config=rbpf.SequentialCTRVFilterConfig(
+    return smc.SequentialMonteCarloCTRVFilter(
+        config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=particle_count,
             posterior_draw_count=draw_count,
         ),
         parameter_particles=parameter_particles,
         weights=np.full(particle_count, 1.0 / particle_count),
-        state_means=state_means,
-        state_covariances=state_covariances,
+        state_particles=state_means,
         generator=np.random.default_rng(42),
         last_observation_time_seconds=0.0,
         processed_observation_count=1,
     )
 
 
-def test_rbpf_parameter_particles_contain_only_remaining_noise_scales():
+def test_smc_parameter_particles_contain_only_remaining_noise_scales():
     online_filter = _controlled_online_filter(
         observation_noise=1.0,
         speed_process=0.5,
@@ -538,77 +513,10 @@ def test_rbpf_parameter_particles_contain_only_remaining_noise_scales():
     )
 
     assert online_filter.parameter_particles.shape == (128, 3)
-    assert (
-        len(
-            rbpf._sequential_parameter_values(
-                parameter_particles=online_filter.parameter_particles
-            )
-        )
-        == 3
-    )
+    assert len(smc._parameter_values(online_filter.parameter_particles)) == 3
 
 
-def test_rbpf_adds_process_uncertainty_after_the_observation_update():
-    speed_process = 2.0
-    turn_rate_process = 0.03
-    online_filter = _controlled_online_filter(
-        observation_noise=0.1,
-        speed_process=speed_process,
-        turn_rate_process=turn_rate_process,
-        draw_count=32,
-    )
-    expected_state = ctrv_dynamics.transition_states(
-        online_filter.state_means[:1],
-        10.0,
-    )[0]
-
-    online_filter.update(10.0, expected_state[0], expected_state[1])
-
-    np.testing.assert_allclose(
-        online_filter.state_means,
-        online_filter.forecast_origin_means,
-    )
-    process_covariance = (
-        online_filter.state_covariances - online_filter.forecast_origin_covariances
-    )
-    expected_diagonal = np.array(
-        [
-            0.0,
-            0.0,
-            speed_process**2 * 10.0,
-            0.0,
-            turn_rate_process**2 * 10.0,
-        ]
-    )
-    np.testing.assert_allclose(
-        np.diagonal(process_covariance, axis1=1, axis2=2),
-        np.broadcast_to(expected_diagonal, (128, 5)),
-        atol=1e-12,
-    )
-    off_diagonal = process_covariance.copy()
-    diagonal_indices = np.arange(5)
-    off_diagonal[:, diagonal_indices, diagonal_indices] = 0.0
-    np.testing.assert_allclose(off_diagonal, 0.0, atol=1e-12)
-
-
-def test_rbpf_keeps_filtering_when_predictive_support_is_lost():
-    online_filter = _controlled_online_filter(
-        observation_noise=1.0,
-        speed_process=1e-9,
-        turn_rate_process=1e-9,
-        draw_count=32,
-    )
-    online_filter.update(1.0, 100.0, 0.0)
-
-    assert online_filter.last_log_predictive_density < -10.0
-    assert not hasattr(online_filter, "track_lost")
-    assert not hasattr(online_filter, "reinitialization_count")
-    assert online_filter.weights == pytest.approx(
-        np.full(online_filter.config.particle_count, 1.0 / online_filter.config.particle_count)
-    )
-
-
-def test_rbpf_forecast_evolves_motion_after_the_completed_interval():
+def test_smc_forecast_evolves_motion_after_the_completed_interval():
     future_times = np.asarray([10.0, 20.0])
     low_fit = _controlled_online_filter(
         observation_noise=0.1,
