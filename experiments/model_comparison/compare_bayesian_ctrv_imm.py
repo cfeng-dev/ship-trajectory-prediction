@@ -8,8 +8,8 @@ these per-origin metrics, not a pooled RMSE across all forecast positions.
 import bayestraj.validation.comparison as comparison
 from bayestraj.paths import project_path
 
-BAYESIAN_CSV = project_path("results/BR24_bayesian_ctrv_forecast_evaluation.csv")
-IMM_CSV = project_path("results/BR24_imm_forecast_evaluation.csv")
+BAYESIAN_CSV = project_path("results/bayesian_ctrv_smc_evaluation.csv")
+IMM_CSV = project_path("results/imm_evaluation.csv")
 
 
 def main():

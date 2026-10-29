@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -341,30 +342,33 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     tmp_path, monkeypatch, show_diagnostics
 ):
     module = runpy.run_path(ROOT / "experiments/model_evaluation/bayesian_ctrv.py")
-    namespace = module["main"].__globals__
+    settings = module["main"].__globals__
     predictions = _table("bayesian")
     original = predictions.copy(deep=True)
     summary = object()
-    output = tmp_path / "results" / "bayesian.csv"
-    monkeypatch.setitem(namespace, "OUTPUT_CSV", output)
-    monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", show_diagnostics)
+    output = tmp_path / "results/bayesian_ctrv_smc_evaluation.csv"
+    monkeypatch.setitem(settings, "OUTPUT_CSV", output)
+    monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", show_diagnostics)
     monkeypatch.setattr(
-        namespace["workflow"],
+        evaluation.workflow,
         "run_bayesian_ctrv_evaluation",
         lambda **kwargs: (predictions, summary),
     )
+    plotted = []
 
     def plot(table, *, inference_selection):
         assert output.is_file()
         np.testing.assert_array_equal(
             pd.read_csv(output)["position_error_m"], [3, 4, 5, 12]
         )
+        plotted.append(inference_selection)
 
     monkeypatch.setattr(
-        namespace["runtime_plotting"], "plot_bayesian_ctrv_rolling_diagnostics", plot
+        evaluation.runtime_plotting, "plot_bayesian_ctrv_rolling_diagnostics", plot
     )
     returned, returned_summary = module["main"]([])
     assert returned is predictions and returned_summary is summary
+    assert plotted == (["smc"] if show_diagnostics else [])
     assert output.is_file()
     exported = pd.read_csv(output)
     exported["time"] = pd.to_datetime(exported["time"], format="mixed", utc=True)

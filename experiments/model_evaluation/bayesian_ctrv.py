@@ -1,21 +1,18 @@
-"""Evaluate parametric Bayesian CTRV forecasts across rolling windows."""
+"""Evaluate Bayesian CTRV forecasts across rolling windows (SMC by default)."""
 
-import bayestraj.forecasting.bayesian_ctrv as config
-import bayestraj.inference.configuration as inference
+import bayestraj.forecasting.bayesian_ctrv as ctrv_config
+import bayestraj.inference.configuration as inference_config
 import bayestraj.models.bayesian_ctrv as bayesian_model
-import bayestraj.validation.bayesian_ctrv_workflow as workflow
-import bayestraj.validation.cli as cli
-import bayestraj.validation.runtime_plotting as runtime_plotting
+import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
 
-# Raw detections are tracked online; ground_truth_* is used only for evaluation.
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = project_path("results/BR24_bayesian_ctrv_forecast_evaluation.csv")
+OUTPUT_CSV = project_path("results/bayesian_ctrv_{inference_method}_evaluation.csv")
 
-# Rolling inference:
-# - Batch: "vi" or "mcmc" with a fixed sliding window.
-# - Online: "smc" or "sequential_vi".
-EXPERIMENT = config.RollingExperimentConfig(
+# Methods: "smc", "vi", "mcmc", or "sequential_vi".
+# Batch VI/MCMC use a fixed sliding window; SMC/Sequential VI update online.
+EXPERIMENT = ctrv_config.RollingExperimentConfig(
+    observation_count=10,
     prediction_count=2,
     position_noise_std_m=0.0,
     position_noise_seed=2026,
@@ -44,34 +41,22 @@ SHOW_ROLLING_DIAGNOSTICS_PLOT = True
 
 
 def main(argv=None):
-    """Run the configured parametric Bayesian CTRV rolling evaluation."""
-    options = cli.parse_bayesian_ctrv_evaluation_arguments(
-        description=__doc__,
+    """Run rolling evaluation using this script's header settings."""
+    return evaluation.run_evaluation(
+        data_file=DATA_FILE,
+        output_csv=OUTPUT_CSV,
         experiment=EXPERIMENT,
         priors=PRIORS,
+        fullrank_grad_samples=inference_config.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        credible_interval=CREDIBLE_INTERVAL,
         max_windows=MAX_WINDOWS,
         plot_each_window=PLOT_EACH_WINDOW,
+        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
+        show_time_labels=SHOW_TIME_LABELS,
+        show_rolling_diagnostics_plot=SHOW_ROLLING_DIAGNOSTICS_PLOT,
+        description=__doc__,
         argv=argv,
     )
-    predictions, summary = workflow.run_bayesian_ctrv_evaluation(
-        data_file=DATA_FILE,
-        experiment=EXPERIMENT,
-        priors=PRIORS,
-        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
-        credible_interval=CREDIBLE_INTERVAL,
-        sample_trajectories_per_forecast=SAMPLE_TRAJECTORIES_PER_FORECAST,
-        options=options,
-        show_time_labels=SHOW_TIME_LABELS,
-    )
-    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    predictions.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nSaved per-forecast Bayesian CTRV metrics: {OUTPUT_CSV}")
-    if SHOW_ROLLING_DIAGNOSTICS_PLOT:
-        runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
-            predictions,
-            inference_selection=options.inference_method,
-        )
-    return predictions, summary
 
 
 if __name__ == "__main__":

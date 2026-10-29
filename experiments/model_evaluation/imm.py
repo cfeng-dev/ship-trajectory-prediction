@@ -7,7 +7,7 @@ from bayestraj.paths import project_path
 
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = project_path("results/BR24_imm_forecast_evaluation.csv")
+OUTPUT_CSV = project_path("results/imm_evaluation.csv")
 
 # Match experiments/model_evaluation/bayesian_ctrv.py for a direct comparison.
 INITIAL_OBSERVATION_COUNT = 10
