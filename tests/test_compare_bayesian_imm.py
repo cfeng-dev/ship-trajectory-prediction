@@ -41,6 +41,12 @@ def _table(model):
             else [0.002, 0.002, 0.004, 0.004],
             "inference_method": "smc" if model == "bayesian" else "imm",
             "model_variant": model,
+            "joint_covered_50": [True, False, False, True]
+            if model == "bayesian"
+            else [False, False, True, False],
+            "joint_covered_90": [True, True, False, True]
+            if model == "bayesian"
+            else [True, False, True, True],
         }
     )
 
@@ -201,13 +207,13 @@ def test_comparison_rejects_incompatible_forecasts(problem):
         comparison.prepare_comparison(_table("bayesian"), imm)
 
 
-def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatch):
+def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypatch):
     left, right = comparison.prepare_comparison(_table("bayesian"), _table("imm"))
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     summary, figures = runtime_plotting.plot_bayesian_imm_comparison(left, right)
     try:
-        assert len(figures) == len(shown) == 6
+        assert len(figures) == len(shown) == 8
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
         assert indexed.loc["ade_m", "imm"] == 9.25
@@ -215,7 +221,13 @@ def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatc
         assert (
             indexed.loc["mean_negative_log_predictive_density", "bayesian_ctrv"] == 4.0
         )
-        assert (indexed["preferred"] == "lower").all()
+        assert (indexed.iloc[:6]["preferred"] == "lower").all()
+        assert indexed.loc["joint_coverage_50", "preferred"] == "near 50%"
+        assert indexed.loc["joint_coverage_90", "preferred"] == "near 90%"
+        assert indexed.loc["joint_coverage_50", "bayesian_ctrv"] == 0.5
+        assert indexed.loc["joint_coverage_50", "imm"] == 0.25
+        assert indexed.loc["joint_coverage_90", "bayesian_ctrv"] == 0.75
+        assert indexed.loc["joint_coverage_90", "imm"] == 0.75
         assert figures[1][1].get_ylabel() == "NLPD"
         assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
         expected = (
@@ -227,7 +239,7 @@ def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatc
             ([0.01, 0.02], [0.002, 0.004]),
         )
         for (figure, axis), (bayesian_values, imm_values) in zip(
-            figures, expected, strict=True
+            figures[:6], expected, strict=True
         ):
             assert figure._suptitle.get_text() == "Bayesian CTRV vs. IMM"
             assert figure._suptitle.get_fontweight() == "bold"
@@ -245,6 +257,69 @@ def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatc
                 axis.lines[1].get_ydata(), np.mean(bayesian_values)
             )
             np.testing.assert_allclose(axis.lines[3].get_ydata(), np.mean(imm_values))
+        for (_, axis), nominal, values in zip(
+            figures[6:], (50, 90), ([50, 25], [75, 75]), strict=True
+        ):
+            assert axis.get_xlabel() == ""
+            assert axis.get_ylabel() == f"Joint {nominal}% coverage [%]"
+            np.testing.assert_allclose(axis.get_ylim(), [0, 100])
+            assert [tick.get_text() for tick in axis.get_xticklabels()] == [
+                "Bayesian CTRV (SMC)",
+                "IMM",
+            ]
+            np.testing.assert_allclose(
+                [bar.get_height() for bar in axis.patches], values
+            )
+            assert [text.get_text() for text in axis.texts] == [
+                f"{value:.1f}%" for value in values
+            ]
+            assert len(axis.lines) == 1
+            np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
+            assert axis.lines[0].get_linestyle() == ":"
+            assert axis.lines[0].get_label() == f"Nominal {nominal}%"
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    "problem", ["missing", "nonboolean", "missing_value", "nonnested"]
+)
+def test_comparison_rejects_invalid_coverage_flags_before_plotting(problem):
+    table = _table("bayesian")
+    if problem == "missing":
+        table = table.drop(columns="joint_covered_50")
+    elif problem == "nonnested":
+        table.loc[0, "joint_covered_90"] = False
+    else:
+        table["joint_covered_50"] = table["joint_covered_50"].astype(object)
+        table.loc[0, "joint_covered_50"] = (
+            "False" if problem == "nonboolean" else np.nan
+        )
+    previous_figures = plt.get_fignums()
+    with pytest.raises(ValueError, match="joint_covered|coverage"):
+        comparison.prepare_comparison(table, _table("imm"))
+    assert plt.get_fignums() == previous_figures
+
+
+def test_final_coverage_counts_all_matched_predictions_with_different_horizon_lengths():
+    tables = [_table(model).drop(index=3) for model in ("bayesian", "imm")]
+    for table in tables:
+        table["prediction_count"] = table.groupby("window_index")[
+            "horizon_step"
+        ].transform("size")
+    left, right = comparison.prepare_comparison(*tables)
+    summary, figures = runtime_plotting.plot_bayesian_imm_comparison(
+        left, right, show=False
+    )
+    try:
+        row = summary.set_index("metric").loc["joint_coverage_50"]
+        assert row["bayesian_ctrv"] == pytest.approx(1 / 3)
+        assert row["imm"] == pytest.approx(1 / 3)
+        np.testing.assert_allclose(
+            [bar.get_height() for bar in figures[6][1].patches], [100 / 3] * 2
+        )
+        assert [text.get_text() for text in figures[6][1].texts] == ["33.3%", "33.3%"]
     finally:
         for figure, _ in figures:
             plt.close(figure)
@@ -279,14 +354,15 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
     try:
         summary = module["main"]()
 
-        assert len(summary) == 6
-        assert len(shown) == 6
+        assert len(summary) == 8
+        assert len(shown) == 8
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
         assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == originals
-        assert len(set(plt.get_fignums()) - previous_figures) == 6
+        assert len(set(plt.get_fignums()) - previous_figures) == 8
         report = capsys.readouterr().out
         assert "Matched forecast origins: 2" in report
-        assert "Gaussian" in report and "preferred: lower" in report
+        assert "Gaussian" in report and "near 50%" in report and "near 90%" in report
+        assert "50.0%" in report and "25.0%" in report
         assert "mean_negative_log_predictive_density" in report
     finally:
         for figure_number in set(plt.get_fignums()) - previous_figures:
@@ -311,7 +387,7 @@ def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
 
         assert bayesian["forecast_origin_seconds"].tolist() == [100, 100, 120, 120]
         assert imm["window_index"].tolist() == [10, 10, 20, 20]
-        assert len(summary) == 6
+        assert len(summary) == 8
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
         assert indexed.loc["ade_m", "imm"] == 9.25
@@ -319,14 +395,14 @@ def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
         assert indexed.loc["fde_m", "imm"] == 11.5
         assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
         assert indexed.loc["fit_runtime_seconds", "imm"] == 0.003
-        assert len(shown) == (6 if show else 0)
-        assert len(set(plt.get_fignums()) - previous_figures) == (6 if show else 0)
+        assert len(shown) == (8 if show else 0)
+        assert len(set(plt.get_fignums()) - previous_figures) == (8 if show else 0)
         assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == original_csvs
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
         report = capsys.readouterr().out
         assert "Matched forecast origins: 2" in report
         assert "Matched forecast positions: 4" in report
-        assert "Mean metrics per matched forecast origin" in report
+        assert "Metrics for matched forecasts" in report
         assert "Gaussian" in report and "posterior samples" in report
     finally:
         for figure_number in set(plt.get_fignums()) - previous_figures:
@@ -357,7 +433,7 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
         assert indexed.loc["ade_m", "imm"] == 9.25
-        assert len(shown) == 6
+        assert len(shown) == 8
         assert "Matched forecast positions: 4" in capsys.readouterr().out
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
     finally:

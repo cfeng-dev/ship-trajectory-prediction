@@ -1,8 +1,9 @@
 """Compare saved Bayesian CTRV and IMM evaluation CSVs without running models.
 
-Each figure shows a metric per common forecast origin, with the same horizons
-and reference positions. Dashed lines and the terminal table show averages of
-these per-origin metrics, not a pooled RMSE across all forecast positions.
+Accuracy, density scores and runtime are shown per common forecast origin,
+with averages across origins. Coverage bars show the final percentage of all
+matched forecast positions inside the joint 50%/90% regions, with lines marking
+the nominal coverage.
 """
 
 import bayestraj.validation.comparison as comparison

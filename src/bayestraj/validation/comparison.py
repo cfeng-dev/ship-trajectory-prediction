@@ -42,7 +42,14 @@ def _validate_table(predictions, model_variant):
             legacy,
         ):
             raise ValueError("Conflicting log predictive density and NLPD columns.")
-    required = {*NUMERIC_COLUMNS, "time", "inference_method", "model_variant"}
+    required = {
+        *NUMERIC_COLUMNS,
+        "time",
+        "inference_method",
+        "model_variant",
+        "joint_covered_50",
+        "joint_covered_90",
+    }
     missing = sorted(required.difference(predictions.columns))
     if missing:
         raise ValueError(f"Missing {model_variant} CSV columns: {missing}")
@@ -53,6 +60,12 @@ def _validate_table(predictions, model_variant):
         table[name] = pd.to_numeric(table[name], errors="raise")
     if not np.all(np.isfinite(table[list(NUMERIC_COLUMNS)].to_numpy(dtype=float))):
         raise ValueError(f"The {model_variant} CSV must contain finite numeric values.")
+    for column in ("joint_covered_50", "joint_covered_90"):
+        if table[column].isna().any() or not table[column].isin([False, True]).all():
+            raise ValueError(f"{column} must contain boolean coverage flags or 0/1.")
+        table[column] = table[column].astype(bool)
+    if (table["joint_covered_50"] & ~table["joint_covered_90"]).any():
+        raise ValueError("Joint 50% coverage must be nested inside joint 90% coverage.")
     for name in ("window_index", "horizon_step", "prediction_count"):
         values = table[name].to_numpy(dtype=float)
         lower_bound = 0 if name == "window_index" else 1
@@ -199,8 +212,15 @@ def run_comparison(bayesian, imm, *, show=True, output_dir=None):
     summary, figures = runtime_plotting.plot_bayesian_imm_comparison(
         bayesian, imm, show=show, output_dir=output_dir
     )
-    print("\nMean metrics per matched forecast origin (preferred: lower):")
-    print(summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nMetrics for matched forecasts:")
+    display = summary.copy()
+    coverage_rows = display["metric"].str.startswith("joint_coverage_")
+    for column in ("bayesian_ctrv", "imm"):
+        display[column] = [
+            f"{value:.1%}" if coverage else f"{value:.3f}"
+            for value, coverage in zip(display[column], coverage_rows, strict=True)
+        ]
+    print(display.to_string(index=False))
     print(
         "\nNote: IMM distribution scores use a fused Gaussian; Bayesian CTRV uses posterior samples."
     )

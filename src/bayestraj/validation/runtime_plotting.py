@@ -86,7 +86,7 @@ def plot_imm_rolling_diagnostics(predictions):
 
 
 def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
-    """Plot already aligned tables with the evaluator's aggregation and style."""
+    """Plot per-origin metrics and final coverage over all matched predictions."""
     series = [_rolling_window_metric_series(table) for table in (bayesian, imm)]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
@@ -95,31 +95,71 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
     figures, rows = [], []
-    for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+    plot_specs = [
+        (ylabel, name, None) for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES
+    ] + [
+        (f"Joint {percent}% coverage [%]", f"joint_coverage_{percent}", percent / 100)
+        for percent in (50, 90)
+    ]
+    for ylabel, name, nominal in plot_specs:
         if name == "fit_runtime_seconds":
             ylabel = "Laufzeit [s]"
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
-        averages = []
-        for (_, values), label, color in zip(
-            series, labels, COMPARISON_MODEL_COLORS, strict=True
-        ):
-            metric = values[name]
-            average = float(np.mean(metric))
-            averages.append(average)
-            axis.plot(
-                elapsed, metric, marker="o", markersize=3, color=color, label=label
+        if nominal is None:
+            averages = []
+            for (_, values), label, color in zip(
+                series, labels, COMPARISON_MODEL_COLORS, strict=True
+            ):
+                metric = values[name]
+                average = float(np.mean(metric))
+                averages.append(average)
+                axis.plot(
+                    elapsed, metric, marker="o", markersize=3, color=color, label=label
+                )
+                axis.axhline(
+                    average,
+                    color=color,
+                    linestyle="--",
+                    label=f"{label}: Mittel = {average:.3f}",
+                )
+            axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
+        else:
+            column = f"joint_covered_{100 * nominal:.0f}"
+            averages = [float(table[column].mean()) for table in (bayesian, imm)]
+            bars = axis.bar(
+                labels,
+                100 * np.asarray(averages),
+                color=COMPARISON_MODEL_COLORS,
+                width=0.55,
             )
+            for bar in bars:
+                percent = bar.get_height()
+                inside = percent >= 95
+                axis.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    percent - 2 if inside else percent + 2,
+                    f"{percent:.1f}%",
+                    ha="center",
+                    va="top" if inside else "bottom",
+                    fontsize=style.axis_tick_font_size,
+                )
             axis.axhline(
-                average,
-                color=color,
-                linestyle="--",
-                label=f"{label}: Mittel = {average:.3f}",
+                100 * nominal,
+                color="0.35",
+                linestyle=":",
+                label=f"Nominal {100 * nominal:.0f}%",
             )
-        axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
+            axis.set_ylim(0, 100)
         axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
         axis.tick_params(axis="both", labelsize=style.axis_tick_font_size)
         axis.set_axisbelow(True)
-        axis.grid(True, which="major", axis="both", color="0.7", alpha=0.2)
+        axis.grid(
+            True,
+            which="major",
+            axis="both" if nominal is None else "y",
+            color="0.7",
+            alpha=0.2,
+        )
         axis.legend(loc=style.legend_location)
         figure.suptitle(
             "Bayesian CTRV vs. IMM",
@@ -137,7 +177,9 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
                 "metric": name,
                 "bayesian_ctrv": averages[0],
                 "imm": averages[1],
-                "preferred": "lower",
+                "preferred": "lower"
+                if nominal is None
+                else f"near {100 * nominal:.0f}%",
             }
         )
     return pd.DataFrame(rows), tuple(figures)
