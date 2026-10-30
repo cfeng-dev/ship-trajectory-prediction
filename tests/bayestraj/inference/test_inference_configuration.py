@@ -101,11 +101,12 @@ def test_default_vi_config_uses_stable_fullrank_optimization():
     config = inference.create_default_vi_config()
 
     assert config["algorithm"] == "fullrank"
-    assert config["iter"] == 25_000
+    assert config["iter"] == 10_000
     assert config["grad_samples"] == 20
     assert config["eta"] == 0.5
-    assert config["adapt_iter"] == 750
-    assert config["tol_rel_obj"] == 0.003
+    assert config["adapt_iter"] == 250
+    assert config["tol_rel_obj"] == 0.01
+    assert config["require_converged"] is False
     assert inference.DEFAULT_FULLRANK_GRAD_SAMPLES == 20
 
 

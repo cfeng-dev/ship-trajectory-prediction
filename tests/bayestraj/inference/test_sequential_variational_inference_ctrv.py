@@ -209,7 +209,10 @@ def test_sequential_vi_config_uses_fullrank_cmdstan_defaults() -> None:
 
     assert config.n_bootstrap == 10
     assert config.algorithm == "fullrank"
-    assert config.iter == cmdstan.DEFAULT_VI_ITER
+    assert config.iter == cmdstan.DEFAULT_VI_ITER == 10_000
+    assert config.adapt_iter == cmdstan.DEFAULT_VI_ADAPT_ITER == 250
+    assert config.tol_rel_obj == cmdstan.DEFAULT_VI_TOL_REL_OBJ == 0.01
+    assert config.require_converged is False
     assert config.grad_samples == cmdstan.DEFAULT_VI_GRAD_SAMPLES
     assert config.elbo_samples == cmdstan.DEFAULT_VI_ELBO_SAMPLES
     assert config.draws == cmdstan.DEFAULT_VI_DRAWS

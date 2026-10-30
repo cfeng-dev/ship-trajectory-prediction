@@ -84,20 +84,10 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     assert calls[0]["data_file"] == (
         tmp_path / "data/processed/BR24Dataset20131107_with_reference.csv"
     )
-    if method == "vi":
-        config = calls[0]["vi_config"]
-        assert config is namespace["VI_CONFIG"]
-        assert config["iter"] == 10_000
-        assert config["tol_rel_obj"] == 0.01
-        assert config["adapt_iter"] == 250
-        assert config["grad_samples"] == 20
-    elif method == "sequential_vi":
-        config = calls[0]["sequential_vi_config"]
-        assert config is namespace["SEQUENTIAL_VI_CONFIG"]
-        assert config.iter == 10_000
-        assert config.tol_rel_obj == 0.01
-        assert config.adapt_iter == 250
-        assert config.grad_samples == 20
+    assert "VI_CONFIG" not in namespace
+    assert "SEQUENTIAL_VI_CONFIG" not in namespace
+    assert calls[0]["vi_config"] is None
+    assert calls[0]["sequential_vi_config"] is None
     output = tmp_path / "results" / csv_name
     assert list((tmp_path / "results").iterdir()) == [output]
     pd.testing.assert_frame_equal(
@@ -155,6 +145,95 @@ def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
     assert not (tmp_path / "results/bayesian_ctrv_smc_evaluation.csv").exists()
 
 
+@pytest.mark.parametrize(
+    "output", [None, "", "   ", 42, "metrics.txt", ".", "bad\0.csv"]
+)
+def test_missing_or_invalid_csv_output_warns_and_keeps_evaluation_and_plots(
+    tmp_path, monkeypatch, capsys, evaluation_run, output
+):
+    evaluation, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_CSV", output)
+    monkeypatch.chdir(tmp_path)
+    plotted = []
+    monkeypatch.setattr(
+        evaluation.runtime_plotting,
+        "plot_bayesian_ctrv_rolling_diagnostics",
+        lambda predictions, **kwargs: plotted.append(predictions),
+    )
+
+    predictions, summary = namespace["main"]([])
+
+    assert len(calls) == 1
+    assert len(plotted) == 1 and plotted[0] is predictions
+    assert summary is None
+    assert list(tmp_path.iterdir()) == []
+    terminal = capsys.readouterr().out
+    assert "Warning:" in terminal and "OUTPUT_CSV" in terminal
+    assert "CSV export skipped" in terminal
+    assert "Saved per-forecast" not in terminal
+
+
+def test_csv_destination_directory_is_rejected_without_writing_files(
+    tmp_path, monkeypatch, capsys, evaluation_run
+):
+    _, calls = evaluation_run
+    destination = tmp_path / "metrics.csv"
+    destination.mkdir()
+    namespace = runpy.run_path(SCRIPT)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_CSV", destination)
+
+    namespace["main"]([])
+
+    assert len(calls) == 1
+    assert list(destination.iterdir()) == []
+    assert list(tmp_path.iterdir()) == [destination]
+    assert "CSV export skipped" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("failure", ["mkdir", "write", "replace"])
+def test_csv_write_failure_preserves_previous_results_and_still_plots(
+    tmp_path, monkeypatch, capsys, evaluation_run, failure
+):
+    evaluation, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+    destination = tmp_path / "metrics.csv"
+    original = b"previous,results\n1,2\n"
+    destination.write_bytes(original)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_CSV", destination)
+    plotted = []
+    monkeypatch.setattr(
+        evaluation.runtime_plotting,
+        "plot_bayesian_ctrv_rolling_diagnostics",
+        lambda predictions, **kwargs: plotted.append(predictions),
+    )
+
+    def deny(*args, **kwargs):
+        raise PermissionError("destination is not writable")
+
+    if failure == "mkdir":
+        monkeypatch.setattr(Path, "mkdir", deny)
+    elif failure == "replace":
+        monkeypatch.setattr(Path, "replace", deny)
+    else:
+
+        def partial_write(table, path, **kwargs):
+            Path(path).write_text("partial output", encoding="utf-8")
+            raise OSError("disk full")
+
+        monkeypatch.setattr(pd.DataFrame, "to_csv", partial_write)
+
+    predictions, _ = namespace["main"]([])
+
+    assert len(calls) == 1
+    assert len(plotted) == 1 and plotted[0] is predictions
+    assert destination.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [destination]
+    terminal = capsys.readouterr().out
+    assert "Warning:" in terminal and "CSV export skipped" in terminal
+    assert "Saved per-forecast" not in terminal
+
+
 @pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
 def test_script_header_settings_reach_evaluation_and_control_output(
     tmp_path, monkeypatch, evaluation_run, method
@@ -177,20 +256,6 @@ def test_script_header_settings_reach_evaluation_and_control_output(
         speed_prior_upper_mps=6.0,
         turn_rate_prior_abs_rate_deg_s=3.0,
     )
-    vi_config = dict(
-        namespace["VI_CONFIG"],
-        iter=1_234,
-        tol_rel_obj=0.02,
-        adapt_iter=80,
-        algorithm="meanfield",
-        require_converged=True,
-    )
-    sequential_vi_config = replace(
-        namespace["SEQUENTIAL_VI_CONFIG"],
-        iter=1_111,
-        tol_rel_obj=0.03,
-        adapt_iter=90,
-    )
     output = tmp_path / "custom_results" / f"{method}.csv"
     data_file = tmp_path / "custom_data.csv"
     for name, value in {
@@ -198,8 +263,6 @@ def test_script_header_settings_reach_evaluation_and_control_output(
         "OUTPUT_CSV": output,
         "EXPERIMENT": experiment,
         "PRIORS": priors,
-        "VI_CONFIG": vi_config,
-        "SEQUENTIAL_VI_CONFIG": sequential_vi_config,
         "CREDIBLE_INTERVAL": 0.8,
         "MAX_WINDOWS": 2,
         "PLOT_EACH_WINDOW": True,
@@ -215,8 +278,8 @@ def test_script_header_settings_reach_evaluation_and_control_output(
     assert call["data_file"] == data_file
     assert call["experiment"] is experiment
     assert call["priors"] is priors
-    assert call["vi_config"] is vi_config
-    assert call["sequential_vi_config"] is sequential_vi_config
+    assert call["vi_config"] is None
+    assert call["sequential_vi_config"] is None
     assert call["credible_interval"] == 0.8
     assert call["sample_trajectories_per_forecast"] == 8
     assert call["show_time_labels"] is True
@@ -227,8 +290,8 @@ def test_script_header_settings_reach_evaluation_and_control_output(
     assert call["options"].position_noise_std_m == 1.25
     assert call["options"].position_noise_seed == 19
     assert call["options"].turn_rate_prior_abs_rate_deg_s == 3.0
-    assert call["options"].vi_algorithm == "meanfield"
-    assert call["options"].require_converged is True
+    assert call["options"].vi_algorithm == "fullrank"
+    assert call["options"].require_converged is False
     assert call["options"].max_windows == 2
     assert call["options"].plot_each_window is True
     assert pd.read_csv(output)["inference_method"].tolist() == [method]
