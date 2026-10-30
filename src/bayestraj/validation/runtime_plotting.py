@@ -13,11 +13,11 @@ COMPARISON_MODEL_COLORS = ("#0072B2", "#E69F00")
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
     ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
     (
-        "Log predictive density",
-        "Log predictive density",
+        "NLPD",
+        "NLPD",
         "#CC79A7",
-        "mean_log_predictive_density",
-        "Mittlere log predictive density: {mean:.3f}",
+        "mean_negative_log_predictive_density",
+        "Mittlere NLPD: {mean:.3f}",
     ),
     ("ADE [m]", "ADE", "#E69F00", "ade_m", "Mittlerer ADE: {mean:.2f} m"),
     ("FDE [m]", "FDE", "#D55E00", "fde_m", "Mittlerer FDE: {mean:.2f} m"),
@@ -137,9 +137,7 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
                 "metric": name,
                 "bayesian_ctrv": averages[0],
                 "imm": averages[1],
-                "preferred": "higher"
-                if name == "mean_log_predictive_density"
-                else "lower",
+                "preferred": "lower",
             }
         )
     return pd.DataFrame(rows), tuple(figures)
@@ -154,7 +152,7 @@ def _plot_rolling_diagnostics(
         "forecast_origin_seconds",
         "horizon_step",
         "position_error_m",
-        "log_predictive_density",
+        "negative_log_predictive_density",
         "energy_score_m",
         "fit_runtime_seconds",
         "inference_method",
@@ -243,12 +241,14 @@ def _rolling_window_metric_series(predictions):
                 "forecast_origin_seconds must be one finite time per forecast window."
             )
         errors_m = window["position_error_m"].to_numpy(dtype=float)
-        log_predictive_density = window["log_predictive_density"].to_numpy(dtype=float)
+        negative_log_predictive_density = window[
+            "negative_log_predictive_density"
+        ].to_numpy(dtype=float)
         energy_score_m = window["energy_score_m"].to_numpy(dtype=float)
         fit_runtime_seconds = window["fit_runtime_seconds"].to_numpy(dtype=float)
         if not (
             np.all(np.isfinite(errors_m))
-            and np.all(np.isfinite(log_predictive_density))
+            and np.all(np.isfinite(negative_log_predictive_density))
             and np.all(np.isfinite(energy_score_m))
             and np.all(np.isfinite(fit_runtime_seconds))
         ):
@@ -258,7 +258,7 @@ def _rolling_window_metric_series(predictions):
             (
                 time_seconds[0],
                 float(np.sqrt(np.mean(errors_m**2))),
-                float(np.mean(log_predictive_density)),
+                float(np.mean(negative_log_predictive_density)),
                 float(np.mean(errors_m)),
                 float(final_row["position_error_m"]),
                 float(np.mean(energy_score_m)),
@@ -271,7 +271,7 @@ def _rolling_window_metric_series(predictions):
     values = np.asarray(windows, dtype=float)
     return values[:, 0], {
         "rmse_m": values[:, 1],
-        "mean_log_predictive_density": values[:, 2],
+        "mean_negative_log_predictive_density": values[:, 2],
         "ade_m": values[:, 3],
         "fde_m": values[:, 4],
         "energy_score_m": values[:, 5],

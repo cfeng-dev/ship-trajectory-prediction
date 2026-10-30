@@ -44,7 +44,7 @@ class IMMControls(tk.Frame):
                 "fde",
                 "rmse",
                 "energy_score",
-                "log_density",
+                "negative_log_predictive_density",
                 "coverage_50",
                 "coverage_90",
                 "update_time",
@@ -116,7 +116,7 @@ class IMMControls(tk.Frame):
                 ("Forecast FDE (median)", "fde"),
                 ("Forecast RMSE (median)", "rmse"),
                 ("Forecast Energy Score", "energy_score"),
-                ("Predictive log density", "log_density"),
+                ("NLPD", "negative_log_predictive_density"),
                 ("Joint 50% coverage", "coverage_50"),
                 ("Joint 90% coverage", "coverage_90"),
                 ("Update time", "update_time"),
@@ -330,8 +330,8 @@ class IMMControls(tk.Frame):
         self._values["fde"].set(_format_optional(metrics.fde_m, "m"))
         self._values["rmse"].set(_format_optional(metrics.rmse_m, "m"))
         self._values["energy_score"].set(_format_optional(metrics.energy_score_m, "m"))
-        self._values["log_density"].set(
-            _format_optional(metrics.predictive_log_density, "")
+        self._values["negative_log_predictive_density"].set(
+            _format_optional(metrics.negative_log_predictive_density, "")
         )
         self._values["coverage_50"].set(
             _format_coverage(

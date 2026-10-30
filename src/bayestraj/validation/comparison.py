@@ -21,13 +21,27 @@ NUMERIC_COLUMNS = (
     "y_median",
     "position_error_m",
     "energy_score_m",
-    "log_predictive_density",
+    "negative_log_predictive_density",
     "fit_runtime_seconds",
 )
 
 
 def _validate_table(predictions, model_variant):
     """Require one finite, complete forecast configuration and median errors."""
+    predictions = predictions.copy()
+    if "log_predictive_density" in predictions:
+        legacy = -pd.to_numeric(
+            predictions.pop("log_predictive_density"), errors="raise"
+        )
+        if "negative_log_predictive_density" not in predictions:
+            predictions["negative_log_predictive_density"] = legacy
+        elif not np.allclose(
+            pd.to_numeric(
+                predictions["negative_log_predictive_density"], errors="raise"
+            ),
+            legacy,
+        ):
+            raise ValueError("Conflicting log predictive density and NLPD columns.")
     required = {*NUMERIC_COLUMNS, "time", "inference_method", "model_variant"}
     missing = sorted(required.difference(predictions.columns))
     if missing:
@@ -185,7 +199,7 @@ def run_comparison(bayesian, imm, *, show=True, output_dir=None):
     summary, figures = runtime_plotting.plot_bayesian_imm_comparison(
         bayesian, imm, show=show, output_dir=output_dir
     )
-    print("\nMean metrics per matched forecast origin (preferred: lower / higher):")
+    print("\nMean metrics per matched forecast origin (preferred: lower):")
     print(summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(
         "\nNote: IMM distribution scores use a fused Gaussian; Bayesian CTRV uses posterior samples."

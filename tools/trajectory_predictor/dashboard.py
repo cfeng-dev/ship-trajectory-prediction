@@ -416,7 +416,7 @@ class DashboardAnalysisMetrics:
     fde_m: float | None
     rmse_m: float | None
     energy_score_m: float | None
-    predictive_log_density: float | None
+    negative_log_predictive_density: float | None
     joint_coverage_50_count: int
     joint_coverage_90_count: int
     joint_coverage_total: int
@@ -599,7 +599,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             fde_m=None,
             rmse_m=None,
             energy_score_m=None,
-            predictive_log_density=None,
+            negative_log_predictive_density=None,
             joint_coverage_50_count=0,
             joint_coverage_90_count=0,
             joint_coverage_total=0,
@@ -612,8 +612,10 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             fde_m=None,
             rmse_m=None,
             energy_score_m=None,
-            predictive_log_density=(
-                None if update is None else update.predictive_log_density
+            negative_log_predictive_density=(
+                None
+                if update is None or update.predictive_log_density is None
+                else -update.predictive_log_density
             ),
             joint_coverage_50_count=0,
             joint_coverage_90_count=0,
@@ -673,8 +675,10 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         fde_m=fde_m,
         rmse_m=rmse_m,
         energy_score_m=energy_score_m,
-        predictive_log_density=(
-            None if update is None else update.predictive_log_density
+        negative_log_predictive_density=(
+            None
+            if update is None or update.predictive_log_density is None
+            else -update.predictive_log_density
         ),
         joint_coverage_50_count=covered_50_count,
         joint_coverage_90_count=covered_90_count,

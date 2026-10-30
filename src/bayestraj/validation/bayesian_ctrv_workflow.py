@@ -757,7 +757,7 @@ def _window_metric_summary(evaluation):
         f"ADE={evaluation.ade_m:.2f} m, "
         f"FDE={evaluation.fde_m:.2f} m, "
         f"RMSE={rmse_m:.2f} m, "
-        f"Mean LogPD={evaluation.mean_log_predictive_density:.3f}"
+        f"Mean NLPD={evaluation.mean_negative_log_predictive_density:.3f}"
     )
 
 
@@ -1224,10 +1224,13 @@ def _print_summary(summary, *, credible_interval):
         ("Overall ADE", f"{summary.ade_m:.2f} m"),
         ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
         ("Mean Energy Score", f"{summary.mean_energy_score_m:.2f} m"),
-        ("ELPD", f"{summary.elpd:.3f}"),
         (
-            "Mean log predictive density",
-            f"{summary.mean_log_predictive_density:.3f}",
+            "Total negative log predictive density",
+            f"{summary.total_negative_log_predictive_density:.3f}",
+        ),
+        (
+            "Mean negative log predictive density",
+            f"{summary.mean_negative_log_predictive_density:.3f}",
         ),
         ("Joint 2D 50% coverage", f"{summary.joint_coverage_50:.1%}"),
         ("Joint 2D 90% coverage", f"{summary.joint_coverage_90:.1%}"),

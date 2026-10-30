@@ -29,7 +29,7 @@ ANALYSIS_METRIC_ROW_KEYS = (
     "forecast_fde",
     "forecast_rmse",
     "energy_score",
-    "predictive_log_density",
+    "negative_log_predictive_density",
     "joint_coverage_50",
     "joint_coverage_90",
     "inference_time",
@@ -307,7 +307,7 @@ class SettingsPanel(tk.Frame):
             "forecast_fde": "Forecast FDE (median)",
             "forecast_rmse": "Forecast RMSE (median)",
             "energy_score": "Forecast Energy Score",
-            "predictive_log_density": "Predictive log density",
+            "negative_log_predictive_density": "NLPD",
             "joint_coverage_50": "Joint 50% coverage",
             "joint_coverage_90": "Joint 90% coverage",
             "inference_time": "Inference time",
@@ -433,9 +433,9 @@ class SettingsPanel(tk.Frame):
             if metrics.energy_score_m is not None
             else "—"
         )
-        self.analysis_metric_values["predictive_log_density"].set(
-            f"{metrics.predictive_log_density:.2f}"
-            if metrics.predictive_log_density is not None
+        self.analysis_metric_values["negative_log_predictive_density"].set(
+            f"{metrics.negative_log_predictive_density:.2f}"
+            if metrics.negative_log_predictive_density is not None
             else "—"
         )
         self.analysis_metric_values["joint_coverage_50"].set(

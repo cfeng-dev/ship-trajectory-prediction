@@ -61,6 +61,42 @@ def test_comparison_aligns_by_origin_and_horizon_not_window_id_or_row_order():
     pd.testing.assert_frame_equal(imm, original_imm)
 
 
+@pytest.mark.parametrize("legacy_model", ["bayesian", "imm", None])
+def test_comparison_normalizes_old_and_new_density_columns_exactly_once(legacy_model):
+    tables = [_table("bayesian"), _table("imm")]
+    for table in tables:
+        table.loc[0, "log_predictive_density"] = 1.5
+    expected = [-table["log_predictive_density"].copy() for table in tables]
+    for model, table, values in zip(("bayesian", "imm"), tables, expected, strict=True):
+        if model != legacy_model:
+            table["negative_log_predictive_density"] = values
+            table.drop(columns="log_predictive_density", inplace=True)
+    originals = [table.copy(deep=True) for table in tables]
+
+    for table, values in zip(
+        comparison.prepare_comparison(*tables), expected, strict=True
+    ):
+        np.testing.assert_allclose(table["negative_log_predictive_density"], values)
+        assert "log_predictive_density" not in table
+    for table, original in zip(tables, originals, strict=True):
+        pd.testing.assert_frame_equal(table, original)
+
+
+@pytest.mark.parametrize("consistent", [True, False])
+def test_comparison_checks_duplicated_density_conventions(consistent):
+    table = _table("bayesian")
+    table["negative_log_predictive_density"] = -table["log_predictive_density"]
+    if consistent:
+        left, _ = comparison.prepare_comparison(table, _table("imm"))
+        np.testing.assert_allclose(
+            left["negative_log_predictive_density"], [1, 3, 5, 7]
+        )
+    else:
+        table.loc[0, "negative_log_predictive_density"] = 100.0
+        with pytest.raises(ValueError, match="Conflicting"):
+            comparison.prepare_comparison(table, _table("imm"))
+
+
 def test_comparison_uses_only_complete_common_forecast_origins():
     imm = _table("imm").iloc[2:]
     with pytest.warns(UserWarning, match="omitted|unmatched"):
@@ -176,12 +212,15 @@ def test_comparison_plots_six_paired_metrics_and_correct_window_means(monkeypatc
         assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
         assert indexed.loc["ade_m", "imm"] == 9.25
         assert indexed.loc["fde_m", "bayesian_ctrv"] == 8.0
-        assert indexed.loc["mean_log_predictive_density", "bayesian_ctrv"] == -4.0
-        assert indexed.loc["mean_log_predictive_density", "preferred"] == "higher"
+        assert (
+            indexed.loc["mean_negative_log_predictive_density", "bayesian_ctrv"] == 4.0
+        )
+        assert (indexed["preferred"] == "lower").all()
+        assert figures[1][1].get_ylabel() == "NLPD"
         assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
         expected = (
             ([np.sqrt(12.5), np.sqrt(84.5)], [np.sqrt(50), np.sqrt(144.5)]),
-            ([-2, -6], [-3, -7]),
+            ([2, 6], [3, 7]),
             ([3.5, 8.5], [7, 11.5]),
             ([4, 12], [8, 15]),
             ([3, 8], [4, 9]),
@@ -247,7 +286,8 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
         assert len(set(plt.get_fignums()) - previous_figures) == 6
         report = capsys.readouterr().out
         assert "Matched forecast origins: 2" in report
-        assert "Gaussian" in report and "lower" in report and "higher" in report
+        assert "Gaussian" in report and "preferred: lower" in report
+        assert "mean_negative_log_predictive_density" in report
     finally:
         for figure_number in set(plt.get_fignums()) - previous_figures:
             plt.close(figure_number)

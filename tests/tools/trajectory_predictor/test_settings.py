@@ -405,7 +405,12 @@ def test_imm_point_metrics_use_medians_without_changing_distribution_scores(
         original_gaussian_stage, reference, coverage_stages=(original_gaussian_stage,)
     )
     assert result.energy_score_m == gaussian_scores.energy_score_m
-    assert result.predictive_log_density == gaussian_scores.predictive_log_density
+    assert result.negative_log_predictive_density == (
+        gaussian_scores.negative_log_predictive_density
+    )
+    # Gaussian mean errors are 8 m and 10 m; each coordinate has variance 4 m².
+    expected = np.log(8 * np.pi) + (8**2 + 10**2) / 16
+    assert result.negative_log_predictive_density == pytest.approx(expected)
     assert (
         result.joint_coverage_50_count == gaussian_scores.joint_coverage_50_count == 0
     )

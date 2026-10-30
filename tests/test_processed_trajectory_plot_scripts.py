@@ -299,7 +299,7 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
             "forecast_origin_seconds": [100.0, 100.0, 102.5, 102.5],
             "horizon_step": [1, 2, 1, 2],
             "position_error_m": [3.0, 4.0, 5.0, 12.0],
-            "log_predictive_density": [-1.0, -3.0, -5.0, -7.0],
+            "negative_log_predictive_density": [1.0, 3.0, 5.0, 7.0],
             "energy_score_m": [2.0, 4.0, 6.0, 10.0],
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02],
             "inference_method": ["imm"] * 4,

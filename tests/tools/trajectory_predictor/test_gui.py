@@ -326,7 +326,7 @@ def test_settings_panel_displays_reference_csv_state(root):
             fde_m=4.0,
             rmse_m=3.5,
             energy_score_m=3.25,
-            predictive_log_density=-12.5,
+            negative_log_predictive_density=12.5,
             joint_coverage_50_count=3,
             joint_coverage_90_count=7,
             joint_coverage_total=8,
@@ -367,7 +367,9 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert panel.analysis_metric_values["forecast_fde"].get() == "4.00 m"
     assert panel.analysis_metric_values["forecast_rmse"].get() == "3.50 m"
     assert panel.analysis_metric_values["energy_score"].get() == "3.25 m"
-    assert panel.analysis_metric_values["predictive_log_density"].get() == "-12.50"
+    assert (
+        panel.analysis_metric_values["negative_log_predictive_density"].get() == "12.50"
+    )
     assert panel.analysis_metric_values["joint_coverage_50"].get() == "37.5% (3/8)"
     assert panel.analysis_metric_values["joint_coverage_90"].get() == "87.5% (7/8)"
     assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
@@ -434,7 +436,7 @@ def test_help_explains_analysis_metrics():
         "Forecast FDE (median)": "Position error of the median at the final forecast step in meters; lower is better.",
         "Forecast RMSE (median)": "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
         "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
-        "Predictive log density": "One-step-ahead log likelihood of the new observation; larger is better.",
+        "NLPD": "Negative log predictive density of the new observation, evaluated one step ahead before the update.",
         "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",
@@ -886,7 +888,7 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
             "fde",
             "rmse",
             "energy_score",
-            "log_density",
+            "negative_log_predictive_density",
             "coverage_50",
             "coverage_90",
             "update_time",

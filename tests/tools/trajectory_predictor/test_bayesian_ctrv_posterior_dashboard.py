@@ -1125,6 +1125,10 @@ def test_br24_loader_reports_current_observation_log_density_without_reference(
         update = load(count)
         assert update.radar_detection_id == 1
         assert np.isfinite(update.predictive_log_density)
+        metrics = dashboard.analysis_metrics_at(trajectory, {count: update}, count)
+        assert metrics.negative_log_predictive_density == pytest.approx(
+            -update.predictive_log_density
+        )
     last_score = update.predictive_log_density
     assert load(5).predictive_log_density is None
     assert load(4).predictive_log_density == last_score
@@ -1453,7 +1457,8 @@ def test_dashboard_update_rejects_non_boolean_prior_predictive_flag() -> None:
         )
 
 
-def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
+@pytest.mark.parametrize("log_density", [-12.5, 1.5, None])
+def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_density):
     """Metrics use the current median forecast and 2D 90% forecast regions."""
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
@@ -1477,7 +1482,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
     update = dashboard.PosteriorDashboardUpdate(
         2,
         _dashboard_samples(),
-        predictive_log_density=-12.5,
+        predictive_log_density=log_density,
         inference_time_seconds=0.25,
         forecast=forecast,
     )
@@ -1497,7 +1502,10 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage():
     assert metrics.fde_m == pytest.approx(1.0)
     assert metrics.rmse_m == pytest.approx(np.sqrt(0.5))
     assert metrics.energy_score_m == pytest.approx(0.487874)
-    assert metrics.predictive_log_density == pytest.approx(-12.5)
+    if log_density is None:
+        assert metrics.negative_log_predictive_density is None
+    else:
+        assert metrics.negative_log_predictive_density == pytest.approx(-log_density)
     assert metrics.joint_coverage_50_count == 1
     assert metrics.joint_coverage_90_count == 1
     assert metrics.joint_coverage_total == 2

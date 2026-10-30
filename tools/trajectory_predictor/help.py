@@ -206,8 +206,8 @@ POSTERIOR_HELP_SECTIONS = (
                 "Joint 2D probabilistic forecast error; lower is better.",
             ),
             (
-                "Predictive log density",
-                "One-step-ahead log likelihood of the new observation; larger is better.",
+                "NLPD",
+                "Negative log predictive density of the new observation, evaluated one step ahead before the update.",
             ),
             (
                 "Joint 50% coverage",

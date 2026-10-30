@@ -22,8 +22,8 @@ class PositionEvaluation:
     joint_coverage_90: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
-    elpd: float
-    mean_log_predictive_density: float
+    total_negative_log_predictive_density: float
+    mean_negative_log_predictive_density: float
     credible_interval: float
 
 
@@ -176,7 +176,7 @@ def evaluate_position_predictions(
 
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
     energy_score_m = _joint_energy_scores(x_actual, y_actual, x_samples, y_samples)
-    log_predictive_density = joint_log_predictive_density(
+    negative_log_predictive_density = -joint_log_predictive_density(
         x_actual,
         y_actual,
         x_samples,
@@ -267,7 +267,7 @@ def evaluate_position_predictions(
             "y_lower": y_lower,
             "y_upper": y_upper,
             "position_error_m": errors_m,
-            "log_predictive_density": log_predictive_density,
+            "negative_log_predictive_density": negative_log_predictive_density,
             "energy_score_m": energy_score_m,
             "prediction_radius_m": prediction_radius_m,
             "squared_mahalanobis_distance": squared_mahalanobis_distance,
@@ -290,8 +290,12 @@ def evaluate_position_predictions(
         joint_coverage_90=float(np.mean(joint_covered_90)),
         mean_prediction_radius_m=float(np.mean(prediction_radius_m)),
         mean_marginal_interval_width_m=float(np.mean(mean_marginal_interval_width_m)),
-        elpd=float(np.sum(log_predictive_density)),
-        mean_log_predictive_density=float(np.mean(log_predictive_density)),
+        total_negative_log_predictive_density=float(
+            np.sum(negative_log_predictive_density)
+        ),
+        mean_negative_log_predictive_density=float(
+            np.mean(negative_log_predictive_density)
+        ),
         credible_interval=credible_interval,
     )
 
@@ -326,10 +330,13 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
         ("ADE", f"{evaluation.ade_m:.2f} m"),
         ("FDE", f"{evaluation.fde_m:.2f} m"),
         ("Energy Score", f"{evaluation.energy_score_m:.2f} m"),
-        ("ELPD", f"{evaluation.elpd:.3f}"),
         (
-            "Mean log predictive density",
-            f"{evaluation.mean_log_predictive_density:.3f}",
+            "Total negative log predictive density",
+            f"{evaluation.total_negative_log_predictive_density:.3f}",
+        ),
+        (
+            "Mean negative log predictive density",
+            f"{evaluation.mean_negative_log_predictive_density:.3f}",
         ),
         ("Joint 2D 50% coverage", f"{evaluation.joint_coverage_50:.1%}"),
         ("Joint 2D 90% coverage", f"{evaluation.joint_coverage_90:.1%}"),

@@ -61,21 +61,21 @@ def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_p
     np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
 
 
-def test_window_metric_summary_includes_rmse_and_mean_log_predictive_density():
+def test_window_metric_summary_includes_rmse_and_mean_negative_log_predictive_density():
     evaluation = type(
         "Evaluation",
         (),
         {
             "ade_m": 10.0,
             "fde_m": 20.0,
-            "mean_log_predictive_density": -3.4567,
+            "mean_negative_log_predictive_density": 3.4567,
             "prediction_table": pd.DataFrame({"position_error_m": [3.0, 4.0]}),
         },
     )()
 
     summary = workflow._window_metric_summary(evaluation)
 
-    assert summary == "ADE=10.00 m, FDE=20.00 m, RMSE=3.54 m, Mean LogPD=-3.457"
+    assert summary == "ADE=10.00 m, FDE=20.00 m, RMSE=3.54 m, Mean NLPD=3.457"
 
 
 def _write_br24_evaluation_input(path, *, reference_x_offset=0.0):
@@ -441,7 +441,7 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "forecast_origin_seconds": [120.0, 100.0, 120.0, 100.0, 100.0],
             "horizon_step": [1, 1, 2, 2, 3],
             "position_error_m": [5.0, 3.0, 12.0, 4.0, 8.0],
-            "log_predictive_density": [-5.0, -1.0, -7.0, -3.0, -5.0],
+            "negative_log_predictive_density": [5.0, 1.0, 7.0, 3.0, 5.0],
             "energy_score_m": [6.0, 2.0, 10.0, 4.0, 6.0],
             "fit_runtime_seconds": [2.0, 1.0, 2.0, 1.0, 1.0],
             "inference_method": ["smc" if model == "bayesian" else "imm"] * 5,
@@ -476,12 +476,12 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "Mittlerer RMSE: 7.32 m",
         ),
         (
-            "Log predictive density",
-            "Log predictive density",
+            "NLPD",
+            "NLPD",
             "#CC79A7",
-            [-3.0, -6.0],
-            -4.5,
-            "Mittlere log predictive density: -4.500",
+            [3.0, 6.0],
+            4.5,
+            "Mittlere NLPD: 4.500",
         ),
         ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mittlerer ADE: 6.75 m"),
         ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mittlerer FDE: 10.00 m"),
@@ -552,7 +552,7 @@ def test_rolling_diagnostics_reject_invalid_tables_before_opening_figures(
             "forecast_origin_seconds": [100.0, 100.0],
             "horizon_step": [1, 2],
             "position_error_m": [3.0, 4.0],
-            "log_predictive_density": [-1.0, -2.0],
+            "negative_log_predictive_density": [1.0, 2.0],
             "energy_score_m": [2.0, 3.0],
             "fit_runtime_seconds": [0.01, 0.01],
             "inference_method": ["smc" if model == "bayesian" else "imm"] * 2,

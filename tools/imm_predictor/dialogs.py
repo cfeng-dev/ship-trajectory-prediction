@@ -456,8 +456,8 @@ IMM_HELP_SECTIONS = (
                 "Probabilistic error of the Gaussian position forecasts, evaluated against reference positions; lower is better",
             ),
             (
-                "Predictive log density",
-                "Mean log density of future reference positions under the Gaussian forecasts; higher is better",
+                "NLPD",
+                "Negative log predictive density, averaged over future reference positions under the Gaussian forecasts",
             ),
             (
                 "Joint 50% coverage",
@@ -540,7 +540,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Forecast summaries / metrics",
-                "ADE, FDE and RMSE always evaluate the cached coordinate-wise IMM median. Energy Score, predictive log density and coverage retain the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
+                "ADE, FDE and RMSE always evaluate the cached coordinate-wise IMM median. Energy Score, NLPD and coverage retain the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
             ),
         ),
     ),

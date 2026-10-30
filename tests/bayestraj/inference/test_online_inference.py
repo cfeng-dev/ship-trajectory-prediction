@@ -471,7 +471,7 @@ def test_shared_rolling_summary_accepts_online_predictions():
             "prediction_radius_m": [3.0, 4.0],
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
-            "log_predictive_density": [-2.0, -3.0],
+            "negative_log_predictive_density": [2.0, 3.0],
             "energy_score_m": [1.0, 2.0],
             "joint_covered_50": [True, False],
             "joint_covered_90": [True, True],
@@ -489,8 +489,11 @@ def test_shared_rolling_summary_accepts_online_predictions():
     assert summary.inference_method == "smc"
     assert summary.vi_convergence_rate is None
     assert summary.mcmc_diagnostics_pass_rate is None
-    assert summary.elpd == pytest.approx(-5.0)
-    assert summary.mean_log_predictive_density == pytest.approx(-2.5)
+    assert summary.total_negative_log_predictive_density == pytest.approx(5.0)
+    assert summary.mean_negative_log_predictive_density == pytest.approx(2.5)
+    assert summary.per_horizon_table[
+        "mean_negative_log_predictive_density"
+    ].tolist() == [2.0, 3.0]
     assert summary.mean_energy_score_m == pytest.approx(1.5)
     assert summary.joint_coverage_50 == pytest.approx(0.5)
     assert summary.joint_coverage_90 == pytest.approx(1.0)
@@ -506,7 +509,7 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
             "prediction_radius_m": [3.0, 4.0],
             "radial_covered": [True, False],
             "mean_marginal_interval_width_m": [5.0, 6.0],
-            "log_predictive_density": [-2.0, -3.0],
+            "negative_log_predictive_density": [2.0, 3.0],
             "energy_score_m": [1.0, 2.0],
             "joint_covered_50": [True, False],
             "joint_covered_90": [True, True],
@@ -543,8 +546,8 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         radial_coverage=0.955,
         mean_prediction_radius_m=0.0,
         mean_marginal_interval_width_m=0.0,
-        elpd=-10.0,
-        mean_log_predictive_density=-2.5,
+        total_negative_log_predictive_density=10.0,
+        mean_negative_log_predictive_density=2.5,
         mean_energy_score_m=15.0,
         joint_coverage_50=0.5,
         joint_coverage_90=0.95,
@@ -562,6 +565,8 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         if line.startswith("Mean maximum-horizon FDE")
     )
     assert output_lines[fde_line + 1].startswith("Mean Energy Score")
-    assert output_lines[fde_line + 2].startswith("ELPD")
+    assert output_lines[fde_line + 2].startswith(
+        "Total negative log predictive density"
+    )
     assert output_lines[fde_line + 4].startswith("Joint 2D 50% coverage")
     assert output_lines[fde_line + 5].startswith("Joint 2D 90% coverage")

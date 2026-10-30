@@ -128,7 +128,12 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     assert np.all(
         np.isfinite(
             predictions[
-                ["x_median", "y_median", "energy_score_m", "log_predictive_density"]
+                [
+                    "x_median",
+                    "y_median",
+                    "energy_score_m",
+                    "negative_log_predictive_density",
+                ]
             ].to_numpy(dtype=float)
         )
     )

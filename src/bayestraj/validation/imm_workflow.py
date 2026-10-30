@@ -38,8 +38,8 @@ class IMMRollingSummary:
     joint_coverage_90: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
-    elpd: float
-    mean_log_predictive_density: float
+    total_negative_log_predictive_density: float
+    mean_negative_log_predictive_density: float
     per_horizon_table: pd.DataFrame
 
 
@@ -321,7 +321,7 @@ def _evaluate_forecast(
             "y_upper": y_upper,
             "position_error_m": errors,
             "energy_score_m": energy_scores,
-            "log_predictive_density": log_densities,
+            "negative_log_predictive_density": -log_densities,
             "prediction_radius_m": prediction_radius,
             "squared_mahalanobis_distance": squared_mahalanobis,
             "squared_mahalanobis_radius": threshold_interval,
@@ -446,7 +446,10 @@ def _summarize_predictions(predictions: pd.DataFrame) -> IMMRollingSummary:
                 "mean_marginal_interval_width_m",
                 "mean",
             ),
-            mean_log_predictive_density=("log_predictive_density", "mean"),
+            mean_negative_log_predictive_density=(
+                "negative_log_predictive_density",
+                "mean",
+            ),
         )
         .reset_index(drop=True)
     )
@@ -469,8 +472,12 @@ def _summarize_predictions(predictions: pd.DataFrame) -> IMMRollingSummary:
         mean_marginal_interval_width_m=float(
             predictions["mean_marginal_interval_width_m"].mean()
         ),
-        elpd=float(predictions["log_predictive_density"].sum()),
-        mean_log_predictive_density=float(predictions["log_predictive_density"].mean()),
+        total_negative_log_predictive_density=float(
+            predictions["negative_log_predictive_density"].sum()
+        ),
+        mean_negative_log_predictive_density=float(
+            predictions["negative_log_predictive_density"].mean()
+        ),
         per_horizon_table=per_horizon,
     )
 
@@ -517,10 +524,13 @@ def _print_summary(summary: IMMRollingSummary) -> None:
                 ("Overall ADE", f"{summary.ade_m:.2f} m"),
                 ("Mean maximum-horizon FDE", f"{summary.fde_m:.2f} m"),
                 ("Mean Energy Score", f"{summary.mean_energy_score_m:.2f} m"),
-                ("ELPD", f"{summary.elpd:.3f}"),
                 (
-                    "Mean log predictive density",
-                    f"{summary.mean_log_predictive_density:.3f}",
+                    "Total negative log predictive density",
+                    f"{summary.total_negative_log_predictive_density:.3f}",
+                ),
+                (
+                    "Mean negative log predictive density",
+                    f"{summary.mean_negative_log_predictive_density:.3f}",
                 ),
                 ("Joint 2D 50% coverage", f"{summary.joint_coverage_50:.1%}"),
                 ("Joint 2D 90% coverage", f"{summary.joint_coverage_90:.1%}"),

@@ -30,7 +30,8 @@ def test_public_joint_log_predictive_density_matches_isotropic_normal() -> None:
     assert values == pytest.approx([-np.log(2 * np.pi)] * 2)
 
 
-def test_position_evaluation_reports_joint_held_out_log_predictive_density():
+@pytest.mark.parametrize("sigma", [1.0, 0.1])
+def test_position_evaluation_reports_joint_negative_log_predictive_density(sigma):
     window = SimpleNamespace(
         prediction_count=1,
         prediction_slice=slice(1, 2),
@@ -44,20 +45,22 @@ def test_position_evaluation_reports_joint_held_out_log_predictive_density():
         {
             "x_prediction": np.asarray([[0.0], [0.0]]),
             "y_prediction": np.asarray([[0.0], [0.0]]),
-            "sigma_position_observation": np.asarray([1.0, 1.0]),
+            "sigma_position_observation": np.asarray([sigma, sigma]),
         }
     )
 
     evaluation = metrics.evaluate_position_predictions(fit, window)
 
-    assert evaluation.elpd == pytest.approx(-np.log(2 * np.pi))
-    assert evaluation.mean_log_predictive_density == pytest.approx(-np.log(2 * np.pi))
+    expected = np.log(2 * np.pi * sigma**2)
+    assert evaluation.total_negative_log_predictive_density == pytest.approx(expected)
+    assert evaluation.mean_negative_log_predictive_density == pytest.approx(expected)
     assert evaluation.energy_score_m == pytest.approx(0.0)
     assert evaluation.joint_coverage_50 == pytest.approx(1.0)
     assert evaluation.joint_coverage_90 == pytest.approx(1.0)
     assert evaluation.prediction_table[
-        "log_predictive_density"
-    ].tolist() == pytest.approx([-np.log(2 * np.pi)])
+        "negative_log_predictive_density"
+    ].tolist() == pytest.approx([expected])
+    assert "log_predictive_density" not in evaluation.prediction_table
     assert evaluation.prediction_table["joint_covered_50"].tolist() == [True]
     assert evaluation.prediction_table["joint_covered_90"].tolist() == [True]
 
@@ -65,6 +68,7 @@ def test_position_evaluation_reports_joint_held_out_log_predictive_density():
         evaluation,
         computation_time_seconds=0.1,
     ).splitlines()
+    assert any("Mean negative log predictive density" in line for line in report_lines)
     computation_time_line = next(
         index
         for index, line in enumerate(report_lines)

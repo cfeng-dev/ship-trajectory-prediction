@@ -41,8 +41,8 @@ class RollingPositionSummary:
     joint_coverage_90: float
     mean_prediction_radius_m: float
     mean_marginal_interval_width_m: float
-    elpd: float
-    mean_log_predictive_density: float
+    total_negative_log_predictive_density: float
+    mean_negative_log_predictive_density: float
     vi_convergence_rate: float | None
     mcmc_diagnostics_pass_rate: float | None
     per_horizon_table: pd.DataFrame
@@ -112,7 +112,7 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "joint_coverage_90": "Joint 90%",
             "mean_prediction_radius_m": "Radius[m]",
             "mean_marginal_interval_width_m": "Width[m]",
-            "mean_log_predictive_density": "Mean LogPD",
+            "mean_negative_log_predictive_density": "Mean NLPD",
         }
     )
     return display_table.to_string(
@@ -127,7 +127,7 @@ def format_per_horizon_table(table: pd.DataFrame) -> str:
             "Joint 90%": lambda value: f"{value:.1%}",
             "Radius[m]": lambda value: f"{value:.3f}",
             "Width[m]": lambda value: f"{value:.3f}",
-            "Mean LogPD": lambda value: f"{value:.3f}",
+            "Mean NLPD": lambda value: f"{value:.3f}",
         },
     )
 
@@ -272,7 +272,7 @@ def summarize_rolling_predictions(
         "joint_covered_50",
         "joint_covered_90",
         "mean_marginal_interval_width_m",
-        "log_predictive_density",
+        "negative_log_predictive_density",
         "inference_mode",
         "inference_method",
         "converged",
@@ -291,7 +291,7 @@ def summarize_rolling_predictions(
         "energy_score_m",
         "prediction_radius_m",
         "mean_marginal_interval_width_m",
-        "log_predictive_density",
+        "negative_log_predictive_density",
     )
     for column in numeric_columns:
         values = prediction_table[column].to_numpy(dtype=float)
@@ -322,7 +322,10 @@ def summarize_rolling_predictions(
                 "mean_marginal_interval_width_m",
                 "mean",
             ),
-            mean_log_predictive_density=("log_predictive_density", "mean"),
+            mean_negative_log_predictive_density=(
+                "negative_log_predictive_density",
+                "mean",
+            ),
         )
         .reset_index(drop=True)
     )
@@ -396,9 +399,11 @@ def summarize_rolling_predictions(
         mean_marginal_interval_width_m=float(
             prediction_table["mean_marginal_interval_width_m"].mean()
         ),
-        elpd=float(prediction_table["log_predictive_density"].sum()),
-        mean_log_predictive_density=float(
-            prediction_table["log_predictive_density"].mean()
+        total_negative_log_predictive_density=float(
+            prediction_table["negative_log_predictive_density"].sum()
+        ),
+        mean_negative_log_predictive_density=float(
+            prediction_table["negative_log_predictive_density"].mean()
         ),
         vi_convergence_rate=vi_convergence_rate,
         mcmc_diagnostics_pass_rate=mcmc_diagnostics_pass_rate,
