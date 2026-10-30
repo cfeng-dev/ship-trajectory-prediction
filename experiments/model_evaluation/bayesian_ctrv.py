@@ -16,7 +16,7 @@ OUTPUT_CSV = project_path("results/bayesian_ctrv_{inference_method}_evaluation.c
 # Batch VI/MCMC use a fixed sliding window; SMC/Sequential VI update online.
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
     observation_count=10,
-    prediction_count=2,
+    prediction_count=3,
     position_noise_std_m=0.0,
     position_noise_seed=2026,
     stride=1,  # Forecast-origin step: one new forecast per radar cycle.

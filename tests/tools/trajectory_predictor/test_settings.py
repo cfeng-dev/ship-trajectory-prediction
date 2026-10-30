@@ -698,8 +698,8 @@ def test_sequential_vi_settings_report_clear_invalid_fields(
         settings.parse_settings(form)
 
 
-def test_trajectory_predictor_defaults_to_two_forecast_steps():
-    assert settings.default_form_values()["data"]["prediction_count"] == "2"
+def test_trajectory_predictor_defaults_to_three_forecast_steps():
+    assert settings.default_form_values()["data"]["prediction_count"] == "3"
 
 
 def test_process_noise_labels_use_compact_units():

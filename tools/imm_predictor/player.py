@@ -26,7 +26,7 @@ from bayestraj.paths import project_path
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 
-PREDICTION_COUNT = 2
+PREDICTION_COUNT = 3
 PLAYBACK_INTERVAL_MS = 1_000
 FOLLOW_SHIP_VIEW_SPAN_METERS = 100.0
 CONFIDENCE_LEVELS = (0.5, 0.9)

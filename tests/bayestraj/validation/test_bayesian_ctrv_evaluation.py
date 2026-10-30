@@ -79,7 +79,7 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     assert len(calls) == 1
     assert calls[0]["experiment"].inference_method == method
     assert calls[0]["options"].inference_method == method
-    assert calls[0]["options"].prediction_count == 2
+    assert calls[0]["options"].prediction_count == 3
     assert calls[0]["options"].stride == 1
     assert calls[0]["data_file"] == (
         tmp_path / "data/processed/BR24Dataset20131107_with_reference.csv"

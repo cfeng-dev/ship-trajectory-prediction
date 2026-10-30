@@ -11,7 +11,7 @@ OUTPUT_CSV = project_path("results/imm_evaluation.csv")
 
 # Match experiments/model_evaluation/bayesian_ctrv.py for a direct comparison.
 INITIAL_OBSERVATION_COUNT = 10
-PREDICTION_COUNT = 2
+PREDICTION_COUNT = 3
 STRIDE = 1  # Forecast-origin step: one new forecast per radar cycle.
 MAX_WINDOWS = None
 CREDIBLE_INTERVAL = 0.9
