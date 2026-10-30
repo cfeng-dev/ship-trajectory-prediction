@@ -1048,6 +1048,88 @@ def test_br24_dashboard_displays_reference_yaw_rate_without_using_it_in_filter(
         )
 
 
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+def test_br24_loader_reports_current_observation_log_density_without_reference(
+    tmp_path, monkeypatch, method
+):
+    dashboard = _load_dashboard_module()
+    data = pd.DataFrame(
+        {
+            "time": [10.0, 10.5, 12.0, 13.0, 14.0],
+            "cycle_counter": [1, 2, 3, 4, 5],
+            "sensor_x": 0.0,
+            "sensor_y": 0.0,
+            "sensor_yaw": 0.0,
+            "detection_id": 1.0,
+            "range": 10.0,
+            "azimuth": 0.0,
+            "std_range": 0.5,
+            "std_azimuth": 0.01,
+            "x_relative": 10.0,
+            "y_relative": 0.0,
+        }
+    )
+    data.loc[
+        4,
+        [
+            "detection_id",
+            "range",
+            "azimuth",
+            "std_range",
+            "std_azimuth",
+            "x_relative",
+            "y_relative",
+        ],
+    ] = np.nan
+    path = tmp_path / "radar.csv"
+    data.to_csv(path, index=False)
+    spread = np.linspace(-0.01, 0.01, 32)
+    fit = _FakeFit(
+        {
+            "x_at_origin": 10.0 + spread,
+            "y_at_origin": spread,
+            "speed_at_origin": np.full(32, 1e-6),
+            "heading_at_origin": spread,
+            "turn_rate_at_origin": spread * 1e-4,
+            "sigma_position_observation": np.full(32, 0.1),
+            "sigma_speed_process": np.full(32, 1e-6),
+            "sigma_turn_rate_process": np.full(32, 1e-6),
+        }
+    )
+    fit.converged = False
+    monkeypatch.setattr(
+        dashboard.batch_inference, "fit_bayesian_ctrv_model", lambda *a, **k: fit
+    )
+    monkeypatch.setattr(sequential_vi, "fit_sequential_update", lambda *a, **k: fit)
+    trajectory, _, _, load = dashboard.create_br24_radar_dashboard_loader(
+        path,
+        experiment=dashboard.PosteriorDashboardConfig(
+            start_index=0,
+            maximum_observation_count=None,
+            position_noise_std_m=0.0,
+            position_noise_seed=2026,
+            inference_method=method,
+            inference_seed=42,
+            prediction_count=0,
+        ),
+        priors=bayesian_model.BayesianCTRVPriors(),
+        smc_config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=64, posterior_draw_count=32
+        ),
+        sequential_vi_config=sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=32),
+    )
+
+    assert not trajectory.has_reference
+    assert load(1).predictive_log_density is None
+    for count in (2, 3, 4):
+        update = load(count)
+        assert update.radar_detection_id == 1
+        assert np.isfinite(update.predictive_log_density)
+    last_score = update.predictive_log_density
+    assert load(5).predictive_log_density is None
+    assert load(4).predictive_log_density == last_score
+
+
 class _FakeFit:
     def __init__(self, variables):
         self._variables = variables

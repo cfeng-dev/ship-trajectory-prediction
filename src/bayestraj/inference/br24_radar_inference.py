@@ -107,6 +107,24 @@ class _PredictivePopulation:
         centered = positions - mean
         return mean, centered.T @ centered / positions.shape[0]
 
+    def log_predictive_density(
+        self, time_seconds: float, position: np.ndarray, covariance: np.ndarray
+    ) -> float:
+        """Score a new fix using the same latent population as association."""
+        positions = ctrv.transition_states(
+            self.next_states, time_seconds - self.time_seconds
+        )[:, :2]
+        return ctrv_sequential_vi._predictive_log_density(
+            ctrv_sequential_vi.SequentialVIPredictiveDraws(
+                x=positions[:, 0],
+                y=positions[:, 1],
+                sigma_position_observation=self.draws["sigma_position_observation"],
+            ),
+            x_observed=position[0],
+            y_observed=position[1],
+            measurement_covariance=covariance,
+        )
+
     def advance(self, time_seconds: float) -> None:
         interval = time_seconds - self.time_seconds
         origins = ctrv.transition_states(self.next_states, interval)
@@ -226,6 +244,8 @@ class CausalBR24RadarFilter:
     last_fit: object | None = field(default=None, repr=False)
     last_fit_runtime_seconds: float | None = None
     cumulative_fit_runtime_seconds: float = 0.0
+    last_log_predictive_density: float | None = None
+    predictive_log_density_history: list[float] = field(default_factory=list)
 
     @classmethod
     def initialize(
@@ -402,6 +422,13 @@ class CausalBR24RadarFilter:
 
     def _process(self, time_seconds, position, covariance):
         value = self._validate_next_time(time_seconds)
+        log_predictive_density = None
+        if self._sequential is None and position is not None:
+            # Evaluate before advance/refit, which can replace the population
+            # with a posterior already conditioned on this observation.
+            log_predictive_density = self._population.log_predictive_density(
+                value, position, covariance
+            )
         self._cycles.append(_CycleFix(value, position, covariance))
         if self.inference_method != "sequential_vi" or self._sequential is not None:
             self._cycles = self._cycles[-self.observation_count :]
@@ -412,6 +439,7 @@ class CausalBR24RadarFilter:
                 record = self._sequential.update(
                     value, *position, measurement_covariance=covariance
                 )
+                log_predictive_density = self._sequential.last_log_predictive_density
                 self.posterior_fit_count += 1
                 self.last_fit_time_seconds = value
                 self.fit_converged = record.converged
@@ -439,6 +467,9 @@ class CausalBR24RadarFilter:
         self.last_observation_time_seconds = value
         self.processed_observation_count += 1
         self.accepted_measurement_count += int(position is not None)
+        self.last_log_predictive_density = log_predictive_density
+        if log_predictive_density is not None:
+            self.predictive_log_density_history.append(log_predictive_density)
 
     def _fit(self, times, positions, covariances, mask):
         fit_seed = _stream_seed(self.seed, 0, self.processed_observation_count)

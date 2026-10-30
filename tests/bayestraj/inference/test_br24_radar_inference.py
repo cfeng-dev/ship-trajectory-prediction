@@ -64,6 +64,84 @@ def _tracker(method, **options):
     )
 
 
+@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+def test_log_density_scores_the_new_fix_before_fitting_with_full_covariance(
+    monkeypatch, method
+):
+    def fitter(*args, **kwargs):
+        fit = _fit(1_000.0)
+        fit.converged = False  # A usable nonconverged fit must still be scored.
+        return fit
+
+    monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", fitter)
+    tracker = _tracker(method)
+    tracker.process_cycle(_cycle(0.4))
+    radar_filter = tracker.filter
+    population = radar_filter._population
+    # At t=1.7 every predictive component has mean (1.7, 0), sigma=2.
+    population.next_states[:] = [0.4, 0.0, 1.0, 0.0, 0.0]
+    population.draws["sigma_position_observation"][:] = 2.0
+
+    radar_filter.update(
+        1.7, 4.7, -1.0, measurement_covariance=np.array([[4.0, 1.0], [1.0, 2.0]])
+    )
+
+    # R + sigma^2 I = [[8, 1], [1, 6]], det=47, residual=(3, -1).
+    expected = -np.log(2 * np.pi) - 0.5 * np.log(47.0) - 34.0 / 47.0
+    assert radar_filter.last_log_predictive_density == pytest.approx(expected)
+    assert radar_filter.predictive_log_density_history[-1] == pytest.approx(expected)
+    assert len(radar_filter.predictive_log_density_history) == 2
+    assert radar_filter.posterior_fit_count == 1
+    assert radar_filter.converged is (None if method == "mcmc" else False)
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+def test_log_density_updates_after_bootstrap_and_is_cleared_for_a_missed_fix(
+    monkeypatch, method
+):
+    monkeypatch.setattr(
+        ctrv_cmdstan, "fit_bayesian_ctrv_model", lambda *args, **kwargs: _fit()
+    )
+    monkeypatch.setattr(
+        ctrv_sequential_vi, "fit_sequential_update", lambda *args, **kwargs: _fit()
+    )
+    tracker = _tracker(method)
+    tracker.process_cycle(_cycle(0.4))
+    tracker.process_cycle(_cycle(1.7))
+    tracker.process_cycle(_cycle(2.2, ranges=(30.0,)))
+    radar_filter = tracker.filter
+
+    assert np.isfinite(radar_filter.last_log_predictive_density)
+    assert len(radar_filter.predictive_log_density_history) == 3
+    if method == "sequential_vi":
+        assert radar_filter.last_log_predictive_density == (
+            radar_filter.sequential_filter.last_log_predictive_density
+        )
+    history = radar_filter.predictive_log_density_history.copy()
+    tracker.process_cycle(_cycle(3.7, ranges=()))
+    assert radar_filter.last_log_predictive_density is None
+    assert radar_filter.predictive_log_density_history == history
+    tracker.process_cycle(_cycle(4.4, ranges=(30.0,)))
+    assert np.isfinite(radar_filter.last_log_predictive_density)
+    assert len(radar_filter.predictive_log_density_history) == 4
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+def test_failed_fit_does_not_publish_a_new_log_density(monkeypatch, method):
+    def failed_fit(*args, **kwargs):
+        raise RuntimeError("fit failed")
+
+    monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", failed_fit)
+    tracker = _tracker(method)
+    tracker.process_cycle(_cycle(0.4))
+    previous = tracker.filter.last_log_predictive_density
+    history = tracker.filter.predictive_log_density_history.copy()
+    with pytest.raises(RuntimeError, match="fit failed"):
+        tracker.process_cycle(_cycle(1.7))
+    assert tracker.filter.last_log_predictive_density == previous
+    assert tracker.filter.predictive_log_density_history == history
+
+
 @pytest.mark.parametrize(
     ("bootstrap_converged", "update_flags", "expected"),
     [(False, [True], False), (True, [False, True], False), (True, [True, True], True)],

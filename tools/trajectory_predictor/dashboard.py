@@ -2511,8 +2511,10 @@ def create_br24_radar_dashboard_loader(
             ),
             particle_count=smc_config.particle_count if method == "smc" else None,
             resample_count=tracker.filter.resample_count if method == "smc" else None,
-            predictive_log_density=getattr(
-                tracker.filter, "last_log_predictive_density", None
+            predictive_log_density=(
+                getattr(tracker.filter, "last_log_predictive_density", None)
+                if detection_id is not None
+                else None
             ),
             is_prior_predictive=tracker.is_prior_predictive,
             forecast=forecast,

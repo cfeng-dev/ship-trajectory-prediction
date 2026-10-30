@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from bayestraj.forecasting.bayesian_ctrv import RollingExperimentConfig
+from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
@@ -20,7 +21,20 @@ ROOT = Path(__file__).resolve().parents[3]
 
 @pytest.mark.skipif(not RUN_INTEGRATION, reason="Set RUN_CMDSTAN_INTEGRATION=1.")
 @pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
-def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(tmp_path, method):
+def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
+    tmp_path, monkeypatch, method
+):
+    observation_scores = []
+    process_cycle = BR24BayesianRadarTracker.process_cycle
+
+    def process_and_capture(tracker, cycle):
+        step = process_cycle(tracker, cycle)
+        observation_scores.append(
+            (step.detection_id, tracker.filter.last_log_predictive_density)
+        )
+        return step
+
+    monkeypatch.setattr(BR24BayesianRadarTracker, "process_cycle", process_and_capture)
     data = pd.read_csv(ROOT / "data/processed/BR24Dataset20131107_with_reference.csv")
     cycle_ids = data["cycle_counter"].drop_duplicates().iloc[:7]
     data = data[data["cycle_counter"].isin(cycle_ids)].copy()
@@ -104,6 +118,12 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(tmp_path, met
     assert len(predictions) == 2
     assert set(predictions["inference_method"]) == {method}
     assert predictions["radar_processed_cycle_count"].tolist() == [5, 5]
+    assert observation_scores[0] == (None, None)
+    assert all(
+        np.isfinite(score)
+        for detection_id, score in observation_scores
+        if detection_id is not None
+    )
     assert not predictions["is_prior_predictive"].any()
     assert np.all(
         np.isfinite(
