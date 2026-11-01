@@ -175,13 +175,21 @@ def test_named_comparison_checks_the_last_model_as_well_as_the_first_pair(
         comparison.read_model_comparison_csvs(paths)
 
 
-def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path):
+@pytest.mark.parametrize("show_mean_lines", [False, True])
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
+    tmp_path, show_mean_lines, metric_y_scale
+):
     paths = _write_model_csvs(tmp_path)
     models = comparison.read_model_comparison_csvs(paths)
     labels = list(models)
     output_dir = tmp_path / "plots"
     summary, figures = runtime_plotting.plot_model_comparison(
-        models, show=False, output_dir=output_dir
+        models,
+        show=False,
+        output_dir=output_dir,
+        show_mean_lines=show_mean_lines,
+        metric_y_scale=metric_y_scale,
     )
     try:
         assert len(figures) == 8
@@ -197,7 +205,7 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path)
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 7.0, 8.0, 9.0]
         for _, axis in figures[:6]:
-            curves = axis.lines[::2]
+            curves = axis.lines[:: 2 if show_mean_lines else 1]
             assert [line.get_label() for line in curves] == labels
             assert len({line.get_color() for line in curves}) == 5
             np.testing.assert_array_equal(curves[0].get_xdata(), [0, 20])
@@ -205,6 +213,30 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path)
             assert len(axis.patches) == 5
             assert axis.get_ylim() == (0.0, 100.0)
             assert axis.lines[0].get_label() == f"Nominal {nominal}%"
+        for figure, axis in figures:
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            legend = axis.get_legend()
+            legend_box = legend.get_window_extent(renderer)
+            plot_box = axis.get_window_extent(renderer)
+            figure_box = figure.get_window_extent(renderer)
+            assert plot_box.x0 <= legend_box.x0 <= legend_box.x1 <= plot_box.x1
+            assert plot_box.y0 <= legend_box.y0 <= legend_box.y1 <= plot_box.y1
+            assert figure_box.y0 <= legend_box.y0 <= legend_box.y1 <= figure_box.y1
+            for line in axis.lines:
+                points = line.get_transform().transform(line.get_path().vertices)
+                assert np.max(points[:, 1]) + 2 < legend_box.y0
+            text_boxes = [
+                text.get_window_extent(renderer) for text in legend.get_texts()
+            ]
+            np.testing.assert_allclose([box.x0 for box in text_boxes], text_boxes[0].x0)
+            assert np.all(np.diff([box.y0 for box in text_boxes]) < 0)
+            assert (
+                plot_box.width
+                >= 0.75
+                * runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size[0]
+                * figure.dpi
+            )
         assert len(list(output_dir.glob("*.png"))) == 8
         print(f"COMPARISON_PREVIEW={output_dir / 'ade_m.png'}")
     finally:

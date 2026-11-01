@@ -10,6 +10,7 @@ import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 COMPARISON_MODEL_COLORS = ("#0072B2", "#E69F00")
+COMPARISON_LEGEND_PADDING_POINTS = 8.0
 COMPARISON_INFERENCE_COLORS = {
     "imm": "#E69F00",
     "smc": "#0072B2",
@@ -229,16 +230,15 @@ def plot_model_comparison(
             color="0.7",
             alpha=0.2,
         )
-        axis.legend(
-            loc=style.legend_location,
-            ncol=2 if len(models) > 2 and nominal is None else 1,
-        )
+        legend = axis.legend(loc="upper right", ncol=1)
         figure.suptitle(
             title,
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )
         figure.tight_layout()
+        if nominal is None:
+            _reserve_legend_headroom(figure, axis, legend)
         if output_dir is not None:
             figure.savefig(output_dir / f"{name}.png", dpi=150, bbox_inches="tight")
         if show:
@@ -254,6 +254,29 @@ def plot_model_comparison(
             }
         )
     return pd.DataFrame(rows), tuple(figures)
+
+
+def _reserve_legend_headroom(figure, axis, legend):
+    """Keep the legend inside the axes and above the metric curves."""
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    padding = COMPARISON_LEGEND_PADDING_POINTS * figure.dpi / 72.0
+    legend_height = legend.get_window_extent(renderer).height
+    width, height = figure.get_size_inches()
+    figure.set_size_inches(width, height + (legend_height + 2 * padding) / figure.dpi)
+    figure.tight_layout()
+
+    renderer = figure.canvas.get_renderer()
+    plot_box = axis.get_window_extent(renderer)
+    legend_bottom = legend.get_window_extent(renderer).y0
+    data_fraction = (legend_bottom - padding - plot_box.y0) / plot_box.height
+    lower, upper = axis.get_ylim()
+    transform = axis.yaxis.get_transform()
+    scaled_lower, scaled_upper = transform.transform([lower, upper])
+    expanded_upper = transform.inverted().transform(
+        [scaled_lower + (scaled_upper - scaled_lower) / data_fraction]
+    )[0]
+    axis.set_ylim(lower, expanded_upper)
 
 
 def _plot_rolling_diagnostics(
