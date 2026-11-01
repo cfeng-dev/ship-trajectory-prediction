@@ -207,7 +207,7 @@ def test_regularized_cholesky_reports_unrecoverable_covariance() -> None:
 def test_sequential_vi_config_uses_fullrank_cmdstan_defaults() -> None:
     config = sequential_vi.SequentialVIConfig()
 
-    assert config.n_bootstrap == 10
+    assert config.n_bootstrap == 3
     assert config.algorithm == "fullrank"
     assert config.iter == cmdstan.DEFAULT_VI_ITER == 10_000
     assert config.adapt_iter == cmdstan.DEFAULT_VI_ADAPT_ITER == 250
@@ -445,7 +445,7 @@ def _initialized_online_vi(
         x_observed,
         y_observed,
         priors=BayesianCTRVPriors(),
-        config=sequential_vi.SequentialVIConfig(draws=draws),
+        config=sequential_vi.SequentialVIConfig(n_bootstrap=10, draws=draws),
         seed=42,
         batch_fitter=batch_fitter,
     )
@@ -628,20 +628,23 @@ def test_sequential_vi_bootstraps_batch_once_then_updates_unseen_positions() -> 
     batch_call = batch_calls[0]
     assert batch_call["inference_method"] == "vi"
     assert batch_call["algorithm"] == "fullrank"
-    assert batch_call["position_observations"].x_meters.shape == (10,)
-    assert batch_call["position_observations"].y_meters.shape == (10,)
-    assert batch_call["window"].observation_count == 10
+    assert batch_call["position_observations"].x_meters.shape == (3,)
+    assert batch_call["position_observations"].y_meters.shape == (3,)
+    assert batch_call["window"].observation_count == 3
     assert batch_call["window"].prediction_count == 1
     assert np.all(np.isnan(batch_call["window"].gps_speed_mps))
-    assert len(update_calls) == 2
-    assert [call["x_observed"] for call in update_calls] == list(x_observed[10:])
-    assert [call["y_observed"] for call in update_calls] == list(y_observed[10:])
-    assert [call["seed"] for call in update_calls] == [43, 44]
-    assert [call["process_interval_seconds"] for call in update_calls] == [7.0, 11.0]
-    assert [call["observation_interval_seconds"] for call in update_calls] == [
-        11.0,
-        13.0,
-    ]
+    assert len(update_calls) == 9
+    assert [call["x_observed"] for call in update_calls] == list(x_observed[3:])
+    assert [call["y_observed"] for call in update_calls] == list(y_observed[3:])
+    assert [call["seed"] for call in update_calls] == list(range(43, 52))
+    np.testing.assert_allclose(
+        [call["process_interval_seconds"] for call in update_calls],
+        np.diff(time_seconds)[1:-1],
+    )
+    np.testing.assert_allclose(
+        [call["observation_interval_seconds"] for call in update_calls],
+        np.diff(time_seconds)[2:],
+    )
     assert update_calls[1]["carry"] is not update_calls[0]["carry"]
     assert online_vi.processed_observation_count == 12
     assert len(batch_calls) == 1
@@ -665,6 +668,7 @@ def test_sequential_vi_rejects_repeated_timestamp_before_fitting() -> None:
         y_observed,
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
+            n_bootstrap=10,
             draws=20,
         ),
         seed=42,
@@ -697,6 +701,7 @@ def test_sequential_vi_update_rolls_back_all_state_on_failure() -> None:
         y_observed,
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
+            n_bootstrap=10,
             draws=20,
         ),
         seed=42,
@@ -748,6 +753,7 @@ def test_sequential_vi_fit_records_terminal_failure_and_stops() -> None:
         y_observed,
         priors=BayesianCTRVPriors(),
         config=sequential_vi.SequentialVIConfig(
+            n_bootstrap=10,
             draws=20,
         ),
         seed=42,

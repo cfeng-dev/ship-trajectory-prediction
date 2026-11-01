@@ -31,7 +31,7 @@ SEQUENTIAL_STAN_FILE = stan_resources.stan_path("models/sequential_bayesian_ctrv
 class SequentialVIConfig:
     """Validated controls for bootstrap and one-step full-rank ADVI."""
 
-    n_bootstrap: int = 10
+    n_bootstrap: int = 3
     algorithm: str = "fullrank"
     iter: int = cmdstan.DEFAULT_VI_ITER
     grad_samples: int = cmdstan.DEFAULT_VI_GRAD_SAMPLES

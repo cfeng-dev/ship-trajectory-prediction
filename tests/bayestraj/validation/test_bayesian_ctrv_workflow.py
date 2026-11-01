@@ -216,7 +216,7 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
     assert configured[0]["inference_method"] == method
     assert configured[0]["observation_count"] == 2
     assert configured[0]["vi_config"]["algorithm"] == "meanfield"
-    assert configured[0]["sequential_vi_config"].n_bootstrap >= 3
+    assert configured[0]["sequential_vi_config"].n_bootstrap == 3
     assert summary.inference_method == method
     assert set(predictions["inference_method"]) == {method}
     assert predictions["forecast_origin_seconds"].tolist() == [1.0, 2.0, 3.0]
