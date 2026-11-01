@@ -377,11 +377,11 @@ def test_rolling_forecasts_match_the_tool_at_every_origin(
         ),
     }
     if radar_input:
-        _, _, _, load_update = dashboard.create_br24_radar_dashboard_loader(
+        trajectory, _, _, load_update = dashboard.create_br24_radar_dashboard_loader(
             input_csv, **options
         )
     else:
-        _, _, _, load_update = dashboard.create_posterior_dashboard_loader(
+        trajectory, _, _, load_update = dashboard.create_posterior_dashboard_loader(
             pd.read_csv(input_csv), vi_config={}, mcmc_config={}, **options
         )
 
@@ -390,10 +390,17 @@ def test_rolling_forecasts_match_the_tool_at_every_origin(
     )
 
     for count, rows in predictions.groupby("forecast_start_index", sort=True):
-        forecast = load_update(int(count)).forecast
+        update = load_update(int(count))
+        forecast = update.forecast
         np.testing.assert_array_equal(
             forecast.median_positions,
             rows[["x_median_route", "y_median_route"]].to_numpy(),
+        )
+        gui_metrics = dashboard.analysis_metrics_at(
+            trajectory, {int(count): update}, int(count)
+        )
+        assert gui_metrics.negative_log_predictive_density == pytest.approx(
+            rows["negative_log_predictive_density"].mean()
         )
 
 

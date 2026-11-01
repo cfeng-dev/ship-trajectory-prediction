@@ -436,7 +436,7 @@ def test_help_explains_analysis_metrics():
         "Forecast FDE (median)": "Position error of the median at the final forecast step in meters; lower is better.",
         "Forecast RMSE (median)": "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
         "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
-        "NLPD": "Negative log predictive density of the new observation, evaluated one step ahead before the update.",
+        "NLPD": "Mean negative log predictive density of future reference positions across the forecast horizon; unavailable without a forecast or future reference positions.",
         "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
         "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",

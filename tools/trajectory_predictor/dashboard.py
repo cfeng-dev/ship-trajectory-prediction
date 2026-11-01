@@ -344,6 +344,7 @@ class PosteriorDashboardForecast:
     Full paired draws define regions and metrics, while a limited subset is retained
     separately for displaying sample paths. Optional origins belong to that subset
     at the current observation time, not to the future-only metric arrays.
+    Observation-noise draws stay paired with the full posterior for NLPD scoring.
     """
 
     time_offsets_seconds: np.ndarray
@@ -351,6 +352,7 @@ class PosteriorDashboardForecast:
     sample_positions: np.ndarray
     posterior_positions: np.ndarray | None = None
     sample_origin_positions: np.ndarray | None = None
+    position_observation_noise_samples: np.ndarray | None = None
     mean_positions: np.ndarray | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -385,6 +387,22 @@ class PosteriorDashboardForecast:
             raise ValueError(
                 "Forecast positions must be finite, matching (time, xy) arrays."
             )
+        if self.position_observation_noise_samples is not None:
+            noise = np.asarray(
+                self.position_observation_noise_samples, dtype=float
+            ).copy()
+            if (
+                noise.shape != (posterior.shape[0],)
+                or noise.size == 0
+                or not np.all(np.isfinite(noise))
+                or np.any(noise <= 0.0)
+            ):
+                raise ValueError(
+                    "Forecast observation-noise draws must be positive, finite, "
+                    "and paired with all posterior positions."
+                )
+            noise.setflags(write=False)
+            object.__setattr__(self, "position_observation_noise_samples", noise)
         if origins is not None:
             if origins.shape != (samples.shape[0], 2) or not np.all(
                 np.isfinite(origins)
@@ -612,11 +630,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             fde_m=None,
             rmse_m=None,
             energy_score_m=None,
-            negative_log_predictive_density=(
-                None
-                if update is None or update.predictive_log_density is None
-                else -update.predictive_log_density
-            ),
+            negative_log_predictive_density=None,
             joint_coverage_50_count=0,
             joint_coverage_90_count=0,
             joint_coverage_total=0,
@@ -626,6 +640,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         )
     forecast = None if update is None else update.forecast
     ade_m, fde_m, rmse_m, energy_score_m = None, None, None, None
+    negative_log_predictive_density = None
     if forecast is not None:
         actual_positions = _forecast_reference_positions(trajectory, update)
         if actual_positions.size:
@@ -644,6 +659,15 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
                 ),
                 actual_positions,
             )
+            if forecast.position_observation_noise_samples is not None:
+                log_density = validation_metrics.joint_log_predictive_density(
+                    actual_positions[:, 0],
+                    actual_positions[:, 1],
+                    forecast.posterior_positions[:, : len(actual_positions), 0],
+                    forecast.posterior_positions[:, : len(actual_positions), 1],
+                    forecast.position_observation_noise_samples,
+                )
+                negative_log_predictive_density = float(np.mean(-log_density))
 
     covered_50_count, covered_90_count, total_count = 0, 0, 0
     for count, cached_update in updates_by_count.items():
@@ -675,11 +699,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         fde_m=fde_m,
         rmse_m=rmse_m,
         energy_score_m=energy_score_m,
-        negative_log_predictive_density=(
-            None
-            if update is None or update.predictive_log_density is None
-            else -update.predictive_log_density
-        ),
+        negative_log_predictive_density=negative_log_predictive_density,
         joint_coverage_50_count=covered_50_count,
         joint_coverage_90_count=covered_90_count,
         joint_coverage_total=total_count,
@@ -2706,12 +2726,18 @@ def _extract_dashboard_forecast(fit, time_offsets_seconds, sample_count):
         0, len(positions) - 1, min(sample_count, len(positions)), dtype=int
     )
     origins = _extract_forecast_origins(fit, len(positions))
+    try:
+        noise = reporting.posterior_variable_samples(fit, "sigma_position_observation")
+    except (KeyError, ValueError):
+        # Older custom adapters may provide future positions without noise draws.
+        noise = None
     return PosteriorDashboardForecast(
         time_offsets_seconds=time_offsets_seconds,
         median_positions=np.median(positions, axis=0),
         sample_positions=positions[indices],
         posterior_positions=positions,
         sample_origin_positions=None if origins is None else origins[indices],
+        position_observation_noise_samples=noise,
     )
 
 

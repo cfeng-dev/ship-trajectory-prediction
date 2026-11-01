@@ -207,7 +207,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "NLPD",
-                "Negative log predictive density of the new observation, evaluated one step ahead before the update.",
+                "Mean negative log predictive density of future reference positions across the forecast horizon; unavailable without a forecast or future reference positions.",
             ),
             (
                 "Joint 50% coverage",

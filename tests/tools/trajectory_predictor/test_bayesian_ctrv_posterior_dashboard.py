@@ -1129,9 +1129,7 @@ def test_br24_loader_reports_current_observation_log_density_without_reference(
         assert update.radar_detection_id == 1
         assert np.isfinite(update.predictive_log_density)
         metrics = dashboard.analysis_metrics_at(trajectory, {count: update}, count)
-        assert metrics.negative_log_predictive_density == pytest.approx(
-            -update.predictive_log_density
-        )
+        assert metrics.negative_log_predictive_density is None
     last_score = update.predictive_log_density
     assert load(5).predictive_log_density is None
     assert load(4).predictive_log_density == last_score
@@ -1151,6 +1149,7 @@ def test_forecast_keeps_sample_origins_paired_with_selected_future_draws(batch):
     values = {
         "x_prediction": np.array([[11.0], [22.0], [33.0], [44.0]]),
         "y_prediction": np.array([[1.0], [2.0], [3.0], [4.0]]),
+        "sigma_position_observation": np.array([0.2, 0.4, 0.6, 0.8]),
     }
     if batch:
         values.update(
@@ -1481,6 +1480,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
                 [[3.1, 0.1], [6.1, 0.1]],
             ]
         ),
+        position_observation_noise_samples=np.ones(4),
     )
     update = dashboard.PosteriorDashboardUpdate(
         2,
@@ -1505,10 +1505,10 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
     assert metrics.fde_m == pytest.approx(1.0)
     assert metrics.rmse_m == pytest.approx(np.sqrt(0.5))
     assert metrics.energy_score_m == pytest.approx(0.487874)
-    if log_density is None:
-        assert metrics.negative_log_predictive_density is None
-    else:
-        assert metrics.negative_log_predictive_density == pytest.approx(-log_density)
+    expected_nlpd = (
+        np.log(2 * np.pi) + (0.01 - np.log((np.exp(-0.41) + np.exp(-0.61)) / 2)) / 2
+    )
+    assert metrics.negative_log_predictive_density == pytest.approx(expected_nlpd)
     assert metrics.joint_coverage_50_count == 1
     assert metrics.joint_coverage_90_count == 1
     assert metrics.joint_coverage_total == 2
@@ -1541,6 +1541,7 @@ def test_dashboard_metrics_use_full_posterior_draws_not_visible_sample_paths():
             ]
         ),
         posterior_positions=posterior_positions,
+        position_observation_noise_samples=np.ones(4),
     )
     update = dashboard.PosteriorDashboardUpdate(
         2,
@@ -1550,9 +1551,90 @@ def test_dashboard_metrics_use_full_posterior_draws_not_visible_sample_paths():
 
     metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
 
+    assert metrics.negative_log_predictive_density == pytest.approx(
+        np.log(2 * np.pi) + 0.01
+    )
+
     assert metrics.joint_coverage_50_count == 2
     assert metrics.joint_coverage_90_count == 2
     assert metrics.joint_coverage_total == 2
+
+
+@pytest.mark.parametrize(
+    "noise",
+    [
+        [],
+        [1.0],
+        [1.0, 2.0, 3.0],
+        [0.0, 1.0],
+        [-1.0, 1.0],
+        [np.nan, 1.0],
+        [np.inf, 1.0],
+        [[1.0], [2.0]],
+    ],
+)
+def test_forecast_rejects_noise_draws_that_are_invalid_or_unpaired(noise):
+    dashboard = _load_dashboard_module()
+
+    with pytest.raises(ValueError, match="noise"):
+        dashboard.PosteriorDashboardForecast(
+            [1.0],
+            [[0.0, 0.0]],
+            np.zeros((2, 1, 2)),
+            position_observation_noise_samples=noise,
+        )
+
+
+def test_forecast_caches_all_paired_noise_draws_independently_of_visible_paths():
+    dashboard = _load_dashboard_module()
+    noise = np.array([0.2, 0.4, 0.6, 0.8])
+    forecast = dashboard._extract_dashboard_forecast(
+        _FakeFit(
+            {
+                "x_prediction": np.zeros((4, 1)),
+                "y_prediction": np.zeros((4, 1)),
+                "sigma_position_observation": noise,
+            }
+        ),
+        [1.0],
+        sample_count=0,
+    )
+    noise[:] = 99.0
+
+    assert forecast.sample_positions.shape == (0, 1, 2)
+    np.testing.assert_array_equal(
+        forecast.position_observation_noise_samples, [0.2, 0.4, 0.6, 0.8]
+    )
+    assert not forecast.position_observation_noise_samples.flags.writeable
+
+
+@pytest.mark.parametrize("missing", ["reference", "forecast", "future", "noise"])
+def test_forecast_nlpd_requires_future_reference_and_paired_forecast_draws(missing):
+    dashboard = _load_dashboard_module()
+    reference = [0.0, 1.0] if missing == "future" else [0.0, 1.0, 2.0]
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=reference,
+        reference_y=np.zeros(len(reference)),
+        observed_x=reference,
+        observed_y=np.zeros(len(reference)),
+        has_reference=missing != "reference",
+    )
+    forecast = dashboard.PosteriorDashboardForecast(
+        [1.0],
+        [[2.0, 0.0]],
+        np.zeros((2, 1, 2)),
+        position_observation_noise_samples=None if missing == "noise" else np.ones(2),
+    )
+    update = dashboard.PosteriorDashboardUpdate(
+        2,
+        _dashboard_samples(),
+        predictive_log_density=-123.0,
+        forecast=None if missing == "forecast" else forecast,
+    )
+
+    metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
+
+    assert metrics.negative_log_predictive_density is None
 
 
 def _dashboard_fit_variables():
@@ -1735,6 +1817,13 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
     )
     assert update.forecast.sample_positions.shape == (0, 3, 2)
     assert update.forecast.posterior_positions.shape == (2, 3, 2)
+    np.testing.assert_array_equal(
+        update.forecast.position_observation_noise_samples, [1.0, 2.0]
+    )
+    nlpd = dashboard.analysis_metrics_at(
+        trajectory, {10: update}, 10
+    ).negative_log_predictive_density
+    assert nlpd is not None and np.isfinite(nlpd)
     assert calls[0]["time_observed"] == pytest.approx(np.arange(10) * 10)
     assert calls[0]["time_prediction"] == pytest.approx([100, 110, 120])
     assert calls[0]["x_observed"] == pytest.approx(trajectory.observed_x[:10])
