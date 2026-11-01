@@ -63,7 +63,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         position_noise_std_m=0.0,
         position_noise_seed=2026,
         require_converged=False,
-        max_windows=1,
+        max_windows=3,
         plot_each_window=False,
     )
     vi_config = dict(
@@ -114,17 +114,17 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     )
 
     assert summary.inference_method == method
-    assert summary.window_count == 1
-    assert len(predictions) == 2
+    assert summary.window_count == 3
+    assert len(predictions) == 6
     assert set(predictions["inference_method"]) == {method}
-    assert predictions["radar_processed_cycle_count"].tolist() == [5, 5]
+    assert predictions["radar_processed_cycle_count"].tolist() == [2, 2, 3, 3, 4, 4]
     assert observation_scores[0] == (None, None)
     assert all(
         np.isfinite(score)
         for detection_id, score in observation_scores
         if detection_id is not None
     )
-    assert not predictions["is_prior_predictive"].any()
+    assert not predictions.iloc[-2:]["is_prior_predictive"].any()
     assert np.all(
         np.isfinite(
             predictions[

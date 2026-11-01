@@ -27,6 +27,7 @@ import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling_validation
 
 VI_EXECUTION_RETRIES = 2
+EVALUATION_START_OBSERVATION_COUNT = 2
 
 
 def _resolve_inference_configs(
@@ -198,7 +199,7 @@ def _run_evaluation(
     windows = _build_evaluation_windows(
         len(trajectory_data),
         online_mode=online_mode,
-        initial_observation_count=experiment.observation_count,
+        batch_observation_count=experiment.observation_count,
         prediction_count=experiment.prediction_count,
         stride=experiment.stride,
         window_mode=window_mode,
@@ -232,11 +233,10 @@ def _run_evaluation(
     print("Model                 : Bayesian CTRV")
     print(f"Inference mode        : {inference_mode.upper()}")
     print(f"Inference method      : {inference_method.upper()}")
-    if online_mode:
-        print(f"Initial observations  : {experiment.observation_count}")
-    else:
+    print(f"Evaluation starts at N: {EVALUATION_START_OBSERVATION_COUNT}")
+    if not online_mode:
         print(f"Window mode           : {window_mode.upper()}")
-        print(f"Observations/window   : {experiment.observation_count}")
+        print(f"Maximum batch window  : {experiment.observation_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Forecast origins      : {len(windows)}")
@@ -319,7 +319,35 @@ def _run_evaluation(
         )
         runtime_started = time.perf_counter()
         fit_runtime_started = time.perf_counter()
-        if online_mode:
+        minimum_fit_count = (
+            sequential_vi_config.n_bootstrap
+            if inference_method == "sequential_vi"
+            else bayesian_model.MIN_OBSERVATION_COUNT
+        )
+        is_prior_predictive = (
+            inference_method != "smc"
+            and specification.observation_count < minimum_fit_count
+        )
+        if is_prior_predictive:
+            draw_count = (
+                sequential_vi_config.draws
+                if inference_method == "sequential_vi"
+                else inference_config.get(
+                    "draws",
+                    inference_config.get("chains", 1)
+                    * inference_config.get("iter_sampling", 1_000),
+                )
+            )
+            fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+                x_at_origin=position_observations.x_meters[-1],
+                y_at_origin=position_observations.y_meters[-1],
+                origin_time_seconds=window.time_seconds[window.observation_count - 1],
+                future_time_seconds=window.time_seconds[window.prediction_slice],
+                priors=priors,
+                draw_count=draw_count,
+                seed=experiment.inference_seed,
+            )
+        elif online_mode:
             online_filter = _advance_online_filter(
                 online_filter,
                 specification=specification,
@@ -351,7 +379,11 @@ def _run_evaluation(
                 initial_seed=window_seed,
             )
         fit_runtime_seconds = time.perf_counter() - fit_runtime_started
-        if inference_method == "vi":
+        if is_prior_predictive:
+            converged = None
+            mcmc_diagnostics_ok = None
+            inference_status = "Prior predictive (before first fit)"
+        elif inference_method == "vi":
             converged = cmdstan_inference.variational_converged(fit)
             mcmc_diagnostics_ok = None
             inference_status = f"VI converged={converged}"
@@ -392,7 +424,8 @@ def _run_evaluation(
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
-        if online_mode:
+        diagnostics["is_prior_predictive"] = is_prior_predictive
+        if online_mode and online_filter is not None:
             if inference_method == "smc":
                 diagnostics.update(
                     _online_filter_diagnostics(
@@ -471,7 +504,7 @@ def _run_evaluation(
         route_x,
         route_y,
         posterior_plot_groups,
-        initial_observation_count=experiment.observation_count,
+        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
         inference_mode=inference_mode,
         window_mode=window_mode,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -539,7 +572,7 @@ def _run_br24_radar_evaluation(
 
     windows = rolling_validation.build_online_forecast_specs(
         len(cycles),
-        initial_observation_count=experiment.observation_count,
+        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
         prediction_count=experiment.prediction_count,
         stride=experiment.stride,
     )
@@ -557,7 +590,11 @@ def _run_br24_radar_evaluation(
         config=smc_config,
         seed=experiment.inference_seed,
         inference_method=inference_method,
-        observation_count=experiment.observation_count,
+        observation_count=(
+            experiment.observation_count
+            if inference_mode == "batch"
+            else inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
+        ),
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,
@@ -582,7 +619,9 @@ def _run_br24_radar_evaluation(
     print("Model                 : Bayesian CTRV radar tracker")
     print(f"Inference mode        : {inference_mode.upper()}")
     print(f"Inference method      : {inference_method.upper()}")
-    print(f"Initial observations  : {experiment.observation_count}")
+    print(f"Evaluation starts at N: {EVALUATION_START_OBSERVATION_COUNT}")
+    if inference_mode == "batch":
+        print(f"Maximum batch window  : {experiment.observation_count}")
     print(f"Prediction horizon    : {experiment.prediction_count}")
     print(f"Stride                : {effective_stride}")
     print(f"Forecast origins      : {len(windows)}")
@@ -714,7 +753,7 @@ def _run_br24_radar_evaluation(
         route_x,
         route_y,
         posterior_plot_groups,
-        initial_observation_count=experiment.observation_count,
+        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
         inference_mode="online",
         window_mode=None,
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
@@ -788,25 +827,42 @@ def _build_evaluation_windows(
     row_count,
     *,
     online_mode,
-    initial_observation_count,
+    batch_observation_count,
     prediction_count,
     stride,
     window_mode,
 ):
-    """Build persistent-online or batch rolling forecast specifications."""
-    if online_mode:
-        return rolling_validation.build_online_forecast_specs(
-            row_count,
-            initial_observation_count=initial_observation_count,
-            prediction_count=prediction_count,
-            stride=stride,
-        )
-    return rolling_validation.build_rolling_window_specs(
+    """Start evaluation at N=2, independently of the maximum batch window."""
+    windows = rolling_validation.build_online_forecast_specs(
         row_count,
-        initial_observation_count=initial_observation_count,
+        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
         prediction_count=prediction_count,
         stride=stride,
-        window_mode=window_mode,
+    )
+    if online_mode:
+        return windows
+    batch_observation_count = numeric_validation.validate_non_negative_integer(
+        "observation_count", batch_observation_count
+    )
+    if batch_observation_count < bayesian_model.MIN_OBSERVATION_COUNT:
+        raise ValueError(
+            f"Batch observation_count must be at least {bayesian_model.MIN_OBSERVATION_COUNT}."
+        )
+    if window_mode not in {"sliding", "expanding"}:
+        raise ValueError("window_mode must be 'sliding' or 'expanding'.")
+    if window_mode == "expanding":
+        return windows
+    return tuple(
+        dataclasses.replace(
+            specification,
+            start_index=max(
+                0, specification.forecast_start_index - batch_observation_count
+            ),
+            observation_count=min(
+                specification.forecast_start_index, batch_observation_count
+            ),
+        )
+        for specification in windows
     )
 
 
@@ -1124,7 +1180,7 @@ def _prepare_evaluation_window(
     prediction_count,
     start_index,
 ):
-    """Prepare one model window from local processed positions."""
+    """Prepare one batch or online window, including two-position fits."""
     return observation_window.prepare_processed_trajectory_window(
         trajectory_data,
         observation_count=observation_count,

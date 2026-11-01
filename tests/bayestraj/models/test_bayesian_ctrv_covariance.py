@@ -111,11 +111,21 @@ def test_batch_initializers_ignore_missing_position_placeholders():
         np.testing.assert_array_equal(first[name], second[name])
 
 
-def test_batch_requires_three_accepted_measurements():
+def test_batch_accepts_two_measurements_on_a_grid_with_missing_cycles():
     observations = replace(
         _observations(), observed_mask=np.array([True, False, False, False, True])
     )
-    with pytest.raises(ValueError, match="at least 3"):
+    data = build_stan_data(_window(observations), position_observations=observations)
+
+    assert data["N_history"] == 5
+    np.testing.assert_array_equal(data["observed_mask"], [1, 0, 0, 0, 1])
+
+
+def test_batch_rejects_a_single_accepted_measurement():
+    observations = replace(
+        _observations(), observed_mask=np.array([True, False, False, False, False])
+    )
+    with pytest.raises(ValueError, match="at least 2"):
         build_stan_data(_window(observations), position_observations=observations)
 
 

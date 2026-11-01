@@ -11,7 +11,7 @@ from bayestraj.inference.configuration import (
     create_default_vi_config,
 )
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
-from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.paths import project_path
 
 from .dashboard import (
@@ -292,8 +292,10 @@ def _validate_data_options(fields):
             maximum = int(maximum)
         except ValueError as error:
             raise ValueError("Maximum observations must be an integer.") from error
-        if maximum < 3:
-            raise ValueError("Maximum observations must be at least 3.")
+        if maximum < MIN_OBSERVATION_COUNT:
+            raise ValueError(
+                f"Maximum observations must be at least {MIN_OBSERVATION_COUNT}."
+            )
     for key in ("prediction_count", "prediction_sample_count"):
         if key in fields:
             _minimum(fields, key, 0)
@@ -367,7 +369,7 @@ def parse_settings(values) -> ExplorerSettings:
     except ValueError as error:
         raise ValueError("Maximum observations must be an integer.") from error
     if maximum:
-        _minimum(data, "maximum_observation_count", 3)
+        _minimum(data, "maximum_observation_count", MIN_OBSERVATION_COUNT)
     for key in ("start_index",):
         _minimum(data, key, 0)
     _validate_data_options(data)

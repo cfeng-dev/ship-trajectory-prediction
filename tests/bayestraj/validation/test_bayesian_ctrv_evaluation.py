@@ -101,6 +101,11 @@ def test_cli_override_exports_selected_method_without_overwriting_other_methods(
 ):
     _, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
+    monkeypatch.setitem(
+        namespace["main"].__globals__,
+        "EXPERIMENT",
+        replace(namespace["EXPERIMENT"], inference_method="smc"),
+    )
     monkeypatch.chdir(tmp_path)
 
     namespace["main"](["--inference-method", "vi", "--max-windows", "3"])
@@ -109,7 +114,7 @@ def test_cli_override_exports_selected_method_without_overwriting_other_methods(
     assert [call["options"].inference_method for call in calls] == ["vi", "smc"]
     assert calls[0]["options"].max_windows == 3
     assert calls[1]["options"].max_windows is None
-    assert namespace["EXPERIMENT"].inference_method == "smc"
+    assert namespace["main"].__globals__["EXPERIMENT"].inference_method == "smc"
     outputs = set((tmp_path / "results").iterdir())
     assert outputs == {
         tmp_path / "results/bayesian_ctrv_vi_evaluation.csv",

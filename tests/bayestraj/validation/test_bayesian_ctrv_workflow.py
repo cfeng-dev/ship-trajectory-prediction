@@ -14,11 +14,14 @@ import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
 
-def test_online_window_specs_do_not_require_a_batch_window_mode():
+@pytest.mark.parametrize("batch_observation_count", [3, 10, 50])
+def test_online_window_specs_start_at_two_independently_of_batch_window_size(
+    batch_observation_count,
+):
     windows = workflow._build_evaluation_windows(
         15,
         online_mode=True,
-        initial_observation_count=10,
+        batch_observation_count=batch_observation_count,
         prediction_count=3,
         stride=2,
         window_mode=None,
@@ -26,10 +29,32 @@ def test_online_window_specs_do_not_require_a_batch_window_mode():
 
     assert windows == rolling.build_online_forecast_specs(
         15,
-        initial_observation_count=10,
+        initial_observation_count=2,
         prediction_count=3,
         stride=2,
     )
+
+
+def test_batch_windows_grow_from_two_then_keep_only_the_last_ten_positions():
+    windows = workflow._build_evaluation_windows(
+        15,
+        online_mode=False,
+        batch_observation_count=10,
+        prediction_count=3,
+        stride=1,
+        window_mode="sliding",
+    )
+
+    assert [window.forecast_start_index for window in windows] == list(range(2, 15))
+    assert [window.observation_count for window in windows] == [
+        *range(2, 11),
+        10,
+        10,
+        10,
+        10,
+    ]
+    assert [window.start_index for window in windows] == [0] * 9 + [1, 2, 3, 4]
+    assert [window.prediction_count for window in windows[-3:]] == [3, 2, 1]
 
 
 def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_path):
@@ -78,8 +103,7 @@ def test_window_metric_summary_includes_rmse_and_mean_negative_log_predictive_de
     assert summary == "ADE=10.00 m, FDE=20.00 m, RMSE=3.54 m, Mean NLPD=3.457"
 
 
-def _write_br24_evaluation_input(path, *, reference_x_offset=0.0):
-    cycle_count = 5
+def _write_br24_evaluation_input(path, *, reference_x_offset=0.0, cycle_count=5):
     times = np.arange(cycle_count, dtype=float)
     ranges = 10.0 + times
     pd.DataFrame(
@@ -109,9 +133,11 @@ def _run_br24_evaluation(
     *,
     inference_method="smc",
     position_noise_std_m=0.0,
+    max_windows=None,
+    sequential_vi_config=None,
 ):
     experiment = forecasting.RollingExperimentConfig(
-        observation_count=2,
+        observation_count=10,
         prediction_count=1,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=2026,
@@ -120,7 +146,7 @@ def _run_br24_evaluation(
         inference_seed=42,
     )
     options = validation_cli.BayesianCTRVEvaluationOptions(
-        observation_count=2,
+        observation_count=10,
         prediction_count=1,
         stride=1,
         inference_method=inference_method,
@@ -130,7 +156,7 @@ def _run_br24_evaluation(
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=2026,
         require_converged=False,
-        max_windows=None,
+        max_windows=max_windows,
         plot_each_window=False,
     )
     return workflow.run_bayesian_ctrv_evaluation(
@@ -141,12 +167,199 @@ def _run_br24_evaluation(
             particle_count=64,
             posterior_draw_count=16,
         ),
+        sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=1,
         credible_interval=0.9,
         sample_trajectories_per_forecast=4,
         options=options,
         show_plot=False,
     )
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("radar_input", [True, False])
+def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
+    tmp_path, monkeypatch, method, radar_input
+):
+    input_csv = tmp_path / "trajectory.csv"
+    if radar_input:
+        _write_br24_evaluation_input(input_csv)
+    else:
+        pd.DataFrame(
+            {"time": [10.0, 12.8, 16.0, 18.5], "x": [0.0, 1.0, 2.0, 3.0], "y": 0.0}
+        ).to_csv(input_csv, index=False)
+
+    fit_counts = []
+
+    def fit_model(window, *, position_observations, **kwargs):
+        from bayestraj.inference.particle_utils import SequentialCTRVFit
+
+        fit_counts.append(window.observation_count)
+        workflow.bayesian_model.build_stan_data(
+            window, position_observations=position_observations
+        )
+        if method == "sequential_vi":
+            pytest.fail("Sequential VI must wait for its configured bootstrap.")
+        fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+            x_at_origin=position_observations.x_meters[-1],
+            y_at_origin=position_observations.y_meters[-1],
+            origin_time_seconds=window.time_seconds[window.observation_count - 1],
+            future_time_seconds=window.time_seconds[window.prediction_slice],
+            priors=kwargs["priors"],
+            draw_count=16,
+            seed=42,
+        )
+
+        class FittedPosterior(SequentialCTRVFit):
+            converged = True
+
+            def diagnose(self):
+                return "No problems detected"
+
+        names = (
+            *bayesian_model.PARAMETER_NAMES,
+            "x_at_origin",
+            "y_at_origin",
+            "x_prediction",
+            "y_prediction",
+            "x_observation_prediction",
+            "y_observation_prediction",
+        )
+        return FittedPosterior({name: fit.stan_variable(name) for name in names})
+
+    monkeypatch.setattr(workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model)
+    monkeypatch.setattr(
+        workflow.cmdstan_inference, "variational_converged", lambda fit: True
+    )
+    predictions, summary = _run_br24_evaluation(
+        input_csv, inference_method=method, max_windows=1
+    )
+
+    assert summary.window_count == 1
+    assert predictions["observation_count"].tolist() == [2]
+    assert predictions["forecast_start_index"].tolist() == [2]
+    assert predictions["x_actual"].tolist() == [12.0 if radar_input else 2.0]
+    assert np.all(np.isfinite(predictions["position_error_m"]))
+    assert np.all(np.isfinite(predictions["negative_log_predictive_density"]))
+    assert fit_counts == ([2] if method in {"vi", "mcmc"} else [])
+    assert predictions["is_prior_predictive"].tolist() == [method == "sequential_vi"]
+    if method == "vi":
+        assert predictions["converged"].tolist() == [True]
+    elif method == "mcmc":
+        assert predictions["mcmc_diagnostics_ok"].tolist() == [True]
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_radar_batch_evaluation_starts_early_and_keeps_the_configured_window(
+    tmp_path, monkeypatch, method
+):
+    from bayestraj.inference.particle_utils import SequentialCTRVFit
+
+    input_csv = tmp_path / "radar.csv"
+    _write_br24_evaluation_input(input_csv, cycle_count=14)
+    fit_positions = []
+
+    class FittedPosterior(SequentialCTRVFit):
+        converged = True
+
+        def diagnose(self):
+            return "No problems detected"
+
+    def fit_model(window, *, position_observations, **kwargs):
+        fit_positions.append(position_observations.x_meters.copy())
+        values = np.ones(32)
+        return FittedPosterior(
+            {
+                "x_at_origin": values * position_observations.x_meters[-1],
+                "y_at_origin": values * position_observations.y_meters[-1],
+                "speed_at_origin": values,
+                "heading_at_origin": values * 0.0,
+                "turn_rate_at_origin": values * 0.0,
+                "sigma_position_observation": values * 0.1,
+                "sigma_speed_process": values * 0.1,
+                "sigma_turn_rate_process": values * 0.01,
+            }
+        )
+
+    monkeypatch.setattr(workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model)
+    predictions, summary = _run_br24_evaluation(input_csv, inference_method=method)
+
+    assert summary.window_count == 12
+    assert predictions["forecast_start_index"].tolist() == list(range(2, 14))
+    assert not predictions["is_prior_predictive"].any()
+    for origin, positions in zip(range(2, 14), fit_positions, strict=True):
+        np.testing.assert_array_equal(
+            positions, 10.0 + np.arange(max(0, origin - 10), origin)
+        )
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_points(
+    tmp_path, monkeypatch, method
+):
+    input_csv = tmp_path / "positions.csv"
+    times = np.cumsum(np.linspace(2.0, 3.0, 14))
+    pd.DataFrame({"time": times, "x": np.arange(14), "y": 0.0}).to_csv(
+        input_csv, index=False
+    )
+    fit_observations = []
+
+    def fit_window(window, *, position_observations, initial_seed, **kwargs):
+        fit_observations.append(position_observations.x_meters.copy())
+        fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+            x_at_origin=position_observations.x_meters[-1],
+            y_at_origin=position_observations.y_meters[-1],
+            origin_time_seconds=window.time_seconds[window.observation_count - 1],
+            future_time_seconds=window.time_seconds[window.prediction_slice],
+            priors=kwargs["priors"],
+            draw_count=32,
+            seed=initial_seed,
+        )
+        return fit, initial_seed
+
+    monkeypatch.setattr(workflow, "_fit_window", fit_window)
+    monkeypatch.setattr(
+        workflow.cmdstan_inference, "variational_converged", lambda fit: True
+    )
+    monkeypatch.setattr(workflow, "_mcmc_diagnostics_ok", lambda fit: True)
+
+    predictions, _ = _run_br24_evaluation(input_csv, inference_method=method)
+
+    assert predictions["observation_count"].tolist() == [*range(2, 11), 10, 10, 10]
+    assert [len(positions) for positions in fit_observations] == [
+        *range(2, 11),
+        10,
+        10,
+        10,
+    ]
+    for origin, positions in zip(range(2, 14), fit_observations, strict=True):
+        np.testing.assert_array_equal(positions, np.arange(max(0, origin - 10), origin))
+    assert not predictions["is_prior_predictive"].any()
+
+
+def test_processed_sequential_vi_keeps_prior_forecasts_until_its_own_bootstrap(
+    tmp_path, monkeypatch
+):
+    input_csv = tmp_path / "positions.csv"
+    pd.DataFrame({"time": np.arange(7), "x": np.arange(7), "y": 0.0}).to_csv(
+        input_csv, index=False
+    )
+
+    def unexpected_initialize(*args, **kwargs):
+        pytest.fail("Sequential VI must wait for its configured bootstrap count.")
+
+    monkeypatch.setattr(workflow, "_advance_online_filter", unexpected_initialize)
+    predictions, summary = _run_br24_evaluation(
+        input_csv,
+        inference_method="sequential_vi",
+        sequential_vi_config=sequential_vi_model.SequentialVIConfig(n_bootstrap=5),
+        max_windows=3,
+    )
+
+    assert summary.window_count == 3
+    assert predictions["observation_count"].tolist() == [2, 3, 4]
+    assert predictions["is_prior_predictive"].all()
+    assert predictions["converged"].isna().all()
 
 
 def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
@@ -214,7 +427,7 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
     predictions, summary = _run_br24_evaluation(input_csv, inference_method=method)
 
     assert configured[0]["inference_method"] == method
-    assert configured[0]["observation_count"] == 2
+    assert configured[0]["observation_count"] == 10
     assert configured[0]["vi_config"]["algorithm"] == "meanfield"
     assert configured[0]["sequential_vi_config"].n_bootstrap == 3
     assert summary.inference_method == method

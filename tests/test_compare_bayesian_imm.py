@@ -1,6 +1,7 @@
 """CSV-only comparison of matched Bayesian CTRV and IMM forecasts."""
 
 import runpy
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -459,6 +460,9 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
 ):
     module = runpy.run_path(ROOT / "experiments/model_evaluation/bayesian_ctrv.py")
     settings = module["main"].__globals__
+    monkeypatch.setitem(
+        settings, "EXPERIMENT", replace(settings["EXPERIMENT"], inference_method="smc")
+    )
     predictions = _table("bayesian")
     original = predictions.copy(deep=True)
     summary = object()

@@ -7,6 +7,21 @@ import pytest
 import bayestraj.observations.window as observation_window
 
 
+def test_processed_window_supports_two_observations_and_keeps_real_times():
+    data = pd.DataFrame(
+        {"time": [10.0, 12.8, 16.0], "x": [0.0, 1.0, 2.0], "y": [1.0, 2.0, 3.0]}
+    )
+
+    window = observation_window.prepare_processed_trajectory_window(
+        data, observation_count=2, prediction_count=1
+    )
+
+    assert window.observation_count == 2
+    np.testing.assert_allclose(window.time_seconds, [0.0, 2.8, 6.0])
+    np.testing.assert_array_equal(window.x_meters[window.observed_slice], [0.0, 1.0])
+    np.testing.assert_array_equal(window.x_meters[window.prediction_slice], [2.0])
+
+
 def test_processed_window_uses_selected_elapsed_positions_without_gps_origin():
     """A time/x/y window preserves local positions and restarts time at zero."""
     data = pd.DataFrame(

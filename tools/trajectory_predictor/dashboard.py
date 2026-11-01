@@ -60,7 +60,7 @@ NOISE_PARAMETER_NAMES = frozenset(PARAMETER_GROUPS["noise"])
 PARAMETER_POSTERIOR_MINIMUM_OBSERVATION_COUNTS = {
     "current_speed": 2,
     "current_heading": 2,
-    "current_turn_rate": 3,
+    "current_turn_rate": 2,
     "position_observation_noise": 2,
     "speed_process_noise": 2,
     "turn_rate_process_noise": 2,
@@ -576,7 +576,7 @@ def _posterior_dashboard_title(observation_count, update) -> str:
 
 
 def posterior_medians_at(updates_by_count, observation_count):
-    """Return only posterior medians identifiable at one display stage."""
+    """Return the posterior medians available at one display stage."""
     update = updates_by_count.get(observation_count)
     if update is None:
         return None
@@ -2257,13 +2257,7 @@ def create_posterior_dashboard_loader(
         )
 
     batch_observation_count = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
-    minimum_observation_count = (
-        1 if inference_method == "vi" else batch_observation_count
-    )
-    if maximum_observation_count < minimum_observation_count:
-        raise ValueError(
-            f"MCMC requires at least {batch_observation_count} observations."
-        )
+    minimum_observation_count = 1
     batch_trajectory_data = _select_trajectory_rows_at_interval(
         trajectory_data.iloc[experiment.start_index :],
         experiment.observation_interval_seconds,
@@ -2280,13 +2274,14 @@ def create_posterior_dashboard_loader(
             minimum=minimum_observation_count,
             maximum=maximum_observation_count,
         )
-        if (
-            inference_method == "vi"
-            and observation_count < bayesian_model.MIN_OBSERVATION_COUNT
-        ):
+        if observation_count < bayesian_model.MIN_OBSERVATION_COUNT:
             return load_prior_predictive_update(
                 observation_count,
-                draw_count=selected_config["draws"],
+                draw_count=selected_config.get(
+                    "draws",
+                    selected_config.get("chains", 1)
+                    * selected_config.get("iter_sampling", 1_000),
+                ),
             )
 
         fit_observation_count = min(observation_count, batch_observation_count)

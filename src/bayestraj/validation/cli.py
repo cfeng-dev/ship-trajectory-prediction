@@ -79,6 +79,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         "--observations",
         type=int,
         default=experiment.observation_count,
+        help="Maximum past points per VI/MCMC fit; ignored by online methods.",
     )
     parser.add_argument(
         "--predictions",

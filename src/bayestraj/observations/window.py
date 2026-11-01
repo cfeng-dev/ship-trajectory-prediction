@@ -174,6 +174,7 @@ def prepare_processed_trajectory_window(
         DEFAULT_GPS_SPEED_UNIT,
         max_time_gap_seconds,
         allow_unbounded_time_gaps=True,
+        minimum_observation_count=2,
     )
     required_columns = {"time", "x", "y"}
     missing_columns = sorted(required_columns.difference(data.columns))
@@ -283,10 +284,11 @@ def _validate_window_arguments(
     max_time_gap_seconds,
     *,
     allow_unbounded_time_gaps=False,
+    minimum_observation_count=3,
 ):
     """Validate shared configuration and return the normalized gap limit."""
     integer_arguments = {
-        "observation_count": (observation_count, 3),
+        "observation_count": (observation_count, minimum_observation_count),
         "prediction_count": (prediction_count, 1),
         "start_index": (start_index, 0),
     }

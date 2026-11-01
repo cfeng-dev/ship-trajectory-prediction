@@ -12,15 +12,13 @@ from bayestraj.paths import project_path
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 OUTPUT_CSV = project_path("results/bayesian_ctrv_{inference_method}_evaluation.csv")
 
-# Methods: "smc", "vi", "mcmc", or "sequential_vi".
-# Batch VI/MCMC use a fixed sliding window; SMC/Sequential VI update online.
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
     observation_count=10,
     prediction_count=3,
     position_noise_std_m=0.0,
     position_noise_seed=2026,
     stride=1,  # Forecast-origin step: one new forecast per radar cycle.
-    inference_method="sequential_vi",
+    inference_method="sequential_vi",  # Methods: "smc", "vi", "mcmc", or "sequential_vi".
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

@@ -30,7 +30,7 @@ functions {
 // Fixed inputs provided by Python: observed data, forecast times, and prior settings.
 data {
   // Recorded local positions used for inference.
-  int<lower=3> N_history;
+  int<lower=2> N_history;
   vector[N_history] time_observed;
   vector[N_history] x_observed;
   vector[N_history] y_observed;
@@ -162,19 +162,21 @@ model {
   }
 
   // Scale process noise from the reference interval to each observed time gap.
-  for (n in 2:(N_history - 1)) {
-    real dt = time_observed[n] - time_observed[n - 1];
-    real process_time_scale = sqrt(dt / process_reference_interval_seconds);
-    real speed_process_scale = sigma_speed_process * process_time_scale;
-    real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
+  if (N_history > 2) {
+    for (n in 2:(N_history - 1)) {
+      real dt = time_observed[n] - time_observed[n - 1];
+      real process_time_scale = sqrt(dt / process_reference_interval_seconds);
+      real speed_process_scale = sigma_speed_process * process_time_scale;
+      real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
 
-    // Fold negative Gaussian speed proposals at zero.
-    target += log_sum_exp(
-        normal_lpdf(speed_state[n] | speed_state[n - 1], speed_process_scale),
-        normal_lpdf(-speed_state[n] | speed_state[n - 1], speed_process_scale));
+      // Fold negative Gaussian speed proposals at zero.
+      target += log_sum_exp(
+          normal_lpdf(speed_state[n] | speed_state[n - 1], speed_process_scale),
+          normal_lpdf(-speed_state[n] | speed_state[n - 1], speed_process_scale));
 
-    // Allow turn-rate changes in either direction.
-    turn_rate_state[n] ~ normal(turn_rate_state[n - 1], turn_rate_process_scale);
+      // Allow turn-rate changes in either direction.
+      turn_rate_state[n] ~ normal(turn_rate_state[n - 1], turn_rate_process_scale);
+    }
   }
 }
 

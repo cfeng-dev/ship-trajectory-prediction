@@ -2,7 +2,7 @@
 
 import inspect
 import os
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import numpy as np
 import pandas as pd
@@ -133,6 +133,23 @@ def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     )
     assert "speed_state_lower_mps" not in stan_data
     assert "gps_speed" not in stan_data
+
+
+@pytest.mark.parametrize("stationary", [False, True])
+def test_batch_accepts_two_positions_and_builds_one_transition_initials(stationary):
+    window = replace(_dynamic_ctrv_window(), observation_count=2)
+    if stationary:
+        window = replace(window, x_meters=np.zeros(8), y_meters=np.zeros(8))
+
+    data = ctrv_model.build_stan_data(window)
+    initial = batch_inference._default_initial_values(data, seed=42)
+
+    assert data["N_history"] == 2
+    np.testing.assert_array_equal(data["x_observed"], window.x_meters[:2])
+    np.testing.assert_array_equal(data["time_prediction"], window.time_seconds[2:])
+    assert initial["speed_state"].shape == (1,)
+    assert initial["turn_rate_state"].shape == (1,)
+    assert all(np.all(np.isfinite(value)) for value in initial.values())
 
 
 def test_process_noise_uses_one_second_reference_interval():
@@ -729,3 +746,31 @@ def test_dynamic_batch_ctrv_mcmc_integration():
         fit,
         prediction_count=window.prediction_count,
     )
+
+
+@pytest.mark.skipif(
+    not RUN_CMDSTAN_INTEGRATION,
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run two-position batch fits.",
+)
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_two_position_batch_ctrv_integration(method):
+    window = replace(_dynamic_ctrv_window(), observation_count=2)
+    fit = batch_inference.fit_bayesian_ctrv_model(
+        window,
+        inference_method=method,
+        iter=2_000,
+        draws=64,
+        grad_samples=20,
+        elbo_samples=50,
+        adapt_iter=50,
+        tol_rel_obj=0.05,
+        chains=1,
+        parallel_chains=1,
+        iter_warmup=100,
+        iter_sampling=64,
+        require_converged=False,
+        seed=42,
+    )
+
+    _assert_dynamic_batch_fit_interface(fit, prediction_count=window.prediction_count)
+    assert reporting.posterior_variable_samples(fit, "speed_state").shape[-1] == 1

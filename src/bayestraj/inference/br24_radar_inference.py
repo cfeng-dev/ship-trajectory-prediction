@@ -1,7 +1,7 @@
 """Causal VI, MCMC, and Sequential VI backends for raw radar cycles.
 
 Association uses each backend's own latent predictive distribution. Until a
-fit is identifiable, a labelled seed-conditioned prior is propagated without
+fit is available, a labelled seed-conditioned prior is propagated without
 conditioning on buffered fixes. The first fit starts from the configured
 priors and real fixes, discarding that temporary predictive population.
 """
@@ -19,7 +19,7 @@ import pandas as pd
 from bayestraj import numeric_validation
 from bayestraj.inference import ctrv_cmdstan, ctrv_sequential_vi, particle_utils
 from bayestraj.models import ctrv
-from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.observations.position import PositionObservations
 from bayestraj.observations.window import TrajectoryWindowData
 
@@ -268,8 +268,10 @@ class CausalBR24RadarFilter:
         observation_count = numeric_validation.validate_non_negative_integer(
             "observation_count", observation_count
         )
-        if observation_count < 3:
-            raise ValueError("observation_count must be at least three raw cycles.")
+        if observation_count < MIN_OBSERVATION_COUNT:
+            raise ValueError(
+                f"observation_count must be at least {MIN_OBSERVATION_COUNT} raw cycles."
+            )
         seed = numeric_validation.validate_non_negative_integer("seed", seed)
         if inference_method == "sequential_vi":
             config = sequential_vi_config or ctrv_sequential_vi.SequentialVIConfig()
@@ -454,7 +456,7 @@ class CausalBR24RadarFilter:
             minimum = (
                 self.config.n_bootstrap
                 if self.inference_method == "sequential_vi"
-                else 3
+                else MIN_OBSERVATION_COUNT
             )
             if np.count_nonzero(mask) >= minimum:
                 self._fit(times, positions, covariances, mask)

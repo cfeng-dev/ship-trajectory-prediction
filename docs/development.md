@@ -89,7 +89,9 @@ uv run python experiments/model_evaluation/bayesian_ctrv.py
 ```
 
 Configure the inference method (`smc`, `vi`, `mcmc`, or `sequential_vi`), priors,
-forecast settings, and VI options in the script header.
+and forecast settings in the script header. `observation_count` limits the past
+points per VI/MCMC fit: start with two points, grow to this limit, then slide.
+Evaluation starts at N=2; Sequential VI has its own bootstrap count.
 
 Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`.
 Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved

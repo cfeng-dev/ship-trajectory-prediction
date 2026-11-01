@@ -631,9 +631,12 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     assert [axis.get_title() for axis in motion_axes] == [
         "Speed posterior",
         "Heading posterior",
-        "Initial turn-rate prior",
+        "Turn-rate posterior",
     ]
-    assert [line.get_label() for line in motion_axes[2].lines] == ["Initial prior"]
+    assert [line.get_label() for line in motion_axes[2].lines] == [
+        "Initial prior",
+        "Posterior density",
+    ]
     assert [axis.get_title() for axis in noise_axes] == [
         "Position-observation-noise posterior",
         "Speed-process-noise posterior",
@@ -2645,11 +2648,14 @@ def test_dashboard_loader_propagates_sequential_vi_update_failure():
         load_update(6)
 
 
-def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windows(
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_windows(
     monkeypatch,
+    method,
 ):
     dashboard = _load_dashboard_module()
     vi_config = inference.create_default_vi_config()
+    mcmc_config = inference.create_default_mcmc_config()
     fit_calls = []
     prior_calls = []
 
@@ -2683,7 +2689,7 @@ def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windo
         maximum_observation_count=None,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
-        inference_method="vi",
+        inference_method=method,
         inference_seed=42,
         prediction_count=1,
     )
@@ -2693,31 +2699,38 @@ def test_dashboard_loader_runs_vi_from_prior_then_uses_growing_and_sliding_windo
             experiment=experiment,
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=vi_config,
-            mcmc_config=inference.create_default_mcmc_config(),
+            mcmc_config=mcmc_config,
             smc_config=inference.create_default_ctrv_smc_config(),
             fit_batch_model=fit_batch_model,
         )
     )
 
-    prior_updates = [load_update(1), load_update(2)]
-    fitted_updates = [load_update(count) for count in (3, 9, 10, 11)]
+    prior_updates = [load_update(1)]
+    fitted_updates = [load_update(count) for count in (2, 3, 9, 10, 11)]
 
     assert maximum_count == 14
     assert minimum_count == 1
     assert trajectory.reference_x.shape == (15,)
-    assert len(prior_calls) == 2
-    assert [call["draw_count"] for call in prior_calls] == [vi_config["draws"]] * 2
-    assert [call["seed"] for call in prior_calls] == [42, 42]
+    assert len(prior_calls) == 1
+    draw_count = (
+        vi_config["draws"]
+        if method == "vi"
+        else mcmc_config["chains"] * mcmc_config["iter_sampling"]
+    )
+    assert [call["draw_count"] for call in prior_calls] == [draw_count]
+    assert [call["seed"] for call in prior_calls] == [42]
     assert all(update.is_prior_predictive for update in prior_updates)
     assert not any(update.is_prior_predictive for update in fitted_updates)
-    assert [call[0].observation_count for call in fit_calls] == [3, 9, 10, 10]
+    assert [call[0].observation_count for call in fit_calls] == [2, 3, 9, 10, 10]
     assert [call[0].timestamps[0] for call in fit_calls] == [
+        pd.Timestamp("1970-01-01T00:00:00Z"),
         pd.Timestamp("1970-01-01T00:00:00Z"),
         pd.Timestamp("1970-01-01T00:00:00Z"),
         pd.Timestamp("1970-01-01T00:00:00Z"),
         pd.Timestamp("1970-01-01T00:00:00Z"),
     ]
     assert [call[0].timestamps[-2] for call in fit_calls] == [
+        pd.Timestamp("1970-01-01T00:00:10Z"),
         pd.Timestamp("1970-01-01T00:00:20Z"),
         pd.Timestamp("1970-01-01T00:01:20Z"),
         pd.Timestamp("1970-01-01T00:01:30Z"),
@@ -2763,7 +2776,7 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
     update = load_update(12)
 
     assert maximum_count == 13
-    assert minimum_count == 10
+    assert minimum_count == 1
     assert trajectory.reference_x.shape == (14,)
     assert len(fit_calls) == 1
     window, options = fit_calls[0]
@@ -2797,11 +2810,17 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
     assert update.resample_count is None
 
 
-def test_dashboard_loader_rejects_mcmc_analysis_without_ten_observations():
+def test_dashboard_loader_evaluates_mcmc_fit_at_two_on_a_short_trajectory():
     dashboard = _load_dashboard_module()
+    fit_counts = []
+
+    def fit_batch_model(window, **options):
+        fit_counts.append(window.observation_count)
+        return _FakeFit(_dashboard_fit_variables())
+
     experiment = dashboard.PosteriorDashboardConfig(
         start_index=0,
-        maximum_observation_count=9,
+        maximum_observation_count=3,
         position_noise_std_m=0.0,
         position_noise_seed=2026,
         inference_method="mcmc",
@@ -2809,15 +2828,29 @@ def test_dashboard_loader_rejects_mcmc_analysis_without_ten_observations():
         prediction_count=1,
     )
 
-    with pytest.raises(ValueError, match="at least 10 observations"):
+    trajectory, _, minimum_count, load_update = (
         dashboard.create_posterior_dashboard_loader(
-            _dashboard_trajectory_data(12),
+            _dashboard_trajectory_data(4),
             experiment=experiment,
             priors=bayesian_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
             mcmc_config=inference.create_default_mcmc_config(),
             smc_config=inference.create_default_ctrv_smc_config(),
+            fit_batch_model=fit_batch_model,
         )
+    )
+
+    update = load_update(2)
+    metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
+
+    assert minimum_count == 1
+    assert fit_counts == [2]
+    assert not update.is_prior_predictive
+    assert update.forecast is not None
+    assert metrics.ade_m is not None
+    assert metrics.fde_m is not None
+    assert metrics.rmse_m is not None
+    assert metrics.joint_coverage_total == 1
 
 
 def test_dashboard_loader_updates_one_filter_and_extracts_all_parameters():

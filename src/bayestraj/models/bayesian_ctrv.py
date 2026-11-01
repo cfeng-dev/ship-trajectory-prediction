@@ -22,7 +22,7 @@ from bayestraj.models.ctrv import (
 
 STAN_FILE = stan_resources.stan_path("models/bayesian_ctrv.stan")
 
-MIN_OBSERVATION_COUNT = 3
+MIN_OBSERVATION_COUNT = 2
 
 PositionObservations = observation_support.PositionObservations
 simulate_position_observations = observation_support.simulate_position_observations

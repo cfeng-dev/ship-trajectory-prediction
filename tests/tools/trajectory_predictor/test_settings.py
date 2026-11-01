@@ -733,7 +733,7 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
     ("group", "field", "value"),
     [
         ("data", "start_index", "-1"),
-        ("data", "maximum_observation_count", "2"),
+        ("data", "maximum_observation_count", "1"),
         ("data", "position_noise_std_m", "nan"),
         ("data", "playback_interval_seconds", "0"),
         ("priors", "speed_prior_tail_probability", "1"),
