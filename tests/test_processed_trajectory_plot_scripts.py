@@ -12,6 +12,7 @@ import pytest
 from imm_predictor import player as imm_player
 
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
+from bayestraj.validation import bayesian_ctrv_workflow as bayesian_workflow
 from bayestraj.validation import imm_workflow, rolling, runtime_plotting
 from bayestraj.validation import plotting as validation_plotting
 
@@ -278,6 +279,60 @@ def test_imm_evaluation_loader_matches_predictor_medians_without_changing_filter
     np.testing.assert_array_equal(
         evaluator.estimated_position, original.estimated_position
     )
+
+
+def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
+    tmp_path, monkeypatch
+):
+    module = runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py")
+    settings = module["main"].__globals__
+    if not settings["IMM_PYTHON"].is_file() or not settings["DATA_FILE"].is_file():
+        pytest.skip("Optional local IMM implementation or BR24 data is unavailable")
+    output = tmp_path / "imm_evaluation.csv"
+    monkeypatch.setitem(settings, "OUTPUT_CSV", output)
+    monkeypatch.setitem(settings, "SHOW_ROLLING_PLOT", False)
+    monkeypatch.setitem(settings, "MAX_WINDOWS", 2)
+    cycles = imm_workflow.br24.read_br24_tracking_input(settings["DATA_FILE"])
+    bayesian = runpy.run_path(
+        PROJECT_ROOT / "experiments/model_evaluation/bayesian_ctrv.py"
+    )
+    experiment = bayesian["EXPERIMENT"]
+    windows = bayesian_workflow._build_evaluation_windows(
+        len(cycles),
+        online_mode=True,
+        batch_observation_count=experiment.observation_count,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+        window_mode=None,
+    )[:2]
+
+    predictions, summary = module["main"]([])
+
+    expected_origins = [
+        window.forecast_start_index
+        for window in windows
+        for _ in range(window.prediction_count)
+    ]
+    expected_targets = [
+        index
+        for window in windows
+        for index in range(
+            window.forecast_start_index,
+            window.forecast_start_index + window.prediction_count,
+        )
+    ]
+    assert summary.window_count == 2
+    assert predictions["forecast_start_index"].tolist() == expected_origins
+    assert predictions["target_index"].tolist() == expected_targets
+    assert predictions["observation_count"].tolist() == expected_origins
+    assert predictions["forecast_origin_seconds"].iloc[0] == cycles[1].time_seconds
+    assert predictions["time"].iloc[0] == pd.Timestamp(
+        cycles[2].time_seconds, unit="s", tz="UTC"
+    )
+    assert np.all(np.isfinite(predictions["negative_log_predictive_density"]))
+    exported = pd.read_csv(output)
+    assert exported["forecast_start_index"].tolist() == expected_origins
+    assert list(tmp_path.iterdir()) == [output]
 
 
 @pytest.mark.parametrize(
