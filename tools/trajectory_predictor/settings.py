@@ -40,7 +40,7 @@ METHODS = ("smc", "sequential_vi", "vi", "mcmc")
 GUI_INFERENCE_METHODS = ("smc", "sequential_vi", "vi", "mcmc")
 METHOD_DISPLAY_LABELS = {
     "smc": "SMC – Sequential Monte Carlo",
-    "sequential_vi": "Sequential VI - online variational inference",
+    "sequential_vi": "Seq. VI – Sequential variational inference",
     "vi": "VI – Variational inference",
     "mcmc": "MCMC – Markov chain Monte Carlo",
 }
