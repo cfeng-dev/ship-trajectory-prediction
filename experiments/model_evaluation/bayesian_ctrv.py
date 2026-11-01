@@ -13,13 +13,12 @@ DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv"
 OUTPUT_CSV = project_path("results/bayesian_ctrv_{inference_method}_evaluation.csv")
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
-    observation_count=10,
-    prediction_count=3,
-    position_noise_std_m=0.0,
-    position_noise_seed=2026,
-    stride=1,  # Forecast-origin step: one new forecast per radar cycle.
-    inference_method="vi",  # Methods: "smc", "vi", "mcmc", or "seq_vi".
-    inference_seed=42,
+    prediction_count=3,  # Future positions per forecast.
+    position_noise_std_m=0.0,  # Added noise std. [m]; 0 = off.
+    position_noise_seed=2026,  # Reproducible added noise.
+    stride=1,  # Input steps between forecasts.
+    inference_method="vi",  # Online: "smc", "seq_vi"; batch: "vi", "mcmc".
+    inference_seed=42,  # Reproducible inference.
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(
     speed_prior_upper_mps=10.0,

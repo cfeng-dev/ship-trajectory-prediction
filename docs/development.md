@@ -89,8 +89,8 @@ uv run python experiments/model_evaluation/bayesian_ctrv.py
 ```
 
 Configure the inference method (`smc`, `vi`, `mcmc`, or `seq_vi`), priors,
-and forecast settings in the script header. `observation_count` limits the past
-points per VI/MCMC fit: start with two points, grow to this limit, then slide.
+and forecast settings in the script header. VI/MCMC use the shared default of
+ten past points per fit: start with two points, grow to ten, then slide.
 Evaluation starts at N=2; Sequential VI initializes once from three accepted
 measurements by default, then updates one measurement at a time.
 
