@@ -297,7 +297,7 @@ def _run_evaluation(
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
-        window_seed = experiment.inference_seed + specification.window_index
+        window_seed = experiment.inference_seed
         window = _prepare_evaluation_window(
             trajectory_data,
             observation_count=specification.observation_count,
@@ -649,7 +649,7 @@ def _run_br24_radar_evaluation(
         future_times = cycle_times[
             specification.forecast_start_index : forecast_stop_index
         ]
-        window_seed = experiment.inference_seed + specification.window_index
+        window_seed = experiment.inference_seed
         print(
             f"\nForecast {number}/{len(windows)}: "
             f"observations={specification.observation_count}, "
@@ -1213,7 +1213,7 @@ def _prepare_route_time_seconds(trajectory_data):
 
 
 def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed):
-    """Generate one reproducible perturbation for every route position."""
+    """Draw route-wide x/y noise in the same order as the desktop predictor."""
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         position_noise_std_m,
@@ -1232,12 +1232,9 @@ def _simulate_route_position_noise(position_count, *, position_noise_std_m, seed
         zeros = np.zeros(int(position_count), dtype=float)
         return zeros, zeros.copy()
     generator = np.random.default_rng(seed)
-    noise = generator.normal(
-        0.0,
-        position_noise_std_m,
-        size=(int(position_count), 2),
-    )
-    return noise[:, 0], noise[:, 1]
+    noise_x = generator.normal(0.0, position_noise_std_m, int(position_count))
+    noise_y = generator.normal(0.0, position_noise_std_m, int(position_count))
+    return noise_x, noise_y
 
 
 def _build_window_position_observations(

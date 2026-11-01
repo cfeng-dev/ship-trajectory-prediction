@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import trajectory_predictor.dashboard as dashboard
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
@@ -135,10 +136,11 @@ def _run_br24_evaluation(
     position_noise_std_m=0.0,
     max_windows=None,
     sequential_vi_config=None,
+    prediction_count=1,
 ):
     experiment = forecasting.RollingExperimentConfig(
         observation_count=10,
-        prediction_count=1,
+        prediction_count=prediction_count,
         position_noise_std_m=position_noise_std_m,
         position_noise_seed=2026,
         stride=1,
@@ -147,7 +149,7 @@ def _run_br24_evaluation(
     )
     options = validation_cli.BayesianCTRVEvaluationOptions(
         observation_count=10,
-        prediction_count=1,
+        prediction_count=prediction_count,
         stride=1,
         inference_method=inference_method,
         vi_algorithm="meanfield",
@@ -303,9 +305,11 @@ def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_poi
         input_csv, index=False
     )
     fit_observations = []
+    fit_seeds = []
 
     def fit_window(window, *, position_observations, initial_seed, **kwargs):
         fit_observations.append(position_observations.x_meters.copy())
+        fit_seeds.append(initial_seed)
         fit = sequential_vi_model.forecast_ctrv_prior_predictive(
             x_at_origin=position_observations.x_meters[-1],
             y_at_origin=position_observations.y_meters[-1],
@@ -335,6 +339,62 @@ def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_poi
     for origin, positions in zip(range(2, 14), fit_observations, strict=True):
         np.testing.assert_array_equal(positions, np.arange(max(0, origin - 10), origin))
     assert not predictions["is_prior_predictive"].any()
+    assert fit_seeds == [42] * 12
+
+
+@pytest.mark.parametrize(
+    ("radar_input", "position_noise_std_m"),
+    [(True, 0.0), (False, 0.0), (False, 1.5)],
+)
+def test_rolling_forecasts_match_the_tool_at_every_origin(
+    tmp_path, radar_input, position_noise_std_m
+):
+    input_csv = tmp_path / "trajectory.csv"
+    if radar_input:
+        _write_br24_evaluation_input(input_csv)
+    else:
+        pd.DataFrame(
+            {
+                "time": [10.0, 12.8, 16.0, 18.5, 21.3, 25.0],
+                "x": np.arange(6, dtype=float),
+                "y": np.zeros(6),
+            }
+        ).to_csv(input_csv, index=False)
+    experiment = dashboard.PosteriorDashboardConfig(
+        start_index=0,
+        maximum_observation_count=None,
+        prediction_count=3,
+        position_noise_std_m=position_noise_std_m,
+        position_noise_seed=2026,
+        inference_method="smc",
+        inference_seed=42,
+    )
+    options = {
+        "experiment": experiment,
+        "priors": bayesian_model.BayesianCTRVPriors(),
+        "smc_config": smc_model.SequentialMonteCarloCTRVConfig(
+            particle_count=64, posterior_draw_count=16
+        ),
+    }
+    if radar_input:
+        _, _, _, load_update = dashboard.create_br24_radar_dashboard_loader(
+            input_csv, **options
+        )
+    else:
+        _, _, _, load_update = dashboard.create_posterior_dashboard_loader(
+            pd.read_csv(input_csv), vi_config={}, mcmc_config={}, **options
+        )
+
+    predictions, _ = _run_br24_evaluation(
+        input_csv, position_noise_std_m=position_noise_std_m, prediction_count=3
+    )
+
+    for count, rows in predictions.groupby("forecast_start_index", sort=True):
+        forecast = load_update(int(count)).forecast
+        np.testing.assert_array_equal(
+            forecast.median_positions,
+            rows[["x_median_route", "y_median_route"]].to_numpy(),
+        )
 
 
 def test_processed_sequential_vi_keeps_prior_forecasts_until_its_own_bootstrap(
