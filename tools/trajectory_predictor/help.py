@@ -174,7 +174,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Sequential VI",
-                "Online variational inference; distinct from the rolling batch VI option",
+                "Initializes once from three accepted measurements, then updates one measurement at a time; distinct from rolling batch VI",
             ),
             (
                 "Inference parameters",

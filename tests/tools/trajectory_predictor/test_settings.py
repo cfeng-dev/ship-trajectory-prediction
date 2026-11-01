@@ -661,19 +661,24 @@ def test_trajectory_predictor_defaults_to_br24_tracking_input_with_reference():
     assert "run_id" not in data
 
 
-def test_sequential_vi_defaults_and_parsing_preserve_full_config(form):
+def test_sequential_vi_hides_bootstrap_and_preserves_its_internal_default(form):
     defaults = settings.default_form_values()["sequential_vi"]
 
-    assert defaults["n_bootstrap"] == "3"
+    assert "n_bootstrap" not in defaults
     assert settings.create_default_sequential_vi_config().n_bootstrap == 3
-    assert set(defaults) == set(SequentialVIConfig.__dataclass_fields__)
+    assert set(defaults) == set(SequentialVIConfig.__dataclass_fields__) - {
+        "n_bootstrap"
+    }
     form["data"]["inference_method"] = "sequential_vi"
-    form["sequential_vi"]["n_bootstrap"] = "6"
+    form["sequential_vi"]["draws"] = "32"
+    validated = settings.validate_dialog_values("sequential_vi", form["sequential_vi"])
+    assert set(validated) == set(defaults)
     first = settings.parse_settings(form).analysis.sequential_vi_config
     second = settings.parse_settings(form).analysis.sequential_vi_config
 
     assert isinstance(first, SequentialVIConfig)
-    assert first.n_bootstrap == 6
+    assert first.n_bootstrap == 3
+    assert first.draws == 32
     assert first is not second
 
 

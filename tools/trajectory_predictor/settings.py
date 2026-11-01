@@ -215,6 +215,7 @@ def default_form_values():
             if value is None
             else str(value)
             for key, value in fields.items()
+            if group != "sequential_vi" or key != "n_bootstrap"
         }
         for group, fields in _defaults().items()
     }
@@ -347,6 +348,7 @@ def validate_dialog_values(group, values):
         type(create_default_ctrv_smc_config())(**parsed)
     elif group == "sequential_vi":
         _validate_sequential_vi(parsed)
+        parsed.pop("n_bootstrap")
     else:
         _validate_batch(group, parsed)
     return parsed
