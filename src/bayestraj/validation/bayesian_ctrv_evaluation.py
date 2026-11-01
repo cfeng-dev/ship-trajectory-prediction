@@ -32,9 +32,10 @@ def run_evaluation(
     """Evaluate and export forecasts using settings supplied by the entrypoint.
 
     The optional `{inference_method}` placeholder in `output_csv` follows the
-    actual selection, including command-line overrides. Literal paths are also
-    accepted for custom output filenames. None or an empty string skips export
-    with a terminal warning. Export failures do not prevent diagnostic plots.
+    actual selection, including command-line overrides. Sequential VI uses
+    `seq_vi` in filenames. Literal paths are also accepted for custom output
+    filenames. None or an empty string skips export with a terminal warning.
+    Export failures do not prevent diagnostic plots.
     """
     options = cli.parse_bayesian_ctrv_evaluation_arguments(
         description=description,
@@ -75,7 +76,10 @@ def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | 
             raise ValueError("no output file configured")
         if not isinstance(value, (str, Path)):
             raise TypeError("expected a .csv path or None")
-        path = Path(str(value).replace("{inference_method}", inference_method))
+        filename_method = (
+            "seq_vi" if inference_method == "sequential_vi" else inference_method
+        )
+        path = Path(str(value).replace("{inference_method}", filename_method))
         if path.suffix.lower() != ".csv":
             raise ValueError("expected a .csv filename")
         if path.is_dir():

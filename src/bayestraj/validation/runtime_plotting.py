@@ -10,6 +10,13 @@ import bayestraj.observations.plotting as observation_plotting
 
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 COMPARISON_MODEL_COLORS = ("#0072B2", "#E69F00")
+COMPARISON_INFERENCE_COLORS = {
+    "imm": "#E69F00",
+    "smc": "#0072B2",
+    "vi": "#009E73",
+    "mcmc": "#CC79A7",
+    "sequential_vi": "#D55E00",
+}
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
     ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
     (
@@ -87,10 +94,37 @@ def plot_imm_rolling_diagnostics(predictions):
 
 def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
     """Plot per-origin metrics and final coverage over all matched predictions."""
-    series = [_rolling_window_metric_series(table) for table in (bayesian, imm)]
+    return plot_model_comparison(
+        {"bayesian_ctrv": bayesian, "imm": imm},
+        labels={
+            "bayesian_ctrv": f"Bayesian CTRV ({bayesian['inference_method'].iloc[0].upper()})",
+            "imm": "IMM",
+        },
+        title="Bayesian CTRV vs. IMM",
+        show=show,
+        output_dir=output_dir,
+    )
+
+
+def plot_model_comparison(
+    models, *, labels=None, title="Model comparison", show=True, output_dir=None
+):
+    """Plot all selected models using the same metric and coverage styles."""
+    if len(models) < 2:
+        raise ValueError("Select at least two models for comparison.")
+    names = list(models)
+    tables = list(models.values())
+    labels = [name if labels is None else labels[name] for name in names]
+    series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
-    labels = (f"Bayesian CTRV ({bayesian['inference_method'].iloc[0].upper()})", "IMM")
+    colors = [
+        COMPARISON_INFERENCE_COLORS.get(
+            table["inference_method"].iloc[0],
+            COMPARISON_MODEL_COLORS[index % len(COMPARISON_MODEL_COLORS)],
+        )
+        for index, table in enumerate(tables)
+    ]
     if output_dir is not None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -107,9 +141,7 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
         if nominal is None:
             averages = []
-            for (_, values), label, color in zip(
-                series, labels, COMPARISON_MODEL_COLORS, strict=True
-            ):
+            for (_, values), label, color in zip(series, labels, colors, strict=True):
                 metric = values[name]
                 average = float(np.mean(metric))
                 averages.append(average)
@@ -125,12 +157,19 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
             axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
         else:
             column = f"joint_covered_{100 * nominal:.0f}"
-            averages = [float(table[column].mean()) for table in (bayesian, imm)]
+            averages = [float(table[column].mean()) for table in tables]
             bars = axis.bar(
-                labels,
+                np.arange(len(labels)),
                 100 * np.asarray(averages),
-                color=COMPARISON_MODEL_COLORS,
+                color=colors,
                 width=0.55,
+            )
+            axis.set_xticks(
+                np.arange(len(labels)),
+                [
+                    label.replace(" (", "\n(") if len(labels) > 2 else label
+                    for label in labels
+                ],
             )
             for bar in bars:
                 percent = bar.get_height()
@@ -160,9 +199,12 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
             color="0.7",
             alpha=0.2,
         )
-        axis.legend(loc=style.legend_location)
+        axis.legend(
+            loc=style.legend_location,
+            ncol=2 if len(models) > 2 and nominal is None else 1,
+        )
         figure.suptitle(
-            "Bayesian CTRV vs. IMM",
+            title,
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )
@@ -175,8 +217,7 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
         rows.append(
             {
                 "metric": name,
-                "bayesian_ctrv": averages[0],
-                "imm": averages[1],
+                **dict(zip(names, averages, strict=True)),
                 "preferred": "lower"
                 if nominal is None
                 else f"near {100 * nominal:.0f}%",

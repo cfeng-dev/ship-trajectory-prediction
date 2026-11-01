@@ -47,6 +47,7 @@ def _parse_bayesian_prediction_arguments(
         choices=(
             *inference.BATCH_INFERENCE_METHODS,
             *inference.CTRV_ONLINE_INFERENCE_METHODS,
+            *inference.INFERENCE_METHOD_ALIASES,
         ),
         default=experiment.inference_method,
         help="VI/MCMC use batch inference; SMC/Sequential VI use online inference.",

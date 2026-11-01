@@ -12,6 +12,7 @@ DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
 ONLINE_INFERENCE_METHODS = ("smc", "sequential_vi")
+INFERENCE_METHOD_ALIASES = {"seq_vi": "sequential_vi"}
 CTRV_ONLINE_INFERENCE_METHODS = ONLINE_INFERENCE_METHODS
 WINDOW_MODES = ("sliding", "expanding")
 _CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
@@ -29,11 +30,14 @@ def normalize_inference_method(
     *,
     online_inference_methods: tuple[str, ...] = ONLINE_INFERENCE_METHODS,
 ) -> tuple[str, str]:
-    """Validate an inference method and derive its batch or online mode."""
+    """Validate a method or short alias and derive its batch or online mode."""
     if not isinstance(inference_method, str):
         raise ValueError("inference_method must be a supported inference method.")
 
     normalized_method = inference_method.strip().lower()
+    normalized_method = INFERENCE_METHOD_ALIASES.get(
+        normalized_method, normalized_method
+    )
     if normalized_method in BATCH_INFERENCE_METHODS:
         return "batch", normalized_method
     if normalized_method in online_inference_methods:
@@ -60,6 +64,9 @@ def normalize_inference_configuration(
     if not isinstance(inference_method, str):
         raise ValueError("inference_method must be a supported inference method.")
     normalized_method = inference_method.strip().lower()
+    normalized_method = INFERENCE_METHOD_ALIASES.get(
+        normalized_method, normalized_method
+    )
     allowed_methods = (
         BATCH_INFERENCE_METHODS
         if normalized_mode == "batch"
@@ -112,6 +119,9 @@ def normalize_ctrv_rolling_inference_method(
         raise ValueError("rolling inference_method must be a supported value.")
 
     normalized_selection = inference_method.strip().lower()
+    normalized_selection = INFERENCE_METHOD_ALIASES.get(
+        normalized_selection, normalized_selection
+    )
     if normalized_selection in CTRV_ONLINE_INFERENCE_METHODS:
         return "online", normalized_selection, None
     if normalized_selection in _CTRV_ROLLING_BATCH_INFERENCE_METHODS:

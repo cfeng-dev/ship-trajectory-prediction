@@ -96,7 +96,10 @@ def parse_bayesian_ctrv_evaluation_arguments(
         "--inference-method",
         "--inference",
         dest="inference_method",
-        choices=inference.CTRV_ROLLING_INFERENCE_METHODS,
+        choices=(
+            *inference.CTRV_ROLLING_INFERENCE_METHODS,
+            *inference.INFERENCE_METHOD_ALIASES,
+        ),
         default=experiment.inference_method,
         help="Choose fixed-window VI/MCMC or online SMC/Sequential VI inference.",
     )

@@ -18,7 +18,7 @@ EXPERIMENT = ctrv_config.RollingExperimentConfig(
     position_noise_std_m=0.0,
     position_noise_seed=2026,
     stride=1,  # Forecast-origin step: one new forecast per radar cycle.
-    inference_method="vi",  # Methods: "smc", "vi", "mcmc", or "sequential_vi".
+    inference_method="vi",  # Methods: "smc", "vi", "mcmc", or "seq_vi".
     inference_seed=42,
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

@@ -11,7 +11,7 @@ DATA_FILE = project_path("data/processed/ship_trajectory_run_42.csv")
 
 # Single-window inference:
 # - Batch: "vi" or "mcmc".
-# - Online: "smc" or "sequential_vi".
+# - Online: "smc" or "seq_vi".
 EXPERIMENT = config.ExperimentConfig(
     start_index=0,
     observation_count=10,

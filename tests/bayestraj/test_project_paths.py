@@ -50,7 +50,7 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
         ),
         (
             "experiments/model_comparison/compare_bayesian_ctrv_imm.py",
-            "BAYESIAN_CSV",
+            "BAYESIAN_SMC_CSV",
             "results/bayesian_ctrv_smc_evaluation.csv",
         ),
         (

@@ -41,28 +41,37 @@ def evaluation_run(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("method", "csv_name"),
+    ("method", "canonical_method", "csv_name"),
     [
         (
+            "smc",
             "smc",
             "bayesian_ctrv_smc_evaluation.csv",
         ),
         (
             "vi",
+            "vi",
             "bayesian_ctrv_vi_evaluation.csv",
         ),
         (
+            "mcmc",
             "mcmc",
             "bayesian_ctrv_mcmc_evaluation.csv",
         ),
         (
             "sequential_vi",
-            "bayesian_ctrv_sequential_vi_evaluation.csv",
+            "sequential_vi",
+            "bayesian_ctrv_seq_vi_evaluation.csv",
+        ),
+        (
+            "seq_vi",
+            "sequential_vi",
+            "bayesian_ctrv_seq_vi_evaluation.csv",
         ),
     ],
 )
 def test_run_button_uses_header_method_and_exports_its_own_csv(
-    tmp_path, monkeypatch, evaluation_run, method, csv_name
+    tmp_path, monkeypatch, evaluation_run, method, canonical_method, csv_name
 ):
     _, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
@@ -77,8 +86,8 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     namespace["main"]()
 
     assert len(calls) == 1
-    assert calls[0]["experiment"].inference_method == method
-    assert calls[0]["options"].inference_method == method
+    assert calls[0]["experiment"].inference_method == canonical_method
+    assert calls[0]["options"].inference_method == canonical_method
     assert calls[0]["options"].prediction_count == 3
     assert calls[0]["options"].stride == 1
     assert calls[0]["data_file"] == (
@@ -92,7 +101,9 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     assert list((tmp_path / "results").iterdir()) == [output]
     pd.testing.assert_frame_equal(
         pd.read_csv(output),
-        pd.DataFrame({"inference_method": [method], "position_error_m": [2.5]}),
+        pd.DataFrame(
+            {"inference_method": [canonical_method], "position_error_m": [2.5]}
+        ),
     )
 
 
@@ -125,14 +136,18 @@ def test_cli_override_exports_selected_method_without_overwriting_other_methods(
     ].tolist() == ["vi"]
 
 
+@pytest.mark.parametrize(
+    ("method", "canonical_method", "csv_method"),
+    [("mcmc", "mcmc", "mcmc"), ("seq_vi", "sequential_vi", "seq_vi")],
+)
 def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
-    tmp_path, monkeypatch, evaluation_run
+    tmp_path, monkeypatch, evaluation_run, method, canonical_method, csv_method
 ):
     evaluation, calls = evaluation_run
     plotted = []
 
     def plot(table, *, inference_selection):
-        output = tmp_path / "results/bayesian_ctrv_mcmc_evaluation.csv"
+        output = tmp_path / f"results/bayesian_ctrv_{csv_method}_evaluation.csv"
         assert output.is_file()
         plotted.append(inference_selection)
 
@@ -141,12 +156,12 @@ def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
     )
     namespace = runpy.run_path(SCRIPT)
 
-    predictions, summary = namespace["main"](["--inference-method", "mcmc"])
+    predictions, summary = namespace["main"](["--inference-method", method])
 
-    assert calls[0]["options"].inference_method == "mcmc"
-    assert predictions["inference_method"].tolist() == ["mcmc"]
+    assert calls[0]["options"].inference_method == canonical_method
+    assert predictions["inference_method"].tolist() == [canonical_method]
     assert summary is None
-    assert plotted == ["mcmc"]
+    assert plotted == [canonical_method]
     assert not (tmp_path / "results/bayesian_ctrv_smc_evaluation.csv").exists()
 
 
@@ -302,13 +317,17 @@ def test_script_header_settings_reach_evaluation_and_control_output(
     assert pd.read_csv(output)["inference_method"].tolist() == [method]
 
 
-def test_comparison_defaults_to_method_specific_smc_csv(tmp_path, monkeypatch):
+def test_comparison_defines_individual_csv_paths_for_all_five_methods(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
 
     namespace = runpy.run_path(
         ROOT / "experiments/model_comparison/compare_bayesian_ctrv_imm.py"
     )
 
-    assert namespace["BAYESIAN_CSV"] == (
-        ROOT / "results/bayesian_ctrv_smc_evaluation.csv"
-    )
+    assert namespace["IMM_CSV"] == ROOT / "results/imm_evaluation.csv"
+    for method in ("smc", "vi", "mcmc", "seq_vi"):
+        assert namespace[f"BAYESIAN_{method.upper()}_CSV"] == (
+            ROOT / f"results/bayesian_ctrv_{method}_evaluation.csv"
+        )

@@ -88,14 +88,16 @@ Run `experiments/model_evaluation/bayesian_ctrv.py` with your IDE's Run button o
 uv run python experiments/model_evaluation/bayesian_ctrv.py
 ```
 
-Configure the inference method (`smc`, `vi`, `mcmc`, or `sequential_vi`), priors,
+Configure the inference method (`smc`, `vi`, `mcmc`, or `seq_vi`), priors,
 and forecast settings in the script header. `observation_count` limits the past
 points per VI/MCMC fit: start with two points, grow to this limit, then slide.
 Evaluation starts at N=2; Sequential VI has its own bootstrap count.
 
-Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`.
+Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`
+(`seq_vi` for Sequential VI).
 Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
-evaluation CSVs.
+evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
+model. All selected models are compared on their common forecast origins.
 
 ## Code Quality and Tests
 

@@ -296,6 +296,32 @@ def test_sequential_vi_is_registered_for_online_inference():
     )
 
 
+@pytest.mark.parametrize("selection", ["seq_vi", " SEQ_VI "])
+def test_short_sequential_vi_name_selects_the_existing_online_method(selection):
+    assert inference.normalize_inference_method(selection) == (
+        "online",
+        "sequential_vi",
+    )
+    assert inference.normalize_inference_configuration("online", selection) == (
+        "online",
+        "sequential_vi",
+    )
+    assert inference.normalize_ctrv_rolling_inference_method(selection) == (
+        "online",
+        "sequential_vi",
+        None,
+    )
+    assert _ctrv_rolling_config(inference_method=selection).inference_method == (
+        "sequential_vi"
+    )
+    with pytest.raises(ValueError, match="Batch inference requires"):
+        inference.normalize_inference_configuration("batch", selection)
+    with pytest.raises(ValueError, match="inference_method must be one of"):
+        inference.normalize_inference_method(
+            selection, online_inference_methods=("smc",)
+        )
+
+
 def test_default_sequential_vi_factory_returns_independent_configs():
     first_config = inference.create_default_sequential_vi_config()
     second_config = inference.create_default_sequential_vi_config()

@@ -9,6 +9,18 @@ import pandas as pd
 
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
+MODEL_CSV_SPECS = {
+    "IMM_CSV": ("imm", "imm", "IMM"),
+    "BAYESIAN_SMC_CSV": ("bayesian", "smc", "Bayesian CTRV (SMC)"),
+    "BAYESIAN_VI_CSV": ("bayesian", "vi", "Bayesian CTRV (VI)"),
+    "BAYESIAN_MCMC_CSV": ("bayesian", "mcmc", "Bayesian CTRV (MCMC)"),
+    "BAYESIAN_SEQ_VI_CSV": (
+        "bayesian",
+        "sequential_vi",
+        "Bayesian CTRV (Sequential VI)",
+    ),
+}
+
 NUMERIC_COLUMNS = (
     "window_index",
     "forecast_origin_seconds",
@@ -143,46 +155,69 @@ def _validate_table(predictions, model_variant):
 
 def prepare_comparison(bayesian, imm):
     """Align complete forecasts by physical time, never by CSV row/window number."""
-    bayesian = _validate_table(bayesian, "bayesian")
-    imm = _validate_table(imm, "imm")
-    common = np.intersect1d(
-        bayesian["forecast_origin_seconds"], imm["forecast_origin_seconds"]
-    )
+    models = {
+        "Bayesian CTRV": _validate_table(bayesian, "bayesian"),
+        "IMM": _validate_table(imm, "imm"),
+    }
+    return tuple(_align_forecasts(models).values())
+
+
+def _align_forecasts(models):
+    """Use one common cohort across every selected model."""
+    if len(models) < 2:
+        raise ValueError("Select at least two CSV files for comparison.")
+    common = None
+    for table in models.values():
+        origins = table["forecast_origin_seconds"].unique()
+        common = origins if common is None else np.intersect1d(common, origins)
     if common.size == 0:
         raise ValueError("The CSV files have no common forecast origin times.")
-    aligned = tuple(
-        table[table["forecast_origin_seconds"].isin(common)].reset_index(drop=True)
-        for table in (bayesian, imm)
-    )
-    left, right = aligned
-    keys = ["forecast_origin_seconds", "horizon_step"]
-    if left[keys].shape != right[keys].shape or not np.array_equal(
-        left[keys], right[keys]
-    ):
-        raise ValueError(
-            "Common forecast origins must have identical complete horizons."
+    aligned = {
+        label: table[table["forecast_origin_seconds"].isin(common)].reset_index(
+            drop=True
         )
-    if not np.allclose(
-        left["horizon_seconds"], right["horizon_seconds"], rtol=0, atol=1e-6
-    ):
-        raise ValueError("Common forecasts have different horizon_seconds.")
-    if (left["time"] != right["time"]).any():
-        raise ValueError("Common forecasts have different target times.")
-    if not np.allclose(
-        left[["x_actual", "y_actual"]],
-        right[["x_actual", "y_actual"]],
-        rtol=0,
-        atol=1e-6,
-    ):
-        raise ValueError("Common forecasts must use the same reference positions.")
-    omitted = [
-        table["forecast_origin_seconds"].nunique() - len(common)
-        for table in (bayesian, imm)
-    ]
-    if any(omitted):
+        for label, table in models.items()
+    }
+    reference_label, left = next(iter(aligned.items()))
+    keys = ["forecast_origin_seconds", "horizon_step"]
+    for label, right in aligned.items():
+        if label == reference_label:
+            continue
+        if left[keys].shape != right[keys].shape or not np.array_equal(
+            left[keys], right[keys]
+        ):
+            raise ValueError(
+                "Common forecast origins must have identical complete horizons "
+                f"({reference_label}, {label})."
+            )
+        if not np.allclose(
+            left["horizon_seconds"], right["horizon_seconds"], rtol=0, atol=1e-6
+        ):
+            raise ValueError(
+                f"Common forecasts have different horizon_seconds ({reference_label}, {label})."
+            )
+        if (left["time"] != right["time"]).any():
+            raise ValueError(
+                f"Common forecasts have different target times ({reference_label}, {label})."
+            )
+        if not np.allclose(
+            left[["x_actual", "y_actual"]],
+            right[["x_actual", "y_actual"]],
+            rtol=0,
+            atol=1e-6,
+        ):
+            raise ValueError(
+                f"Common forecasts must use the same reference positions ({reference_label}, {label})."
+            )
+    omitted = {
+        label: table["forecast_origin_seconds"].nunique() - len(common)
+        for label, table in models.items()
+    }
+    if any(omitted.values()):
         warnings.warn(
             f"Comparing {len(common)} common origins; omitted unmatched origins: "
-            f"Bayesian CTRV={omitted[0]}, IMM={omitted[1]}.",
+            + ", ".join(f"{label}={count}" for label, count in omitted.items())
+            + ".",
             UserWarning,
             stacklevel=2,
         )
@@ -205,25 +240,66 @@ def read_comparison_csvs(
     return prepare_comparison(_read_csv(Path(bayesian_csv)), _read_csv(Path(imm_csv)))
 
 
+def read_model_comparison_csvs(csv_paths):
+    """Read named CSV variables, validate their methods, and align all models."""
+    unknown = set(csv_paths).difference(MODEL_CSV_SPECS)
+    if unknown:
+        raise ValueError(f"Unknown comparison CSV variables: {sorted(unknown)}")
+    selected = {name: path for name, path in csv_paths.items() if path is not None}
+    if len(selected) < 2:
+        raise ValueError("Select at least two CSV files for comparison.")
+    models = {}
+    for variable, path in selected.items():
+        variant, method, label = MODEL_CSV_SPECS[variable]
+        try:
+            table = _validate_table(_read_csv(Path(path)), variant)
+        except ValueError as error:
+            raise ValueError(f"{variable}: {error}") from error
+        if table["inference_method"].iloc[0] != method:
+            raise ValueError(f"{variable} requires inference_method={method!r}: {path}")
+        models[label] = table
+    return _align_forecasts(models)
+
+
 def run_comparison(bayesian, imm, *, show=True, output_dir=None):
     """Report and plot already aligned forecasts using the shared metric style."""
-    print(f"Matched forecast origins: {bayesian['forecast_origin_seconds'].nunique()}")
-    print(f"Matched forecast positions: {len(bayesian)}")
-    summary, figures = runtime_plotting.plot_bayesian_imm_comparison(
-        bayesian, imm, show=show, output_dir=output_dir
+    return run_model_comparison(
+        {"bayesian_ctrv": bayesian, "imm": imm},
+        labels={
+            "bayesian_ctrv": f"Bayesian CTRV ({bayesian['inference_method'].iloc[0].upper()})",
+            "imm": "IMM",
+        },
+        title="Bayesian CTRV vs. IMM",
+        show=show,
+        output_dir=output_dir,
+    )
+
+
+def run_model_comparison(
+    models, *, show=True, output_dir=None, labels=None, title="Model comparison"
+):
+    """Report and plot each selected model on the same forecast cohort."""
+    if len(models) < 2:
+        raise ValueError("Select at least two CSV files for comparison.")
+    first = next(iter(models.values()))
+    print(f"Matched forecast origins: {first['forecast_origin_seconds'].nunique()}")
+    print(f"Matched forecast positions: {len(first)}")
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models, labels=labels, title=title, show=show, output_dir=output_dir
     )
     print("\nMetrics for matched forecasts:")
     display = summary.copy()
     coverage_rows = display["metric"].str.startswith("joint_coverage_")
-    for column in ("bayesian_ctrv", "imm"):
+    for column in models:
         display[column] = [
             f"{value:.1%}" if coverage else f"{value:.3f}"
             for value, coverage in zip(display[column], coverage_rows, strict=True)
         ]
     print(display.to_string(index=False))
-    print(
-        "\nNote: IMM distribution scores use a fused Gaussian; Bayesian CTRV uses posterior samples."
-    )
+    if any(table["model_variant"].iloc[0] == "imm" for table in models.values()):
+        print(
+            "\nNote: IMM distribution scores use a fused Gaussian; Bayesian CTRV uses posterior samples."
+        )
     print(
         "Runtime measurements may cover different operations across inference methods."
     )

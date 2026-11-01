@@ -14,6 +14,13 @@ from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "experiments/model_comparison/compare_bayesian_ctrv_imm.py"
+MODEL_CSVS = (
+    ("IMM_CSV", "imm", "IMM"),
+    ("BAYESIAN_SMC_CSV", "smc", "Bayesian CTRV (SMC)"),
+    ("BAYESIAN_VI_CSV", "vi", "Bayesian CTRV (VI)"),
+    ("BAYESIAN_MCMC_CSV", "mcmc", "Bayesian CTRV (MCMC)"),
+    ("BAYESIAN_SEQ_VI_CSV", "sequential_vi", "Bayesian CTRV (Sequential VI)"),
+)
 
 
 def _table(model):
@@ -50,6 +57,186 @@ def _table(model):
             else [True, False, True, True],
         }
     )
+
+
+def _write_model_csvs(directory):
+    paths = {}
+    for index, (variable, method, _label) in enumerate(MODEL_CSVS):
+        table = _table("imm" if method == "imm" else "bayesian")
+        table["inference_method"] = method
+        if method != "imm":
+            table["position_error_m"] += index - 1
+            table["x_median"] = table["x_actual"] + table["position_error_m"]
+        # Labels must come from the configured variable, not the filename.
+        path = directory / f"run_{index}.csv"
+        table.to_csv(path, index=False)
+        paths[variable] = path
+    return paths
+
+
+def _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv):
+    for variable, _method, _label in MODEL_CSVS:
+        monkeypatch.setitem(namespace, variable, None)
+    monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", bayesian_csv)
+    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+
+
+def test_named_csvs_load_all_five_methods_without_modifying_files(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    originals = {key: path.read_bytes() for key, path in paths.items()}
+
+    models = comparison.read_model_comparison_csvs(paths)
+
+    assert list(models) == [label for _, _, label in MODEL_CSVS]
+    for variable, method, label in MODEL_CSVS:
+        assert models[label]["inference_method"].unique().tolist() == [method]
+        assert paths[variable].read_bytes() == originals[variable]
+
+
+def test_named_comparison_supports_bayesian_only_subsets_and_none_paths(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    paths.update(IMM_CSV=None, BAYESIAN_MCMC_CSV=None, BAYESIAN_SEQ_VI_CSV=None)
+
+    models = comparison.read_model_comparison_csvs(paths)
+
+    assert list(models) == ["Bayesian CTRV (SMC)", "Bayesian CTRV (VI)"]
+
+
+@pytest.mark.parametrize("enabled", [0, 1])
+def test_named_comparison_requires_at_least_two_models_before_reading(
+    tmp_path, enabled
+):
+    paths = {
+        variable: tmp_path / "missing.csv" if index < enabled else None
+        for index, (variable, _, _) in enumerate(MODEL_CSVS)
+    }
+    with pytest.raises(ValueError, match="at least two"):
+        comparison.read_model_comparison_csvs(paths)
+
+
+def test_named_comparison_rejects_metadata_that_disagrees_with_the_variable(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    paths["BAYESIAN_SMC_CSV"] = paths["BAYESIAN_VI_CSV"]
+
+    with pytest.raises(ValueError, match="BAYESIAN_SMC_CSV.*smc"):
+        comparison.read_model_comparison_csvs(paths)
+
+
+def test_named_comparison_uses_one_global_intersection_for_all_models(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    vi = pd.read_csv(paths["BAYESIAN_VI_CSV"]).iloc[2:]
+    vi.to_csv(paths["BAYESIAN_VI_CSV"], index=False)
+
+    with pytest.warns(UserWarning, match="omitted|unmatched"):
+        models = comparison.read_model_comparison_csvs(paths)
+
+    assert all(
+        table["forecast_origin_seconds"].tolist() == [120, 120]
+        for table in models.values()
+    )
+
+
+def test_named_comparison_rejects_pairwise_overlap_without_a_global_cohort(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    for variable, rows in (
+        ("BAYESIAN_SMC_CSV", slice(0, 2)),
+        ("BAYESIAN_VI_CSV", slice(2, 4)),
+    ):
+        table = pd.read_csv(paths[variable]).iloc[rows]
+        table.to_csv(paths[variable], index=False)
+
+    with pytest.raises(ValueError, match="common"):
+        comparison.read_model_comparison_csvs(paths)
+
+
+@pytest.mark.parametrize("problem", ["reference", "horizon", "incomplete"])
+def test_named_comparison_checks_the_last_model_as_well_as_the_first_pair(
+    tmp_path, problem
+):
+    paths = _write_model_csvs(tmp_path)
+    path = paths["BAYESIAN_SEQ_VI_CSV"]
+    table = pd.read_csv(path)
+    if problem == "reference":
+        table["x_actual"] += 1.0
+        table["x_median"] += 1.0
+    elif problem == "horizon":
+        table["horizon_seconds"] += 0.25
+        table["time"] = pd.to_datetime(
+            table["forecast_origin_seconds"] + table["horizon_seconds"],
+            unit="s",
+            utc=True,
+        )
+    else:
+        table = table[table["horizon_step"] == 1].copy()
+        table["prediction_count"] = 1
+    table.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="reference|horizon"):
+        comparison.read_model_comparison_csvs(paths)
+
+
+def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    models = comparison.read_model_comparison_csvs(paths)
+    labels = list(models)
+    output_dir = tmp_path / "plots"
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models, show=False, output_dir=output_dir
+    )
+    try:
+        assert len(figures) == 8
+        assert list(summary) == ["metric", *labels, "preferred"]
+        indexed = summary.set_index("metric")
+        assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 7.0, 8.0, 9.0]
+        for _, axis in figures[:6]:
+            curves = axis.lines[::2]
+            assert [line.get_label() for line in curves] == labels
+            assert len({line.get_color() for line in curves}) == 5
+            np.testing.assert_array_equal(curves[0].get_xdata(), [0, 20])
+        for (_figure, axis), nominal in zip(figures[-2:], (50, 90), strict=True):
+            assert len(axis.patches) == 5
+            assert axis.get_ylim() == (0.0, 100.0)
+            assert axis.lines[0].get_label() == f"Nominal {nominal}%"
+        assert len(list(output_dir.glob("*.png"))) == 8
+        print(f"COMPARISON_PREVIEW={output_dir / 'ade_m.png'}")
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_run_button_compares_all_five_csvs_without_running_models_or_writing_outputs(
+    tmp_path, monkeypatch
+):
+    from bayestraj.validation import imm_workflow
+
+    paths = _write_model_csvs(tmp_path)
+    originals = {path: path.read_bytes() for path in paths.values()}
+    namespace = runpy.run_path(SCRIPT)["main"].__globals__
+    for variable, path in paths.items():
+        monkeypatch.setitem(namespace, variable, path)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("CSV comparison must not run inference")
+
+    monkeypatch.setattr(evaluation.workflow, "run_bayesian_ctrv_evaluation", forbidden)
+    monkeypatch.setattr(imm_workflow, "run_imm_evaluation", forbidden)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    previous = set(plt.get_fignums())
+    try:
+        summary = namespace["main"]()
+
+        assert len(shown) == 8
+        assert list(summary) == [
+            "metric",
+            *[label for _, _, label in MODEL_CSVS],
+            "preferred",
+        ]
+        assert set(tmp_path.iterdir()) == set(paths.values())
+        assert {path: path.read_bytes() for path in paths.values()} == originals
+    finally:
+        for number in set(plt.get_fignums()) - previous:
+            plt.close(number)
 
 
 def test_comparison_aligns_by_origin_and_horizon_not_window_id_or_row_order():
@@ -349,8 +536,7 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
     _table("bayesian").to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
     originals = [path.read_bytes() for path in (bayesian_csv, imm_csv)]
-    monkeypatch.setitem(namespace, "BAYESIAN_CSV", bayesian_csv)
-    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+    _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv)
     previous_figures = set(plt.get_fignums())
     try:
         summary = module["main"]()
@@ -422,8 +608,7 @@ def test_comparison_script_shows_plots_using_configured_csvs(
     )
     _table("bayesian").to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
-    monkeypatch.setitem(namespace, "BAYESIAN_CSV", bayesian_csv)
-    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+    _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv)
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     previous_figures = set(plt.get_fignums())
@@ -432,8 +617,8 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         summary = module["main"]()
 
         indexed = summary.set_index("metric")
-        assert indexed.loc["ade_m", "bayesian_ctrv"] == 6.0
-        assert indexed.loc["ade_m", "imm"] == 9.25
+        assert indexed.loc["ade_m", "Bayesian CTRV (SMC)"] == 6.0
+        assert indexed.loc["ade_m", "IMM"] == 9.25
         assert len(shown) == 8
         assert "Matched forecast positions: 4" in capsys.readouterr().out
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
@@ -446,7 +631,12 @@ def test_comparison_reports_missing_csv_without_creating_outputs(tmp_path, monke
     module = runpy.run_path(SCRIPT)
     missing_csv = tmp_path / "absent.csv"
     monkeypatch.setattr("sys.argv", [str(SCRIPT)])
-    monkeypatch.setitem(module["main"].__globals__, "BAYESIAN_CSV", missing_csv)
+    _configure_pair(
+        monkeypatch,
+        module["main"].__globals__,
+        tmp_path / "another_missing.csv",
+        missing_csv,
+    )
     with pytest.raises(SystemExit) as result:
         module["main"]()
     assert "Evaluation CSV not found" in str(result.value.code)
