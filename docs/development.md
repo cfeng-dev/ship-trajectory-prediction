@@ -99,6 +99,10 @@ Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`
 Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.
+`SHOW_POINTS` and `SHOW_MEAN_LINES` control curve markers and dashed mean lines.
+`METRIC_Y_SCALE` selects `linear` or `symlog` scaling for all metric curves.
+Metric axes always include zero and preserve negative scores.
+The symlog linear range adapts to each metric; coverage bars use a linear 0–100% axis.
 
 ## Code Quality and Tests
 

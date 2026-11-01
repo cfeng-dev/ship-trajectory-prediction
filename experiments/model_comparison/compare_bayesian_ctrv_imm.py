@@ -1,7 +1,7 @@
 """Compare saved Bayesian CTRV inference methods and IMM without running models.
 
 Accuracy, density scores and runtime are shown per common forecast origin,
-with averages across origins. Coverage bars show the final percentage of all
+with optional mean lines. Coverage bars show the final percentage of all
 matched forecast positions inside the joint 50%/90% regions, with lines marking
 the nominal coverage.
 """
@@ -15,6 +15,10 @@ BAYESIAN_SMC_CSV = project_path("results/bayesian_ctrv_smc_evaluation.csv")
 BAYESIAN_VI_CSV = project_path("results/bayesian_ctrv_vi_evaluation.csv")
 BAYESIAN_MCMC_CSV = project_path("results/bayesian_ctrv_mcmc_evaluation.csv")
 BAYESIAN_SEQ_VI_CSV = project_path("results/bayesian_ctrv_seq_vi_evaluation.csv")
+
+SHOW_POINTS = False  # Mark forecast origins on metric curves.
+SHOW_MEAN_LINES = False  # Show mean metric values as dashed lines.
+METRIC_Y_SCALE = "symlog"  # "linear" or "symlog" for metric curves.
 
 
 def main():
@@ -31,7 +35,12 @@ def main():
         )
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from None
-    return comparison.run_model_comparison(models)
+    return comparison.run_model_comparison(
+        models,
+        show_points=SHOW_POINTS,
+        show_mean_lines=SHOW_MEAN_LINES,
+        metric_y_scale=METRIC_Y_SCALE,
+    )
 
 
 if __name__ == "__main__":

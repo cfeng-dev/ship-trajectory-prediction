@@ -17,6 +17,13 @@ COMPARISON_INFERENCE_COLORS = {
     "mcmc": "#CC79A7",
     "sequential_vi": "#D55E00",
 }
+COMPARISON_METRIC_Y_LABELS = {
+    "rmse_m": "Root mean squared error [m]",
+    "mean_negative_log_predictive_density": "Negative log predictive density",
+    "ade_m": "Average displacement error [m]",
+    "fde_m": "Final displacement error [m]",
+    "fit_runtime_seconds": "Laufzeit [s]",
+}
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
     ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
     (
@@ -107,11 +114,21 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
 
 
 def plot_model_comparison(
-    models, *, labels=None, title="Model comparison", show=True, output_dir=None
+    models,
+    *,
+    labels=None,
+    title="Model comparison",
+    show=True,
+    output_dir=None,
+    show_points=True,
+    show_mean_lines=True,
+    metric_y_scale="linear",
 ):
     """Plot all selected models using the same metric and coverage styles."""
     if len(models) < 2:
         raise ValueError("Select at least two models for comparison.")
+    if metric_y_scale not in {"linear", "symlog"}:
+        raise ValueError("metric_y_scale must be 'linear' or 'symlog'.")
     names = list(models)
     tables = list(models.values())
     labels = [name if labels is None else labels[name] for name in names]
@@ -130,15 +147,20 @@ def plot_model_comparison(
         output_dir.mkdir(parents=True, exist_ok=True)
     figures, rows = [], []
     plot_specs = [
-        (ylabel, name, None) for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES
+        (COMPARISON_METRIC_Y_LABELS.get(name, ylabel), name, None)
+        for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES
     ] + [
         (f"Joint {percent}% coverage [%]", f"joint_coverage_{percent}", percent / 100)
         for percent in (50, 90)
     ]
     for ylabel, name, nominal in plot_specs:
-        if name == "fit_runtime_seconds":
-            ylabel = "Laufzeit [s]"
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
+        if nominal is None and metric_y_scale == "symlog":
+            # Adapt the linear range to each metric's units and typical low values.
+            magnitudes = np.abs(np.concatenate([values[name] for _, values in series]))
+            positive = magnitudes[magnitudes > 0]
+            threshold = float(np.percentile(positive, 10)) if positive.size else 1.0
+            axis.set_yscale("symlog", linthresh=threshold)
         if nominal is None:
             averages = []
             for (_, values), label, color in zip(series, labels, colors, strict=True):
@@ -146,14 +168,22 @@ def plot_model_comparison(
                 average = float(np.mean(metric))
                 averages.append(average)
                 axis.plot(
-                    elapsed, metric, marker="o", markersize=3, color=color, label=label
-                )
-                axis.axhline(
-                    average,
+                    elapsed,
+                    metric,
+                    marker="o" if show_points else "None",
+                    markersize=3,
                     color=color,
-                    linestyle="--",
-                    label=f"{label}: Mittel = {average:.3f}",
+                    label=label,
                 )
+                if show_mean_lines:
+                    axis.axhline(
+                        average,
+                        color=color,
+                        linestyle="--",
+                        label=f"{label}: Mittel = {average:.3f}",
+                    )
+            lower, upper = axis.get_ylim()
+            axis.set_ylim(min(lower, 0.0), max(upper, 0.0))
             axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
         else:
             column = f"joint_covered_{100 * nominal:.0f}"

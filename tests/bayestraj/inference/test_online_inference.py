@@ -142,7 +142,7 @@ def test_sequential_vi_uses_shared_bayesian_ctrv_single_run_entrypoint():
     assert entrypoint.is_file()
     assert not (single_run / "sequential_bayesian_ctrv.py").exists()
     source = entrypoint.read_text(encoding="utf-8")
-    assert '# - Online: "smc" or "sequential_vi".' in source
+    assert '# - Online: "smc" or "seq_vi".' in source
 
 
 class _FakeOnlineFilter:

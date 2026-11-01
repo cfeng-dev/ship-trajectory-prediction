@@ -276,7 +276,15 @@ def run_comparison(bayesian, imm, *, show=True, output_dir=None):
 
 
 def run_model_comparison(
-    models, *, show=True, output_dir=None, labels=None, title="Model comparison"
+    models,
+    *,
+    show=True,
+    output_dir=None,
+    labels=None,
+    title="Model comparison",
+    show_points=True,
+    show_mean_lines=True,
+    metric_y_scale="linear",
 ):
     """Report and plot each selected model on the same forecast cohort."""
     if len(models) < 2:
@@ -285,7 +293,14 @@ def run_model_comparison(
     print(f"Matched forecast origins: {first['forecast_origin_seconds'].nunique()}")
     print(f"Matched forecast positions: {len(first)}")
     summary, figures = runtime_plotting.plot_model_comparison(
-        models, labels=labels, title=title, show=show, output_dir=output_dir
+        models,
+        labels=labels,
+        title=title,
+        show=show,
+        output_dir=output_dir,
+        show_points=show_points,
+        show_mean_lines=show_mean_lines,
+        metric_y_scale=metric_y_scale,
     )
     print("\nMetrics for matched forecasts:")
     display = summary.copy()

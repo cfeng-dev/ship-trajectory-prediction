@@ -17,7 +17,7 @@ EXPERIMENT = ctrv_config.RollingExperimentConfig(
     position_noise_std_m=0.0,  # Added noise std. [m]; 0 = off.
     position_noise_seed=2026,  # Reproducible added noise.
     stride=1,  # Input steps between forecasts.
-    inference_method="vi",  # Online: "smc", "seq_vi"; batch: "vi", "mcmc".
+    inference_method="smc",  # Online: "smc", "seq_vi"; batch: "vi", "mcmc".
     inference_seed=42,  # Reproducible inference.
 )
 PRIORS = bayesian_model.BayesianCTRVPriors(

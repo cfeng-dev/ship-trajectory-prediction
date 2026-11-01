@@ -185,6 +185,14 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path)
     )
     try:
         assert len(figures) == 8
+        assert [axis.get_ylabel() for _, axis in figures[:6]] == [
+            "Root mean squared error [m]",
+            "Negative log predictive density",
+            "Average displacement error [m]",
+            "Final displacement error [m]",
+            "Energy Score [m]",
+            "Laufzeit [s]",
+        ]
         assert list(summary) == ["metric", *labels, "preferred"]
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 7.0, 8.0, 9.0]
@@ -204,8 +212,11 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(tmp_path)
             plt.close(figure)
 
 
+@pytest.mark.parametrize("show_points", [False, True])
+@pytest.mark.parametrize("show_mean_lines", [False, True])
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
 def test_run_button_compares_all_five_csvs_without_running_models_or_writing_outputs(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, show_points, show_mean_lines, metric_y_scale
 ):
     from bayestraj.validation import imm_workflow
 
@@ -214,6 +225,9 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
     for variable, path in paths.items():
         monkeypatch.setitem(namespace, variable, path)
+    monkeypatch.setitem(namespace, "SHOW_POINTS", show_points)
+    monkeypatch.setitem(namespace, "SHOW_MEAN_LINES", show_mean_lines)
+    monkeypatch.setitem(namespace, "METRIC_Y_SCALE", metric_y_scale)
 
     def forbidden(*args, **kwargs):
         pytest.fail("CSV comparison must not run inference")
@@ -227,16 +241,119 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
         summary = namespace["main"]()
 
         assert len(shown) == 8
+        assert all(
+            figure.axes[0].get_yscale() == metric_y_scale for figure in shown[:6]
+        )
         assert list(summary) == [
             "metric",
             *[label for _, _, label in MODEL_CSVS],
             "preferred",
         ]
+        labels = list(summary.columns[1:-1])
+        assert summary.set_index("metric").loc["ade_m", labels].tolist() == [
+            9.25,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+        ]
+        for figure in shown[:6]:
+            axis = figure.axes[0]
+            lower, upper = axis.get_ylim()
+            assert lower <= 0 <= upper
+            assert 0 in axis.get_yticks()
+            curves = [line for line in axis.lines if line.get_label() in labels]
+            assert [line.get_label() for line in curves] == labels
+            assert all(
+                line.get_marker() == ("o" if show_points else "None") for line in curves
+            )
+            means = [line for line in axis.lines if line.get_linestyle() == "--"]
+            assert len(means) == (5 if show_mean_lines else 0)
+            legend = [text.get_text() for text in axis.get_legend().get_texts()]
+            assert any("Mittel =" in text for text in legend) == show_mean_lines
+        for figure, nominal in zip(shown[-2:], (50, 90), strict=True):
+            axis = figure.axes[0]
+            assert len(axis.patches) == 5
+            assert len(axis.lines) == 1
+            assert axis.get_yscale() == "linear"
+            np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
         assert set(tmp_path.iterdir()) == set(paths.values())
         assert {path: path.read_bytes() for path in paths.values()} == originals
     finally:
         for number in set(plt.get_fignums()) - previous:
             plt.close(number)
+
+
+def test_symlog_metrics_keep_negative_zero_and_extreme_scores_visible(tmp_path):
+    bayesian, imm = _table("bayesian"), _table("imm")
+    bayesian["log_predictive_density"] = [2.0, 2.0, 0.0, 0.0]
+    imm["log_predictive_density"] = [-5.0, -5.0, -3800.0, -3800.0]
+    imm["fit_runtime_seconds"] = [0.002, 0.002, 10000.0, 10000.0]
+    left, right = comparison.prepare_comparison(bayesian, imm)
+    originals = [table.copy(deep=True) for table in (left, right)]
+    summary, figures = runtime_plotting.plot_model_comparison(
+        {"SMC": left, "IMM": right}, show=False, metric_y_scale="symlog"
+    )
+    try:
+        figure, axis = figures[1]
+        assert axis.get_yscale() == "symlog"
+        assert axis.get_ylabel() == "Negative log predictive density"
+        assert all("(symlog)" not in ax.get_ylabel() for _, ax in figures)
+        np.testing.assert_array_equal(axis.lines[0].get_ydata(), [-2.0, 0.0])
+        np.testing.assert_array_equal(axis.lines[2].get_ydata(), [5.0, 3800.0])
+        indexed = summary.set_index("metric")
+        assert indexed.loc["mean_negative_log_predictive_density", "SMC"] == -1.0
+        assert indexed.loc["mean_negative_log_predictive_density", "IMM"] == 1902.5
+        figure.canvas.draw()
+        typical_pixels = axis.transData.transform([[0, 0], [0, 5]])[:, 1]
+        assert typical_pixels[1] - typical_pixels[0] > 20
+        lower, upper = axis.get_ylim()
+        assert lower <= -2.0 and upper >= 3800.0
+        assert all(ax.get_yscale() == "symlog" for _, ax in figures[:6])
+        assert all(ax.get_yscale() == "linear" for _, ax in figures[6:])
+        runtime_figure, runtime_axis = figures[5]
+        runtime_figure.canvas.draw()
+        runtime_pixels = runtime_axis.transData.transform([[0, 0], [0, 0.002]])[:, 1]
+        assert runtime_pixels[1] - runtime_pixels[0] > 10
+        np.testing.assert_array_equal(
+            runtime_axis.lines[2].get_ydata(), [0.002, 10000.0]
+        )
+        figure.savefig(tmp_path / "nlpd_symlog.png", dpi=120)
+        for table, original in zip((left, right), originals, strict=True):
+            pd.testing.assert_frame_equal(table, original)
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+def test_zero_axis_reference_preserves_negative_density_scores(metric_y_scale):
+    bayesian, imm = _table("bayesian"), _table("imm")
+    bayesian["log_predictive_density"] = [2.0, 2.0, 6.0, 6.0]
+    imm["log_predictive_density"] = [3.0, 3.0, 7.0, 7.0]
+    left, right = comparison.prepare_comparison(bayesian, imm)
+    _, figures = runtime_plotting.plot_model_comparison(
+        {"SMC": left, "IMM": right}, show=False, metric_y_scale=metric_y_scale
+    )
+    try:
+        axis = figures[1][1]
+        lower, upper = axis.get_ylim()
+        assert lower <= -7.0 and upper >= 0.0
+        assert 0 in axis.get_yticks()
+        np.testing.assert_array_equal(axis.lines[0].get_ydata(), [-2.0, -6.0])
+        np.testing.assert_array_equal(axis.lines[2].get_ydata(), [-3.0, -7.0])
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_invalid_metric_scale_is_rejected_before_creating_plots():
+    previous = plt.get_fignums()
+    with pytest.raises(ValueError, match="metric_y_scale.*linear.*symlog"):
+        runtime_plotting.plot_model_comparison(
+            {"SMC": _table("bayesian"), "IMM": _table("imm")}, metric_y_scale="log"
+        )
+    assert plt.get_fignums() == previous
 
 
 def test_comparison_aligns_by_origin_and_horizon_not_window_id_or_row_order():
@@ -416,7 +533,7 @@ def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypa
         assert indexed.loc["joint_coverage_50", "imm"] == 0.25
         assert indexed.loc["joint_coverage_90", "bayesian_ctrv"] == 0.75
         assert indexed.loc["joint_coverage_90", "imm"] == 0.75
-        assert figures[1][1].get_ylabel() == "NLPD"
+        assert figures[1][1].get_ylabel() == "Negative log predictive density"
         assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
         expected = (
             ([np.sqrt(12.5), np.sqrt(84.5)], [np.sqrt(50), np.sqrt(144.5)]),
