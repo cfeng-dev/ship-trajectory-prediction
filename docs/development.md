@@ -101,6 +101,9 @@ evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.
 `SHOW_POINTS` and `SHOW_MEAN_LINES` control curve markers and dashed mean lines.
 `METRIC_Y_SCALE` selects `linear` or `symlog` scaling for all metric curves.
+`PLOT_LANGUAGE` selects German (`de`, default) or English (`en`) titles, time axes
+and legends. Metric axes use short labels; titles include full English metric names.
+Runtime labels follow the selected language.
 Metric axes always include zero and preserve negative scores.
 The symlog linear range adapts to each metric; coverage bars use a linear 0–100% axis.
 

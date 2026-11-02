@@ -285,10 +285,11 @@ def run_model_comparison(
     show=True,
     output_dir=None,
     labels=None,
-    title="Model comparison",
+    title=None,
     show_points=True,
     show_mean_lines=True,
     metric_y_scale="linear",
+    plot_language="en",
 ):
     """Report and plot each selected model on the same forecast cohort."""
     if len(models) < 2:
@@ -305,6 +306,7 @@ def run_model_comparison(
         show_points=show_points,
         show_mean_lines=show_mean_lines,
         metric_y_scale=metric_y_scale,
+        plot_language=plot_language,
     )
     print("\nMetrics for matched forecasts:")
     display = summary.copy()

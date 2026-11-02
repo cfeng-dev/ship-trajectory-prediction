@@ -18,12 +18,31 @@ COMPARISON_INFERENCE_COLORS = {
     "mcmc": "#CC79A7",
     "sequential_vi": "#D55E00",
 }
-COMPARISON_METRIC_Y_LABELS = {
-    "rmse_m": "Root mean squared error [m]",
-    "mean_negative_log_predictive_density": "Negative log predictive density",
-    "ade_m": "Average displacement error [m]",
-    "fde_m": "Final displacement error [m]",
-    "fit_runtime_seconds": "Laufzeit [s]",
+COMPARISON_METRIC_LABELS = {
+    "rmse_m": ("RMSE [m]", "Root Mean Squared Error"),
+    "mean_negative_log_predictive_density": ("NLPD", "Negative Log Predictive Density"),
+    "ade_m": ("ADE [m]", "Average Displacement Error"),
+    "fde_m": ("FDE [m]", "Final Displacement Error"),
+    "energy_score_m": ("ES [m]", "Energy Score"),
+    "fit_runtime_seconds": ("Runtime [s]", "Runtime"),
+}
+COMPARISON_PLOT_TEXT = {
+    "de": {
+        "title": "Modellvergleich",
+        "time": "Zeit [s]",
+        "runtime": "Laufzeit",
+        "mean": "Mittelwert",
+        "bayesian_model": "Bayessches CTRV",
+        "nominal": "Sollwert: {percent}%",
+    },
+    "en": {
+        "title": "Model comparison",
+        "time": "Time [s]",
+        "runtime": "Runtime",
+        "mean": "Mean",
+        "bayesian_model": "Bayesian CTRV",
+        "nominal": "Nominal {percent}%",
+    },
 }
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
     ("RMSE [m]", "RMSE", "#0072B2", "rmse_m", "Mittlerer RMSE: {mean:.2f} m"),
@@ -118,21 +137,30 @@ def plot_model_comparison(
     models,
     *,
     labels=None,
-    title="Model comparison",
+    title=None,
     show=True,
     output_dir=None,
     show_points=True,
     show_mean_lines=True,
     metric_y_scale="linear",
+    plot_language="en",
 ):
     """Plot all selected models using the same metric and coverage styles."""
     if len(models) < 2:
         raise ValueError("Select at least two models for comparison.")
     if metric_y_scale not in {"linear", "symlog"}:
         raise ValueError("metric_y_scale must be 'linear' or 'symlog'.")
+    if plot_language not in COMPARISON_PLOT_TEXT:
+        raise ValueError("plot_language must be 'de' or 'en'.")
+    text = COMPARISON_PLOT_TEXT[plot_language]
     names = list(models)
     tables = list(models.values())
-    labels = [name if labels is None else labels[name] for name in names]
+    labels = [
+        str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
+        if labels is None
+        else labels[name]
+        for name in names
+    ]
     series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
@@ -148,13 +176,21 @@ def plot_model_comparison(
         output_dir.mkdir(parents=True, exist_ok=True)
     figures, rows = [], []
     plot_specs = [
-        (COMPARISON_METRIC_Y_LABELS.get(name, ylabel), name, None)
-        for ylabel, _, _, name, _ in ROLLING_DIAGNOSTIC_PLOT_STYLES
+        (short_label, name, None, full_name)
+        for name, (short_label, full_name) in COMPARISON_METRIC_LABELS.items()
     ] + [
-        (f"Joint {percent}% coverage [%]", f"joint_coverage_{percent}", percent / 100)
+        (
+            "Coverage [%]",
+            f"joint_coverage_{percent}",
+            percent / 100,
+            f"Joint {percent}% Coverage",
+        )
         for percent in (50, 90)
     ]
-    for ylabel, name, nominal in plot_specs:
+    for ylabel, name, nominal, metric_name in plot_specs:
+        if name == "fit_runtime_seconds":
+            metric_name = text["runtime"]
+            ylabel = f"{metric_name} [s]"
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
         if nominal is None and metric_y_scale == "symlog":
             # Adapt the linear range to each metric's units and typical low values.
@@ -181,11 +217,11 @@ def plot_model_comparison(
                         average,
                         color=color,
                         linestyle="--",
-                        label=f"{label}: Mittel = {average:.3f}",
+                        label=f"{label}: {text['mean']} = {average:.3f}",
                     )
             lower, upper = axis.get_ylim()
             axis.set_ylim(min(lower, 0.0), max(upper, 0.0))
-            axis.set_xlabel("Zeit [s]", fontsize=style.axis_label_font_size)
+            axis.set_xlabel(text["time"], fontsize=style.axis_label_font_size)
         else:
             column = f"joint_covered_{100 * nominal:.0f}"
             averages = [float(table[column].mean()) for table in tables]
@@ -217,7 +253,7 @@ def plot_model_comparison(
                 100 * nominal,
                 color="0.35",
                 linestyle=":",
-                label=f"Nominal {100 * nominal:.0f}%",
+                label=text["nominal"].format(percent=f"{100 * nominal:.0f}"),
             )
             axis.set_ylim(0, 100)
         axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
@@ -232,7 +268,7 @@ def plot_model_comparison(
         )
         legend = axis.legend(loc="upper right", ncol=1)
         figure.suptitle(
-            title,
+            title if title is not None else f"{text['title']} ({metric_name})",
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )

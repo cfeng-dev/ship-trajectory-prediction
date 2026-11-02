@@ -28,6 +28,43 @@ MODEL_DISPLAY_ORDER = [
     "Bayesian CTRV (VI)",
     "Bayesian CTRV (MCMC)",
 ]
+PLOT_MODEL_LABELS = {
+    "en": MODEL_DISPLAY_ORDER,
+    "de": [
+        "IMM",
+        "Bayessches CTRV (SMC)",
+        "Bayessches CTRV (Sequential VI)",
+        "Bayessches CTRV (VI)",
+        "Bayessches CTRV (MCMC)",
+    ],
+}
+METRIC_AXIS_LABELS = ["RMSE [m]", "NLPD", "ADE [m]", "FDE [m]", "ES [m]", "Runtime [s]"]
+METRIC_NAMES = [
+    "Root Mean Squared Error",
+    "Negative Log Predictive Density",
+    "Average Displacement Error",
+    "Final Displacement Error",
+    "Energy Score",
+    "Runtime",
+]
+PLOT_TEXT = {
+    "en": {
+        "title": "Model comparison",
+        "time": "Time [s]",
+        "runtime": "Runtime",
+        "mean": "Mean",
+        "coverage": "Coverage [%]",
+        "nominal": "Nominal {percent}%",
+    },
+    "de": {
+        "title": "Modellvergleich",
+        "time": "Zeit [s]",
+        "runtime": "Laufzeit",
+        "mean": "Mittelwert",
+        "coverage": "Coverage [%]",
+        "nominal": "Sollwert: {percent}%",
+    },
+}
 
 
 def _table(model):
@@ -184,12 +221,15 @@ def test_named_comparison_checks_the_last_model_as_well_as_the_first_pair(
 
 @pytest.mark.parametrize("show_mean_lines", [False, True])
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+@pytest.mark.parametrize("plot_language", ["de", "en"])
 def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
-    tmp_path, show_mean_lines, metric_y_scale
+    tmp_path, show_mean_lines, metric_y_scale, plot_language
 ):
     paths = _write_model_csvs(tmp_path)
     models = comparison.read_model_comparison_csvs(paths)
     labels = list(models)
+    display_labels = PLOT_MODEL_LABELS[plot_language]
+    text = PLOT_TEXT[plot_language]
     output_dir = tmp_path / "plots"
     summary, figures = runtime_plotting.plot_model_comparison(
         models,
@@ -197,29 +237,37 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
         output_dir=output_dir,
         show_mean_lines=show_mean_lines,
         metric_y_scale=metric_y_scale,
+        plot_language=plot_language,
     )
     try:
         assert len(figures) == 8
         assert [axis.get_ylabel() for _, axis in figures[:6]] == [
-            "Root mean squared error [m]",
-            "Negative log predictive density",
-            "Average displacement error [m]",
-            "Final displacement error [m]",
-            "Energy Score [m]",
-            "Laufzeit [s]",
+            *METRIC_AXIS_LABELS[:-1],
+            f"{text['runtime']} [s]",
         ]
         assert list(summary) == ["metric", *labels, "preferred"]
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 9.0, 7.0, 8.0]
-        for _, axis in figures[:6]:
+        metric_names = [*METRIC_NAMES[:-1], text["runtime"]]
+        for (figure, axis), metric_name in zip(figures[:6], metric_names, strict=True):
+            assert figure._suptitle.get_text() == f"{text['title']} ({metric_name})"
+            assert axis.get_xlabel() == text["time"]
             curves = axis.lines[:: 2 if show_mean_lines else 1]
-            assert [line.get_label() for line in curves] == labels
+            assert [line.get_label() for line in curves] == display_labels
             assert len({line.get_color() for line in curves}) == 5
             np.testing.assert_array_equal(curves[0].get_xdata(), [0, 20])
-        for (_figure, axis), nominal in zip(figures[-2:], (50, 90), strict=True):
+        for (figure, axis), nominal in zip(figures[-2:], (50, 90), strict=True):
+            assert (
+                figure._suptitle.get_text()
+                == f"{text['title']} (Joint {nominal}% Coverage)"
+            )
             assert len(axis.patches) == 5
             assert axis.get_ylim() == (0.0, 100.0)
-            assert axis.lines[0].get_label() == f"Nominal {nominal}%"
+            assert axis.lines[0].get_label() == text["nominal"].format(percent=nominal)
+            assert axis.get_ylabel() == text["coverage"].format(percent=nominal)
+            assert [tick.get_text() for tick in axis.get_xticklabels()] == [
+                label.replace(" (", "\n(") for label in display_labels
+            ]
         for figure, axis in figures:
             figure.canvas.draw()
             renderer = figure.canvas.get_renderer()
@@ -254,19 +302,22 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
 @pytest.mark.parametrize("show_points", [False, True])
 @pytest.mark.parametrize("show_mean_lines", [False, True])
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+@pytest.mark.parametrize("plot_language", ["de", "en"])
 def test_run_button_compares_all_five_csvs_without_running_models_or_writing_outputs(
-    tmp_path, monkeypatch, show_points, show_mean_lines, metric_y_scale
+    tmp_path, monkeypatch, show_points, show_mean_lines, metric_y_scale, plot_language
 ):
     from bayestraj.validation import imm_workflow
 
     paths = _write_model_csvs(tmp_path)
     originals = {path: path.read_bytes() for path in paths.values()}
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
+    assert namespace["PLOT_LANGUAGE"] == "de"
     for variable, path in paths.items():
         monkeypatch.setitem(namespace, variable, path)
     monkeypatch.setitem(namespace, "SHOW_POINTS", show_points)
     monkeypatch.setitem(namespace, "SHOW_MEAN_LINES", show_mean_lines)
     monkeypatch.setitem(namespace, "METRIC_Y_SCALE", metric_y_scale)
+    monkeypatch.setitem(namespace, "PLOT_LANGUAGE", plot_language)
 
     def forbidden(*args, **kwargs):
         pytest.fail("CSV comparison must not run inference")
@@ -296,20 +347,27 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
             7.0,
             8.0,
         ]
-        for figure in shown[:6]:
+        metric_names = [*METRIC_NAMES[:-1], PLOT_TEXT[plot_language]["runtime"]]
+        for figure, metric_name in zip(shown[:6], metric_names, strict=True):
             axis = figure.axes[0]
+            assert figure._suptitle.get_text() == (
+                f"{PLOT_TEXT[plot_language]['title']} ({metric_name})"
+            )
+            assert axis.get_xlabel() == PLOT_TEXT[plot_language]["time"]
             lower, upper = axis.get_ylim()
             assert lower <= 0 <= upper
             assert 0 in axis.get_yticks()
-            curves = [line for line in axis.lines if line.get_label() in labels]
-            assert [line.get_label() for line in curves] == labels
+            display_labels = PLOT_MODEL_LABELS[plot_language]
+            curves = [line for line in axis.lines if line.get_label() in display_labels]
+            assert [line.get_label() for line in curves] == display_labels
             assert all(
                 line.get_marker() == ("o" if show_points else "None") for line in curves
             )
             means = [line for line in axis.lines if line.get_linestyle() == "--"]
             assert len(means) == (5 if show_mean_lines else 0)
             legend = [text.get_text() for text in axis.get_legend().get_texts()]
-            assert any("Mittel =" in text for text in legend) == show_mean_lines
+            mean_label = PLOT_TEXT[plot_language]["mean"] + " ="
+            assert any(mean_label in text for text in legend) == show_mean_lines
         for figure, nominal in zip(shown[-2:], (50, 90), strict=True):
             axis = figure.axes[0]
             assert len(axis.patches) == 5
@@ -336,7 +394,7 @@ def test_symlog_metrics_keep_negative_zero_and_extreme_scores_visible(tmp_path):
     try:
         figure, axis = figures[1]
         assert axis.get_yscale() == "symlog"
-        assert axis.get_ylabel() == "Negative log predictive density"
+        assert axis.get_ylabel() == "NLPD"
         assert all("(symlog)" not in ax.get_ylabel() for _, ax in figures)
         np.testing.assert_array_equal(axis.lines[0].get_ydata(), [-2.0, 0.0])
         np.testing.assert_array_equal(axis.lines[2].get_ydata(), [5.0, 3800.0])
@@ -391,6 +449,15 @@ def test_invalid_metric_scale_is_rejected_before_creating_plots():
     with pytest.raises(ValueError, match="metric_y_scale.*linear.*symlog"):
         runtime_plotting.plot_model_comparison(
             {"SMC": _table("bayesian"), "IMM": _table("imm")}, metric_y_scale="log"
+        )
+    assert plt.get_fignums() == previous
+
+
+def test_invalid_plot_language_is_rejected_before_creating_plots():
+    previous = plt.get_fignums()
+    with pytest.raises(ValueError, match="plot_language.*de.*en"):
+        runtime_plotting.plot_model_comparison(
+            {"SMC": _table("bayesian"), "IMM": _table("imm")}, plot_language="fr"
         )
     assert plt.get_fignums() == previous
 
@@ -572,7 +639,7 @@ def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypa
         assert indexed.loc["joint_coverage_50", "imm"] == 0.25
         assert indexed.loc["joint_coverage_90", "bayesian_ctrv"] == 0.75
         assert indexed.loc["joint_coverage_90", "imm"] == 0.75
-        assert figures[1][1].get_ylabel() == "Negative log predictive density"
+        assert figures[1][1].get_ylabel() == "NLPD"
         assert indexed.loc["fit_runtime_seconds", "bayesian_ctrv"] == 0.015
         expected = (
             ([np.sqrt(12.5), np.sqrt(84.5)], [np.sqrt(50), np.sqrt(144.5)]),
@@ -588,7 +655,7 @@ def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypa
             assert figure._suptitle.get_text() == "Bayesian CTRV vs. IMM"
             assert figure._suptitle.get_fontweight() == "bold"
             assert figure._suptitle.get_fontsize() == 13
-            assert axis.get_xlabel() == "Zeit [s]"
+            assert axis.get_xlabel() == "Time [s]"
             assert len(axis.lines) == 4
             np.testing.assert_allclose(axis.lines[0].get_xdata(), [0, 20])
             np.testing.assert_allclose(axis.lines[0].get_ydata(), bayesian_values)
@@ -605,7 +672,7 @@ def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypa
             figures[6:], (50, 90), ([50, 25], [75, 75]), strict=True
         ):
             assert axis.get_xlabel() == ""
-            assert axis.get_ylabel() == f"Joint {nominal}% coverage [%]"
+            assert axis.get_ylabel() == "Coverage [%]"
             np.testing.assert_allclose(axis.get_ylim(), [0, 100])
             assert [tick.get_text() for tick in axis.get_xticklabels()] == [
                 "Bayesian CTRV (SMC)",
