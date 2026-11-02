@@ -21,6 +21,13 @@ MODEL_CSVS = (
     ("BAYESIAN_MCMC_CSV", "mcmc", "Bayesian CTRV (MCMC)"),
     ("BAYESIAN_SEQ_VI_CSV", "sequential_vi", "Bayesian CTRV (Sequential VI)"),
 )
+MODEL_DISPLAY_ORDER = [
+    "IMM",
+    "Bayesian CTRV (SMC)",
+    "Bayesian CTRV (Sequential VI)",
+    "Bayesian CTRV (VI)",
+    "Bayesian CTRV (MCMC)",
+]
 
 
 def _table(model):
@@ -87,7 +94,7 @@ def test_named_csvs_load_all_five_methods_without_modifying_files(tmp_path):
 
     models = comparison.read_model_comparison_csvs(paths)
 
-    assert list(models) == [label for _, _, label in MODEL_CSVS]
+    assert list(models) == MODEL_DISPLAY_ORDER
     for variable, method, label in MODEL_CSVS:
         assert models[label]["inference_method"].unique().tolist() == [method]
         assert paths[variable].read_bytes() == originals[variable]
@@ -203,7 +210,7 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
         ]
         assert list(summary) == ["metric", *labels, "preferred"]
         indexed = summary.set_index("metric")
-        assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 7.0, 8.0, 9.0]
+        assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 9.0, 7.0, 8.0]
         for _, axis in figures[:6]:
             curves = axis.lines[:: 2 if show_mean_lines else 1]
             assert [line.get_label() for line in curves] == labels
@@ -278,16 +285,16 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
         )
         assert list(summary) == [
             "metric",
-            *[label for _, _, label in MODEL_CSVS],
+            *MODEL_DISPLAY_ORDER,
             "preferred",
         ]
         labels = list(summary.columns[1:-1])
         assert summary.set_index("metric").loc["ade_m", labels].tolist() == [
             9.25,
             6.0,
+            9.0,
             7.0,
             8.0,
-            9.0,
         ]
         for figure in shown[:6]:
             axis = figure.axes[0]

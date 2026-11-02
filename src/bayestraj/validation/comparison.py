@@ -12,13 +12,13 @@ import bayestraj.validation.runtime_plotting as runtime_plotting
 MODEL_CSV_SPECS = {
     "IMM_CSV": ("imm", "imm", "IMM"),
     "BAYESIAN_SMC_CSV": ("bayesian", "smc", "Bayesian CTRV (SMC)"),
-    "BAYESIAN_VI_CSV": ("bayesian", "vi", "Bayesian CTRV (VI)"),
-    "BAYESIAN_MCMC_CSV": ("bayesian", "mcmc", "Bayesian CTRV (MCMC)"),
     "BAYESIAN_SEQ_VI_CSV": (
         "bayesian",
         "sequential_vi",
         "Bayesian CTRV (Sequential VI)",
     ),
+    "BAYESIAN_VI_CSV": ("bayesian", "vi", "Bayesian CTRV (VI)"),
+    "BAYESIAN_MCMC_CSV": ("bayesian", "mcmc", "Bayesian CTRV (MCMC)"),
 }
 
 NUMERIC_COLUMNS = (
@@ -241,11 +241,15 @@ def read_comparison_csvs(
 
 
 def read_model_comparison_csvs(csv_paths):
-    """Read named CSV variables, validate their methods, and align all models."""
+    """Read and align named CSVs in online-then-batch display order."""
     unknown = set(csv_paths).difference(MODEL_CSV_SPECS)
     if unknown:
         raise ValueError(f"Unknown comparison CSV variables: {sorted(unknown)}")
-    selected = {name: path for name, path in csv_paths.items() if path is not None}
+    selected = {
+        name: csv_paths[name]
+        for name in MODEL_CSV_SPECS
+        if csv_paths.get(name) is not None
+    }
     if len(selected) < 2:
         raise ValueError("Select at least two CSV files for comparison.")
     models = {}

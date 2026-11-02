@@ -12,13 +12,13 @@ from bayestraj.paths import project_path
 # Set a CSV path to None to exclude that model; select at least two models.
 IMM_CSV = project_path("results/imm_evaluation.csv")
 BAYESIAN_SMC_CSV = project_path("results/bayesian_ctrv_smc_evaluation.csv")
+BAYESIAN_SEQ_VI_CSV = project_path("results/bayesian_ctrv_seq_vi_evaluation.csv")
 BAYESIAN_VI_CSV = project_path("results/bayesian_ctrv_vi_evaluation.csv")
 BAYESIAN_MCMC_CSV = project_path("results/bayesian_ctrv_mcmc_evaluation.csv")
-BAYESIAN_SEQ_VI_CSV = project_path("results/bayesian_ctrv_seq_vi_evaluation.csv")
 
 SHOW_POINTS = False  # Mark forecast origins on metric curves.
 SHOW_MEAN_LINES = False  # Show mean metric values as dashed lines.
-METRIC_Y_SCALE = "symlog"  # "linear" or "symlog" for metric curves.
+METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
 
 
 def main():
@@ -28,9 +28,9 @@ def main():
             {
                 "IMM_CSV": IMM_CSV,
                 "BAYESIAN_SMC_CSV": BAYESIAN_SMC_CSV,
+                "BAYESIAN_SEQ_VI_CSV": BAYESIAN_SEQ_VI_CSV,
                 "BAYESIAN_VI_CSV": BAYESIAN_VI_CSV,
                 "BAYESIAN_MCMC_CSV": BAYESIAN_MCMC_CSV,
-                "BAYESIAN_SEQ_VI_CSV": BAYESIAN_SEQ_VI_CSV,
             }
         )
     except (OSError, ValueError) as error:
