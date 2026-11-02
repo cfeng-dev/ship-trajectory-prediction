@@ -19,11 +19,13 @@ COMPARISON_INFERENCE_COLORS = {
     "sequential_vi": "#D55E00",
 }
 COMPARISON_METRIC_LABELS = {
-    "rmse_m": ("RMSE [m]", "Root Mean Squared Error"),
-    "mean_negative_log_predictive_density": ("NLPD", "Negative Log Predictive Density"),
     "ade_m": ("ADE [m]", "Average Displacement Error"),
     "fde_m": ("FDE [m]", "Final Displacement Error"),
+    "rmse_m": ("RMSE [m]", "Root Mean Squared Error"),
     "energy_score_m": ("ES [m]", "Energy Score"),
+    "mean_negative_log_predictive_density": ("NLPD", "Negative Log Predictive Density"),
+    "joint_coverage_50": ("Coverage [%]", "Joint 50% Coverage"),
+    "joint_coverage_90": ("Coverage [%]", "Joint 90% Coverage"),
     "fit_runtime_seconds": ("Runtime [s]", "Runtime"),
 }
 COMPARISON_PLOT_TEXT = {
@@ -188,19 +190,12 @@ def plot_model_comparison(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
     figures, rows = [], []
-    plot_specs = [
-        (short_label, name, None, full_name)
-        for name, (short_label, full_name) in COMPARISON_METRIC_LABELS.items()
-    ] + [
-        (
-            "Coverage [%]",
-            f"joint_coverage_{percent}",
-            percent / 100,
-            f"Joint {percent}% Coverage",
+    for name, (ylabel, metric_name) in COMPARISON_METRIC_LABELS.items():
+        nominal = (
+            int(name.rsplit("_", 1)[1]) / 100
+            if name.startswith("joint_coverage_")
+            else None
         )
-        for percent in (50, 90)
-    ]
-    for ylabel, name, nominal, metric_name in plot_specs:
         if name == "fit_runtime_seconds":
             metric_name = text["runtime"]
             ylabel = f"{metric_name} [s]"
@@ -432,13 +427,18 @@ def _plot_rolling_diagnostics(
         inference_selection or str(inference_methods[0])
     )
     figures = []
+    metric_order = {name: index for index, name in enumerate(COMPARISON_METRIC_LABELS)}
+    plot_styles = sorted(
+        ROLLING_DIAGNOSTIC_PLOT_STYLES,
+        key=lambda style: metric_order[style[3]],
+    )
     for (
         y_axis_label,
         label,
         color,
         value_name,
         mean_label,
-    ) in ROLLING_DIAGNOSTIC_PLOT_STYLES:
+    ) in plot_styles:
         if value_name == "fit_runtime_seconds" and runtime_label is not None:
             y_axis_label = f"{runtime_label} [s]"
             label = runtime_label

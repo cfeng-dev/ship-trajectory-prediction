@@ -747,6 +747,8 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
     )
 
     expected_plots = (
+        ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mittlerer ADE: 6.75 m"),
+        ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mittlerer FDE: 10.00 m"),
         (
             "RMSE [m]",
             "RMSE",
@@ -756,22 +758,20 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
             "Mittlerer RMSE: 7.32 m",
         ),
         (
-            "NLPD",
-            "NLPD",
-            "#CC79A7",
-            [3.0, 6.0],
-            4.5,
-            "Mittlere NLPD: 4.500",
-        ),
-        ("ADE [m]", "ADE", "#E69F00", [5.0, 8.5], 6.75, "Mittlerer ADE: 6.75 m"),
-        ("FDE [m]", "FDE", "#D55E00", [8.0, 12.0], 10.0, "Mittlerer FDE: 10.00 m"),
-        (
             "Energy Score [m]",
             "Energy Score",
             "#009E73",
             [4.0, 8.0],
             6.0,
             "Mittlerer Energy Score: 6.00 m",
+        ),
+        (
+            "NLPD",
+            "NLPD",
+            "#CC79A7",
+            [3.0, 6.0],
+            4.5,
+            "Mittlere NLPD: 4.500",
         ),
         (
             f"{runtime_label} [s]",
