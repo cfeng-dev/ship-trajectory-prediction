@@ -18,6 +18,7 @@ BAYESIAN_MCMC_CSV = project_path("results/bayesian_ctrv_mcmc_evaluation.csv")
 
 SHOW_POINTS = False  # Mark forecast origins on metric curves.
 SHOW_MEAN_LINES = False  # Show mean metric values as dashed lines.
+SHOW_SUMMARY_TABLE = True  # Display all summary metrics in an additional table.
 METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
 PLOT_LANGUAGE = "de"  # "de" or "en" for plot labels.
 
@@ -40,6 +41,7 @@ def main():
         models,
         show_points=SHOW_POINTS,
         show_mean_lines=SHOW_MEAN_LINES,
+        show_summary_table=SHOW_SUMMARY_TABLE,
         metric_y_scale=METRIC_Y_SCALE,
         plot_language=PLOT_LANGUAGE,
     )

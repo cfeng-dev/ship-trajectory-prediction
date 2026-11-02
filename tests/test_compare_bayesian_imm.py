@@ -330,7 +330,7 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
     try:
         summary = namespace["main"]()
 
-        assert len(shown) == 8
+        assert len(shown) == 9
         assert all(
             figure.axes[0].get_yscale() == metric_y_scale for figure in shown[:6]
         )
@@ -368,17 +368,129 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
             legend = [text.get_text() for text in axis.get_legend().get_texts()]
             mean_label = PLOT_TEXT[plot_language]["mean"] + " ="
             assert any(mean_label in text for text in legend) == show_mean_lines
-        for figure, nominal in zip(shown[-2:], (50, 90), strict=True):
+        for figure, nominal in zip(shown[6:8], (50, 90), strict=True):
             axis = figure.axes[0]
             assert len(axis.patches) == 5
             assert len(axis.lines) == 1
             assert axis.get_yscale() == "linear"
             np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
+        table = shown[8].axes[0].tables[0]
+        assert [table[0, column].get_text().get_text() for column in range(1, 6)] == [
+            label.replace(" (", "\n(") for label in PLOT_MODEL_LABELS[plot_language]
+        ]
+        assert table[3, 1].get_text().get_text() == "9.250"
+        assert table[7, 1].get_text().get_text() == "25.0%"
         assert set(tmp_path.iterdir()) == set(paths.values())
         assert {path: path.read_bytes() for path in paths.values()} == originals
     finally:
         for number in set(plt.get_fignums()) - previous:
             plt.close(number)
+
+
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+@pytest.mark.parametrize("model_count", [2, 5])
+def test_summary_table_preserves_values_and_fits_labels_inside_export(
+    tmp_path, plot_language, model_count
+):
+    paths = _write_model_csvs(tmp_path)
+    models = comparison.read_model_comparison_csvs(paths)
+    models = dict(list(models.items())[:model_count])
+    previous = set(plt.get_fignums())
+    try:
+        summary, figures = runtime_plotting.plot_model_comparison(
+            models,
+            show=False,
+            show_summary_table=True,
+            plot_language=plot_language,
+            output_dir=tmp_path / "plots",
+        )
+        assert len(figures) == 9
+        figure, axis = figures[-1]
+        assert not axis.axison
+        table = axis.tables[0]
+        cells = table.get_celld()
+        assert len(cells) == 9 * (model_count + 1)
+        assert cells[0, 0].get_text().get_text() == (
+            "Metrik" if plot_language == "de" else "Metric"
+        )
+        assert figure._suptitle.get_text() == (
+            "Modellvergleich (Metrikübersicht)"
+            if plot_language == "de"
+            else "Model comparison (Metric summary)"
+        )
+        assert cells[6, 0].get_text().get_text() == (
+            "Laufzeit [s]" if plot_language == "de" else "Runtime [s]"
+        )
+        assert cells[3, 1].get_text().get_text() == "9.250"
+        assert cells[6, 1].get_text().get_text() == "0.003"
+        assert cells[7, 1].get_text().get_text() == "25.0%"
+        assert cells[8, 1].get_text().get_text() == "75.0%"
+        assert list(summary.columns) == ["metric", *models, "preferred"]
+        for column, name in enumerate(models, start=1):
+            assert cells[0, column].get_text().get_text() == (
+                PLOT_MODEL_LABELS[plot_language][column - 1].replace(" (", "\n(")
+            )
+            for row, (metric, value) in enumerate(
+                zip(summary["metric"], summary[name], strict=True), start=1
+            ):
+                assert cells[row, column].get_text().get_text() == (
+                    f"{value:.1%}"
+                    if metric.startswith("joint_coverage_")
+                    else f"{value:.3f}"
+                )
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        for cell in cells.values():
+            cell_box = cell.get_window_extent(renderer)
+            text_box = cell.get_text().get_window_extent(renderer)
+            assert figure.bbox.contains(cell_box.x0, cell_box.y0)
+            assert figure.bbox.contains(cell_box.x1, cell_box.y1)
+            assert cell_box.contains(text_box.x0, text_box.y0)
+            assert cell_box.contains(text_box.x1, text_box.y1)
+        assert (tmp_path / "plots/metrics_summary.png").stat().st_size > 0
+    finally:
+        for number in set(plt.get_fignums()) - previous:
+            plt.close(number)
+
+
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+def test_summary_table_bolds_best_metrics_and_coverage_calibration(plot_language):
+    summary = pd.DataFrame(
+        {
+            "metric": [
+                *runtime_plotting.COMPARISON_METRIC_LABELS,
+                "joint_coverage_50",
+                "joint_coverage_90",
+            ],
+            "A": [3.0, -1.0, 1.0, 3.0, 2.0, 0.0109, 0.60, 0.99],
+            "B": [2.0, -3.0, 1.0, 4.0, 2.0, 0.0111, 0.40, 0.85],
+            "C": [np.nan, -2.0, 2.0, 1.0, 2.0, 0.0200, 0.90, 0.95],
+            "preferred": ["lower"] * 6 + ["near 50%", "near 90%"],
+        }
+    )
+    original = summary.copy(deep=True)
+    figure, axis = runtime_plotting._plot_comparison_summary_table(
+        summary,
+        ["A", "B", "C"],
+        text=runtime_plotting.COMPARISON_PLOT_TEXT[plot_language],
+        title=None,
+    )
+    try:
+        cells = axis.tables[0].get_celld()
+        expected_best = [{2}, {2}, {1, 2}, {3}, {1, 2, 3}, {1}, {1, 2}, {2, 3}]
+        for row, expected in enumerate(expected_best, start=1):
+            assert {
+                column
+                for column in (1, 2, 3)
+                if cells[row, column].get_text().get_weight() == "bold"
+            } == expected
+            assert cells[row, 0].get_text().get_weight() == "normal"
+        # Rank the original values even when displayed values round identically.
+        assert cells[6, 1].get_text().get_text() == "0.011"
+        assert cells[6, 2].get_text().get_text() == "0.011"
+        pd.testing.assert_frame_equal(summary, original)
+    finally:
+        plt.close(figure)
 
 
 def test_symlog_metrics_keep_negative_zero_and_extreme_scores_visible(tmp_path):
@@ -765,10 +877,10 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
         summary = module["main"]()
 
         assert len(summary) == 8
-        assert len(shown) == 8
+        assert len(shown) == 9
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
         assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == originals
-        assert len(set(plt.get_fignums()) - previous_figures) == 8
+        assert len(set(plt.get_fignums()) - previous_figures) == 9
         report = capsys.readouterr().out
         assert "Matched forecast origins: 2" in report
         assert "Gaussian" in report and "near 50%" in report and "near 90%" in report
@@ -819,11 +931,14 @@ def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
             plt.close(figure_number)
 
 
+@pytest.mark.parametrize("show_summary_table", [False, True])
 def test_comparison_script_shows_plots_using_configured_csvs(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, show_summary_table
 ):
     module = runpy.run_path(SCRIPT)
     namespace = module["main"].__globals__
+    assert namespace["SHOW_SUMMARY_TABLE"] is True
+    monkeypatch.setitem(namespace, "SHOW_SUMMARY_TABLE", show_summary_table)
     monkeypatch.setattr("sys.argv", [str(SCRIPT)])
     bayesian_csv, imm_csv = (
         tmp_path / "configured_bayesian.csv",
@@ -842,7 +957,7 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         indexed = summary.set_index("metric")
         assert indexed.loc["ade_m", "Bayesian CTRV (SMC)"] == 6.0
         assert indexed.loc["ade_m", "IMM"] == 9.25
-        assert len(shown) == 8
+        assert len(shown) == (9 if show_summary_table else 8)
         assert "Matched forecast positions: 4" in capsys.readouterr().out
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
     finally:

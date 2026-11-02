@@ -100,6 +100,7 @@ Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.
 `SHOW_POINTS` and `SHOW_MEAN_LINES` control curve markers and dashed mean lines.
+`SHOW_SUMMARY_TABLE` displays all summary metrics in an additional table figure.
 `METRIC_Y_SCALE` selects `linear` or `symlog` scaling for all metric curves.
 `PLOT_LANGUAGE` selects German (`de`, default) or English (`en`) titles, time axes
 and legends. Metric axes use short labels; titles include full English metric names.

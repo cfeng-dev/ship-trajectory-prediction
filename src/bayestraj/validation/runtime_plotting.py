@@ -34,6 +34,12 @@ COMPARISON_PLOT_TEXT = {
         "mean": "Mittelwert",
         "bayesian_model": "Bayessches CTRV",
         "nominal": "Sollwert: {percent}%",
+        "metric": "Metrik",
+        "summary": "Metrikübersicht",
+        "summary_note": (
+            "Mittelwerte über gemeinsame Vorhersageursprünge.\n"
+            "Coverage über alle zugeordneten Vorhersagepunkte."
+        ),
     },
     "en": {
         "title": "Model comparison",
@@ -42,6 +48,12 @@ COMPARISON_PLOT_TEXT = {
         "mean": "Mean",
         "bayesian_model": "Bayesian CTRV",
         "nominal": "Nominal {percent}%",
+        "metric": "Metric",
+        "summary": "Metric summary",
+        "summary_note": (
+            "Mean metrics over common forecast origins.\n"
+            "Coverage over all matched forecast positions."
+        ),
     },
 }
 ROLLING_DIAGNOSTIC_PLOT_STYLES = (
@@ -142,6 +154,7 @@ def plot_model_comparison(
     output_dir=None,
     show_points=True,
     show_mean_lines=True,
+    show_summary_table=False,
     metric_y_scale="linear",
     plot_language="en",
 ):
@@ -289,7 +302,81 @@ def plot_model_comparison(
                 else f"near {100 * nominal:.0f}%",
             }
         )
-    return pd.DataFrame(rows), tuple(figures)
+    summary = pd.DataFrame(rows)
+    if show_summary_table:
+        figure, axis = _plot_comparison_summary_table(
+            summary, labels, text=text, title=title
+        )
+        if output_dir is not None:
+            figure.savefig(
+                output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
+            )
+        if show:
+            plt.show()
+        figures.append((figure, axis))
+    return summary, tuple(figures)
+
+
+def _plot_comparison_summary_table(summary, labels, *, text, title):
+    """Render the computed comparison summary without recalculating metrics."""
+    style = RUNTIME_PLOT_STYLE
+    width = max(8.0, 2.0 + 2.0 * len(labels))
+    figure, axis = plt.subplots(figsize=(width, 5.5))
+    axis.set_axis_off()
+    rows = []
+    best_cells = set()
+    for row_number, (_, row) in enumerate(summary.iterrows(), start=1):
+        name = row["metric"]
+        coverage = name.startswith("joint_coverage_")
+        values = row.iloc[1:-1].to_numpy(dtype=float)
+        scores = values
+        if coverage:
+            percent = int(name.rsplit("_", 1)[1])
+            label = f"Joint {percent}% Coverage"
+            scores = np.abs(values - percent / 100)
+        elif name == "fit_runtime_seconds":
+            label = f"{text['runtime']} [s]"
+        else:
+            label = COMPARISON_METRIC_LABELS[name][0]
+        finite = np.isfinite(scores)
+        if finite.any():
+            # Allow floating-point roundoff in otherwise equal scores.
+            best = finite & np.isclose(
+                scores, np.min(scores[finite]), rtol=1e-12, atol=1e-12
+            )
+            best_cells.update(
+                (row_number, column + 1) for column in np.flatnonzero(best)
+            )
+        rows.append(
+            [label]
+            + [f"{value:.1%}" if coverage else f"{value:.3f}" for value in values]
+        )
+    metric_width = 2.0 / width
+    table = axis.table(
+        cellText=rows,
+        colLabels=[text["metric"], *[label.replace(" (", "\n(") for label in labels]],
+        colWidths=[metric_width] + [(1 - metric_width) / len(labels)] * len(labels),
+        cellLoc="right",
+        bbox=(0, 0.12, 1, 0.84),
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(style.axis_tick_font_size)
+    for (row, column), cell in table.get_celld().items():
+        cell.set_edgecolor("0.8")
+        cell.set_linewidth(0.6)
+        cell.set_facecolor("0.92" if row == 0 else ("0.97" if row % 2 else "white"))
+        if row == 0 or (row, column) in best_cells:
+            cell.get_text().set_weight("bold")
+        if column == 0:
+            cell.get_text().set_ha("left")
+    figure.suptitle(
+        title if title is not None else f"{text['title']} ({text['summary']})",
+        fontsize=style.title_font_size,
+        fontweight=style.title_font_weight,
+    )
+    figure.text(0.5, 0.04, text["summary_note"], ha="center", fontsize=9)
+    figure.tight_layout(rect=(0, 0.1, 1, 0.93))
+    return figure, axis
 
 
 def _reserve_legend_headroom(figure, axis, legend):

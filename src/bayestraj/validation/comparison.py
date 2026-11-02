@@ -288,6 +288,7 @@ def run_model_comparison(
     title=None,
     show_points=True,
     show_mean_lines=True,
+    show_summary_table=False,
     metric_y_scale="linear",
     plot_language="en",
 ):
@@ -305,6 +306,7 @@ def run_model_comparison(
         output_dir=output_dir,
         show_points=show_points,
         show_mean_lines=show_mean_lines,
+        show_summary_table=show_summary_table,
         metric_y_scale=metric_y_scale,
         plot_language=plot_language,
     )
