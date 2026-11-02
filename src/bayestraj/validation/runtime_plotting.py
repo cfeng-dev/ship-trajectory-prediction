@@ -453,12 +453,6 @@ def _plot_rolling_diagnostics(
             label=label,
         )
         mean = float(np.mean(metric_values[value_name]))
-        axis.axhline(
-            mean,
-            color=color,
-            linestyle="--",
-            label=mean_label.format(mean=mean),
-        )
         axis.set_xlabel(
             "Zeit [s]",
             fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
@@ -479,7 +473,15 @@ def _plot_rolling_diagnostics(
             fontsize=RUNTIME_PLOT_STYLE.title_font_size,
             fontweight=RUNTIME_PLOT_STYLE.title_font_weight,
         )
-        figure.tight_layout()
+        figure.text(
+            0.5,
+            0.02,
+            mean_label.format(mean=mean),
+            ha="center",
+            va="bottom",
+            fontsize=RUNTIME_PLOT_STYLE.axis_tick_font_size,
+        )
+        figure.tight_layout(rect=(0, 0.07, 1, 1))
         plt.show()
         figures.append((figure, axis))
     return tuple(figures)

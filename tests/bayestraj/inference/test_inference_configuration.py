@@ -3,7 +3,6 @@
 import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
-import bayestraj.forecasting.cli as forecasting_cli
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_smc as smc_model
@@ -351,25 +350,6 @@ def test_existing_ctrv_method_normalization_is_unchanged(method, expected):
 
 @pytest.mark.parametrize(
     "inference_method",
-    ("vi", "mcmc", "smc", "sequential_vi"),
-)
-def test_single_window_ctrv_derives_mode_from_inference_method(inference_method):
-    config = ctrv_config.ExperimentConfig(
-        start_index=0,
-        observation_count=5,
-        prediction_count=3,
-        position_noise_std_m=5.0,
-        position_noise_seed=2026,
-        inference_method=inference_method,
-        inference_seed=42,
-    )
-
-    assert config.inference_method == inference_method
-    assert not hasattr(config, "inference_mode")
-
-
-@pytest.mark.parametrize(
-    "inference_method",
     (
         "vi",
         "mcmc",
@@ -391,30 +371,6 @@ def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
     assert config.inference_method == inference_method
     assert not hasattr(config, "inference_mode")
     assert not hasattr(config, "window_mode")
-
-
-@pytest.mark.parametrize("online_method", ("smc", "sequential_vi"))
-def test_single_window_ctrv_cli_accepts_online_particle_filters(online_method):
-    experiment = ctrv_config.ExperimentConfig(
-        start_index=0,
-        observation_count=5,
-        prediction_count=3,
-        position_noise_std_m=5.0,
-        position_noise_seed=2026,
-        inference_method="vi",
-        inference_seed=42,
-    )
-
-    arguments = forecasting_cli.parse_bayesian_ctrv_prediction_arguments(
-        description=None,
-        experiment=experiment,
-        plot_coordinate_mode="m",
-        argv=["--inference-method", online_method],
-    )
-
-    assert not hasattr(arguments, "inference_mode")
-    assert arguments.inference_method == online_method
-    assert arguments.vi_algorithm == inference.create_default_vi_config()["algorithm"]
 
 
 @pytest.mark.parametrize(

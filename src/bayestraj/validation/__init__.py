@@ -16,7 +16,6 @@ from bayestraj.validation.prediction_plotting import (
     plot_prediction,
     plot_trajectory_paths,
 )
-from bayestraj.validation.reporting import print_prediction_setup
 from bayestraj.validation.rolling import (
     RollingPositionSummary,
     RollingWindowSpec,
@@ -39,7 +38,6 @@ __all__ = [
     "plot_deterministic_rolling_predictions",
     "plot_prediction",
     "plot_trajectory_paths",
-    "print_prediction_setup",
     "print_position_evaluation",
     "summarize_rolling_predictions",
 ]

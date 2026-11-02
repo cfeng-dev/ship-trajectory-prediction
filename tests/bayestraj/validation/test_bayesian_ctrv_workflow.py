@@ -809,12 +809,20 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 20.0])
         np.testing.assert_allclose(axis.lines[0].get_ydata(), values)
         assert axis.lines[0].get_color() == color
-        np.testing.assert_allclose(axis.lines[1].get_ydata(), [mean, mean])
-        assert axis.lines[1].get_linestyle() == "--"
+        assert len(axis.lines) == 1
+        assert np.mean(values) == pytest.approx(mean)
         assert [entry.get_text() for entry in axis.get_legend().get_texts()] == [
             label,
-            mean_label,
         ]
+        mean_caption = [text for text in figure.texts if text.get_text() == mean_label]
+        assert len(mean_caption) == 1
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        caption_box = mean_caption[0].get_window_extent(renderer)
+        xlabel_box = axis.xaxis.label.get_window_extent(renderer)
+        assert caption_box.y1 < xlabel_box.y0
+        assert figure.bbox.contains(caption_box.x0, caption_box.y0)
+        assert figure.bbox.contains(caption_box.x1, caption_box.y1)
         runtime_plotting.plt.close(figure)
     pd.testing.assert_frame_equal(predictions, original)
 

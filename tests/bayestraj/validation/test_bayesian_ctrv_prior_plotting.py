@@ -35,27 +35,24 @@ def _load_prior_plotting_module():
 prior_plotting = _load_prior_plotting_module()
 prior_plotting_support = importlib.import_module("bayestraj.validation.prior_plotting")
 prior_reporting = importlib.import_module("bayestraj.validation.prior_reporting")
-EXPERIMENT_PRIORS = runpy.run_path(
-    PROJECT_ROOT / "experiments" / "single_run" / "bayesian_ctrv.py"
-)["PRIORS"]
 EVALUATION_PRIORS = runpy.run_path(
     PROJECT_ROOT / "experiments" / "model_evaluation" / "bayesian_ctrv.py"
 )["PRIORS"]
 
 
-def test_visualization_uses_current_experiment_prior_configuration():
-    assert prior_plotting.PRIORS == EXPERIMENT_PRIORS
+def test_visualization_uses_current_evaluation_prior_configuration():
+    assert prior_plotting.PRIORS == EVALUATION_PRIORS
 
 
 def test_experiments_use_shared_bayesian_ctrv_prior_defaults():
     expected = prior_plotting.bayesian_model.BayesianCTRVPriors()
 
-    assert EXPERIMENT_PRIORS == expected
+    assert prior_plotting.PRIORS == expected
     assert EVALUATION_PRIORS == expected
 
 
 def test_prior_plotting_support_is_importable_from_the_validation_package():
-    assert prior_plotting_support.build_prior_curves(EXPERIMENT_PRIORS)
+    assert prior_plotting_support.build_prior_curves(EVALUATION_PRIORS)
 
 
 def test_prior_curves_use_configured_thresholds_and_derived_parameters():

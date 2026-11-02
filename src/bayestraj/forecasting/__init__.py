@@ -1,1 +1,1 @@
-"""Trajectory forecasting configuration, workflows, and CLI helpers."""
+"""Trajectory forecasting configuration and reusable helpers."""

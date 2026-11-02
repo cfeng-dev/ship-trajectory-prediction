@@ -13,17 +13,6 @@ MINIMUM_MOVEMENT_METERS = 1e-6
 
 
 @dataclass(frozen=True, slots=True)
-class DeterministicExperimentConfig:
-    """Configuration of one deterministic local ``time,x,y`` experiment."""
-
-    start_index: int
-    observation_count: int
-    prediction_count: int
-    position_noise_std_m: float
-    position_noise_seed: int
-
-
-@dataclass(frozen=True, slots=True)
 class DeterministicRollingExperimentConfig:
     """Configuration of one local ``time,x,y`` rolling evaluation."""
 
