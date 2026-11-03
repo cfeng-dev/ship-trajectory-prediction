@@ -30,6 +30,7 @@ from .dashboard import (
 from .dashboard import (
     PREDICTION_REGION_STYLE_DISPLAY_OPTIONS as _PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
 )
+from .localization import translate
 from .session import AnalysisSettings
 
 COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
@@ -140,7 +141,7 @@ LABELS = {
 
 def normalize_inference_method(value):
     """Convert a friendly method label back to its internal identifier."""
-    value = str(value).strip()
+    value = translate(str(value).strip(), "en")
     return METHOD_DISPLAY_TO_VALUE.get(value, value)
 
 

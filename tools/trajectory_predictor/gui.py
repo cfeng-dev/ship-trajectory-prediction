@@ -9,6 +9,7 @@ from . import view
 from .controls import SettingsPanel
 from .dialogs import PlotDisplayWindow, SettingsDialog
 from .help import PosteriorHelpWindow
+from .localization import localize_widgets, normalize_language, translate
 from .plot_view import PosteriorPlotView
 from .session import PosteriorAnalysisWorker
 from .settings import (
@@ -26,6 +27,9 @@ class TrajectoryPredictor:
 
     def __init__(self, root, *, worker=None):
         self.root = root
+        self.language = "en"
+        self.language_var = tk.StringVar(root, value=self.language)
+        root._trajectory_language = self.language
         self.plot_view = None
         self.settings_visible = True
         self._settings = None
@@ -70,6 +74,9 @@ class TrajectoryPredictor:
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()
         self._poll_id = root.after(75, self._poll)
 
+    def _translate(self, text):
+        return translate(text, getattr(self, "language", "en"))
+
     def start_analysis(self):
         """Apply validated settings and replace the analysis, never mixing caches."""
         if self._closing or self._analysis_active:
@@ -77,7 +84,11 @@ class TrajectoryPredictor:
         try:
             settings = parse_settings(self.controls.values())
         except (ValueError, TypeError) as error:
-            messagebox.showerror("Check settings", str(error), parent=self.root)
+            messagebox.showerror(
+                self._translate("Check settings"),
+                self._translate(str(error)),
+                parent=self.root,
+            )
             return
         if self.plot_view is not None:
             self.plot_view.destroy()
@@ -93,10 +104,12 @@ class TrajectoryPredictor:
         self._analysis_active = True
         self.controls.set_analysis_active(True)
         view.set_analysis_menu_enabled(self, False)
-        self.placeholder.configure(text="Preparing analysis …")
+        self.placeholder.configure(text=self._translate("Preparing analysis …"))
         self.placeholder.pack(fill="both", expand=True)
         self.status.set(
-            "Loading data / initializing inference. Any previous fit is stopped first."
+            self._translate(
+                "Loading data / initializing inference. Any previous fit is stopped first.",
+            )
         )
         self.worker.start(settings.analysis)
 
@@ -119,16 +132,33 @@ class TrajectoryPredictor:
             self.plot_view.destroy()
             self.plot_view = None
         self.placeholder.configure(
-            text="Trajectory and posterior evolution\n\n"
-            "Select CSV, run, and method on the left.\n"
-            "Then click “Start analysis”."
+            text=self._translate(
+                "Trajectory and posterior evolution\n\n"
+                "Select CSV, run, and method on the left.\n"
+                "Then click “Start analysis”.",
+            )
         )
         self.placeholder.pack(fill="both", expand=True)
-        self.status.set("Analysis cancelled. Settings unlocked.")
+        self.status.set(self._translate("Analysis cancelled. Settings unlocked."))
 
     def toggle_settings(self):
         """Give the trajectory and posterior panels more space without rebuilding."""
         self.set_settings_visible(not self.settings_visible)
+
+    def set_language(self, language):
+        """Update presentation without replacing the analysis, drafts or playback."""
+        language = normalize_language(language)
+        if self._closing:
+            return
+        self.language = language
+        self.language_var.set(language)
+        self.root._trajectory_language = language
+        view.create_menu_bar(self)
+        view.set_analysis_menu_enabled(self, not self._analysis_active)
+        localize_widgets(self.root, language)
+        self.status.set(translate(self.status.get(), language))
+        if self.plot_view is not None:
+            self.plot_view.set_language(language)
 
     def set_settings_visible(self, visible):
         """Synchronize settings visibility across the sidebar, menu and dashboard."""
@@ -163,7 +193,11 @@ class TrajectoryPredictor:
         try:
             self.plot_view.set_coordinate_display_mode(coordinate_display_mode)
         except ValueError as error:
-            messagebox.showerror("Coordinate display", str(error), parent=self.root)
+            messagebox.showerror(
+                self._translate("Coordinate display"),
+                self._translate(str(error)),
+                parent=self.root,
+            )
 
     def set_coordinate_display_mode(self, coordinate_display_mode):
         """Select a presentation unit from the View menu."""
@@ -191,7 +225,11 @@ class TrajectoryPredictor:
         try:
             self.plot_view.set_display_options(display_options)
         except ValueError as error:
-            messagebox.showerror("Plot display", str(error), parent=self.root)
+            messagebox.showerror(
+                self._translate("Plot display"),
+                self._translate(str(error)),
+                parent=self.root,
+            )
 
     def show_inference_settings(self):
         """Edit options for the method currently selected in the sidebar."""
@@ -285,20 +323,22 @@ class TrajectoryPredictor:
                     self._handle_event(event)
                 if self.plot_view is not None and self._error is None:
                     navigator = self.plot_view.navigator
-                    state = "Playing" if navigator.is_playing else "Paused"
+                    state = self._translate(
+                        "Playing" if navigator.is_playing else "Paused"
+                    )
                     progress = (
-                        f" · Computing N={self._computing}"
+                        f" · {self._translate('Computing')} N={self._computing}"
                         if self._computing is not None
                         else ""
                     )
                     target = (
-                        f" · Target N={navigator.requested_observation_count}"
+                        f" · {self._translate('Target')} N={navigator.requested_observation_count}"
                         if navigator.is_waiting
                         else ""
                     )
                     self.status.set(
                         f"{self._settings.analysis.experiment.inference_method.upper()} · "
-                        f"{state} · Anzeige N={navigator.observation_count}/"
+                        f"{state} · {self._translate('Display')} N={navigator.observation_count}/"
                         f"{navigator.maximum_observation_count}{target}{progress}"
                     )
         except Exception:
@@ -363,9 +403,17 @@ class TrajectoryPredictor:
             if self.plot_view is not None:
                 self._cleanup(self.plot_view.disable_navigation, "disable navigation")
             else:
-                self.placeholder.configure(text="Analysis failed. Check settings.")
-            self.status.set(f"Error: {detail} — Start a new analysis to continue.")
-            messagebox.showerror("Analysis failed", detail, parent=self.root)
+                self.placeholder.configure(
+                    text=self._translate("Analysis failed. Check settings.")
+                )
+            self.status.set(
+                self._translate(f"Error: {detail} — Start a new analysis to continue.")
+            )
+            messagebox.showerror(
+                self._translate("Analysis failed"),
+                self._translate(detail),
+                parent=self.root,
+            )
         finally:
             self._handling_error = False
 
@@ -428,6 +476,8 @@ class TrajectoryPredictor:
             self.plot_view = None
             self._cleanup(plot_view.destroy, "destroy plot")
         self._cleanup(
-            lambda: self.status.set("Closing … a running calculation is finishing."),
+            lambda: self.status.set(
+                self._translate("Closing … a running calculation is finishing.")
+            ),
             "update status",
         )

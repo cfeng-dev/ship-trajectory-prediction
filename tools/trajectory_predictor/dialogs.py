@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from .controls import ScrollableForm, create_variables, populate_fields
+from .localization import localize_widgets, translate_for
 from .settings import (
     DATA_OPTION_FIELDS,
     DISPLAY_OPTION_FIELDS,
@@ -185,6 +186,7 @@ class PlotDisplayWindow(tk.Toplevel):
             side="right"
         )
         self.protocol("WM_DELETE_WINDOW", self.close)
+        localize_widgets(self)
         self.update_idletasks()
         window_width = max(PLOT_DISPLAY_WINDOW_WIDTH, self.winfo_reqwidth())
         window_height = max(PLOT_DISPLAY_WINDOW_HEIGHT, self.winfo_reqheight())
@@ -207,7 +209,11 @@ class PlotDisplayWindow(tk.Toplevel):
                 {key: variable.get() for key, variable in self.variables.items()},
             )
         except (TypeError, ValueError) as error:
-            messagebox.showerror("Plot display", str(error), parent=self)
+            messagebox.showerror(
+                translate_for(self, "Plot display"),
+                translate_for(self, str(error)),
+                parent=self,
+            )
             return
         for key, value in values.items():
             if key == "prediction_region_style":
@@ -329,6 +335,7 @@ class SettingsDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _: self.cancel())
         # Wait for mapping via an event, not a nested/blocking wait_visibility.
         self.bind("<Map>", self._on_map, add="+")
+        localize_widgets(self)
         self.update_idletasks()
         content_height = (
             (self._header.winfo_reqheight() if self._header is not None else 0)
@@ -355,7 +362,11 @@ class SettingsDialog(tk.Toplevel):
                 {key: variable.get() for key, variable in self.variables.items()},
             )
         except (ValueError, TypeError) as error:
-            messagebox.showerror("Check settings", str(error), parent=self)
+            messagebox.showerror(
+                translate_for(self, "Check settings"),
+                translate_for(self, str(error)),
+                parent=self,
+            )
             return
         target_group = "data" if self.group == "plot" else self.group
         for key, value in values.items():

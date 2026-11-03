@@ -1807,6 +1807,10 @@ class _MenuRecorder:
 
     def __init__(self, _parent, **_options):
         self.entries = []
+        self.destroyed = False
+
+    def destroy(self):
+        self.destroyed = True
 
     def add_command(self, **options):
         self.entries.append(options)
@@ -1821,8 +1825,8 @@ class _MenuRecorder:
     def entry(self, label):
         return next(entry for entry in self.entries if entry["label"] == label)
 
-    def entryconfigure(self, label, **options):
-        entry = self.entries[label] if isinstance(label, int) else self.entry(label)
+    def entryconfigure(self, index, **options):
+        entry = self.entries[index] if isinstance(index, int) else self.entry(index)
         entry.update(options)
 
     def index(self, label):
@@ -2031,6 +2035,8 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.settings_visible = True
     app.settings_visible_var = _Value(True)
     app.status = _Value("")
+    app.language = "en"
+    app.language_var = _Value("en")
     app._closing = False
     app._analysis_active = False
     app._settings_dialog = None
@@ -2038,10 +2044,16 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.plot_view = None
     monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
     monkeypatch.setattr("trajectory_predictor.gui.SettingsDialog", Dialog)
+    translated = []
+    monkeypatch.setattr(
+        "trajectory_predictor.gui.localize_widgets",
+        lambda _root, language: translated.append(language),
+    )
     view.create_menu_bar(app)
     menu = root_options["menu"]
     view.set_analysis_menu_enabled(app, False)
     assert menu.entries[app._settings_menu_index]["state"] == "disabled"
+    assert "state" not in menu.entry("Language")
     assert app._file_menu.entries[app._open_csv_menu_index]["state"] == "disabled"
     view.set_analysis_menu_enabled(app, True)
     assert menu.entries[app._settings_menu_index]["state"] == "normal"
@@ -2050,6 +2062,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         "File",
         "View",
         "Settings",
+        "Language",
         "Help",
     ]
     assert [entry["label"] for entry in menu.entry("Help")["menu"].entries] == [
@@ -2060,6 +2073,38 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         "Inference parameters…",
         "Analysis setup…",
     ]
+    language_menu = menu.entry("Language")["menu"]
+    assert [entry["label"] for entry in language_menu.entries] == ["English", "Deutsch"]
+    app._analysis_active = True
+    original_settings = app._settings = object()
+    plot_languages = []
+    app.plot_view = SimpleNamespace(set_language=plot_languages.append)
+    language_menu.entry("Deutsch")["command"]()
+    german_menu = root_options["menu"]
+    assert german_menu is menu
+    assert not menu.destroyed
+    assert not language_menu.destroyed
+    assert [entry["label"] for entry in german_menu.entries] == [
+        "Datei",
+        "Ansicht",
+        "Einstellungen",
+        "Sprache",
+        "Hilfe",
+    ]
+    assert app.language_var.get() == "de"
+    assert app._settings is original_settings
+    assert app._analysis_active
+    assert app.controls.variables["data"]["inference_method"].get() == "smc"
+    assert german_menu.entries[app._settings_menu_index]["state"] == "disabled"
+    assert "state" not in german_menu.entry("Sprache")
+    german_menu.entry("Sprache")["menu"].entry("English")["command"]()
+    assert translated == plot_languages == ["de", "en"]
+    assert root_options["menu"] is menu
+    assert not menu.destroyed
+    app._analysis_active = False
+    view.set_analysis_menu_enabled(app, True)
+    app.plot_view = None
+    menu = root_options["menu"]
     view_menu = menu.entry("View")["menu"]
     assert [entry["label"] for entry in view_menu.entries] == [
         "Show settings",
@@ -2085,6 +2130,38 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert not dialogs[0].exists
     assert closed == [True]
     assert button_options["state"] == "disabled"
+
+
+def test_language_switch_retains_native_tk_window_and_menu(root):
+    """Exercise Tcl menu callbacks as well as the display-independent contract."""
+    worker = SimpleNamespace(close=lambda: None)
+    app = TrajectoryPredictor(root, worker=worker)
+    errors = []
+    root.report_callback_exception = lambda *error: errors.append(error)
+    menu = app._menu_bar
+    state = root.state()
+    callbacks = {
+        source: (entry_menu, index)
+        for entry_menu, index, source in app._menu_label_entries
+        if source in {"Deutsch", "English"}
+    }
+    try:
+        for selection, language in (("Deutsch", "de"), ("English", "en")) * 3:
+            entry_menu, index = callbacks[selection]
+            entry_menu.invoke(index)
+            root.update_idletasks()
+            assert not errors
+            assert root.winfo_exists()
+            assert root.state() == state
+            assert app._menu_bar is menu
+            assert menu.winfo_exists()
+            assert entry_menu.winfo_exists()
+            assert app.language == language
+            assert not app._closing
+    finally:
+        app.close()
+        if app._poll_id is not None:
+            root.after_cancel(app._poll_id)
 
 
 def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):

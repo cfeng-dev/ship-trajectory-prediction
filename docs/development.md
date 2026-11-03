@@ -47,6 +47,9 @@ window. Run from the project root after synchronizing the environment:
 uv run trajectory-predictor
 ```
 
+Use **Language → English / Deutsch** to switch the interface and plot
+labels without restarting analysis. English is selected at startup.
+
 The built-in **Help** window describes the controls, settings, and keyboard
 shortcuts. SMC and Sequential VI update online; VI and MCMC repeatedly fit the
 latest 10 steps and are slower. For raw BR24 input, these windows count radar

@@ -7,6 +7,7 @@ from bayestraj.inference.configuration import (
 )
 
 from .controls import ScrollableForm
+from .localization import localize_widgets
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
 
 DIALOG_CONTENT_PADDING = 16
@@ -38,7 +39,11 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Settings",
-                "Configure priors, inference, and analysis setup; locked during analysis",
+                "Configure priors, inference and analysis setup",
+            ),
+            (
+                "Language",
+                "Switch between English and German without restarting the analysis",
             ),
             ("Help", "Open or focus this non-modal help window"),
             (
@@ -427,6 +432,7 @@ class PosteriorHelpWindow(tk.Toplevel):
         )
         self._form.bind_mouse_wheel()
         self.protocol("WM_DELETE_WINDOW", self.close)
+        localize_widgets(self)
         self.update_idletasks()
         self._form.canvas.configure(
             height=help_content_height_for_screen(

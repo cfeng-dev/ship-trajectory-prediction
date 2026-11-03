@@ -3,6 +3,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+from .localization import translate
+
 APP_BACKGROUND = "#eef7fb"
 CONTROL_BACKGROUND = "#e3eef4"
 PLOT_BACKGROUND = "#f4f9fc"
@@ -164,53 +166,95 @@ def configure_window(root):
 
 
 def create_menu_bar(gui):
-    """Expose application actions through the same four menus as the simulator."""
+    """Expose application actions and a separate presentation-language menu."""
+    language = getattr(gui, "language", "en")
+    if getattr(gui, "_menu_bar", None) is not None:
+        # A menu command may still be executing: retain the native menu tree.
+        for menu, index, source in gui._menu_label_entries:
+            menu.entryconfigure(index, label=translate(source, language))
+        return
+
+    label_entries = []
+
+    def add(parent_menu, kind, source, **options):
+        getattr(parent_menu, f"add_{kind}")(
+            label=translate(source, language), **options
+        )
+        label_entries.append((parent_menu, parent_menu.index("end"), source))
+
     menu_bar = tk.Menu(gui.root)
     file_menu = tk.Menu(menu_bar, tearoff=0)
-    file_menu.add_command(label="Open CSV…", command=gui.open_csv)
+    add(file_menu, "command", "Open CSV…", command=gui.open_csv)
     open_csv_menu_index = file_menu.index("end")
     file_menu.add_separator()
-    file_menu.add_command(label="Exit", command=gui.close)
-    menu_bar.add_cascade(label="File", menu=file_menu)
+    add(file_menu, "command", "Exit", command=gui.close)
+    add(menu_bar, "cascade", "File", menu=file_menu)
 
     view_menu = tk.Menu(menu_bar, tearoff=0)
-    view_menu.add_checkbutton(
-        label="Show settings",
+    add(
+        view_menu,
+        "checkbutton",
+        "Show settings",
         variable=gui.settings_visible_var,
         command=gui.toggle_settings,
     )
     coordinate_menu = tk.Menu(view_menu, tearoff=0)
     for label, value in (("Local [m]", "m"), ("Local [km]", "km")):
-        coordinate_menu.add_radiobutton(
-            label=label,
+        add(
+            coordinate_menu,
+            "radiobutton",
+            label,
             variable=gui.controls.variables["data"]["coordinate_display_mode"],
             value=value,
             command=lambda mode=value: gui.set_coordinate_display_mode(mode),
         )
-    view_menu.add_cascade(label="Coordinate display", menu=coordinate_menu)
-    view_menu.add_command(label="Plot display…", command=gui.show_plot_display)
-    menu_bar.add_cascade(label="View", menu=view_menu)
+    add(view_menu, "cascade", "Coordinate display", menu=coordinate_menu)
+    add(view_menu, "command", "Plot display…", command=gui.show_plot_display)
+    add(menu_bar, "cascade", "View", menu=view_menu)
 
     settings_menu = tk.Menu(menu_bar, tearoff=0)
-    settings_menu.add_command(
-        label="Priors…", command=lambda: gui.show_settings_dialog("priors")
+    add(
+        settings_menu,
+        "command",
+        "Priors…",
+        command=lambda: gui.show_settings_dialog("priors"),
     )
-    settings_menu.add_command(
-        label="Inference parameters…", command=gui.show_inference_settings
+    add(
+        settings_menu,
+        "command",
+        "Inference parameters…",
+        command=gui.show_inference_settings,
     )
-    settings_menu.add_command(
-        label="Analysis setup…", command=lambda: gui.show_settings_dialog("data")
+    add(
+        settings_menu,
+        "command",
+        "Analysis setup…",
+        command=lambda: gui.show_settings_dialog("data"),
     )
-    menu_bar.add_cascade(label="Settings", menu=settings_menu)
+    add(menu_bar, "cascade", "Settings", menu=settings_menu)
     settings_menu_index = menu_bar.index("end")
 
+    language_menu = tk.Menu(menu_bar, tearoff=0)
+    for label, value in (("English", "en"), ("Deutsch", "de")):
+        add(
+            language_menu,
+            "radiobutton",
+            label,
+            variable=getattr(gui, "language_var", None),
+            value=value,
+            command=lambda selected=value: gui.set_language(selected),
+        )
+    add(menu_bar, "cascade", "Language", menu=language_menu)
+
     help_menu = tk.Menu(menu_bar, tearoff=0)
-    help_menu.add_command(label="Show Help", command=gui.show_help)
-    menu_bar.add_cascade(label="Help", menu=help_menu)
+    add(help_menu, "command", "Show Help", command=gui.show_help)
+    add(menu_bar, "cascade", "Help", menu=help_menu)
     gui._menu_bar = menu_bar
     gui._file_menu = file_menu
     gui._open_csv_menu_index = open_csv_menu_index
     gui._settings_menu_index = settings_menu_index
+    gui._settings_menu = settings_menu
+    gui._menu_label_entries = tuple(label_entries)
     gui.root.configure(menu=menu_bar)
 
 

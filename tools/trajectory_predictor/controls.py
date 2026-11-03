@@ -5,6 +5,7 @@ from tkinter import filedialog, ttk
 
 import numpy as np
 
+from .localization import localize_widgets, translate_for
 from .settings import (
     COORDINATE_DISPLAY_MODES,
     LABELS,
@@ -374,6 +375,7 @@ class SettingsPanel(tk.Frame):
                 justify="left",
             ).grid(row=row, column=1, sticky="nw", pady=(2, 3))
         self.settings_form.bind_mouse_wheel()
+        localize_widgets(self)
 
     def show_reference_state(
         self,
@@ -412,6 +414,7 @@ class SettingsPanel(tk.Frame):
         self.posterior_state_values["time"].set(
             format_elapsed_time(time_seconds) if np.isfinite(time_seconds) else "—"
         )
+        localize_widgets(self)
 
     def show_analysis_metrics(self, metrics):
         """Show forecast metrics for the currently displayed posterior stage."""
@@ -467,7 +470,9 @@ class SettingsPanel(tk.Frame):
             "initialization": "Initial measurement",
             "prediction_only": "Prediction only",
         }
-        self.radar_association_values["status"].set(status_labels[diagnostics.status])
+        self.radar_association_values["status"].set(
+            translate_for(self, status_labels[diagnostics.status])
+        )
         cycle_counter = getattr(diagnostics, "cycle_counter", None)
         self.radar_association_values["cycle"].set(
             "-" if cycle_counter is None else str(cycle_counter)
@@ -513,8 +518,11 @@ class SettingsPanel(tk.Frame):
         """Choose a CSV without starting or replacing an analysis."""
         selected = filedialog.askopenfilename(
             parent=self,
-            title="Select trajectory CSV",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+            title=translate_for(self, "Select trajectory CSV"),
+            filetypes=(
+                (translate_for(self, "CSV files"), "*.csv"),
+                (translate_for(self, "All files"), "*.*"),
+            ),
         )
         if selected:
             self.variables["data"]["data_file"].set(selected)
@@ -546,6 +554,7 @@ class SettingsPanel(tk.Frame):
                 background="#ffffff",
                 hover_background="#b8d8e8",
             )
+        localize_widgets(self)
 
     def values(self):
         """Read a snapshot of the form on the Tk thread."""

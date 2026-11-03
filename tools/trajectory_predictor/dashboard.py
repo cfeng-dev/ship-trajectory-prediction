@@ -37,6 +37,7 @@ from bayestraj.observations.coordinates import (
 )
 
 from . import coordinates
+from .localization import localize_figure, normalize_language, translate
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
 REFERENCE_MOTION_COLUMNS = {
@@ -136,7 +137,7 @@ def normalize_coordinate_display_mode(coordinate_display_mode):
 def normalize_prediction_region_style(prediction_region_style):
     """Return one supported posterior-predictive region visualization."""
     if isinstance(prediction_region_style, str):
-        normalized_style = prediction_region_style.strip().lower()
+        normalized_style = translate(prediction_region_style.strip(), "en").lower()
         display_styles = {
             label.lower(): style
             for style, label in PREDICTION_REGION_STYLE_DISPLAY_LABELS.items()
@@ -950,6 +951,7 @@ class PosteriorDashboardNavigator:
         on_settings_visibility_change=None,
     ):
         self.figure = figure
+        self.language = "en"
         self.trajectory_axis = trajectory_axis
         trajectory_axis.set_axes_locator(_locate_trajectory_axes)
         if posterior_axes_by_group is None:
@@ -1306,6 +1308,7 @@ class PosteriorDashboardNavigator:
         self._show_observation_count(observation_count)
 
     def _select_parameter_group(self, selected_label) -> None:
+        selected_label = translate(selected_label, "en")
         for group, label in PARAMETER_GROUP_LABELS.items():
             if selected_label == label:
                 self._parameter_group = group
@@ -1327,7 +1330,13 @@ class PosteriorDashboardNavigator:
             label = "Restart"
         else:
             label = "Start"
-        self.playback_button.label.set_text(label)
+        self.playback_button.label.set_text(translate(label, self.language))
+        self.figure.canvas.draw_idle()
+
+    def set_language(self, language) -> None:
+        """Translate the current view while retaining filters, caches and limits."""
+        self.language = normalize_language(language)
+        localize_figure(self.figure, self.language)
         self.figure.canvas.draw_idle()
 
     def _update_density_grids(self) -> None:
@@ -1370,6 +1379,8 @@ class PosteriorDashboardNavigator:
             fontsize=15,
             fontweight="bold",
         )
+        if self.language != "en":
+            localize_figure(self.figure, self.language)
         self.figure.canvas.draw_idle()
         if self._on_state_change is not None:
             self._on_state_change(

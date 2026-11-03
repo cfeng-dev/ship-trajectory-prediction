@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from .dashboard import (
     create_sequential_posterior_dashboard_figure,
 )
+from .localization import widget_language
 from .view import PLOT_BACKGROUND, configure_plot_toolbar
 
 
@@ -69,6 +70,7 @@ class PosteriorPlotView(tk.Frame):
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()
         )
+        self.navigator.set_language(widget_language(self))
         self.canvas.callbacks.exception_handler = self._handle_plot_error
         for widget in (
             self.navigator.playback_button,
@@ -90,6 +92,10 @@ class PosteriorPlotView(tk.Frame):
     def set_coordinate_display_mode(self, coordinate_display_mode):
         """Redraw the current dashboard in another unit without replacing analysis."""
         self.navigator.set_coordinate_display_mode(coordinate_display_mode)
+
+    def set_language(self, language):
+        """Translate the current artists without requesting another model update."""
+        self.navigator.set_language(language)
 
     def set_display_options(self, display_options):
         """Redraw presentation choices without replacing the current analysis."""
