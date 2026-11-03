@@ -1,5 +1,8 @@
 """Language changes affect presentation without changing analysis settings."""
 
+import runpy
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
@@ -71,6 +74,20 @@ def test_localized_choices_parse_to_the_same_analysis_configuration(tmp_path):
     )
 
 
+def test_translation_and_plot_localization_work_without_tkinter(monkeypatch):
+    monkeypatch.setitem(sys.modules, "tkinter", None)
+    namespace = runpy.run_path(localization.__file__)
+    assert namespace["translate"]("Settings", "de") == "Einstellungen"
+
+    figure, axis = plt.subplots()
+    axis.set_title("Speed posterior")
+    try:
+        namespace["localize_figure"](figure, "de")
+        assert axis.get_title() == "Posterior der Geschwindigkeit"
+    finally:
+        plt.close(figure)
+
+
 def test_figure_translation_preserves_data_limits_and_reverses():
     figure, axis = plt.subplots()
     (line,) = axis.plot([1, 2], [3, 4], label="Reference trajectory")
@@ -95,6 +112,7 @@ def test_figure_translation_preserves_data_limits_and_reverses():
 
 
 def test_help_has_german_translations_for_every_description():
+    pytest.importorskip("tkinter")
     from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
 
     for title, rows in POSTERIOR_HELP_SECTIONS:
@@ -123,6 +141,7 @@ def test_all_catalog_labels_round_trip():
 
 
 def test_sidebar_and_dialog_labels_are_covered_by_the_catalog():
+    pytest.importorskip("tkinter")
     from trajectory_predictor import dashboard, dialogs, settings
 
     labels = [

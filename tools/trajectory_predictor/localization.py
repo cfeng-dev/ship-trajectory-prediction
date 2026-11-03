@@ -2,7 +2,6 @@
 
 import re
 from string import Formatter
-from tkinter import font as tkfont
 
 from matplotlib.text import Text
 
@@ -417,6 +416,8 @@ def localize_widgets(widget, language=None):
                 )
                 wrap = original_wrap
                 if language == "de" and not int(original_wrap):
+                    from tkinter import font as tkfont
+
                     font = tkfont.Font(root=current, font=current.cget("font"))
                     wrap = font.measure("0" * int(current.cget("width")))
                 current.configure(wraplength=wrap)
