@@ -96,6 +96,46 @@ def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
     assert calls == [("parent", {"orient": "vertical", "command": canvas.yview})]
 
 
+def test_scrollbar_prioritizes_interaction_before_moving_the_canvas(monkeypatch):
+    from trajectory_predictor import controls
+
+    events, options = [], {}
+    canvas = SimpleNamespace(yview=lambda *args: events.append(args))
+    monkeypatch.setattr(
+        controls.tk, "Scrollbar", lambda _parent, **kwargs: options.update(kwargs)
+    )
+    controls.create_form_scrollbar(
+        "parent", canvas, on_scroll=lambda: events.append("scroll")
+    )
+    options["command"]("moveto", "0.4")
+    assert events == ["scroll", ("moveto", "0.4")]
+
+
+@pytest.mark.parametrize(
+    ("event", "movement"),
+    [
+        (SimpleNamespace(delta=-120, num=None), (1, "units")),
+        (SimpleNamespace(delta=0, num=4), (-1, "units")),
+        (SimpleNamespace(delta=0, num=5), (1, "units")),
+        (SimpleNamespace(delta=0, num=None), None),
+    ],
+)
+def test_mouse_wheel_reports_scroll_activity_before_canvas_changes(event, movement):
+    events, bindings = [], {}
+    canvas = SimpleNamespace(
+        yview=lambda: (0.0, 0.5),
+        yview_scroll=lambda *args: events.append(args),
+        bind=lambda name, callback: bindings.update({name: callback}),
+        winfo_children=lambda: [],
+    )
+    form = ScrollableForm.__new__(ScrollableForm)
+    form.canvas = form.body = canvas
+    form.on_scroll = lambda: events.append("scroll")
+    form.bind_mouse_wheel()
+    bindings["<MouseWheel>"](event)
+    assert events == ([] if movement is None else ["scroll", movement])
+
+
 def test_csv_browse_button_uses_a_two_character_width():
     assert CSV_BROWSE_BUTTON_WIDTH == 2
 
@@ -133,12 +173,15 @@ def test_scrollable_form_uses_precise_touchpad_scroll_on_tk_9():
     form = ScrollableForm.__new__(ScrollableForm)
     form.canvas = canvas
     form.body = Widget()
+    activity = []
+    form.on_scroll = lambda: activity.append("scroll")
 
     form.bind_mouse_wheel()
     result = form.body.bindings["<TouchpadScroll>"](SimpleNamespace(delta=-1))
 
     assert result == "break"
     assert canvas.positions == [pytest.approx(0.25)]
+    assert activity == ["scroll"]
 
 
 def test_input_styles_keep_fields_light_in_all_widget_states():
@@ -2073,10 +2116,16 @@ def resizing_app():
     app.root = SimpleNamespace(after=schedule, after_cancel=cancel)
     app.root.callbacks, app.root.cancelled = callbacks, cancelled
     app._closing = app._closed = app._resizing = False
+    app._scrolling = False
+    app._scroll_after_id = None
     app._resize_after_id = None
     app._last_window_size = (800, 600)
     app._analysis_active = True
     app._error = None
+    app._computing = None
+    app._settings = SimpleNamespace(
+        analysis=SimpleNamespace(experiment=SimpleNamespace(inference_method="smc"))
+    )
     app.worker = Mock()
     app.worker.drain.return_value = [object()]
     app.plot_view = Mock()
@@ -2180,6 +2229,86 @@ def test_closing_during_resize_cancels_resume_without_restarting_worker(resizing
     resume()
     assert app.worker.set_suspended.call_args_list == [call(True)]
     app.worker.close.assert_called_once()
+
+
+def test_sidebar_scroll_defers_rendering_until_the_last_scroll_event(resizing_app):
+    from unittest.mock import call
+
+    app = resizing_app
+    app._on_sidebar_scroll()
+    first_timer = app._scroll_after_id
+    app._on_sidebar_scroll()
+    assert first_timer in app.root.cancelled
+    app._poll()
+    app.worker.drain.assert_not_called()
+    app.plot_view.navigator.pause_playback.assert_not_called()
+    delay, finish = app.root.callbacks[app._scroll_after_id]
+    assert 100 <= delay <= 250
+    finish()
+    assert not app._scrolling
+    assert app.worker.set_suspended.call_args_list == [call(True), call(False)]
+    assert app.plot_view.navigator.set_suspended.call_args_list == [
+        call(True),
+        call(False),
+    ]
+    app.plot_view = None
+    app._poll()
+    app.worker.drain.assert_called_once()
+
+
+@pytest.mark.parametrize("manual_pause", [False, True])
+def test_sidebar_scroll_retains_playback_intent_and_pending_results(
+    resizing_app, manual_pause
+):
+    app = resizing_app
+    navigator = _attach_menu_test_navigator(app)
+    try:
+        navigator.toggle_playback(None)
+        navigator.advance_playback()
+        app._on_sidebar_scroll()
+        navigator.accept_update(
+            PosteriorDashboardUpdate(
+                1, {name: np.array([0.5, 1.0, 1.5]) for name in PARAMETER_NAMES}
+            )
+        )
+        assert navigator.observation_count == 0
+        if manual_pause:
+            navigator.pause_playback()
+        app._finish_sidebar_scroll()
+        assert navigator.is_playing is not manual_pause
+        assert navigator.observation_count == (0 if manual_pause else 1)
+        assert 1 in navigator._updates_by_count
+    finally:
+        navigator.disconnect()
+
+
+@pytest.mark.parametrize("first_to_finish", ["scroll", "resize"])
+def test_sidebar_scroll_and_resize_wait_until_both_interactions_finish(
+    resizing_app, first_to_finish
+):
+    app = resizing_app
+    app._on_sidebar_scroll()
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+    first, last = (
+        (app._finish_sidebar_scroll, app._finish_window_resize)
+        if first_to_finish == "scroll"
+        else (app._finish_window_resize, app._finish_sidebar_scroll)
+    )
+    first()
+    assert all(call.args == (True,) for call in app.worker.set_suspended.call_args_list)
+    last()
+    app.worker.set_suspended.assert_called_with(False)
+
+
+def test_close_cancels_pending_scroll_resume_without_restarting_worker(resizing_app):
+    app = resizing_app
+    app._on_sidebar_scroll()
+    token = app._scroll_after_id
+    finish = app.root.callbacks[token][1]
+    app.close()
+    assert token in app.root.cancelled
+    finish()
+    app.worker.set_suspended.assert_called_once_with(True)
 
 
 def test_poll_reports_callback_errors_and_keeps_scheduling():

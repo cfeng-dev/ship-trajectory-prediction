@@ -21,6 +21,7 @@ from .settings import (
 
 LOGGER = logging.getLogger(__name__)
 WINDOW_RESIZE_DELAY_MS = 200
+SIDEBAR_SCROLL_DELAY_MS = 150
 
 
 class TrajectoryPredictor:
@@ -37,6 +38,8 @@ class TrajectoryPredictor:
         self._closing = False
         self._closed = False
         self._resizing = False
+        self._scrolling = False
+        self._scroll_after_id = None
         self._resize_after_id = None
         self._last_window_size = None
         self._handling_error = False
@@ -76,6 +79,7 @@ class TrajectoryPredictor:
         root.bind("<space>", self.handle_space, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()
+        self.controls.settings_form.on_scroll = self._on_sidebar_scroll
         root.bind("<Configure>", self._on_window_resize, add="+")
         self._update_menu_state()
         self._poll_id = root.after(75, self._poll)
@@ -343,6 +347,33 @@ class TrajectoryPredictor:
         self.plot_view.navigator.toggle_playback(None)
         return "break"
 
+    def _sync_interaction_suspension(self):
+        suspended = self._resizing or getattr(self, "_scrolling", False)
+        self.worker.set_suspended(suspended)
+        if self.plot_view is not None and self._error is None:
+            self.plot_view.navigator.set_suspended(suspended)
+
+    def _on_sidebar_scroll(self):
+        """Give sidebar input priority over the next expensive plot update."""
+        if self._closing or not self._analysis_active or self.plot_view is None:
+            return
+        if not self._scrolling:
+            self._scrolling = True
+            self._sync_interaction_suspension()
+        if self._scroll_after_id is not None:
+            self.root.after_cancel(self._scroll_after_id)
+        self._scroll_after_id = self.root.after(
+            SIDEBAR_SCROLL_DELAY_MS, self._finish_sidebar_scroll
+        )
+
+    def _finish_sidebar_scroll(self):
+        self._scroll_after_id = None
+        if self._closing:
+            return
+        self._scrolling = False
+        self._sync_interaction_suspension()
+        self._update_menu_state()
+
     def _on_window_resize(self, event):
         """Pause playback until a manual restart when the window size changes."""
         if self._closing or event.widget is not self.root:
@@ -355,9 +386,8 @@ class TrajectoryPredictor:
             return
         if not self._resizing:
             self._resizing = True
-            self.worker.set_suspended(True)
+            self._sync_interaction_suspension()
             if self.plot_view is not None:
-                self.plot_view.navigator.set_suspended(True)
                 self.plot_view.navigator.pause_playback()
             else:
                 self.worker.request(0)
@@ -374,9 +404,7 @@ class TrajectoryPredictor:
         if self._closing:
             return
         self._resizing = False
-        self.worker.set_suspended(False)
-        if self.plot_view is not None and self._error is None:
-            self.plot_view.navigator.set_suspended(False)
+        self._sync_interaction_suspension()
         self._update_menu_state()
 
     def _poll(self):
@@ -389,7 +417,9 @@ class TrajectoryPredictor:
                     self._closed = True
                     self.root.destroy()
                     return
-            elif not getattr(self, "_resizing", False):
+            elif not (
+                getattr(self, "_resizing", False) or getattr(self, "_scrolling", False)
+            ):
                 for event in self.worker.drain():
                     self._handle_event(event)
                 self._update_menu_state()
@@ -521,6 +551,12 @@ class TrajectoryPredictor:
                 lambda: self.root.after_cancel(resize_after_id), "cancel resize timer"
             )
             self._resize_after_id = None
+        scroll_after_id = getattr(self, "_scroll_after_id", None)
+        if scroll_after_id is not None:
+            self._cleanup(
+                lambda: self.root.after_cancel(scroll_after_id), "cancel scroll timer"
+            )
+            self._scroll_after_id = None
         self._cleanup(
             lambda: self.controls.apply_button.configure(state="disabled"),
             "disable start",

@@ -74,9 +74,17 @@ def format_elapsed_time(seconds):
     return f"{minutes} min {remaining_seconds:02d} s"
 
 
-def create_form_scrollbar(parent, canvas):
+def create_form_scrollbar(parent, canvas, *, on_scroll=None):
     """Match the Ship Simulator's native scrollbar on every platform."""
-    return tk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+    if on_scroll is None:
+        command = canvas.yview
+    else:
+
+        def command(*args):
+            on_scroll()
+            return canvas.yview(*args)
+
+    return tk.Scrollbar(parent, orient=tk.VERTICAL, command=command)
 
 
 class ScrollableForm(tk.Frame):
@@ -84,10 +92,11 @@ class ScrollableForm(tk.Frame):
 
     def __init__(self, parent, *, width=340):
         super().__init__(parent, bg=CONTROL_BACKGROUND)
+        self.on_scroll = None
         canvas = self.canvas = tk.Canvas(
             self, highlightthickness=0, width=width, bg=CONTROL_BACKGROUND
         )
-        scrollbar = create_form_scrollbar(self, canvas)
+        scrollbar = create_form_scrollbar(self, canvas, on_scroll=self._notify_scroll)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
@@ -102,13 +111,23 @@ class ScrollableForm(tk.Frame):
             "<Configure>", lambda event: canvas.itemconfigure(window, width=event.width)
         )
 
+    def _notify_scroll(self):
+        callback = getattr(self, "on_scroll", None)
+        if callback is not None:
+            callback()
+
     def bind_mouse_wheel(self):
         """Scroll only this form when the pointer is over its populated fields."""
 
         def scroll(event):
             if self.canvas.yview() == (0.0, 1.0):
                 return None
-            direction = -1 if getattr(event, "num", None) == 4 or event.delta > 0 else 1
+            button = getattr(event, "num", None)
+            delta = getattr(event, "delta", 0)
+            if button not in (4, 5) and delta == 0:
+                return "break"
+            direction = -1 if button == 4 or delta > 0 else 1
+            self._notify_scroll()
             self.canvas.yview_scroll(direction, "units")
             return "break"
 
@@ -131,6 +150,7 @@ class ScrollableForm(tk.Frame):
 
             max_first = 1 - (last - first)
             new_first = min(max(first - delta_y / content_height, 0), max_first)
+            self._notify_scroll()
             self.canvas.yview_moveto(new_first)
             return "break"
 
