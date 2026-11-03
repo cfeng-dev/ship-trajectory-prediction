@@ -29,6 +29,7 @@ class PosteriorPlotView(tk.Frame):
         on_radar_association_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
+        on_playback_change=None,
     ):
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self._destroyed = False
@@ -66,6 +67,7 @@ class PosteriorPlotView(tk.Frame):
             on_radar_association_change=on_radar_association_change,
             settings_visible=settings_visible,
             on_settings_visibility_change=on_settings_visibility_change,
+            on_playback_change=on_playback_change,
         )
         self._focus_connection = self.canvas.mpl_connect(
             "button_press_event", lambda _: self.canvas.get_tk_widget().focus_set()

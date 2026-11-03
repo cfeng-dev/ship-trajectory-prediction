@@ -2283,6 +2283,147 @@ def test_set_settings_visible_synchronizes_sidebar_menu_and_dashboard():
     assert app.settings_visible_var.get() is True
 
 
+@pytest.fixture
+def playback_menu_app(monkeypatch):
+    from unittest.mock import Mock
+
+    from trajectory_predictor import view
+
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app.root = Mock()
+    app.language, app.language_var = "en", _Value("en")
+    app.settings_visible_var = _Value(True)
+    app.controls = Mock(variables={"data": {"coordinate_display_mode": _Value("m")}})
+    app.worker = Mock()
+    app.status = _Value("Ready.")
+    app.placeholder = Mock()
+    app._closing = app._closed = app._resizing = False
+    app._analysis_active = True
+    app._last_window_size = (800, 600)
+    app._resize_after_id = None
+    app._error = app._computing = None
+    app._settings = SimpleNamespace(
+        analysis=SimpleNamespace(experiment=SimpleNamespace(inference_method="smc"))
+    )
+    app.plot_view = None
+    monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
+    monkeypatch.setattr("trajectory_predictor.gui.localize_widgets", Mock())
+    monkeypatch.setattr("trajectory_predictor.gui.messagebox.showerror", Mock())
+    view.create_menu_bar(app)
+    return app
+
+
+def _attach_menu_test_navigator(app, *, maximum=2):
+    from matplotlib.figure import Figure
+    from trajectory_predictor.dashboard import (
+        create_sequential_posterior_dashboard_figure,
+    )
+
+    from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+
+    coordinates = np.arange(4.0)
+    _, navigator = create_sequential_posterior_dashboard_figure(
+        PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        BayesianCTRVPriors(),
+        maximum_observation_count=maximum,
+        figure=Figure(),
+        request_update=app._request_update,
+        on_playback_change=app._update_menu_state,
+    )
+    app.plot_view = SimpleNamespace(
+        navigator=navigator,
+        set_language=navigator.set_language,
+        disable_navigation=navigator.disconnect,
+        destroy=navigator.disconnect,
+    )
+    return navigator
+
+
+def _assert_header_menu_state(app, *, locked, analysis_active=True):
+    for index, entry in enumerate(app._menu_bar.entries):
+        disabled = locked or (analysis_active and index == app._settings_menu_index)
+        assert entry["state"] == ("disabled" if disabled else "normal"), entry["label"]
+
+
+def test_header_menus_follow_loading_playback_pause_completion_and_cancel(
+    playback_menu_app,
+):
+    from matplotlib.backend_bases import KeyEvent
+
+    app = playback_menu_app
+    app._update_menu_state()
+    _assert_header_menu_state(app, locked=True)
+    navigator = _attach_menu_test_navigator(app)
+    try:
+        app._update_menu_state()
+        _assert_header_menu_state(app, locked=False)
+        navigator.toggle_playback(None)
+        _assert_header_menu_state(app, locked=True)
+        navigator.advance_playback()
+        app.language_var.set("de")  # Tk sets the radio variable before its callback.
+        app.set_language("de")
+        assert app.language == app.language_var.get() == "en"
+        navigator.handle_key_press(
+            KeyEvent("key_press_event", navigator.figure.canvas, key=" ")
+        )
+        _assert_header_menu_state(app, locked=False)
+        app.set_language("de")
+        assert app.language == "de"
+        navigator.toggle_playback(None)
+        _assert_header_menu_state(app, locked=True)
+        app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+        assert not navigator.is_playing
+        _assert_header_menu_state(app, locked=True)
+        app._finish_window_resize()
+        _assert_header_menu_state(app, locked=False)
+        navigator.toggle_playback(None)
+        _assert_header_menu_state(app, locked=True)
+        for count in (1, 2):
+            navigator.advance_playback()
+            navigator.accept_update(
+                PosteriorDashboardUpdate(
+                    count, {name: np.array([0.5, 1.0, 1.5]) for name in PARAMETER_NAMES}
+                )
+            )
+        assert not navigator.is_playing
+        _assert_header_menu_state(app, locked=False)
+        app.cancel_analysis()
+        _assert_header_menu_state(app, locked=False, analysis_active=False)
+    finally:
+        navigator.disconnect()
+
+
+@pytest.mark.parametrize("result", ["update", "error"])
+def test_header_menus_wait_for_manual_step_and_unlock_after_its_result(
+    playback_menu_app, result
+):
+    from matplotlib.backend_bases import KeyEvent
+    from trajectory_predictor.session import AnalysisEvent
+
+    app = playback_menu_app
+    navigator = _attach_menu_test_navigator(app)
+    try:
+        app._update_menu_state()
+        navigator.handle_key_press(
+            KeyEvent("key_press_event", navigator.figure.canvas, key="right")
+        )
+        assert not navigator.is_playing and navigator.is_waiting
+        _assert_header_menu_state(app, locked=True)
+        payload = (
+            PosteriorDashboardUpdate(
+                1, {name: np.array([0.5, 1.0, 1.5]) for name in PARAMETER_NAMES}
+            )
+            if result == "update"
+            else "inference failed"
+        )
+        app.worker.drain.return_value = [AnalysisEvent(0, result, payload)]
+        app._poll()
+        assert app._error == (None if result == "update" else payload)
+        _assert_header_menu_state(app, locked=False, analysis_active=result == "update")
+    finally:
+        navigator.disconnect()
+
+
 def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     # Only native window creation is replaced. Real controller methods handle
     # visibility, method selection, and closing with an open settings editor.
@@ -2352,7 +2493,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     menu = root_options["menu"]
     view.set_analysis_menu_enabled(app, False)
     assert menu.entries[app._settings_menu_index]["state"] == "disabled"
-    assert "state" not in menu.entry("Language")
+    assert menu.entry("Language")["state"] == "normal"
     assert app._file_menu.entries[app._open_csv_menu_index]["state"] == "disabled"
     view.set_analysis_menu_enabled(app, True)
     assert menu.entries[app._settings_menu_index]["state"] == "normal"
@@ -2395,7 +2536,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     assert app._analysis_active
     assert app.controls.variables["data"]["inference_method"].get() == "smc"
     assert german_menu.entries[app._settings_menu_index]["state"] == "disabled"
-    assert "state" not in german_menu.entry("Sprache")
+    assert german_menu.entry("Sprache")["state"] == "normal"
     german_menu.entry("Sprache")["menu"].entry("English")["command"]()
     assert translated == plot_languages == ["de", "en"]
     assert root_options["menu"] is menu

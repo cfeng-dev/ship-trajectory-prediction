@@ -949,6 +949,7 @@ class PosteriorDashboardNavigator:
         on_radar_association_change=None,
         settings_visible=True,
         on_settings_visibility_change=None,
+        on_playback_change=None,
     ):
         self.figure = figure
         self.language = "en"
@@ -997,6 +998,7 @@ class PosteriorDashboardNavigator:
         self._on_medians_change = on_medians_change
         self._on_radar_association_change = on_radar_association_change
         self._on_settings_visibility_change = on_settings_visibility_change
+        self._on_playback_change = on_playback_change
         self._updates_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
@@ -1208,7 +1210,7 @@ class PosteriorDashboardNavigator:
     def disconnect(self) -> None:
         """Stop playback and release widget callbacks when an embedded view closes."""
         self._playback_timer.stop()
-        self._is_playing = False
+        self._set_playback_state(False)
         for connection in (
             self._slider_press_connection,
             self._slider_release_connection,
@@ -1234,7 +1236,7 @@ class PosteriorDashboardNavigator:
         if self.observation_count == self.maximum_observation_count:
             self.slider.set_val(0)
             self.show_selected_observation_count(None)
-        self._is_playing = True
+        self._set_playback_state(True)
         self._update_playback_button_label()
         if not self._suspended:
             self._playback_timer.start()
@@ -1333,9 +1335,16 @@ class PosteriorDashboardNavigator:
                 return
         raise ValueError("The selected posterior group is unavailable.")
 
+    def _set_playback_state(self, playing) -> None:
+        if playing == self._is_playing:
+            return
+        self._is_playing = playing
+        if self._on_playback_change is not None:
+            self._on_playback_change(playing)
+
     def _stop_playback(self) -> None:
         self._playback_timer.stop()
-        self._is_playing = False
+        self._set_playback_state(False)
         self._update_playback_button_label()
 
     def _update_playback_button_label(self) -> None:
@@ -2012,6 +2021,7 @@ def create_sequential_posterior_dashboard_figure(
     on_radar_association_change=None,
     settings_visible=True,
     on_settings_visibility_change=None,
+    on_playback_change=None,
 ):
     """Create a dashboard, optionally using an embedded canvas and async requests.
 
@@ -2109,6 +2119,7 @@ def create_sequential_posterior_dashboard_figure(
         on_radar_association_change=on_radar_association_change,
         settings_visible=bool(settings_visible),
         on_settings_visibility_change=on_settings_visibility_change,
+        on_playback_change=on_playback_change,
     )
     return figure, navigator
 

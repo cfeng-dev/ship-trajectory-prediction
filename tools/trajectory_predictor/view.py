@@ -312,8 +312,8 @@ def create_menu_bar(gui):
     gui.root.configure(menu=menu_bar)
 
 
-def set_analysis_menu_enabled(gui, enabled):
-    """Visibly lock menu actions that would change an active inference run."""
+def set_analysis_menu_enabled(gui, enabled, *, lock_header=False):
+    """Lock the header during playback and protect an active run's configuration."""
     menu_bar = getattr(gui, "_menu_bar", None)
     file_menu = getattr(gui, "_file_menu", None)
     open_csv_menu_index = getattr(gui, "_open_csv_menu_index", None)
@@ -327,4 +327,6 @@ def set_analysis_menu_enabled(gui, enabled):
         return
     state = "normal" if enabled else "disabled"
     file_menu.entryconfigure(open_csv_menu_index, state=state)
-    menu_bar.entryconfigure(settings_menu_index, state=state)
+    for index in range(menu_bar.index("end") + 1):
+        disabled = lock_header or (index == settings_menu_index and not enabled)
+        menu_bar.entryconfigure(index, state="disabled" if disabled else "normal")

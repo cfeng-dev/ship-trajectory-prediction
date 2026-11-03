@@ -77,10 +77,37 @@ class TrajectoryPredictor:
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()
         root.bind("<Configure>", self._on_window_resize, add="+")
+        self._update_menu_state()
         self._poll_id = root.after(75, self._poll)
 
     def _translate(self, text):
         return translate(text, getattr(self, "language", "en"))
+
+    def _menus_locked(self):
+        navigator = getattr(self.plot_view, "navigator", None)
+        return bool(
+            getattr(self, "_analysis_active", False)
+            and (
+                self.plot_view is None
+                or getattr(self, "_resizing", False)
+                or getattr(navigator, "is_playing", False)
+                or getattr(navigator, "is_waiting", False)
+            )
+        )
+
+    def _update_menu_state(self, _playing=None):
+        """Synchronize menu access immediately when playback or requests change."""
+        if self._closing:
+            return
+        state = (not getattr(self, "_analysis_active", False), self._menus_locked())
+        if state == getattr(self, "_menu_state", None):
+            return
+        view.set_analysis_menu_enabled(self, state[0], lock_header=state[1])
+        self._menu_state = state
+
+    def _request_update(self, observation_count):
+        self.worker.request(observation_count)
+        self._update_menu_state()
 
     def start_analysis(self):
         """Apply validated settings and replace the analysis, never mixing caches."""
@@ -108,7 +135,7 @@ class TrajectoryPredictor:
         self._computing = None
         self._analysis_active = True
         self.controls.set_analysis_active(True)
-        view.set_analysis_menu_enabled(self, False)
+        self._update_menu_state()
         self.placeholder.configure(text=self._translate("Preparing analysis …"))
         self.placeholder.pack(fill="both", expand=True)
         self.status.set(
@@ -125,7 +152,7 @@ class TrajectoryPredictor:
         self.worker.request(0)
         self._analysis_active = False
         self.controls.set_analysis_active(False)
-        view.set_analysis_menu_enabled(self, True)
+        self._update_menu_state()
         self._settings = None
         self._error = None
         self._computing = None
@@ -155,11 +182,14 @@ class TrajectoryPredictor:
         language = normalize_language(language)
         if self._closing:
             return
+        if self._menus_locked():
+            self.language_var.set(self.language)
+            return
         self.language = language
         self.language_var.set(language)
         self.root._trajectory_language = language
         view.create_menu_bar(self)
-        view.set_analysis_menu_enabled(self, not self._analysis_active)
+        self._update_menu_state()
         localize_widgets(self.root, language)
         self.status.set(translate(self.status.get(), language))
         if self.plot_view is not None:
@@ -331,6 +361,7 @@ class TrajectoryPredictor:
                 self.plot_view.navigator.pause_playback()
             else:
                 self.worker.request(0)
+            self._update_menu_state()
         if self._resize_after_id is not None:
             self.root.after_cancel(self._resize_after_id)
         self._resize_after_id = self.root.after(
@@ -346,6 +377,7 @@ class TrajectoryPredictor:
         self.worker.set_suspended(False)
         if self.plot_view is not None and self._error is None:
             self.plot_view.navigator.set_suspended(False)
+        self._update_menu_state()
 
     def _poll(self):
         self._poll_id = None
@@ -360,6 +392,7 @@ class TrajectoryPredictor:
             elif not getattr(self, "_resizing", False):
                 for event in self.worker.drain():
                     self._handle_event(event)
+                self._update_menu_state()
                 if self.plot_view is not None and self._error is None:
                     navigator = self.plot_view.navigator
                     state = self._translate(
@@ -401,7 +434,7 @@ class TrajectoryPredictor:
                 trajectory,
                 maximum,
                 minimum,
-                self.worker.request,
+                self._request_update,
                 lambda state: self.controls.show_reference_state(
                     state,
                     turn_rate_is_derived=trajectory.reference_turn_rate_is_derived,
@@ -413,6 +446,7 @@ class TrajectoryPredictor:
                 self.controls.show_radar_association,
                 settings_visible=self.settings_visible,
                 on_settings_visibility_change=self.set_settings_visible,
+                on_playback_change=self._update_menu_state,
             )
             self.plot_view.pack(fill="both", expand=True)
         elif event.kind == "computing":
@@ -438,7 +472,7 @@ class TrajectoryPredictor:
             LOGGER.error("Analysis stopped: %s settings=%r", detail, self._settings)
             self.worker.request(0)
             self.controls.set_analysis_active(False)
-            view.set_analysis_menu_enabled(self, True)
+            self._update_menu_state()
             if self.plot_view is not None:
                 self._cleanup(self.plot_view.disable_navigation, "disable navigation")
             else:

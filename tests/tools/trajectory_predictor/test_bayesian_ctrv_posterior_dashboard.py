@@ -967,6 +967,36 @@ def test_resize_suspension_retains_playback_and_honors_a_manual_pause():
         navigator.disconnect()
 
 
+def test_playback_callback_reports_pause_completion_and_disconnect():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    states = []
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        maximum_observation_count=1,
+        figure=Figure(),
+        request_update=lambda _count: None,
+        on_playback_change=states.append,
+    )
+    try:
+        assert states == []
+        navigator.toggle_playback(None)
+        navigator.handle_key_press(KeyEvent("key_press_event", figure.canvas, key=" "))
+        assert states == [True, False]
+        navigator.toggle_playback(None)
+        navigator.advance_playback()
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(1, _dashboard_samples())
+        )
+        assert states == [True, False, True, False]
+        navigator.toggle_playback(None)
+        navigator.disconnect()
+        assert states == [True, False, True, False, True, False]
+    finally:
+        navigator.disconnect()
+
+
 def test_async_playback_stops_after_final_result_not_when_requested():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(2.0)
