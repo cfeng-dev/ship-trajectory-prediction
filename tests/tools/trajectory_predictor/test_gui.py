@@ -560,13 +560,15 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor(
 
 
 @pytest.mark.parametrize("platform", ["win32", "linux"])
+@pytest.mark.parametrize("package", ["trajectory_predictor", "imm_predictor"])
 def test_window_keeps_maximize_and_locks_only_its_own_windows_frame(
-    monkeypatch, platform
+    monkeypatch, platform, package
 ):
+    import importlib
     import sys
     from unittest.mock import Mock
 
-    from trajectory_predictor import view
+    view = importlib.import_module(f"{package}.view")
 
     root = Mock()
     root.winfo_screenwidth.return_value = 1920
@@ -802,6 +804,8 @@ def _headless_imm_panels(stage, *, figure_size=(10, 6), settings_visible=True):
     view._panel_group = "motion"
     view._route_has_been_drawn = False
     view._destroyed = view._failed = False
+    view._playing = view._suspended = False
+    view._on_playback_change = None
     view._after_id = None
     view.show_reference_var = SimpleNamespace(get=lambda: False)
     view.follow_ship_var = SimpleNamespace(get=lambda: False)
@@ -2057,6 +2061,311 @@ class _Value:
 
     def set(self, value):
         self.value = value
+
+
+@pytest.fixture
+def imm_interaction_app(monkeypatch):
+    from unittest.mock import Mock
+
+    from imm_predictor import view
+    from imm_predictor.gui import IMMPredictorApp
+    from imm_predictor.player import IMMPlayerConfig
+
+    callbacks, cancelled = {}, []
+    tokens = []
+
+    def schedule(delay, callback):
+        token = len(tokens)
+        tokens.append(token)
+        callbacks[token] = (delay, callback)
+        return token
+
+    def cancel(token):
+        cancelled.append(token)
+        callbacks.pop(token, None)
+
+    app = IMMPredictorApp.__new__(IMMPredictorApp)
+    app.root = Mock(after=schedule, after_cancel=cancel)
+    app.root.callbacks, app.root.cancelled = callbacks, cancelled
+    app._closing = app._handling_error = app._resizing = app._scrolling = False
+    app._resize_after_id = app._scroll_after_id = None
+    app._last_window_size = (800, 600)
+    app._menu_state = None
+    app._error = app._settings_dialog = app._plot_settings_dialog = None
+    app._help_window = None
+    app._analysis_active = True
+    app.config = IMMPlayerConfig()
+    app.controls, app.placeholder = Mock(), Mock()
+    app.settings_visible_var = _Value(True)
+    app.coordinate_display_mode_var = _Value("m")
+    plot = app.plot_view = _headless_imm_panels(None)
+    plot._playing = plot._suspended = False
+    plot._on_playback_change = app._update_menu_state
+    plot._on_stage_changed = Mock()
+    plot._on_error = lambda error: pytest.fail(str(error))
+    plot._draw = Mock()
+    plot.after, plot.after_cancel = schedule, cancel
+    plot.store.maximum_observation_count = 3
+    plot.store.display_state_for = Mock(
+        side_effect=lambda count: SimpleNamespace(
+            stage=SimpleNamespace(observation_count=count)
+        )
+    )
+    app.store = plot.store
+    monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
+    view.create_menu_bar(app)
+    app._update_menu_state()
+    return app
+
+
+def _assert_imm_menu_state(app, *, locked, active=True):
+    for index, entry in enumerate(app._menu_bar.entries):
+        disabled = locked or (active and index == app._settings_menu_index)
+        assert entry["state"] == ("disabled" if disabled else "normal")
+    assert app._file_menu.entries[app._open_csv_menu_index]["state"] == (
+        "disabled" if active else "normal"
+    )
+
+
+def test_imm_start_wires_resize_scroll_and_playback_notifications(monkeypatch):
+    from unittest.mock import Mock
+
+    from imm_predictor import gui
+
+    root, controls, plot = Mock(), Mock(), Mock()
+    root.winfo_screenwidth.return_value = 1920
+    root.winfo_screenheight.return_value = 1080
+    plot.is_playing = False
+    controls_factory = Mock(return_value=controls)
+    plot_factory = Mock(return_value=plot)
+    monkeypatch.setattr(gui.view, "configure_window", Mock())
+    monkeypatch.setattr(gui.tk, "Menu", _MenuRecorder)
+    monkeypatch.setattr(gui.tk, "BooleanVar", lambda _root, *, value: _Value(value))
+    monkeypatch.setattr(gui.tk, "StringVar", lambda _root, *, value: _Value(value))
+    monkeypatch.setattr(gui.tk, "Frame", Mock())
+    monkeypatch.setattr(gui.tk, "Label", Mock())
+    monkeypatch.setattr(gui, "IMMControls", controls_factory)
+    monkeypatch.setattr(gui, "IMMPlotView", plot_factory)
+    monkeypatch.setattr(gui, "IMMPlaybackStore", Mock())
+    app = gui.IMMPredictorApp(root)
+
+    assert controls_factory.call_args.kwargs["on_scroll"] == app._on_sidebar_scroll
+    assert any(
+        args == ("<Configure>", app._on_window_resize) and kwargs == {"add": "+"}
+        for args, kwargs in root.bind.call_args_list
+    )
+    _assert_imm_menu_state(app, locked=False, active=False)
+    root.update_idletasks.side_effect = lambda: _assert_imm_menu_state(app, locked=True)
+    app.start_analysis()
+    assert plot_factory.call_args.kwargs["on_playback_change"] == app._update_menu_state
+    _assert_imm_menu_state(app, locked=False)
+    controls.set_analysis_active.assert_called_with(True)
+
+
+def test_imm_menus_follow_playback_pause_completion_and_cancel(imm_interaction_app):
+    from unittest.mock import Mock
+
+    app = imm_interaction_app
+    plot = app.plot_view
+    _assert_imm_menu_state(app, locked=False)
+    plot.toggle_playback()
+    _assert_imm_menu_state(app, locked=True)
+    plot._advance_playback()
+    assert plot._observation_count() == 1
+    plot.handle_key("space")
+    _assert_imm_menu_state(app, locked=False)
+    plot.toggle_playback()
+    plot._advance_playback()
+    plot._advance_playback()
+    assert plot._observation_count() == 3
+    assert not plot.is_playing
+    assert plot._after_id is None
+    _assert_imm_menu_state(app, locked=False)
+    plot.destroy = Mock()
+    app.reload_session()
+    _assert_imm_menu_state(app, locked=False, active=False)
+
+
+def test_imm_playback_error_unlocks_menus_and_stops_steps(
+    imm_interaction_app, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from imm_predictor import gui
+
+    app = imm_interaction_app
+    plot = app.plot_view
+    plot._on_error = lambda error: app._report_callback_exception(
+        type(error), error, error.__traceback__
+    )
+    plot.store.display_state_for.side_effect = ValueError("invalid radar input")
+    show_error = Mock()
+    monkeypatch.setattr(gui.messagebox, "showerror", show_error)
+    plot.toggle_playback()
+    plot._advance_playback()
+    assert not plot.is_playing
+    assert plot._after_id is None
+    _assert_imm_menu_state(app, locked=False, active=False)
+    show_error.assert_called_once()
+    plot._advance_playback()
+    plot.store.display_state_for.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize("manual_pause", [False, True])
+def test_imm_scroll_defers_steps_and_preserves_playback_intent(
+    imm_interaction_app, manual_pause
+):
+    from imm_predictor.gui import SIDEBAR_SCROLL_DELAY_MS
+
+    app = imm_interaction_app
+    plot = app.plot_view
+    plot.toggle_playback()
+    _, late_step = app.root.callbacks[plot._after_id]
+    app._on_sidebar_scroll()
+    first_resume = app._scroll_after_id
+    app._on_sidebar_scroll()
+    assert first_resume in app.root.cancelled
+    assert plot._after_id is None
+    late_step()
+    assert not plot.show_observation_count(2)
+    plot.store.display_state_for.assert_not_called()
+    plot._draw.assert_not_called()
+    assert plot.is_playing
+    _assert_imm_menu_state(app, locked=True)
+    if manual_pause:
+        plot.handle_key("space")
+    delay, resume = app.root.callbacks[app._scroll_after_id]
+    assert delay == SIDEBAR_SCROLL_DELAY_MS
+    resume()
+    assert not app._scrolling
+    assert plot.is_playing is not manual_pause
+    _assert_imm_menu_state(app, locked=not manual_pause)
+    if manual_pause:
+        assert plot._after_id is None
+        plot._advance_playback()
+        plot.store.display_state_for.assert_not_called()
+    else:
+        assert plot._after_id is not None
+        plot._advance_playback()
+        plot.store.display_state_for.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize("first_to_finish", ["scroll", "resize"])
+def test_imm_resize_permanently_pauses_even_during_scroll(
+    imm_interaction_app, first_to_finish
+):
+    app = imm_interaction_app
+    plot = app.plot_view
+    plot.toggle_playback()
+    app._on_sidebar_scroll()
+    app._on_window_resize(SimpleNamespace(widget=object(), width=1100, height=700))
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=800, height=600))
+    assert not app._resizing
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1100, height=700))
+    first_timer = app._resize_after_id
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+    assert first_timer in app.root.cancelled
+    assert not plot.is_playing
+    _assert_imm_menu_state(app, locked=True)
+    finishers = (
+        (app._finish_sidebar_scroll, app._finish_window_resize)
+        if first_to_finish == "scroll"
+        else (app._finish_window_resize, app._finish_sidebar_scroll)
+    )
+    finishers[0]()
+    assert plot._suspended
+    finishers[1]()
+    assert not plot._suspended
+    assert not plot.is_playing
+    plot._advance_playback()
+    plot.store.display_state_for.assert_not_called()
+    _assert_imm_menu_state(app, locked=False)
+    plot.toggle_playback()
+    plot._advance_playback()
+    plot.store.display_state_for.assert_called_once_with(1)
+
+
+def test_imm_close_cancels_interactions_without_resuming(imm_interaction_app):
+    from unittest.mock import Mock
+
+    app = imm_interaction_app
+    plot = app.plot_view
+    plot.toggle_playback()
+    app._on_sidebar_scroll()
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1100, height=700))
+    tokens = (app._scroll_after_id, app._resize_after_id)
+    callbacks = [app.root.callbacks[token][1] for token in tokens]
+    plot.destroy = Mock(side_effect=plot.disable_navigation)
+    app.close()
+    assert all(token in app.root.cancelled for token in tokens)
+    for callback in callbacks:
+        callback()
+    assert not plot.is_playing
+    assert plot._after_id is None
+    plot.store.display_state_for.assert_not_called()
+    app.root.destroy.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        (SimpleNamespace(delta=-120), (1, "units")),
+        (SimpleNamespace(num=4), (-1, "units")),
+        (SimpleNamespace(delta=0), None),
+    ],
+)
+def test_imm_wheel_prioritizes_scroll_before_moving_the_canvas(event, expected):
+    from unittest.mock import Mock
+
+    from imm_predictor.controls import IMMControls
+
+    calls = []
+    panel = IMMControls.__new__(IMMControls)
+    panel.on_scroll = lambda: calls.append("activity")
+    panel._canvas = Mock()
+    panel._canvas.yview.return_value = (0.1, 0.6)
+    panel._canvas.yview_scroll.side_effect = lambda *args: calls.append(args)
+    assert panel._on_mouse_wheel(event) == "break"
+    assert calls == ([] if expected is None else ["activity", expected])
+
+
+def test_imm_touchpad_prioritizes_scroll_before_moving_the_canvas():
+    from unittest.mock import Mock
+
+    from imm_predictor.controls import IMMControls
+
+    calls = []
+    panel = IMMControls.__new__(IMMControls)
+    panel.on_scroll = lambda: calls.append("activity")
+    panel._canvas = Mock()
+    panel._canvas.tk.call.return_value = (0, -12)
+    panel._canvas.yview.return_value = (0.1, 0.6)
+    panel._canvas.bbox.return_value = (0, 0, 100, 1000)
+    panel._canvas.yview_moveto.side_effect = lambda value: calls.append(value)
+    assert panel._on_touchpad_scroll(SimpleNamespace(delta=1)) == "break"
+    assert calls == ["activity", pytest.approx(0.112)]
+
+
+def test_imm_scrollbar_uses_the_shared_interaction_callback(monkeypatch):
+    from unittest.mock import Mock
+
+    from imm_predictor import controls
+
+    panel = controls.IMMControls.__new__(controls.IMMControls)
+    panel.on_scroll = Mock()
+    panel._add_analysis_section = panel._add_data_section = Mock()
+    panel._add_value_section = Mock()
+    panel._bind_mouse_wheel = Mock()
+    canvas, frame, scrollbar = Mock(), Mock(), Mock()
+    factory = Mock(return_value=scrollbar)
+    monkeypatch.setattr(controls.tk, "Canvas", Mock(return_value=canvas))
+    monkeypatch.setattr(controls.tk, "Frame", Mock(return_value=frame))
+    monkeypatch.setattr(controls.tk, "Label", Mock())
+    monkeypatch.setattr(controls, "create_form_scrollbar", factory)
+    panel._build_scrollable_layout()
+    assert factory.call_args.args == (panel, canvas)
+    factory.call_args.kwargs["on_scroll"]()
+    panel.on_scroll.assert_called_once_with()
 
 
 def test_failure_disables_real_matplotlib_widgets_without_changing_selection():

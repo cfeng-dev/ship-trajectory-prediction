@@ -199,6 +199,7 @@ class IMMPlotView(tk.Frame):
         on_settings_visibility_change,
         settings_visible: bool,
         on_error=None,
+        on_playback_change=None,
     ) -> None:
         super().__init__(parent, bg=PLOT_BACKGROUND)
         self._destroyed = False
@@ -209,6 +210,8 @@ class IMMPlotView(tk.Frame):
         self._on_stage_changed = on_stage_changed
         self._on_settings_visibility_change = on_settings_visibility_change
         self._playing = False
+        self._suspended = False
+        self._on_playback_change = on_playback_change
         self._after_id = None
         self._updating_slider = False
         self._route_has_been_drawn = False
@@ -339,7 +342,7 @@ class IMMPlotView(tk.Frame):
 
     def show_observation_count(self, observation_count) -> bool:
         """Stop a failed session; never retry a possibly partially updated filter."""
-        if self._failed or self._destroyed:
+        if self._failed or self._destroyed or self._suspended:
             return False
         try:
             state = (
@@ -377,7 +380,7 @@ class IMMPlotView(tk.Frame):
 
     def disable_navigation(self) -> None:
         self._failed = True
-        self._playing = False
+        self._set_playback_state(False)
         self._cancel_timer()
         self.playback_button.label.set_text("Start")
         for widget in (
@@ -409,16 +412,43 @@ class IMMPlotView(tk.Frame):
         ):
             if not self.set_stage(None):
                 return
-        self._playing = not self._playing
-        self.playback_button.label.set_text("Pause" if self._playing else "Start")
+        self._set_playback_state(not self._playing)
         self.canvas.draw_idle()
         if self._playing:
             self._schedule_next_step()
         else:
             self._cancel_timer()
 
+    @property
+    def is_playing(self) -> bool:
+        return self._playing
+
+    def _set_playback_state(self, playing: bool) -> None:
+        if self._playing == playing:
+            return
+        self._playing = playing
+        self.playback_button.label.set_text("Pause" if playing else "Start")
+        if self._on_playback_change is not None:
+            self._on_playback_change(playing)
+
+    def pause_playback(self) -> None:
+        """Stop until a manual restart, including across interaction suspension."""
+        self._set_playback_state(False)
+        self._cancel_timer()
+        self.canvas.draw_idle()
+
+    def set_suspended(self, suspended: bool) -> None:
+        """Defer IMM steps while scrolling or resizing without losing play intent."""
+        if self._destroyed or self._failed or self._suspended == suspended:
+            return
+        self._suspended = suspended
+        if suspended:
+            self._cancel_timer()
+        elif self._playing:
+            self._schedule_next_step()
+
     def _schedule_next_step(self) -> None:
-        if self._failed or self._destroyed or not self._playing:
+        if self._failed or self._destroyed or self._suspended or not self._playing:
             return
         self._cancel_timer()
         self._after_id = self.after(
@@ -428,14 +458,17 @@ class IMMPlotView(tk.Frame):
 
     def _advance_playback(self) -> None:
         self._after_id = None
-        if not self._playing or self._failed or self._destroyed:
+        if not self._playing or self._failed or self._destroyed or self._suspended:
             return
         current_count = self._observation_count()
         if current_count >= self.store.maximum_observation_count:
-            self.toggle_playback()
+            self.pause_playback()
             return
         if self.show_observation_count(current_count + 1):
-            self._schedule_next_step()
+            if self._observation_count() >= self.store.maximum_observation_count:
+                self.pause_playback()
+            else:
+                self._schedule_next_step()
 
     def _observation_count(self) -> int:
         if self.current_state is None:
@@ -1054,7 +1087,7 @@ class IMMPlotView(tk.Frame):
         if self._destroyed:
             return
         self._destroyed = True
-        self._playing = False
+        self._set_playback_state(False)
         self._cancel_timer()
         for name in ("_idle_draw_id", "_event_loop_id"):
             callback = getattr(self.canvas, name, None)

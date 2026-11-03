@@ -7,6 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 import numpy as np
+from trajectory_predictor.controls import create_form_scrollbar
 
 from .player import IMMDisplayState
 from .view import (
@@ -22,11 +23,14 @@ from .view import (
 class IMMControls(tk.Frame):
     """Expose file, movement, evaluation, and association values in one sidebar."""
 
-    def __init__(self, parent, *, on_open_file, on_cancel, on_start) -> None:
+    def __init__(
+        self, parent, *, on_open_file, on_cancel, on_start, on_scroll=None
+    ) -> None:
         super().__init__(parent, bg=CONTROL_BACKGROUND, width=340)
         self._on_open_file = on_open_file
         self._on_cancel = on_cancel
         self._on_start = on_start
+        self.on_scroll = on_scroll
         self._analysis_button: tk.Button | None = None
         self._data_file = tk.StringVar(self, value="")
         self._values = {
@@ -62,7 +66,7 @@ class IMMControls(tk.Frame):
     def _build_scrollable_layout(self) -> None:
         canvas = tk.Canvas(self, bg=CONTROL_BACKGROUND, highlightthickness=0, width=340)
         self._canvas = canvas
-        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollbar = create_form_scrollbar(self, canvas, on_scroll=self._notify_scroll)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
@@ -212,10 +216,19 @@ class IMMControls(tk.Frame):
             pady=8,
         )
 
+    def _notify_scroll(self):
+        if self.on_scroll is not None:
+            self.on_scroll()
+
     def _on_mouse_wheel(self, event):
         if self._canvas.yview() == (0.0, 1.0):
             return None
-        direction = -1 if getattr(event, "num", None) == 4 or event.delta > 0 else 1
+        button = getattr(event, "num", None)
+        delta = getattr(event, "delta", 0)
+        if button not in (4, 5) and delta == 0:
+            return "break"
+        direction = -1 if button == 4 or delta > 0 else 1
+        self._notify_scroll()
         self._canvas.yview_scroll(direction, "units")
         return "break"
 
@@ -234,6 +247,7 @@ class IMMControls(tk.Frame):
             new_first = min(
                 max(first - delta_y / content_height, 0), 1 - (last - first)
             )
+            self._notify_scroll()
             self._canvas.yview_moveto(new_first)
         return "break"
 

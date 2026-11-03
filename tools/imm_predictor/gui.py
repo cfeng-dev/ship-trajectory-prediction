@@ -17,6 +17,9 @@ from .plot_view import IMMPlotView
 
 LOGGER = logging.getLogger(__name__)
 
+WINDOW_RESIZE_DELAY_MS = 200
+SIDEBAR_SCROLL_DELAY_MS = 150
+
 INITIAL_PLACEHOLDER_TEXT = (
     "Trajectory and IMM evolution\n\n"
     "Select a BR24 CSV and configure the analysis on the left.\n"
@@ -42,6 +45,10 @@ class IMMPredictorApp:
         self._analysis_active = False
         self._error = None
         self._handling_error = False
+        self._resizing = self._scrolling = False
+        self._resize_after_id = self._scroll_after_id = None
+        self._last_window_size = None
+        self._menu_state = None
         root.report_callback_exception = self._report_callback_exception
 
         view.configure_window(root)
@@ -50,6 +57,7 @@ class IMMPredictorApp:
             on_open_file=self.open_csv,
             on_cancel=self.reload_session,
             on_start=self.start_analysis,
+            on_scroll=self._on_sidebar_scroll,
         )
         self.controls.grid(row=0, column=0, sticky="ns", padx=(10, 0), pady=10)
         self.plot_host = tk.Frame(root, bg=view.PLOT_BACKGROUND)
@@ -68,10 +76,90 @@ class IMMPredictorApp:
         root.bind("<Left>", self.handle_key, add="+")
         root.bind("<Right>", self.handle_key, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
+        root.bind("<Configure>", self._on_window_resize, add="+")
         self._prepare_analysis(self.config)
+
+    def _update_menu_state(self, _playing=None) -> None:
+        """Keep native header menus locked until playback or resizing stops."""
+        if self._closing:
+            return
+        locked = self._analysis_active and (
+            self.plot_view is None or self._resizing or self.plot_view.is_playing
+        )
+        state = (not self._analysis_active, bool(locked))
+        if state != self._menu_state:
+            view.set_analysis_menu_enabled(self, state[0], lock_header=state[1])
+            self._menu_state = state
+
+    def _sync_interaction_suspension(self) -> None:
+        if self.plot_view is not None and self._error is None:
+            self.plot_view.set_suspended(self._resizing or self._scrolling)
+
+    def _on_sidebar_scroll(self) -> None:
+        """Prioritize sidebar input over the next IMM step and plot redraw."""
+        if self._closing or not self._analysis_active or self.plot_view is None:
+            return
+        if not self._scrolling:
+            self._scrolling = True
+            self._sync_interaction_suspension()
+        if self._scroll_after_id is not None:
+            self.root.after_cancel(self._scroll_after_id)
+        self._scroll_after_id = self.root.after(
+            SIDEBAR_SCROLL_DELAY_MS, self._finish_sidebar_scroll
+        )
+
+    def _finish_sidebar_scroll(self) -> None:
+        self._scroll_after_id = None
+        if self._closing:
+            return
+        self._scrolling = False
+        self._sync_interaction_suspension()
+        self._update_menu_state()
+
+    def _on_window_resize(self, event) -> None:
+        """Require a manual playback restart after maximizing or restoring."""
+        if self._closing or event.widget is not self.root:
+            return
+        size = (event.width, event.height)
+        if size == self._last_window_size:
+            return
+        self._last_window_size = size
+        if not self._analysis_active:
+            return
+        if not self._resizing:
+            self._resizing = True
+            self._sync_interaction_suspension()
+            if self.plot_view is not None:
+                self.plot_view.pause_playback()
+            self._update_menu_state()
+        if self._resize_after_id is not None:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(
+            WINDOW_RESIZE_DELAY_MS, self._finish_window_resize
+        )
+
+    def _finish_window_resize(self) -> None:
+        self._resize_after_id = None
+        if self._closing:
+            return
+        self._resizing = False
+        self._sync_interaction_suspension()
+        self._update_menu_state()
+
+    def _cancel_interaction_timers(self) -> None:
+        for name in ("_resize_after_id", "_scroll_after_id"):
+            token = getattr(self, name)
+            if token is not None:
+                self._cleanup(
+                    lambda token=token: self.root.after_cancel(token),
+                    "cancel interaction timer",
+                )
+                setattr(self, name, None)
+        self._resizing = self._scrolling = False
 
     def _prepare_analysis(self, config: IMMPlayerConfig) -> None:
         """Return to the unstarted state without initializing the tracker."""
+        self._cancel_interaction_timers()
         if self._settings_dialog is not None:
             dialog = self._settings_dialog
             self._settings_dialog = None
@@ -83,7 +171,7 @@ class IMMPredictorApp:
         self.store = None
         self._error = None
         self._analysis_active = False
-        view.set_analysis_menu_enabled(self, True)
+        self._update_menu_state()
         self.config = config
         self.controls.set_data_file(config.data_file)
         self.controls.clear_display_state()
@@ -111,7 +199,7 @@ class IMMPredictorApp:
         self.controls.clear_display_state()
         self.controls.set_analysis_active(True)
         self._analysis_active = True
-        view.set_analysis_menu_enabled(self, False)
+        self._update_menu_state()
         self.placeholder.pack_forget()
         self.plot_view = IMMPlotView(
             self.plot_host,
@@ -123,11 +211,14 @@ class IMMPredictorApp:
             on_error=lambda error: self._report_callback_exception(
                 type(error), error, error.__traceback__
             ),
+            on_playback_change=self._update_menu_state,
         )
         self.plot_view.set_coordinate_display_mode(
             self.coordinate_display_mode_var.get()
         )
         self.plot_view.pack(fill="both", expand=True)
+        self._sync_interaction_suspension()
+        self._update_menu_state()
         return True
 
     def _show_stage(self, state) -> None:
@@ -145,7 +236,7 @@ class IMMPredictorApp:
                 self._prepare_analysis(self.config)
                 LOGGER.info("Starting IMM analysis: config=%r", self.config)
                 self._analysis_active = True
-                view.set_analysis_menu_enabled(self, False)
+                self._update_menu_state()
                 self.controls.set_analysis_active(True)
                 self.placeholder.configure(text="Preparing analysis …")
                 self.root.update_idletasks()
@@ -326,7 +417,7 @@ class IMMPredictorApp:
             if self.plot_view is not None:
                 self._cleanup(self.plot_view.disable_navigation, "stop failed playback")
             self.controls.set_analysis_active(False)
-            view.set_analysis_menu_enabled(self, True)
+            self._update_menu_state()
             messagebox.showerror(
                 "Analysis failed",
                 self._error + "\nStart a new analysis to continue.",
@@ -348,6 +439,7 @@ class IMMPredictorApp:
         if self._closing:
             return
         self._closing = True
+        self._cancel_interaction_timers()
         if self._help_window is not None:
             self._cleanup(
                 lambda: (

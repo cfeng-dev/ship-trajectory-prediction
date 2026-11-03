@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from tkinter import ttk
+
+from trajectory_predictor.view import _remove_windows_resize_frame
 
 WINDOW_TITLE = "IMM — Ship Trajectory Predictor"
 WINDOW_BACKGROUND = "#F3F7FA"
@@ -30,6 +33,14 @@ def configure_window(root: tk.Tk) -> None:
     top = (screen_height - MAIN_WINDOW_HEIGHT) // 2 - MAIN_WINDOW_VERTICAL_OFFSET
     root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}+{left}+{top}")
     root.minsize(1_000, 620)
+    root.resizable(True, True)
+    if sys.platform == "win32":
+
+        def lock_resize_border(event):
+            if event.widget is root:
+                _remove_windows_resize_frame(root)
+
+        root.bind("<Map>", lock_resize_border, add="+")
     root.grid_rowconfigure(0, weight=1)
     root.grid_columnconfigure(1, weight=1)
 
@@ -107,11 +118,13 @@ def create_menu_bar(app) -> None:
     app._file_menu = file_menu
 
 
-def set_analysis_menu_enabled(app, enabled: bool) -> None:
-    """Lock session settings and file selection while analysis is active."""
+def set_analysis_menu_enabled(app, enabled: bool, *, lock_header=False) -> None:
+    """Lock header menus during playback and session settings during analysis."""
     state = "normal" if enabled else "disabled"
-    app._menu_bar.entryconfigure(app._settings_menu_index, state=state)
     app._file_menu.entryconfigure(app._open_csv_menu_index, state=state)
+    for index in range(app._menu_bar.index("end") + 1):
+        disabled = lock_header or (index == app._settings_menu_index and not enabled)
+        app._menu_bar.entryconfigure(index, state="disabled" if disabled else "normal")
 
 
 def create_button(
