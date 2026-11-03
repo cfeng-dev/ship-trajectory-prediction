@@ -47,8 +47,11 @@ def test_language_validation_and_unknown_technical_details():
     assert localization.translate("3.50 m/s", "de") == "3.50 m/s"
 
 
-def test_localized_choices_parse_to_the_same_analysis_configuration():
+def test_localized_choices_parse_to_the_same_analysis_configuration(tmp_path):
+    data_file = tmp_path / "trajectory.csv"
+    data_file.write_text("time,x,y\n0,0,0\n1,1,1\n2,2,2\n", encoding="utf-8")
     original = default_form_values()
+    original["data"]["data_file"] = str(data_file)
     localized = {group: dict(values) for group, values in original.items()}
     localized["data"]["inference_method"] = localization.translate(
         METHOD_DISPLAY_LABELS["sequential_vi"], "de"
@@ -56,7 +59,6 @@ def test_localized_choices_parse_to_the_same_analysis_configuration():
     localized["data"]["prediction_region_style"] = localization.translate(
         "Horizon density region", "de"
     )
-    localized["data"]["data_file"] = original["data"]["data_file"]
     original["data"]["inference_method"] = "sequential_vi"
     assert parse_settings(localized) == parse_settings(original)
     assert (
