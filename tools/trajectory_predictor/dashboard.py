@@ -1004,6 +1004,7 @@ class PosteriorDashboardNavigator:
         self._trajectory_has_been_drawn = False
         self._follow_ship_view_needs_focus = True
         self._is_playing = False
+        self._suspended = False
         self._slider_interaction_active = False
         self._specs_by_name = {
             name: prior_posterior.build_parameter_spec(name, priors)
@@ -1180,8 +1181,21 @@ class PosteriorDashboardNavigator:
         )
         self._updates_by_count[update.observation_count] = update
         self._density_grids_dirty = True
-        if self.is_waiting:
+        if self.is_waiting and not self._suspended:
             self._show_observation_count(self._requested_observation_count)
+
+    def set_suspended(self, suspended: bool) -> None:
+        """Defer automatic drawing without changing the user's playback target."""
+        if suspended == self._suspended:
+            return
+        self._suspended = suspended
+        if suspended:
+            self._playback_timer.stop()
+        else:
+            if self.is_waiting:
+                self._show_observation_count(self._requested_observation_count)
+            if self.is_playing:
+                self._playback_timer.start()
 
     def pause_playback(self) -> None:
         """Pause immediately, retaining any in-flight result only in the cache."""
@@ -1222,11 +1236,12 @@ class PosteriorDashboardNavigator:
             self.show_selected_observation_count(None)
         self._is_playing = True
         self._update_playback_button_label()
-        self._playback_timer.start()
+        if not self._suspended:
+            self._playback_timer.start()
 
     def advance_playback(self) -> None:
         """Advance automatic playback by exactly one observation stage."""
-        if not self.is_playing or self.is_waiting:
+        if not self.is_playing or self.is_waiting or self._suspended:
             return
         observation_count = self.observation_count + 1
         self.slider.set_val(observation_count)

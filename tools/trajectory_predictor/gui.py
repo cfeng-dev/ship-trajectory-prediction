@@ -20,6 +20,7 @@ from .settings import (
 )
 
 LOGGER = logging.getLogger(__name__)
+WINDOW_RESIZE_DELAY_MS = 200
 
 
 class TrajectoryPredictor:
@@ -35,6 +36,9 @@ class TrajectoryPredictor:
         self._settings = None
         self._closing = False
         self._closed = False
+        self._resizing = False
+        self._resize_after_id = None
+        self._last_window_size = None
         self._handling_error = False
         root.report_callback_exception = self._report_callback_exception
         self._error = None
@@ -72,6 +76,7 @@ class TrajectoryPredictor:
         root.bind("<space>", self.handle_space, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = worker if worker is not None else PosteriorAnalysisWorker()
+        root.bind("<Configure>", self._on_window_resize, add="+")
         self._poll_id = root.after(75, self._poll)
 
     def _translate(self, text):
@@ -308,6 +313,40 @@ class TrajectoryPredictor:
         self.plot_view.navigator.toggle_playback(None)
         return "break"
 
+    def _on_window_resize(self, event):
+        """Pause playback until a manual restart when the window size changes."""
+        if self._closing or event.widget is not self.root:
+            return
+        size = (event.width, event.height)
+        if size == self._last_window_size:
+            return
+        self._last_window_size = size
+        if not self._analysis_active:
+            return
+        if not self._resizing:
+            self._resizing = True
+            self.worker.set_suspended(True)
+            if self.plot_view is not None:
+                self.plot_view.navigator.set_suspended(True)
+                self.plot_view.navigator.pause_playback()
+            else:
+                self.worker.request(0)
+        if self._resize_after_id is not None:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(
+            WINDOW_RESIZE_DELAY_MS, self._finish_window_resize
+        )
+
+    def _finish_window_resize(self):
+        """Release the resize guard while retaining the user's paused playback."""
+        self._resize_after_id = None
+        if self._closing:
+            return
+        self._resizing = False
+        self.worker.set_suspended(False)
+        if self.plot_view is not None and self._error is None:
+            self.plot_view.navigator.set_suspended(False)
+
     def _poll(self):
         self._poll_id = None
         if self._closed:
@@ -318,7 +357,7 @@ class TrajectoryPredictor:
                     self._closed = True
                     self.root.destroy()
                     return
-            else:
+            elif not getattr(self, "_resizing", False):
                 for event in self.worker.drain():
                     self._handle_event(event)
                 if self.plot_view is not None and self._error is None:
@@ -442,6 +481,12 @@ class TrajectoryPredictor:
             return
         self._closing = True
         self.worker.close()
+        resize_after_id = getattr(self, "_resize_after_id", None)
+        if resize_after_id is not None:
+            self._cleanup(
+                lambda: self.root.after_cancel(resize_after_id), "cancel resize timer"
+            )
+            self._resize_after_id = None
         self._cleanup(
             lambda: self.controls.apply_button.configure(state="disabled"),
             "disable start",

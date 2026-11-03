@@ -400,6 +400,69 @@ def test_replacement_discards_old_fit_and_snapshots_mutable_options(analysis):
         worker.join(5)
 
 
+def test_resize_suspension_finishes_current_fit_then_resumes_without_replay(analysis):
+    entered, release, second = Event(), Event(), Event()
+    calls, preparations = [], []
+
+    def load(count):
+        calls.append(count)
+        if count == 1:
+            entered.set()
+            assert release.wait(5)
+        else:
+            second.set()
+        return _update(count)
+
+    def prepare(settings):
+        preparations.append(settings)
+        return None, 3, 1, load
+
+    worker = PosteriorAnalysisWorker(prepare)
+    try:
+        worker.start(analysis)
+        worker.request(3)
+        assert entered.wait(5)
+        worker.set_suspended(True)
+        release.set()
+        wait_for_event(
+            worker, "update", match=lambda event: event.payload.observation_count == 1
+        )
+        assert not second.wait(0.1)
+        assert calls == [1]
+        worker.set_suspended(False)
+        wait_for_event(
+            worker, "update", match=lambda event: event.payload.observation_count == 3
+        )
+        assert calls == [1, 2, 3]
+        assert len(preparations) == 1
+    finally:
+        release.set()
+        worker.close()
+        worker.join(5)
+
+
+def test_suspended_worker_can_close_with_a_pending_analysis(analysis):
+    entered = Event()
+
+    def prepare(_settings):
+        entered.set()
+        return None, 2, 1, _update
+
+    worker = PosteriorAnalysisWorker(prepare)
+    try:
+        worker.set_suspended(True)
+        worker.start(analysis)
+        worker.request(2)
+        assert not entered.wait(0.1)
+        worker.close()
+        worker.join(5)
+        assert not worker.is_alive
+        assert not entered.is_set()
+    finally:
+        worker.close()
+        worker.join(5)
+
+
 def test_close_is_nonblocking_and_finishes_only_inflight_fit(analysis):
     entered, release = Event(), Event()
     calls = []

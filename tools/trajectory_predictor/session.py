@@ -91,6 +91,7 @@ class PosteriorAnalysisWorker:
         self._generation = 0
         self._pending = None
         self._target = 0
+        self._suspended = False
         self._closed = False
         self._thread = Thread(target=self._run, name="posterior-inference")
         self._thread.start()
@@ -112,6 +113,13 @@ class PosteriorAnalysisWorker:
         with self._condition:
             if not self._closed:
                 self._target = observation_count
+                self._condition.notify()
+
+    def set_suspended(self, suspended: bool) -> None:
+        """Pause between fits while retaining the loader and requested target."""
+        with self._condition:
+            if not self._closed:
+                self._suspended = suspended
                 self._condition.notify()
 
     def drain(self) -> list[AnalysisEvent]:
@@ -149,10 +157,15 @@ class PosteriorAnalysisWorker:
                 self._condition.wait_for(
                     lambda loader=loader, next_count=next_count, maximum=maximum: (
                         self._closed
-                        or self._pending is not None
                         or (
-                            loader is not None
-                            and next_count <= min(self._target, maximum)
+                            not self._suspended
+                            and (
+                                self._pending is not None
+                                or (
+                                    loader is not None
+                                    and next_count <= min(self._target, maximum)
+                                )
+                            )
                         )
                     )
                 )

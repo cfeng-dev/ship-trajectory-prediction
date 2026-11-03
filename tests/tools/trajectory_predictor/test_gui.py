@@ -1883,6 +1883,135 @@ def test_failure_disables_real_matplotlib_widgets_without_changing_selection():
     assert widgets[1].val == 5
 
 
+@pytest.fixture
+def resizing_app():
+    from unittest.mock import Mock
+
+    callbacks, tokens, cancelled = {}, [], []
+
+    def schedule(delay, callback):
+        token = f"timer-{len(tokens)}"
+        tokens.append(token)
+        callbacks[token] = (delay, callback)
+        return token
+
+    def cancel(token):
+        cancelled.append(token)
+        callbacks.pop(token, None)
+
+    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app.root = SimpleNamespace(after=schedule, after_cancel=cancel)
+    app.root.callbacks, app.root.cancelled = callbacks, cancelled
+    app._closing = app._closed = app._resizing = False
+    app._resize_after_id = None
+    app._last_window_size = (800, 600)
+    app._analysis_active = True
+    app._error = None
+    app.worker = Mock()
+    app.worker.drain.return_value = [object()]
+    app.plot_view = Mock()
+    app.controls = Mock()
+    app.status = Mock()
+    app._settings_dialog = app._help_window = app._plot_display_window = None
+    app._handle_event = Mock()
+    return app
+
+
+def test_resize_defers_updates_and_pauses_playback_until_manual_start(resizing_app):
+    from unittest.mock import call
+
+    app = resizing_app
+    navigator = app.plot_view.navigator
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+    first_timer = app._resize_after_id
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1100, height=750))
+    assert first_timer in app.root.cancelled
+    assert app._resize_after_id != first_timer
+    assert app.worker.set_suspended.call_args_list == [call(True)]
+    assert navigator.set_suspended.call_args_list == [call(True)]
+    navigator.pause_playback.assert_called_once_with()
+    app._poll()
+    app.worker.drain.assert_not_called()
+    app._handle_event.assert_not_called()
+    delay, resume = app.root.callbacks[app._resize_after_id]
+    assert delay == 200
+    resume()
+    assert not app._resizing
+    assert app.worker.set_suspended.call_args_list == [call(True), call(False)]
+    assert navigator.set_suspended.call_args_list == [call(True), call(False)]
+    navigator.toggle_playback.assert_not_called()
+    app.plot_view = None
+    app._poll()
+    app.worker.drain.assert_called_once()
+    app._handle_event.assert_called_once()
+
+
+def test_resize_does_not_advance_cached_results_until_playback_is_started(resizing_app):
+    from matplotlib.figure import Figure
+    from trajectory_predictor.dashboard import (
+        create_sequential_posterior_dashboard_figure,
+    )
+
+    from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+
+    app = resizing_app
+    coordinates = np.arange(4.0)
+    _, navigator = create_sequential_posterior_dashboard_figure(
+        PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        BayesianCTRVPriors(),
+        maximum_observation_count=4,
+        figure=Figure(),
+        request_update=app.worker.request,
+    )
+    app.plot_view = SimpleNamespace(navigator=navigator)
+    try:
+        navigator.toggle_playback(None)
+        navigator.advance_playback()
+        assert navigator.is_playing and navigator.is_waiting
+        app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+        app.worker.request.assert_called_with(0)
+        navigator.accept_update(
+            PosteriorDashboardUpdate(
+                1, {name: np.array([0.5, 1.0, 1.5]) for name in PARAMETER_NAMES}
+            )
+        )
+        app._finish_window_resize()
+        navigator.advance_playback()  # A late timer must not restart playback.
+        assert not navigator.is_playing
+        assert not navigator.is_waiting
+        assert navigator.observation_count == 0
+        app.worker.request.assert_called_with(0)
+        navigator.toggle_playback(None)
+        navigator.advance_playback()
+        assert navigator.is_playing
+        assert navigator.observation_count == 1
+        app.worker.request.assert_called_with(1)
+    finally:
+        navigator.disconnect()
+
+
+def test_resize_ignores_child_layout_events_and_window_moves(resizing_app):
+    app = resizing_app
+    app._on_window_resize(SimpleNamespace(widget=object(), width=1200, height=800))
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=800, height=600))
+    assert not app.root.callbacks
+    app.worker.set_suspended.assert_not_called()
+
+
+def test_closing_during_resize_cancels_resume_without_restarting_worker(resizing_app):
+    from unittest.mock import call
+
+    app = resizing_app
+    app._on_window_resize(SimpleNamespace(widget=app.root, width=1200, height=800))
+    token = app._resize_after_id
+    resume = app.root.callbacks[token][1]
+    app.close()
+    assert token in app.root.cancelled
+    resume()
+    assert app.worker.set_suspended.call_args_list == [call(True)]
+    app.worker.close.assert_called_once()
+
+
 def test_poll_reports_callback_errors_and_keeps_scheduling():
     from unittest.mock import Mock
 

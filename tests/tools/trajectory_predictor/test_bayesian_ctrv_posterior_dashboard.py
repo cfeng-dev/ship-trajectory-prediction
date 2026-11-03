@@ -929,6 +929,44 @@ def test_embedded_async_navigation_waits_caches_and_preserves_pause():
     assert not navigator.is_playing
 
 
+def test_resize_suspension_retains_playback_and_honors_a_manual_pause():
+    dashboard = _load_dashboard_module()
+    coordinates = np.arange(4.0)
+    requests = []
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4)),
+        bayesian_model.BayesianCTRVPriors(),
+        maximum_observation_count=4,
+        figure=Figure(),
+        request_update=requests.append,
+    )
+    try:
+        navigator.toggle_playback(None)
+        navigator.set_suspended(True)
+        navigator.advance_playback()
+        assert navigator.is_playing
+        assert navigator.observation_count == 0
+        assert not requests
+        navigator.set_suspended(False)
+        navigator.advance_playback()
+        assert requests == [1]
+        navigator.set_suspended(True)
+        navigator.accept_update(
+            dashboard.PosteriorDashboardUpdate(1, _dashboard_samples())
+        )
+        assert navigator.observation_count == 0
+        assert 1 in navigator._updates_by_count
+        navigator.set_suspended(False)
+        assert navigator.observation_count == 1
+        navigator.set_suspended(True)
+        navigator.pause_playback()
+        navigator.set_suspended(False)
+        assert not navigator.is_playing
+        assert navigator.observation_count == 1
+    finally:
+        navigator.disconnect()
+
+
 def test_async_playback_stops_after_final_result_not_when_requested():
     dashboard = _load_dashboard_module()
     coordinates = np.arange(2.0)
