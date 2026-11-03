@@ -1,5 +1,6 @@
 """Desktop presentation matching the ship simulator, without coupling the tools."""
 
+import sys
 import tkinter as tk
 from tkinter import ttk
 
@@ -159,10 +160,63 @@ def configure_window(root):
     )
     root.geometry(f"{MAIN_WINDOW_WIDTH}x{MAIN_WINDOW_HEIGHT}+{left}+{top}")
     root.minsize(1000, 620)
+    root.resizable(True, True)
+    if sys.platform == "win32":
+
+        def lock_resize_border(event):
+            if event.widget is root:
+                _remove_windows_resize_frame(root)
+
+        root.bind("<Map>", lock_resize_border, add="+")
     root.configure(bg=APP_BACKGROUND)
     configure_input_styles(root)
     root.columnconfigure(1, weight=1)
     root.rowconfigure(0, weight=1)
+
+
+def _remove_windows_resize_frame(root):
+    """Remove the Windows sizing border while retaining titlebar button styles."""
+    import ctypes
+    from ctypes import wintypes
+
+    native = ctypes.WinDLL("user32", use_last_error=True)
+    native.GetParent.argtypes = [wintypes.HWND]
+    native.GetParent.restype = wintypes.HWND
+    suffix = "LongPtrW" if ctypes.sizeof(ctypes.c_void_p) == 8 else "LongW"
+    get_style = getattr(native, f"GetWindow{suffix}")
+    set_style = getattr(native, f"SetWindow{suffix}")
+    get_style.argtypes = [wintypes.HWND, ctypes.c_int]
+    get_style.restype = ctypes.c_ssize_t
+    set_style.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    set_style.restype = ctypes.c_ssize_t
+    native.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    native.SetWindowPos.restype = wintypes.BOOL
+
+    # winfo_id identifies Tk's client window; its parent owns the native frame.
+    handle = native.GetParent(root.winfo_id())
+    if not handle:
+        raise OSError("Could not find the native Tk window frame.")
+    ctypes.set_last_error(0)
+    style = get_style(handle, -16)  # GWL_STYLE
+    if not style and (error := ctypes.get_last_error()):
+        raise ctypes.WinError(error)
+    resize_frame = 0x00040000  # WS_THICKFRAME
+    if not style & resize_frame:
+        return
+    if not set_style(handle, -16, style & ~resize_frame):
+        raise ctypes.WinError(ctypes.get_last_error())
+    # Refresh the frame without changing size, position, focus, or stacking.
+    frame_flags = 0x0037  # FRAMECHANGED | NOSIZE | NOMOVE | NOZORDER | NOACTIVATE
+    if not native.SetWindowPos(handle, None, 0, 0, 0, 0, frame_flags):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def create_menu_bar(gui):

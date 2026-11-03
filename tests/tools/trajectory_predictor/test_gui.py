@@ -491,6 +491,12 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor(
         def minsize(self, _width, _height):
             pass
 
+        def resizable(self, _width, _height):
+            pass
+
+        def bind(self, _event, _callback, **_kwargs):
+            pass
+
         def configure(self, **_kwargs):
             pass
 
@@ -508,6 +514,170 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor(
     view.configure_window(window)
 
     assert window.title_value == title
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_window_keeps_maximize_and_locks_only_its_own_windows_frame(
+    monkeypatch, platform
+):
+    import sys
+    from unittest.mock import Mock
+
+    from trajectory_predictor import view
+
+    root = Mock()
+    root.winfo_screenwidth.return_value = 1920
+    root.winfo_screenheight.return_value = 1080
+    remove_frame = Mock()
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(view, "configure_input_styles", lambda _root: None)
+    monkeypatch.setattr(
+        view, "_remove_windows_resize_frame", remove_frame, raising=False
+    )
+    view.configure_window(root)
+    root.resizable.assert_called_once_with(True, True)
+    remove_frame.assert_not_called()  # Wait for the native wrapper to be mapped.
+    if platform != "win32":
+        root.bind.assert_not_called()
+        return
+    (event_name, on_map), options = root.bind.call_args
+    assert event_name == "<Map>" and options == {"add": "+"}
+    on_map(SimpleNamespace(widget=object()))
+    remove_frame.assert_not_called()
+    on_map(SimpleNamespace(widget=root))
+    remove_frame.assert_called_once_with(root)
+
+
+@pytest.fixture
+def native_window_api(monkeypatch):
+    import ctypes
+    from unittest.mock import Mock
+
+    native = SimpleNamespace(
+        GetParent=Mock(return_value=0x100000001),
+        GetWindowLongPtrW=Mock(return_value=0x00CF0000),
+        SetWindowLongPtrW=Mock(return_value=0x00CF0000),
+        GetWindowLongW=Mock(return_value=0x00CF0000),
+        SetWindowLongW=Mock(return_value=0x00CF0000),
+        SetWindowPos=Mock(return_value=1),
+    )
+    monkeypatch.setattr(
+        ctypes, "WinDLL", lambda *_args, **_kwargs: native, raising=False
+    )
+    monkeypatch.setattr(ctypes, "set_last_error", lambda _value: None, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 5, raising=False)
+    monkeypatch.setattr(
+        ctypes,
+        "WinError",
+        lambda code: OSError(code, "native frame update failed"),
+        raising=False,
+    )
+    suffix = "LongPtrW" if ctypes.sizeof(ctypes.c_void_p) == 8 else "LongW"
+    return (
+        native,
+        getattr(native, f"GetWindow{suffix}"),
+        getattr(native, f"SetWindow{suffix}"),
+    )
+
+
+def test_windows_frame_lock_preserves_titlebar_buttons_and_window_position(
+    native_window_api,
+):
+    from unittest.mock import Mock
+
+    from trajectory_predictor import view
+
+    native, get_style, set_style = native_window_api
+    root = SimpleNamespace(winfo_id=Mock(return_value=42))
+    view._remove_windows_resize_frame(root)
+    native.GetParent.assert_called_once_with(42)
+    get_style.assert_called_once_with(0x100000001, -16)
+    set_style.assert_called_once_with(0x100000001, -16, 0x00CB0000)
+    style = set_style.call_args.args[2]
+    assert style & 0x00010000  # WS_MAXIMIZEBOX
+    assert style & 0x00020000  # WS_MINIMIZEBOX
+    assert not style & 0x00040000  # WS_THICKFRAME
+    native.SetWindowPos.assert_called_once_with(0x100000001, None, 0, 0, 0, 0, 0x0037)
+    get_style.return_value = style
+    view._remove_windows_resize_frame(root)
+    assert set_style.call_count == native.SetWindowPos.call_count == 1
+
+
+@pytest.mark.parametrize("failure", ["read", "write", "refresh"])
+def test_windows_frame_lock_reports_native_failures(native_window_api, failure):
+    from trajectory_predictor import view
+
+    native, get_style, set_style = native_window_api
+    {"read": get_style, "write": set_style, "refresh": native.SetWindowPos}[
+        failure
+    ].return_value = 0
+    with pytest.raises(OSError, match="native frame update failed"):
+        view._remove_windows_resize_frame(SimpleNamespace(winfo_id=lambda: 42))
+
+
+def test_windows_frame_lock_with_hidden_native_window():
+    import ctypes
+    import sys
+    from ctypes import wintypes
+
+    from trajectory_predictor import view
+
+    if sys.platform != "win32":
+        pytest.skip("Requires native Windows window styles.")
+    native = ctypes.WinDLL("user32", use_last_error=True)
+    native.CreateWindowExW.argtypes = [
+        wintypes.DWORD,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.HWND,
+        wintypes.HMENU,
+        wintypes.HINSTANCE,
+        wintypes.LPVOID,
+    ]
+    native.CreateWindowExW.restype = wintypes.HWND
+    native.DestroyWindow.argtypes = [wintypes.HWND]
+    native.DestroyWindow.restype = wintypes.BOOL
+    native.IsWindowVisible.argtypes = [wintypes.HWND]
+    native.IsWindowVisible.restype = wintypes.BOOL
+    native.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    native.GetWindowRect.restype = wintypes.BOOL
+    suffix = "LongPtrW" if ctypes.sizeof(ctypes.c_void_p) == 8 else "LongW"
+    get_style = getattr(native, f"GetWindow{suffix}")
+    get_style.argtypes = [wintypes.HWND, ctypes.c_int]
+    get_style.restype = ctypes.c_ssize_t
+
+    # Use predefined classes and omit WS_VISIBLE; no Tcl interpreter is needed.
+    frame = native.CreateWindowExW(
+        0, "STATIC", "Resize test", 0x00CF0000, 20, 20, 400, 300, None, None, None, None
+    )
+    if not frame:
+        pytest.skip(f"Native Windows window unavailable: {ctypes.get_last_error()}")
+    try:
+        client = native.CreateWindowExW(
+            0, "STATIC", "", 0x40000000, 0, 0, 100, 100, frame, None, None, None
+        )
+        assert client, ctypes.WinError(ctypes.get_last_error())
+        before = wintypes.RECT()
+        after = wintypes.RECT()
+        assert native.GetWindowRect(frame, ctypes.byref(before))
+        style = get_style(frame, -16)
+        assert style & 0x00040000 and style & 0x00010000
+        view._remove_windows_resize_frame(SimpleNamespace(winfo_id=lambda: client))
+        assert get_style(frame, -16) == style & ~0x00040000
+        assert native.GetWindowRect(frame, ctypes.byref(after))
+        assert tuple(
+            getattr(before, field) for field in ("left", "top", "right", "bottom")
+        ) == tuple(
+            getattr(after, field) for field in ("left", "top", "right", "bottom")
+        )
+        assert not native.IsWindowVisible(frame)
+    finally:
+        assert native.DestroyWindow(frame)
 
 
 def test_imm_route_legend_identifies_the_filtered_track():
