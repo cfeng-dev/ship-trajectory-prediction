@@ -424,6 +424,9 @@ def _run_evaluation(
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
+        diagnostics["mcmc_rhat_max"] = (
+            _mcmc_rhat_max(fit) if inference_method == "mcmc" else np.nan
+        )
         diagnostics["is_prior_predictive"] = is_prior_predictive
         if online_mode and online_filter is not None:
             if inference_method == "smc":
@@ -679,6 +682,9 @@ def _run_br24_radar_evaluation(
         )
         converged = getattr(tracker.filter, "converged", None)
         last_fit = getattr(tracker.filter, "last_fit", None)
+        diagnostics["mcmc_rhat_max"] = (
+            _mcmc_rhat_max(last_fit) if inference_method == "mcmc" else np.nan
+        )
         mcmc_diagnostics_ok = (
             _mcmc_diagnostics_ok(last_fit)
             if inference_method == "mcmc" and last_fit is not None
@@ -1337,6 +1343,33 @@ def _print_parameter_summary(predictions):
     ]
     print("\nParametric CTRV diagnostics:")
     print(reporting.format_aligned_rows(rows))
+
+
+def _mcmc_rhat_max(fit):
+    """Return maximum parameter/state R-hat, excluding generated quantities.
+
+    Undefined R-hats (e.g. constant states) are skipped. Before the first fit,
+    or when no parameter/state R-hat is defined, return NaN for an empty CSV cell.
+    """
+    if fit is None:
+        return np.nan
+    parameter_names = (
+        "x_initial",
+        "y_initial",
+        "speed_state",
+        "heading_initial",
+        "turn_rate_state",
+        "sigma_position_observation_excess",
+        "sigma_speed_process",
+        "sigma_turn_rate_process",
+        "x_state",
+        "y_state",
+        "heading_state",
+        "sigma_position_observation",
+    )
+    summary = fit.summary()
+    base_names = summary.index.str.split("[", regex=False).str[0]
+    return float(summary.loc[base_names.isin(parameter_names), "R_hat"].max())
 
 
 def _mcmc_diagnostics_ok(fit):

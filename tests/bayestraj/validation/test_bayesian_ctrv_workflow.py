@@ -9,6 +9,7 @@ import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as validation_cli
 import bayestraj.validation.rolling as rolling
@@ -218,6 +219,13 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
             def diagnose(self):
                 return "No problems detected"
 
+            def summary(self):
+                assert method == "mcmc"
+                return pd.DataFrame(
+                    {"R_hat": [1.002, 1.023, 1.5]},
+                    index=["sigma_speed_process", "speed_state[1]", "x_prediction[1]"],
+                )
+
         names = (
             *bayesian_model.PARAMETER_NAMES,
             "x_at_origin",
@@ -234,21 +242,64 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         workflow.cmdstan_inference, "variational_converged", lambda fit: True
     )
     predictions, summary = _run_br24_evaluation(
-        input_csv, inference_method=method, max_windows=1
+        input_csv, inference_method=method, max_windows=1, prediction_count=2
     )
 
     assert summary.window_count == 1
-    assert predictions["observation_count"].tolist() == [2]
-    assert predictions["forecast_start_index"].tolist() == [2]
-    assert predictions["x_actual"].tolist() == [12.0 if radar_input else 2.0]
+    assert predictions["observation_count"].tolist() == [2, 2]
+    assert predictions["forecast_start_index"].tolist() == [2, 2]
+    assert predictions["x_actual"].tolist() == (
+        [12.0, 13.0] if radar_input else [2.0, 3.0]
+    )
     assert np.all(np.isfinite(predictions["position_error_m"]))
     assert np.all(np.isfinite(predictions["negative_log_predictive_density"]))
     assert fit_counts == ([2] if method in {"vi", "mcmc"} else [])
-    assert predictions["is_prior_predictive"].tolist() == [method == "sequential_vi"]
+    assert (
+        predictions["is_prior_predictive"].tolist() == [method == "sequential_vi"] * 2
+    )
     if method == "vi":
-        assert predictions["converged"].tolist() == [True]
+        assert predictions["converged"].tolist() == [True, True]
     elif method == "mcmc":
-        assert predictions["mcmc_diagnostics_ok"].tolist() == [True]
+        assert predictions["mcmc_diagnostics_ok"].tolist() == [True, True]
+
+    output_csv = tmp_path / "evaluation.csv"
+    evaluation._export_csv(predictions, output_csv)
+    exported = pd.read_csv(output_csv)
+    if method == "mcmc":
+        assert exported["mcmc_rhat_max"].tolist() == [1.023, 1.023]
+    else:
+        assert exported["mcmc_rhat_max"].isna().all()
+
+
+@pytest.mark.parametrize(
+    ("rhat_values", "expected"),
+    [([1.001, 1.05, np.nan], 1.05), ([1.001, np.inf, np.nan], np.inf)],
+)
+def test_mcmc_rhat_max_uses_model_parameters_and_states_only(rhat_values, expected):
+    class Fit:
+        def summary(self):
+            return pd.DataFrame(
+                {"R_hat": [*rhat_values, 9.0, 8.0, 7.0]},
+                index=[
+                    "sigma_speed_process",
+                    "heading_state[2]",
+                    "x_state[1]",
+                    "x_prediction[1]",
+                    "log_likelihood[1]",
+                    "lp__",
+                ],
+            )
+
+    assert workflow._mcmc_rhat_max(Fit()) == expected
+
+
+def test_mcmc_rhat_max_is_missing_before_first_fit_or_without_defined_values():
+    class Fit:
+        def summary(self):
+            return pd.DataFrame({"R_hat": [np.nan]}, index=["speed_state[1]"])
+
+    assert np.isnan(workflow._mcmc_rhat_max(None))
+    assert np.isnan(workflow._mcmc_rhat_max(Fit()))
 
 
 @pytest.mark.parametrize("method", ["vi", "mcmc"])
@@ -266,6 +317,9 @@ def test_radar_batch_evaluation_starts_early_and_keeps_the_configured_window(
 
         def diagnose(self):
             return "No problems detected"
+
+        def summary(self):
+            return pd.DataFrame({"R_hat": [1.005]}, index=["speed_state[1]"])
 
     def fit_model(window, *, position_observations, **kwargs):
         fit_positions.append(position_observations.x_meters.copy())
@@ -326,6 +380,7 @@ def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_poi
         workflow.cmdstan_inference, "variational_converged", lambda fit: True
     )
     monkeypatch.setattr(workflow, "_mcmc_diagnostics_ok", lambda fit: True)
+    monkeypatch.setattr(workflow, "_mcmc_rhat_max", lambda fit: 1.005)
 
     predictions, _ = _run_br24_evaluation(input_csv, inference_method=method)
 
@@ -472,7 +527,12 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
             self.last_fit = type(
                 "SamplerDiagnostics",
                 (),
-                {"diagnose": lambda self: "No problems detected"},
+                {
+                    "diagnose": lambda self: "No problems detected",
+                    "summary": lambda self: pd.DataFrame(
+                        {"R_hat": [1.005]}, index=["speed_state[1]"]
+                    ),
+                },
             )()
 
         def __getattr__(self, name):
