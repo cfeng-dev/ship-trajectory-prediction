@@ -1,0 +1,204 @@
+"""Observation-count sweeps reuse the rolling evaluation and CSV exporter."""
+
+import runpy
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
+import bayestraj.validation.rolling as rolling
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture
+def sweep_run(tmp_path, monkeypatch):
+    monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
+    calls = []
+    monkeypatch.setattr(
+        evaluation.workflow.br24_observations,
+        "read_br24_tracking_input",
+        lambda path: tuple(range(24)),
+    )
+
+    def run_workflow(**kwargs):
+        calls.append(kwargs)
+        options = kwargs["options"]
+        windows = rolling.build_online_forecast_specs(
+            24,
+            initial_observation_count=2,
+            prediction_count=options.prediction_count,
+            stride=options.stride,
+        )
+        selected = kwargs["selected_window_indices"]
+        windows = [window for window in windows if window.window_index in selected]
+        if options.max_windows is not None:
+            windows = windows[: options.max_windows]
+        predictions = pd.DataFrame(
+            [
+                {
+                    "window_index": window.window_index,
+                    "forecast_start_index": window.forecast_start_index,
+                    "target_index": window.forecast_start_index + step - 1,
+                    "forecast_origin_seconds": float(window.forecast_start_index - 1),
+                    "horizon_step": step,
+                    "horizon_seconds": float(step),
+                    "observation_count": window.observation_count,
+                    "window_cycle_count": options.observation_count,
+                    "window_accepted_measurement_count": options.observation_count - 1,
+                    "position_error_m": float(step),
+                    "energy_score_m": 1.5,
+                    "prediction_radius_m": 5.0,
+                    "radial_covered": True,
+                    "joint_covered_50": step == 1,
+                    "joint_covered_90": True,
+                    "mean_marginal_interval_width_m": 6.0,
+                    "negative_log_predictive_density": 2.5,
+                    "inference_mode": "batch",
+                    "inference_method": options.inference_method,
+                    "converged": True if options.inference_method == "vi" else None,
+                    "mcmc_diagnostics_ok": (
+                        True if options.inference_method == "mcmc" else None
+                    ),
+                    "mcmc_rhat_max": (
+                        1.005 if options.inference_method == "mcmc" else np.nan
+                    ),
+                    "fit_runtime_seconds": 0.1,
+                    "window_runtime_seconds": 0.2,
+                }
+                for window in windows
+                for step in range(1, window.prediction_count + 1)
+            ]
+        )
+        return predictions, rolling.summarize_rolling_predictions(predictions)
+
+    monkeypatch.setattr(
+        evaluation.workflow, "run_bayesian_ctrv_evaluation", run_workflow
+    )
+    return calls
+
+
+def _script(method):
+    return runpy.run_path(
+        ROOT / f"experiments/model_comparison/compare_{method}_observation_counts.py"
+    )
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
+    tmp_path, monkeypatch, sweep_run, method
+):
+    namespace = _script(method)
+    monkeypatch.setitem(namespace["main"].__globals__, "MAX_WINDOWS", 2)
+    monkeypatch.chdir(tmp_path)
+
+    summary = namespace["main"]([])
+
+    assert [call["options"].observation_count for call in sweep_run] == list(
+        range(2, 21)
+    )
+    assert {call["options"].inference_method for call in sweep_run} == {method}
+    selected = sweep_run[0]["selected_window_indices"]
+    assert selected == (18, 19, 20, 21)
+    for call in sweep_run:
+        assert call["selected_window_indices"] == selected
+        assert call["options"].max_windows == 2
+        assert call["options"].inference_seed == 42
+        assert call["options"].prediction_count == 3
+        assert call["options"].position_noise_std_m == 0.0
+        assert call["priors"] is namespace["PRIORS"]
+        assert call["experiment"].observation_count == call["options"].observation_count
+        assert call["show_plot"] is False
+        assert call["options"].plot_each_window is False
+
+    output = tmp_path / f"results/bayesian_ctrv_{method}_evaluation"
+    assert sorted(path.name for path in output.iterdir()) == [
+        *(f"bayesian_ctrv_{method}_{count:02d}.csv" for count in range(2, 21)),
+        "summary.csv",
+    ]
+    for count in range(2, 21):
+        table = pd.read_csv(output / f"bayesian_ctrv_{method}_{count:02d}.csv")
+        assert table["configured_observation_count"].tolist() == [count] * 6
+        assert table["observation_count"].tolist() == [20] * 3 + [21] * 3
+        assert table["forecast_start_index"].tolist() == [20] * 3 + [21] * 3
+        assert table["window_accepted_measurement_count"].tolist() == [count - 1] * 6
+
+    saved = pd.read_csv(output / "summary.csv")
+    assert saved["observation_count"].tolist() == list(range(2, 21))
+    assert saved["evaluation_start_observation_count"].tolist() == [20] * 19
+    assert saved["window_count"].tolist() == [2] * 19
+    assert saved["forecast_count"].tolist() == [6] * 19
+    np.testing.assert_allclose(saved["ade_m"], 2.0)
+    np.testing.assert_allclose(saved["fde_m"], 3.0)
+    np.testing.assert_allclose(saved["rmse_m"], np.sqrt(14 / 3))
+    np.testing.assert_allclose(saved["mean_energy_score_m"], 1.5)
+    np.testing.assert_allclose(saved["mean_negative_log_predictive_density"], 2.5)
+    if method == "mcmc":
+        np.testing.assert_allclose(saved["mcmc_rhat_max"], 1.005)
+    else:
+        assert saved["mcmc_rhat_max"].isna().all()
+    assert "per_horizon_table" not in saved
+    pd.testing.assert_frame_equal(
+        saved, summary.where(summary.notna(), np.nan), check_dtype=False
+    )
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_sweep_cli_can_limit_counts_origins_and_output_directory(
+    tmp_path, sweep_run, method
+):
+    namespace = _script(method)
+    destination = tmp_path / "limited"
+
+    summary = namespace["main"](
+        [
+            "--min-observations",
+            "3",
+            "--max-observations",
+            "4",
+            "--max-windows",
+            "1",
+            "--output-dir",
+            str(destination),
+        ]
+    )
+
+    assert [call["options"].observation_count for call in sweep_run] == [3, 4]
+    assert summary["evaluation_start_observation_count"].tolist() == [4, 4]
+    assert summary["window_count"].tolist() == [1, 1]
+    assert (destination / f"bayesian_ctrv_{method}_03.csv").is_file()
+    assert (destination / f"bayesian_ctrv_{method}_04.csv").is_file()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--min-observations", "0"],
+        ["--min-observations", "1"],
+        ["--min-observations", "5", "--max-observations", "4"],
+        ["--max-windows", "0"],
+    ],
+)
+def test_invalid_sweep_limits_fail_before_any_inference(sweep_run, arguments):
+    with pytest.raises(SystemExit):
+        _script("vi")["main"](arguments)
+    assert not sweep_run
+
+
+def test_sweep_rejects_data_without_a_common_forecast_origin(tmp_path, sweep_run):
+    with pytest.raises(ValueError, match="forecast"):
+        _script("vi")["main"](["--max-observations", "24"])
+    assert not sweep_run
+    assert not (tmp_path / "results").exists()
+
+
+def test_sweep_stops_on_csv_export_failure(tmp_path, monkeypatch, sweep_run):
+    monkeypatch.setattr(evaluation, "_export_csv", lambda *args: False)
+
+    with pytest.raises(OSError, match="export"):
+        _script("vi")["main"](["--max-windows", "1"])
+
+    assert len(sweep_run) == 1
+    assert not (tmp_path / "results/bayesian_ctrv_vi_evaluation/summary.csv").exists()

@@ -1,13 +1,20 @@
 """Execute rolling Bayesian CTRV evaluations using script-owned settings."""
 
+import argparse
+import dataclasses
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pandas as pd
+
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
+import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
+import bayestraj.numeric_validation as numeric_validation
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as cli
+import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
 
@@ -69,6 +76,146 @@ def run_evaluation(
     return predictions, summary
 
 
+def run_observation_count_comparison(
+    *,
+    data_file: str | Path,
+    output_dir: str | Path,
+    experiment: ctrv_config.RollingExperimentConfig,
+    priors: bayesian_model.BayesianCTRVPriors,
+    min_observation_count=2,
+    max_observation_count=20,
+    max_windows=None,
+    vi_config=None,
+    mcmc_config=None,
+    credible_interval=0.9,
+    fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
+    sample_trajectories_per_forecast=15,
+    argv: Sequence[str] | None = None,
+):
+    """Sweep BR24 batch-window sizes using the existing rolling evaluation.
+
+    Score identical forecast origins after the largest window can be filled.
+    The radar tracker still processes all preceding cycles for initialization.
+    BR24 window sizes count cycles, not necessarily accepted measurements.
+    Each CSV retains the existing actual-count columns and adds the configured
+    window size. A summary row per size collects the existing aggregate metrics.
+    """
+    if experiment.inference_method not in {"mcmc", "vi"}:
+        raise ValueError("Observation-count comparisons support only MCMC and VI.")
+    parser = argparse.ArgumentParser(
+        description=run_observation_count_comparison.__doc__
+    )
+    parser.add_argument("--min-observations", type=int, default=min_observation_count)
+    parser.add_argument("--max-observations", type=int, default=max_observation_count)
+    parser.add_argument("--max-windows", type=int, default=max_windows)
+    parser.add_argument("--output-dir", type=Path, default=Path(output_dir))
+    arguments = parser.parse_args(argv)
+    try:
+        lower = numeric_validation.validate_non_negative_integer(
+            "min_observation_count", arguments.min_observations
+        )
+        upper = numeric_validation.validate_non_negative_integer(
+            "max_observation_count", arguments.max_observations
+        )
+        if lower < bayesian_model.MIN_OBSERVATION_COUNT or upper < lower:
+            raise ValueError("Require 2 <= min-observations <= max-observations.")
+        if arguments.max_windows is not None:
+            limit = numeric_validation.validate_non_negative_integer(
+                "max_windows", arguments.max_windows
+            )
+            if limit == 0:
+                raise ValueError("max_windows must be positive or None.")
+    except ValueError as error:
+        parser.error(str(error))
+
+    cycles = workflow.br24_observations.read_br24_tracking_input(data_file)
+    windows = rolling.build_online_forecast_specs(
+        len(cycles),
+        initial_observation_count=workflow.EVALUATION_START_OBSERVATION_COUNT,
+        prediction_count=experiment.prediction_count,
+        stride=experiment.stride,
+    )
+    selected = tuple(
+        window.window_index
+        for window in windows
+        if window.forecast_start_index >= upper
+    )
+    if not selected:
+        raise ValueError(
+            "No forecast origins remain after the largest observation count."
+        )
+    if vi_config is None:
+        vi_config = inference.create_default_vi_config()
+    rows = []
+    for count in range(lower, upper + 1):
+        current_experiment = dataclasses.replace(experiment, observation_count=count)
+        options = cli.BayesianCTRVEvaluationOptions(
+            observation_count=count,
+            prediction_count=experiment.prediction_count,
+            stride=experiment.stride,
+            inference_method=experiment.inference_method,
+            vi_algorithm=vi_config["algorithm"],
+            turn_rate_prior_abs_rate_deg_s=priors.turn_rate_prior_abs_rate_deg_s,
+            inference_seed=experiment.inference_seed,
+            position_noise_std_m=experiment.position_noise_std_m,
+            position_noise_seed=experiment.position_noise_seed,
+            require_converged=vi_config["require_converged"],
+            max_windows=arguments.max_windows,
+            plot_each_window=False,
+        )
+        print(
+            f"\n=== {experiment.inference_method.upper()}: observation_count={count} ==="
+        )
+        predictions, summary = workflow.run_bayesian_ctrv_evaluation(
+            data_file=data_file,
+            experiment=current_experiment,
+            priors=priors,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            fullrank_grad_samples=fullrank_grad_samples,
+            credible_interval=credible_interval,
+            sample_trajectories_per_forecast=sample_trajectories_per_forecast,
+            options=options,
+            selected_window_indices=selected,
+            show_plot=False,
+        )
+        predictions = predictions.copy()
+        predictions["configured_observation_count"] = count
+        predictions["evaluation_start_observation_count"] = upper
+        destination = arguments.output_dir / (
+            f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"
+        )
+        if not _export_csv(predictions, destination):
+            raise OSError(f"Could not export evaluation CSV: {destination}")
+        row = {
+            field.name: getattr(summary, field.name)
+            for field in dataclasses.fields(summary)
+            if field.name != "per_horizon_table"
+        }
+        row.update(
+            observation_count=count,
+            evaluation_start_observation_count=upper,
+            prediction_count=experiment.prediction_count,
+            inference_seed=experiment.inference_seed,
+            data_file=str(Path(data_file).resolve()),
+            rmse_m=float((predictions["position_error_m"] ** 2).mean() ** 0.5),
+            mcmc_rhat_max=float(predictions["mcmc_rhat_max"].max()),
+        )
+        rows.append(row)
+
+    summary_table = pd.DataFrame(rows)
+    destination = arguments.output_dir / "summary.csv"
+    if not _export_csv(summary_table, destination):
+        raise OSError(f"Could not export summary CSV: {destination}")
+    print("\nObservation-count comparison:")
+    print(
+        summary_table[["observation_count", "ade_m", "fde_m", "rmse_m"]].to_string(
+            index=False
+        )
+    )
+    return summary_table
+
+
 def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | None:
     """Resolve an optional CSV destination without creating any files."""
     try:
@@ -90,7 +237,7 @@ def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | 
         return None
 
 
-def _export_csv(predictions, output_path: Path) -> None:
+def _export_csv(predictions, output_path: Path) -> bool:
     """Replace the destination only after writing the complete CSV successfully."""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,5 +249,7 @@ def _export_csv(predictions, output_path: Path) -> None:
             temporary_csv.replace(output_path)
     except (OSError, ValueError) as error:
         print(f"Warning: OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped.")
+        return False
     else:
         print(f"\nSaved per-forecast Bayesian CTRV metrics: {output_path}")
+        return True
