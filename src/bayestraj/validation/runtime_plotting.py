@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import MaxNLocator
 
 import bayestraj.observations.plotting as observation_plotting
 
@@ -27,6 +28,18 @@ COMPARISON_METRIC_LABELS = {
     "joint_coverage_50": ("Coverage [%]", "Joint 50% Coverage"),
     "joint_coverage_90": ("Coverage [%]", "Joint 90% Coverage"),
     "fit_runtime_seconds": ("Runtime [s]", "Runtime"),
+}
+OBSERVATION_COUNT_METRICS = {
+    "ade_m": COMPARISON_METRIC_LABELS["ade_m"],
+    "fde_m": COMPARISON_METRIC_LABELS["fde_m"],
+    "rmse_m": COMPARISON_METRIC_LABELS["rmse_m"],
+    "mean_energy_score_m": COMPARISON_METRIC_LABELS["energy_score_m"],
+    "mean_negative_log_predictive_density": COMPARISON_METRIC_LABELS[
+        "mean_negative_log_predictive_density"
+    ],
+    "joint_coverage_50": COMPARISON_METRIC_LABELS["joint_coverage_50"],
+    "joint_coverage_90": COMPARISON_METRIC_LABELS["joint_coverage_90"],
+    "mean_window_runtime_seconds": ("Runtime [s]", "Mean Window Runtime"),
 }
 COMPARISON_PLOT_TEXT = {
     "de": {
@@ -310,6 +323,77 @@ def plot_model_comparison(
             plt.show()
         figures.append((figure, axis))
     return summary, tuple(figures)
+
+
+def plot_observation_count_comparison(
+    models, *, show=True, output_dir=None, show_points=True, plot_language="de"
+):
+    """Plot saved sweep metrics against window size using shared plot styles."""
+    if plot_language not in COMPARISON_PLOT_TEXT:
+        raise ValueError("plot_language must be 'de' or 'en'.")
+    text = COMPARISON_PLOT_TEXT[plot_language]
+    title = "Fenstervergleich" if plot_language == "de" else "Window-size comparison"
+    xlabel = (
+        "observation_count [Radarzyklen]"
+        if plot_language == "de"
+        else "observation_count [radar cycles]"
+    )
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    style = RUNTIME_PLOT_STYLE
+    figures = []
+    for metric, (ylabel, metric_name) in OBSERVATION_COUNT_METRICS.items():
+        figure, axis = plt.subplots(figsize=style.speed_figure_size)
+        coverage = metric.startswith("joint_coverage_")
+        for label, table in models.items():
+            method = table["inference_method"].iloc[0]
+            values = table[metric].to_numpy(dtype=float)
+            axis.plot(
+                table["observation_count"],
+                values * 100 if coverage else values,
+                label=label,
+                color=COMPARISON_INFERENCE_COLORS[method],
+                marker="o" if show_points else "None",
+                markersize=3,
+            )
+        if coverage:
+            nominal = int(metric.rsplit("_", 1)[1])
+            axis.axhline(
+                nominal,
+                color="0.35",
+                linestyle=":",
+                label=text["nominal"].format(percent=nominal),
+            )
+            axis.set_ylim(0, 100)
+        if metric == "mean_window_runtime_seconds":
+            ylabel = (
+                "Mittlere Fensterlaufzeit [s]"
+                if plot_language == "de"
+                else "Mean window runtime [s]"
+            )
+            metric_name = text["runtime"]
+        axis.set_xlabel(xlabel, fontsize=style.axis_label_font_size)
+        axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
+        axis.xaxis.set_major_locator(MaxNLocator(integer=True, min_n_ticks=1))
+        axis.tick_params(axis="both", labelsize=style.axis_tick_font_size)
+        axis.set_axisbelow(True)
+        axis.grid(True, color="0.7", alpha=0.2)
+        legend = axis.legend(loc=style.legend_location)
+        figure.suptitle(
+            f"{title} ({metric_name})",
+            fontsize=style.title_font_size,
+            fontweight=style.title_font_weight,
+        )
+        figure.tight_layout()
+        if not coverage:
+            _reserve_legend_headroom(figure, axis, legend)
+        if output_dir is not None:
+            figure.savefig(output_dir / f"{metric}.png", dpi=150, bbox_inches="tight")
+        if show:
+            plt.show()
+        figures.append((figure, axis))
+    return tuple(figures)
 
 
 def _plot_comparison_summary_table(summary, labels, *, text, title):

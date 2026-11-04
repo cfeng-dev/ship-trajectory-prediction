@@ -265,6 +265,144 @@ def read_model_comparison_csvs(csv_paths):
     return _align_forecasts(models)
 
 
+def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
+    """Read saved sweep summaries and align comparable observation counts.
+
+    This checks the configuration and cohort sizes recorded in the summaries;
+    it does not read raw data, fit models, or recompute forecast scores.
+    """
+    metadata = ("data_file", "prediction_count", "evaluation_start_observation_count")
+    integers = (
+        "observation_count",
+        "prediction_count",
+        "evaluation_start_observation_count",
+        "window_count",
+        "forecast_count",
+    )
+    metrics = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
+    models = {}
+    for method, path in (("mcmc", mcmc_csv), ("vi", vi_csv)):
+        table = _read_csv(Path(path))
+        required = {
+            *metadata,
+            *integers,
+            *metrics,
+            "inference_mode",
+            "inference_method",
+        }
+        missing = sorted(required.difference(table.columns))
+        if missing:
+            raise ValueError(f"{method.upper()} summary is missing columns: {missing}")
+        if table.empty:
+            raise ValueError(f"{method.upper()} summary is empty.")
+        if (
+            not table["inference_method"].eq(method).all()
+            or not table["inference_mode"].eq("batch").all()
+        ):
+            raise ValueError(f"Expected batch {method.upper()} results in {path}.")
+        for column in (*integers, *metrics):
+            table[column] = pd.to_numeric(table[column], errors="raise")
+            values = table[column].to_numpy(dtype=float)
+            if not np.all(np.isfinite(values)):
+                raise ValueError(f"{column} must contain finite values in {path}.")
+            if column in integers:
+                minimum = (
+                    2
+                    if column
+                    in {"observation_count", "evaluation_start_observation_count"}
+                    else 1
+                )
+                if np.any(values < minimum) or np.any(values != np.floor(values)):
+                    raise ValueError(f"{column} must contain integers >= {minimum}.")
+            elif column != "mean_negative_log_predictive_density" and np.any(
+                values < 0
+            ):
+                raise ValueError(f"{column} must be non-negative.")
+        if table["observation_count"].duplicated().any():
+            raise ValueError(f"Duplicate observation_count values in {path}.")
+        if (
+            table["data_file"].isna().any()
+            or not table["data_file"]
+            .map(lambda value: isinstance(value, str) and bool(value.strip()))
+            .all()
+        ):
+            raise ValueError(f"data_file must identify the source dataset in {path}.")
+        for column in metadata:
+            if table[column].nunique() != 1:
+                raise ValueError(f"{column} must be constant within one sweep summary.")
+        if (
+            table["observation_count"] > table["evaluation_start_observation_count"]
+        ).any():
+            raise ValueError(
+                "Evaluation must start after every configured window can be filled."
+            )
+        if (table[["joint_coverage_50", "joint_coverage_90"]] > 1).any().any():
+            raise ValueError("Joint coverage must lie between zero and one.")
+        if (table["joint_coverage_50"] > table["joint_coverage_90"]).any():
+            raise ValueError(
+                "Joint 50% coverage must be nested inside joint 90% coverage."
+            )
+        models[method.upper()] = table.sort_values("observation_count").reset_index(
+            drop=True
+        )
+
+    left, right = models.values()
+    for column in metadata:
+        if left[column].iloc[0] != right[column].iloc[0]:
+            raise ValueError(f"Sweep summaries have different {column} values.")
+    common = np.intersect1d(left["observation_count"], right["observation_count"])
+    if common.size == 0:
+        raise ValueError("Sweep summaries have no common observation counts.")
+    if any(len(table) != len(common) for table in models.values()):
+        warnings.warn(
+            "Comparing only common observation counts; unmatched sizes are omitted.",
+            UserWarning,
+            stacklevel=2,
+        )
+    aligned = {
+        name: table[table["observation_count"].isin(common)].reset_index(drop=True)
+        for name, table in models.items()
+    }
+    left, right = aligned.values()
+    for column in ("window_count", "forecast_count"):
+        if not np.array_equal(left[column], right[column]):
+            raise ValueError(
+                f"Sweep summaries have different {column} values for matched sizes."
+            )
+    return aligned
+
+
+def run_observation_count_comparison(
+    mcmc_csv,
+    vi_csv,
+    *,
+    show=True,
+    output_dir=None,
+    show_points=True,
+    plot_language="de",
+):
+    """Display saved sweep metrics against observation_count without inference."""
+    models = read_observation_count_summary_csvs(mcmc_csv, vi_csv)
+    for label, table in models.items():
+        print(f"\n{label} observation-count comparison:")
+        print(
+            table[
+                ["observation_count", *runtime_plotting.OBSERVATION_COUNT_METRICS]
+            ].to_string(index=False)
+        )
+    figures = runtime_plotting.plot_observation_count_comparison(
+        models,
+        show=show,
+        output_dir=output_dir,
+        show_points=show_points,
+        plot_language=plot_language,
+    )
+    if not show:
+        for figure, _ in figures:
+            plt.close(figure)
+    return models
+
+
 def run_comparison(bayesian, imm, *, show=True, output_dir=None):
     """Report and plot already aligned forecasts using the shared metric style."""
     return run_model_comparison(
