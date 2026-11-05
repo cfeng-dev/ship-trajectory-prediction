@@ -11,7 +11,6 @@ import pytest
 from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "experiments/model_comparison/compare_observation_counts.py"
 METRICS = (
     "ade_m",
     "fde_m",
@@ -77,6 +76,21 @@ def test_summary_reader_sorts_counts_and_preserves_saved_metrics(summary_csvs):
             .reset_index(drop=True)
         )
         pd.testing.assert_frame_equal(table, expected)
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_summary_reader_accepts_one_method(summary_csvs, method):
+    models = comparison.read_observation_count_summary_csvs(
+        **{f"{method}_csv": summary_csvs[method]}
+    )
+    assert list(models) == [method.upper()]
+    expected = _summary(method).sort_values("observation_count").reset_index(drop=True)
+    pd.testing.assert_frame_equal(models[method.upper()], expected)
+
+
+def test_summary_reader_requires_at_least_one_csv():
+    with pytest.raises(ValueError, match="at least one"):
+        comparison.read_observation_count_summary_csvs()
 
 
 def test_summary_reader_still_checks_optional_legacy_start_metadata(summary_csvs):
@@ -191,8 +205,9 @@ def test_singleton_comparison_keeps_integer_observation_count_ticks(summary_csvs
             plt.close(figure)
 
 
-def test_comparison_script_only_reads_csvs_and_displays_plots(
-    summary_csvs, tmp_path, monkeypatch
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_comparison_script_only_reads_its_method_csv_and_displays_plots(
+    summary_csvs, tmp_path, monkeypatch, method
 ):
     import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 
@@ -202,12 +217,29 @@ def test_comparison_script_only_reads_csvs_and_displays_plots(
         pytest.fail("The comparison script must never run inference")
 
     monkeypatch.setattr(evaluation.workflow, "run_bayesian_ctrv_evaluation", fail)
+    read_csv = comparison._read_csv
+
+    def read_selected_csv(path):
+        assert path == summary_csvs[method]
+        return read_csv(path)
+
+    monkeypatch.setattr(comparison, "_read_csv", read_selected_csv)
     displayed = []
     monkeypatch.setattr(plt, "show", lambda: displayed.append(plt.gcf()))
     try:
-        models = runpy.run_path(SCRIPT, run_name="__main__")
+        script = (
+            ROOT
+            / f"experiments/model_comparison/compare_{method}_observation_counts.py"
+        )
+        models = runpy.run_path(script, run_name="__main__")
         assert "main" in models
         assert len(displayed) == len(METRICS)
+        for figure in displayed:
+            assert figure.axes[0].lines[0].get_label() == method.upper()
+            assert not any(
+                line.get_label() == ("VI" if method == "mcmc" else "MCMC")
+                for line in figure.axes[0].lines
+            )
     finally:
         for figure in displayed:
             plt.close(figure)

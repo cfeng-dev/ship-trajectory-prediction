@@ -265,14 +265,16 @@ def read_model_comparison_csvs(csv_paths):
     return _align_forecasts(models)
 
 
-def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
-    """Read saved sweep summaries and align comparable observation counts.
+def read_observation_count_summary_csvs(mcmc_csv=None, vi_csv=None):
+    """Read one or both saved sweep summaries and align observation counts.
 
     This checks the configuration and cohort sizes recorded in the summaries;
     it does not read raw data, fit models, or recompute forecast scores.
     Current summaries omit the fixed N=2 start. Optional legacy start metadata
     is still checked for compatibility, then removed from the returned tables.
     """
+    if mcmc_csv is None and vi_csv is None:
+        raise ValueError("Provide at least one observation-count summary CSV.")
     metadata = ("data_file", "prediction_count", "evaluation_start_observation_count")
     integers = (
         "observation_count",
@@ -284,6 +286,8 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
     metrics = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
     models = {}
     for method, path in (("mcmc", mcmc_csv), ("vi", vi_csv)):
+        if path is None:
+            continue
         table = _read_csv(Path(path))
         table["evaluation_start_observation_count"] = table.get(
             "evaluation_start_observation_count", 2
@@ -345,11 +349,14 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
             drop=True
         )
 
-    left, right = models.values()
-    for column in metadata:
-        if left[column].iloc[0] != right[column].iloc[0]:
-            raise ValueError(f"Sweep summaries have different {column} values.")
-    common = np.intersect1d(left["observation_count"], right["observation_count"])
+    tables = list(models.values())
+    left = tables[0]
+    common = left["observation_count"].to_numpy()
+    for right in tables[1:]:
+        for column in metadata:
+            if left[column].iloc[0] != right[column].iloc[0]:
+                raise ValueError(f"Sweep summaries have different {column} values.")
+        common = np.intersect1d(common, right["observation_count"])
     if common.size == 0:
         raise ValueError("Sweep summaries have no common observation counts.")
     if any(len(table) != len(common) for table in models.values()):
@@ -362,12 +369,13 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
         name: table[table["observation_count"].isin(common)].reset_index(drop=True)
         for name, table in models.items()
     }
-    left, right = aligned.values()
-    for column in ("window_count", "forecast_count"):
-        if not np.array_equal(left[column], right[column]):
-            raise ValueError(
-                f"Sweep summaries have different {column} values for matched sizes."
-            )
+    tables = list(aligned.values())
+    for right in tables[1:]:
+        for column in ("window_count", "forecast_count"):
+            if not np.array_equal(tables[0][column], right[column]):
+                raise ValueError(
+                    f"Sweep summaries have different {column} values for matched sizes."
+                )
     return {
         name: table.drop(columns="evaluation_start_observation_count")
         for name, table in aligned.items()
@@ -375,8 +383,8 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
 
 
 def run_observation_count_comparison(
-    mcmc_csv,
-    vi_csv,
+    mcmc_csv=None,
+    vi_csv=None,
     *,
     show=True,
     output_dir=None,
