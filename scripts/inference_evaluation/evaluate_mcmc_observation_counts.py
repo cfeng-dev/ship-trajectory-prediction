@@ -40,7 +40,7 @@ PRIORS = bayesian_model.BayesianCTRVPriors(
 
 def main(argv=None):
     """Evaluate each configured window size using the shared BR24 workflow."""
-    return evaluation.run_observation_count_comparison(
+    return evaluation.run_observation_count_evaluation(
         data_file=DATA_FILE,
         output_dir=OUTPUT_DIR,
         experiment=EXPERIMENT,

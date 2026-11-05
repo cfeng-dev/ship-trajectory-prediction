@@ -186,6 +186,82 @@ def test_sweeps_use_the_same_public_csv_api(tmp_path, monkeypatch, sweep_run, me
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_sweep_reuses_single_evaluation_without_reparsing_cli_or_plotting(
+    tmp_path, monkeypatch, sweep_run, method
+):
+    calls = []
+    original_run = evaluation.run_evaluation
+
+    def run(**kwargs):
+        calls.append(kwargs)
+        return original_run(**kwargs)
+
+    def unexpected_call(*args, **kwargs):
+        pytest.fail("A sweep must not parse per-run CLI arguments or plot diagnostics.")
+
+    monkeypatch.setattr(evaluation, "run_evaluation", run)
+    monkeypatch.setattr(
+        evaluation.cli, "parse_bayesian_ctrv_evaluation_arguments", unexpected_call
+    )
+    monkeypatch.setattr(
+        evaluation.runtime_plotting,
+        "plot_bayesian_ctrv_rolling_diagnostics",
+        unexpected_call,
+    )
+
+    _script(method)["main"](
+        ["--min-observations", "2", "--max-observations", "3", "--max-windows", "1"]
+    )
+
+    assert [call["experiment"].observation_count for call in calls] == [2, 3]
+    assert len(sweep_run) == 2
+    for count, call in zip([2, 3], calls, strict=True):
+        assert call["output_csv"] == (
+            tmp_path
+            / f"results/inference_evaluation/bayesian_ctrv_{method}"
+            / f"bayesian_ctrv_{method}_{count:02d}.csv"
+        )
+        assert call["options"].observation_count == count
+        assert call["options"].max_windows == 1
+        assert call["selected_window_indices"] == tuple(range(22))
+        assert call["associations_output_csv"] is None
+        assert call["show_rolling_diagnostics_plot"] is False
+        assert call["require_csv_export"] is True
+
+
+def test_observation_count_evaluation_preserves_explicit_inference_settings(
+    tmp_path, sweep_run
+):
+    namespace = _script("mcmc")
+    mcmc_config = {"chains": 2, "iter_sampling": 75}
+    vi_config = {"algorithm": "meanfield", "require_converged": True}
+
+    evaluation.run_observation_count_evaluation(
+        data_file=namespace["DATA_FILE"],
+        output_dir=tmp_path / "custom",
+        experiment=namespace["EXPERIMENT"],
+        priors=namespace["PRIORS"],
+        min_observation_count=2,
+        max_observation_count=2,
+        max_windows=1,
+        mcmc_config=mcmc_config,
+        vi_config=vi_config,
+        credible_interval=0.8,
+        fullrank_grad_samples=13,
+        argv=[],
+    )
+
+    assert len(sweep_run) == 1
+    call = sweep_run[0]
+    assert call["mcmc_config"] is mcmc_config
+    assert call["vi_config"] is vi_config
+    assert call["options"].vi_algorithm == "meanfield"
+    assert call["options"].require_converged is True
+    assert call["credible_interval"] == 0.8
+    assert call["fullrank_grad_samples"] == 13
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
 def test_complete_sweep_has_normal_evaluation_row_count(tmp_path, sweep_run, method):
     summary = _script(method)["main"](
         ["--min-observations", "20", "--max-observations", "20"]
@@ -286,3 +362,22 @@ def test_sweep_stops_on_csv_export_failure(tmp_path, monkeypatch, sweep_run):
     assert not (
         tmp_path / "results/inference_evaluation/bayesian_ctrv_vi/summary.csv"
     ).exists()
+
+
+def test_sweep_reports_summary_export_failure(tmp_path, monkeypatch, sweep_run):
+    original_export = evaluation.export_evaluation_csv
+
+    def export(table, path, *, summary=False):
+        return False if summary else original_export(table, path)
+
+    monkeypatch.setattr(evaluation, "export_evaluation_csv", export)
+
+    with pytest.raises(OSError, match="summary.csv"):
+        _script("vi")["main"](
+            ["--min-observations", "2", "--max-observations", "2", "--max-windows", "1"]
+        )
+
+    assert len(sweep_run) == 1
+    destination = tmp_path / "results/inference_evaluation/bayesian_ctrv_vi"
+    assert (destination / "bayesian_ctrv_vi_02.csv").is_file()
+    assert not (destination / "summary.csv").exists()

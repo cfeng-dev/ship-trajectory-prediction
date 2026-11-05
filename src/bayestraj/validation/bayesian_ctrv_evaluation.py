@@ -122,7 +122,11 @@ def run_evaluation(
     show_rolling_diagnostics_plot,
     associations_output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     vi_config=None,
+    mcmc_config=None,
     sequential_vi_config=None,
+    options: cli.BayesianCTRVEvaluationOptions | None = None,
+    selected_window_indices: Sequence[int] | None = None,
+    require_csv_export: bool = False,
     description: str | None = None,
     argv: Sequence[str] | None = None,
 ):
@@ -136,24 +140,32 @@ def run_evaluation(
     filenames. None or an empty string skips export with a terminal warning.
     associations_output_csv accepts the same placeholder for BR24 raw choices;
     None disables that export. Disabling output_csv still disables both files.
-    Export failures do not prevent diagnostic plots.
+    By default, export failures do not prevent diagnostic plots.
     Trajectory visualization belongs to the predictor tools. Scoring uses
     90-percent intervals by default, independently of diagnostic plots.
+    Supply resolved options for programmatic runs without parsing CLI arguments;
+    options and argv cannot be combined. require_csv_export raises OSError if
+    the forecast CSV destination is invalid or writing that CSV fails.
     """
-    options = cli.parse_bayesian_ctrv_evaluation_arguments(
-        description=description,
-        experiment=experiment,
-        priors=priors,
-        vi_config=vi_config,
-        max_windows=max_windows,
-        argv=argv,
-    )
+    if options is None:
+        options = cli.parse_bayesian_ctrv_evaluation_arguments(
+            description=description,
+            experiment=experiment,
+            priors=priors,
+            vi_config=vi_config,
+            max_windows=max_windows,
+            argv=argv,
+        )
+    elif argv is not None:
+        raise ValueError("Supply either resolved options or argv, not both.")
     use_default_output = output_csv is _DEFAULT_OUTPUT
     if use_default_output:
         output_csv = EVALUATION_OUTPUT_CSV
     output_path = _csv_output_path(output_csv, options.inference_method)
     if use_default_output and output_path is not None:
         output_path = paths.project_path(output_path)
+    if require_csv_export and output_path is None:
+        raise OSError(f"Could not export evaluation CSV: {output_csv}")
     use_default_associations = associations_output_csv is _DEFAULT_OUTPUT
     if use_default_associations:
         associations_output_csv = ASSOCIATIONS_OUTPUT_CSV
@@ -180,14 +192,18 @@ def run_evaluation(
         experiment=experiment,
         priors=priors,
         vi_config=vi_config,
+        mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         options=options,
+        selected_window_indices=selected_window_indices,
         association_records=association_records,
     )
     if output_path is not None:
-        export_evaluation_csv(predictions, output_path)
+        exported = export_evaluation_csv(predictions, output_path)
+        if require_csv_export and not exported:
+            raise OSError(f"Could not export evaluation CSV: {output_path}")
     if association_path is not None and association_records:
         export_associations_csv(pd.DataFrame(association_records), association_path)
     if show_rolling_diagnostics_plot:
@@ -198,7 +214,7 @@ def run_evaluation(
     return predictions, summary
 
 
-def run_observation_count_comparison(
+def run_observation_count_evaluation(
     *,
     data_file: str | Path,
     output_dir: str | Path,
@@ -213,19 +229,19 @@ def run_observation_count_comparison(
     fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
     argv: Sequence[str] | None = None,
 ):
-    """Sweep BR24 batch-window sizes using the existing rolling evaluation.
+    """Evaluate BR24 batch-window sizes through the shared run_evaluation API.
 
     Score identical forecast origins from N=2, including the startup phase.
     Each training window grows until it reaches its configured maximum size.
     BR24 window sizes count cycles, not necessarily accepted measurements.
     Each CSV retains the existing actual-count columns and adds the configured
     window size. A summary row per size collects the existing aggregate metrics.
-    Export only forecast metrics and the aggregate summary for this comparison.
+    Export only forecast metrics and the aggregate summary for this sweep.
     """
     if experiment.inference_method not in {"mcmc", "vi"}:
-        raise ValueError("Observation-count comparisons support only MCMC and VI.")
+        raise ValueError("Observation-count evaluations support only MCMC and VI.")
     parser = argparse.ArgumentParser(
-        description=run_observation_count_comparison.__doc__
+        description=run_observation_count_evaluation.__doc__
     )
     parser.add_argument("--min-observations", type=int, default=min_observation_count)
     parser.add_argument("--max-observations", type=int, default=max_observation_count)
@@ -279,22 +295,25 @@ def run_observation_count_comparison(
         print(
             f"\n=== {experiment.inference_method.upper()}: observation_count={count} ==="
         )
-        predictions, summary = workflow.run_bayesian_ctrv_evaluation(
+        destination = arguments.output_dir / (
+            f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"
+        )
+        predictions, summary = run_evaluation(
             data_file=data_file,
+            output_csv=destination,
+            associations_output_csv=None,
             experiment=current_experiment,
             priors=priors,
             vi_config=vi_config,
             mcmc_config=mcmc_config,
             fullrank_grad_samples=fullrank_grad_samples,
             credible_interval=credible_interval,
+            max_windows=arguments.max_windows,
+            show_rolling_diagnostics_plot=False,
             options=options,
             selected_window_indices=selected,
+            require_csv_export=True,
         )
-        destination = arguments.output_dir / (
-            f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"
-        )
-        if not export_evaluation_csv(predictions, destination):
-            raise OSError(f"Could not export evaluation CSV: {destination}")
         row = {
             field.name: getattr(summary, field.name)
             for field in dataclasses.fields(summary)
@@ -314,7 +333,7 @@ def run_observation_count_comparison(
     destination = arguments.output_dir / "summary.csv"
     if not export_evaluation_csv(summary_table, destination, summary=True):
         raise OSError(f"Could not export summary CSV: {destination}")
-    print("\nObservation-count comparison:")
+    print("\nObservation-count evaluation:")
     print(
         summary_table[["observation_count", "ade_m", "fde_m", "rmse_m"]].to_string(
             index=False

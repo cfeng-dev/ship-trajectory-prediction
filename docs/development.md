@@ -119,6 +119,8 @@ uv run python scripts/tracking_checks/check_br24_associations.py --method mcmc -
 Observation-count sweeps export only forecast CSVs and `summary.csv` under
 `results/inference_evaluation/bayesian_ctrv_<method>/`. The sweep option `--output-dir`
 overrides that directory.
+The shared `run_observation_count_evaluation()` calls `run_evaluation()` for each
+window size with diagnostic plots and association exports disabled.
 Use `scripts/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.

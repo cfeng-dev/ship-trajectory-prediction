@@ -185,6 +185,92 @@ def test_standard_evaluation_uses_the_public_csv_api(monkeypatch, evaluation_run
     assert exports[0][1] is False
 
 
+def test_programmatic_evaluation_uses_resolved_options_and_inference_settings(
+    tmp_path, monkeypatch, evaluation_run
+):
+    evaluation, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+    options = evaluation.cli.parse_bayesian_ctrv_evaluation_arguments(
+        description=None,
+        experiment=namespace["EXPERIMENT"],
+        priors=namespace["PRIORS"],
+        max_windows=1,
+        argv=["--observations", "7", "--inference-method", "mcmc", "--seed", "13"],
+    )
+
+    def unexpected_parse(**kwargs):
+        pytest.fail("Programmatic evaluation must use the supplied runtime options.")
+
+    monkeypatch.setattr(
+        evaluation.cli, "parse_bayesian_ctrv_evaluation_arguments", unexpected_parse
+    )
+    destination = tmp_path / "evaluation.csv"
+    mcmc_config = {"chains": 2, "iter_sampling": 75}
+    selection = (1, 3)
+
+    predictions, _ = evaluation.run_evaluation(
+        data_file=tmp_path / "BR24.csv",
+        output_csv=destination,
+        associations_output_csv=None,
+        experiment=namespace["EXPERIMENT"],
+        priors=namespace["PRIORS"],
+        fullrank_grad_samples=20,
+        max_windows=None,
+        show_rolling_diagnostics_plot=False,
+        options=options,
+        mcmc_config=mcmc_config,
+        selected_window_indices=selection,
+        require_csv_export=True,
+    )
+
+    assert calls[0]["options"] is options
+    assert calls[0]["mcmc_config"] is mcmc_config
+    assert calls[0]["selected_window_indices"] is selection
+    assert calls[0]["association_records"] is None
+    assert calls[0]["credible_interval"] == 0.9
+    assert predictions["inference_method"].tolist() == ["mcmc"]
+    assert pd.read_csv(destination)["inference_method"].tolist() == ["mcmc"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error", "message"),
+    [
+        ({"argv": []}, ValueError, "options or argv"),
+        ({"output_csv": "invalid.txt"}, OSError, "export"),
+    ],
+)
+def test_programmatic_evaluation_rejects_conflicting_or_invalid_export_settings(
+    tmp_path, evaluation_run, overrides, error, message
+):
+    evaluation, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+    settings = dict(
+        data_file=tmp_path / "BR24.csv",
+        output_csv=tmp_path / "evaluation.csv",
+        associations_output_csv=None,
+        experiment=namespace["EXPERIMENT"],
+        priors=namespace["PRIORS"],
+        fullrank_grad_samples=20,
+        max_windows=None,
+        show_rolling_diagnostics_plot=False,
+        require_csv_export=True,
+        options=evaluation.cli.parse_bayesian_ctrv_evaluation_arguments(
+            description=None,
+            experiment=namespace["EXPERIMENT"],
+            priors=namespace["PRIORS"],
+            max_windows=None,
+            argv=[],
+        ),
+    )
+    settings.update(overrides)
+
+    with pytest.raises(error, match=message):
+        evaluation.run_evaluation(**settings)
+
+    assert calls == []
+    assert not (tmp_path / "evaluation.csv").exists()
+
+
 def test_entrypoint_keeps_output_paths_in_the_shared_source_module(
     tmp_path, monkeypatch, evaluation_run
 ):
