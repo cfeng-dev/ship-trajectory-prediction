@@ -73,7 +73,7 @@ def evaluation_run(tmp_path, monkeypatch):
 def test_run_button_uses_header_method_and_exports_its_own_csv(
     tmp_path, monkeypatch, evaluation_run, method, canonical_method, csv_name
 ):
-    _, calls = evaluation_run
+    evaluation, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
     monkeypatch.setitem(
         namespace["main"].__globals__,
@@ -99,12 +99,30 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     assert calls[0]["sequential_vi_config"] is None
     output = tmp_path / "results" / csv_name
     assert list((tmp_path / "results").iterdir()) == [output]
+    exported = pd.read_csv(output)
+    assert exported.columns.tolist() == list(evaluation.PREDICTION_CSV_COLUMNS)
     pd.testing.assert_frame_equal(
-        pd.read_csv(output),
+        exported[["inference_method", "position_error_m"]],
         pd.DataFrame(
             {"inference_method": [canonical_method], "position_error_m": [2.5]}
         ),
     )
+
+
+def test_standard_evaluation_uses_the_public_csv_api(monkeypatch, evaluation_run):
+    evaluation, _ = evaluation_run
+    exports = []
+
+    def export(table, path, *, summary=False):
+        exports.append((path, summary))
+        return True
+
+    monkeypatch.setattr(evaluation, "export_evaluation_csv", export)
+
+    runpy.run_path(SCRIPT)["main"]([])
+
+    assert len(exports) == 1
+    assert exports[0][1] is False
 
 
 def test_cli_override_exports_selected_method_without_overwriting_other_methods(

@@ -161,7 +161,8 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
         "y_initial": float(y_true[0]),
         "speed_state": np.maximum(
             speed + generator.normal(0.0, speed_jitter, transition_count),
-            0.0,
+            # Stan maps a start on the lower bound to -inf when unconstraining.
+            1e-6,
         ),
         "heading_initial": float(
             np.clip(

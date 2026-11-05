@@ -31,7 +31,6 @@ def _summary(method):
             "inference_mode": "batch",
             "inference_method": method,
             "data_file": "BR24.csv",
-            "evaluation_start_observation_count": 20,
             "prediction_count": 3,
             "window_count": 5,
             "forecast_count": 15,
@@ -80,6 +79,19 @@ def test_summary_reader_sorts_counts_and_preserves_saved_metrics(summary_csvs):
         pd.testing.assert_frame_equal(table, expected)
 
 
+def test_summary_reader_still_checks_optional_legacy_start_metadata(summary_csvs):
+    for method, path in summary_csvs.items():
+        table = _summary(method)
+        table["evaluation_start_observation_count"] = 20
+        table.to_csv(path, index=False)
+
+    models = _read(summary_csvs)
+
+    assert all(
+        "evaluation_start_observation_count" not in table for table in models.values()
+    )
+
+
 def test_summary_reader_aligns_common_counts_with_a_warning(summary_csvs):
     _summary("vi").iloc[:2].to_csv(summary_csvs["vi"], index=False)
     with pytest.warns(UserWarning, match="common observation counts"):
@@ -100,6 +112,7 @@ def test_summary_reader_aligns_common_counts_with_a_warning(summary_csvs):
         ("data_file", "different.csv"),
         ("prediction_count", 4),
         ("evaluation_start_observation_count", 21),
+        ("evaluation_start_observation_count", 20),
         ("window_count", 6),
         ("forecast_count", 18),
     ],

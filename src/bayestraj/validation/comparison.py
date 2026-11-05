@@ -270,6 +270,8 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
 
     This checks the configuration and cohort sizes recorded in the summaries;
     it does not read raw data, fit models, or recompute forecast scores.
+    Current summaries omit the fixed N=2 start. Optional legacy start metadata
+    is still checked for compatibility, then removed from the returned tables.
     """
     metadata = ("data_file", "prediction_count", "evaluation_start_observation_count")
     integers = (
@@ -283,6 +285,9 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
     models = {}
     for method, path in (("mcmc", mcmc_csv), ("vi", vi_csv)):
         table = _read_csv(Path(path))
+        table["evaluation_start_observation_count"] = table.get(
+            "evaluation_start_observation_count", 2
+        )
         required = {
             *metadata,
             *integers,
@@ -330,12 +335,6 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
         for column in metadata:
             if table[column].nunique() != 1:
                 raise ValueError(f"{column} must be constant within one sweep summary.")
-        if (
-            table["observation_count"] > table["evaluation_start_observation_count"]
-        ).any():
-            raise ValueError(
-                "Evaluation must start after every configured window can be filled."
-            )
         if (table[["joint_coverage_50", "joint_coverage_90"]] > 1).any().any():
             raise ValueError("Joint coverage must lie between zero and one.")
         if (table["joint_coverage_50"] > table["joint_coverage_90"]).any():
@@ -369,7 +368,10 @@ def read_observation_count_summary_csvs(mcmc_csv, vi_csv):
             raise ValueError(
                 f"Sweep summaries have different {column} values for matched sizes."
             )
-    return aligned
+    return {
+        name: table.drop(columns="evaluation_start_observation_count")
+        for name, table in aligned.items()
+    }
 
 
 def run_observation_count_comparison(

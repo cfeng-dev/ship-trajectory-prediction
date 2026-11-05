@@ -152,6 +152,58 @@ def test_batch_accepts_two_positions_and_builds_one_transition_initials(stationa
     assert all(np.all(np.isfinite(value)) for value in initial.values())
 
 
+def _low_speed_br24_regression_case():
+    """Accepted fixes at cycles 31/32 that produced a zero initial in chain 3."""
+    times = np.array([49149.3, 49152.0, 49154.7])
+    window = observation_window.TrajectoryWindowData(
+        timestamps=pd.to_datetime(times, unit="s", utc=True),
+        time_seconds=times,
+        x_meters=np.array([703.8684515975431, 704.06763650503, 0.0]),
+        y_meters=np.array([-676.2003122956523, -676.0552542772649, 0.0]),
+        reference_longitude=None,
+        reference_latitude=None,
+        gps_speed_mps=np.full(3, np.nan),
+        observation_count=2,
+    )
+    observations = position_observations.PositionObservations(
+        time_seconds=times[:2],
+        x_meters=window.x_meters[:2],
+        y_meters=window.y_meters[:2],
+        position_noise_std_m=0.0,
+        noise_seed=0,
+        measurement_covariances=np.array(
+            [
+                [
+                    [2.956479715650011, -2.172999101710388],
+                    [-2.172999101710388, 3.266479944184643],
+                ],
+                [
+                    [3.3723861710062426, -2.339532025988014],
+                    [-2.339532025988014, 2.435718278692386],
+                ],
+            ]
+        ),
+    )
+    priors = ctrv_model.BayesianCTRVPriors(sigma_position_observation_floor_m=1e-6)
+    return window, observations, priors
+
+
+@pytest.mark.parametrize("seed", range(1073266673, 1073266677))
+def test_low_speed_br24_initials_stay_strictly_inside_speed_constraint(seed):
+    window, observations, priors = _low_speed_br24_regression_case()
+    data = ctrv_model.build_stan_data(
+        window, position_observations=observations, priors=priors
+    )
+
+    initial = batch_inference._default_initial_values(data, seed=seed)
+    repeated = batch_inference._default_initial_values(data, seed=seed)
+
+    assert np.all(initial["speed_state"] > 0.0)
+    assert np.all(np.isfinite(np.log(initial["speed_state"])))
+    for name in initial:
+        np.testing.assert_array_equal(initial[name], repeated[name])
+
+
 def test_process_noise_uses_one_second_reference_interval():
     priors = ctrv_model.BayesianCTRVPriors()
     stan_data = ctrv_model.build_stan_data(_dynamic_ctrv_window(), priors=priors)
@@ -774,3 +826,23 @@ def test_two_position_batch_ctrv_integration(method):
 
     _assert_dynamic_batch_fit_interface(fit, prediction_count=window.prediction_count)
     assert reporting.posterior_variable_samples(fit, "speed_state").shape[-1] == 1
+
+
+@pytest.mark.skipif(
+    not RUN_CMDSTAN_INTEGRATION,
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to run the failing BR24 MCMC fit.",
+)
+def test_low_speed_br24_mcmc_initialization_regression():
+    window, observations, priors = _low_speed_br24_regression_case()
+    fit = batch_inference.fit_bayesian_ctrv_model(
+        window,
+        position_observations=observations,
+        priors=priors,
+        inference_method="mcmc",
+        seed=1073266673,
+        mcmc_options={"show_progress": False},
+        **inference.create_default_mcmc_config(),
+    )
+
+    _assert_dynamic_batch_fit_interface(fit, prediction_count=1)
+    assert np.all(reporting.posterior_variable_samples(fit, "speed_state") > 0.0)

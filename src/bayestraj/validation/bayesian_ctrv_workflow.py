@@ -451,6 +451,7 @@ def _run_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
+            configured_observation_count=experiment.observation_count,
             diagnostics=diagnostics,
             position_noise_std_m=experiment.position_noise_std_m,
             position_noise_seed=experiment.position_noise_seed,
@@ -701,6 +702,7 @@ def _run_br24_radar_evaluation(
             inference_method=inference_method,
             converged=converged,
             mcmc_diagnostics_ok=mcmc_diagnostics_ok,
+            configured_observation_count=experiment.observation_count,
             diagnostics=diagnostics,
             position_noise_std_m=0.0,
             position_noise_seed=experiment.position_noise_seed,
@@ -1129,6 +1131,7 @@ def _build_route_prediction_table(
     inference_method,
     converged,
     mcmc_diagnostics_ok,
+    configured_observation_count,
     diagnostics,
     position_noise_std_m,
     position_noise_seed,
@@ -1148,6 +1151,11 @@ def _build_route_prediction_table(
     table.insert(3, "target_index", target_indices)
     table.insert(4, "horizon_step", np.arange(1, len(table) + 1))
     table["observation_count"] = specification.observation_count
+    table["configured_observation_count"] = (
+        configured_observation_count
+        if inference_method in inference.BATCH_INFERENCE_METHODS
+        else np.nan
+    )
     table["prediction_count"] = specification.prediction_count
     table["inference_mode"] = inference_mode
     table["inference_method"] = inference_method

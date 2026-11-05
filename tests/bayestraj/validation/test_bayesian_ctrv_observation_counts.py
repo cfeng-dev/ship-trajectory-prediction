@@ -46,8 +46,14 @@ def sweep_run(tmp_path, monkeypatch):
                     "horizon_step": step,
                     "horizon_seconds": float(step),
                     "observation_count": window.observation_count,
-                    "window_cycle_count": options.observation_count,
-                    "window_accepted_measurement_count": options.observation_count - 1,
+                    "configured_observation_count": options.observation_count,
+                    "window_cycle_count": min(
+                        window.observation_count, options.observation_count
+                    ),
+                    "window_accepted_measurement_count": min(
+                        window.observation_count, options.observation_count
+                    )
+                    - 1,
                     "position_error_m": float(step),
                     "energy_score_m": 1.5,
                     "prediction_radius_m": 5.0,
@@ -101,7 +107,7 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     )
     assert {call["options"].inference_method for call in sweep_run} == {method}
     selected = sweep_run[0]["selected_window_indices"]
-    assert selected == (18, 19, 20, 21)
+    assert selected == tuple(range(22))
     for call in sweep_run:
         assert call["selected_window_indices"] == selected
         assert call["options"].max_windows == 2
@@ -120,14 +126,21 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     ]
     for count in range(2, 21):
         table = pd.read_csv(output / f"bayesian_ctrv_{method}_{count:02d}.csv")
+        assert table.columns.tolist() == list(evaluation.PREDICTION_CSV_COLUMNS)
         assert table["configured_observation_count"].tolist() == [count] * 6
-        assert table["observation_count"].tolist() == [20] * 3 + [21] * 3
-        assert table["forecast_start_index"].tolist() == [20] * 3 + [21] * 3
-        assert table["window_accepted_measurement_count"].tolist() == [count - 1] * 6
+        assert table["observation_count"].tolist() == [2] * 3 + [3] * 3
+        assert table["forecast_start_index"].tolist() == [2] * 3 + [3] * 3
+        assert "evaluation_start_observation_count" not in table
+        assert table["window_cycle_count"].tolist() == [2] * 3 + [min(3, count)] * 3
+        assert (
+            table["window_accepted_measurement_count"].tolist()
+            == [1] * 3 + [min(3, count) - 1] * 3
+        )
 
     saved = pd.read_csv(output / "summary.csv")
     assert saved["observation_count"].tolist() == list(range(2, 21))
-    assert saved["evaluation_start_observation_count"].tolist() == [20] * 19
+    assert "evaluation_start_observation_count" not in saved
+    assert "evaluation_start_observation_count" not in summary
     assert saved["window_count"].tolist() == [2] * 19
     assert saved["forecast_count"].tolist() == [6] * 19
     np.testing.assert_allclose(saved["ade_m"], 2.0)
@@ -143,6 +156,49 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     pd.testing.assert_frame_equal(
         saved, summary.where(summary.notna(), np.nan), check_dtype=False
     )
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_sweeps_use_the_same_public_csv_api(tmp_path, monkeypatch, sweep_run, method):
+    exports = []
+    original_export = evaluation.export_evaluation_csv
+
+    def export(table, path, *, summary=False):
+        exports.append((path.name, summary))
+        return original_export(table, path, summary=summary)
+
+    monkeypatch.setattr(evaluation, "export_evaluation_csv", export)
+
+    _script(method)["main"](
+        ["--min-observations", "2", "--max-observations", "3", "--max-windows", "1"]
+    )
+
+    assert exports == [
+        (f"bayesian_ctrv_{method}_02.csv", False),
+        (f"bayesian_ctrv_{method}_03.csv", False),
+        ("summary.csv", True),
+    ]
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_complete_sweep_has_normal_evaluation_row_count(tmp_path, sweep_run, method):
+    summary = _script(method)["main"](
+        ["--min-observations", "20", "--max-observations", "20"]
+    )
+
+    # A 24-cycle route evaluated from N=2 has 22 origins and horizons 3, ..., 3, 2, 1.
+    assert summary["window_count"].tolist() == [22]
+    assert summary["forecast_count"].tolist() == [63]
+    path = (
+        tmp_path
+        / f"results/bayesian_ctrv_{method}_evaluation/bayesian_ctrv_{method}_20.csv"
+    )
+    table = pd.read_csv(path)
+    assert len(table) == 63
+    assert table["forecast_start_index"].iloc[0] == 2
+    assert table["forecast_start_index"].iloc[-1] == 23
+    assert table["window_cycle_count"].iloc[0] == 2
+    assert table["window_cycle_count"].iloc[-1] == 20
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
@@ -166,7 +222,7 @@ def test_sweep_cli_can_limit_counts_origins_and_output_directory(
     )
 
     assert [call["options"].observation_count for call in sweep_run] == [3, 4]
-    assert summary["evaluation_start_observation_count"].tolist() == [4, 4]
+    assert "evaluation_start_observation_count" not in summary
     assert summary["window_count"].tolist() == [1, 1]
     assert (destination / f"bayesian_ctrv_{method}_03.csv").is_file()
     assert (destination / f"bayesian_ctrv_{method}_04.csv").is_file()
@@ -187,9 +243,27 @@ def test_invalid_sweep_limits_fail_before_any_inference(sweep_run, arguments):
     assert not sweep_run
 
 
-def test_sweep_rejects_data_without_a_common_forecast_origin(tmp_path, sweep_run):
-    with pytest.raises(ValueError, match="forecast"):
-        _script("vi")["main"](["--max-observations", "24"])
+def test_sweep_can_evaluate_before_the_largest_window_fills(tmp_path, sweep_run):
+    summary = _script("vi")["main"](
+        ["--min-observations", "24", "--max-observations", "24", "--max-windows", "1"]
+    )
+
+    assert "evaluation_start_observation_count" not in summary
+    assert summary["observation_count"].tolist() == [24]
+    output = tmp_path / "results/bayesian_ctrv_vi_evaluation/bayesian_ctrv_vi_24.csv"
+    table = pd.read_csv(output)
+    assert table["forecast_start_index"].tolist() == [2] * 3
+    assert table["window_cycle_count"].tolist() == [2] * 3
+
+
+def test_sweep_rejects_data_without_future_positions(tmp_path, monkeypatch, sweep_run):
+    monkeypatch.setattr(
+        evaluation.workflow.br24_observations,
+        "read_br24_tracking_input",
+        lambda path: tuple(range(2)),
+    )
+    with pytest.raises(ValueError, match="future"):
+        _script("vi")["main"]([])
     assert not sweep_run
     assert not (tmp_path / "results").exists()
 

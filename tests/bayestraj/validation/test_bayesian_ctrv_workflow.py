@@ -12,6 +12,7 @@ import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as validation_cli
+import bayestraj.validation.comparison as comparison
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
@@ -263,12 +264,33 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         assert predictions["mcmc_diagnostics_ok"].tolist() == [True, True]
 
     output_csv = tmp_path / "evaluation.csv"
-    evaluation._export_csv(predictions, output_csv)
+    assert evaluation.export_evaluation_csv(predictions, output_csv)
     exported = pd.read_csv(output_csv)
+    assert exported.columns.tolist() == list(evaluation.PREDICTION_CSV_COLUMNS)
+    if method in {"mcmc", "vi"}:
+        assert exported["configured_observation_count"].tolist() == [10, 10]
+    else:
+        assert exported["configured_observation_count"].isna().all()
     if method == "mcmc":
         assert exported["mcmc_rhat_max"].tolist() == [1.023, 1.023]
     else:
         assert exported["mcmc_rhat_max"].isna().all()
+
+    # Exercise the same CSV reader used by compare_bayesian_ctrv_imm.py.
+    imm = exported.assign(model_variant="imm", inference_method="imm")
+    imm_csv = tmp_path / "imm.csv"
+    imm.to_csv(imm_csv, index=False)
+    variable = {
+        "mcmc": "BAYESIAN_MCMC_CSV",
+        "vi": "BAYESIAN_VI_CSV",
+        "smc": "BAYESIAN_SMC_CSV",
+        "sequential_vi": "BAYESIAN_SEQ_VI_CSV",
+    }[method]
+    compared = comparison.read_model_comparison_csvs(
+        {variable: output_csv, "IMM_CSV": imm_csv}
+    )
+    assert len(compared) == 2
+    assert all(len(table) == 2 for table in compared.values())
 
 
 @pytest.mark.parametrize(

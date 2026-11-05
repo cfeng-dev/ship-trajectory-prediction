@@ -17,6 +17,86 @@ import bayestraj.validation.cli as cli
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
+# Stable union of shared forecast fields and all method-specific diagnostics.
+PREDICTION_CSV_COLUMNS = (
+    "window_index",
+    "window_start_index",
+    "forecast_start_index",
+    "target_index",
+    "horizon_step",
+    "time",
+    "horizon_seconds",
+    "x_actual",
+    "y_actual",
+    "x_median",
+    "y_median",
+    "x_lower",
+    "x_upper",
+    "y_lower",
+    "y_upper",
+    "position_error_m",
+    "negative_log_predictive_density",
+    "energy_score_m",
+    "prediction_radius_m",
+    "squared_mahalanobis_distance",
+    "squared_mahalanobis_radius",
+    "radial_covered",
+    "joint_covered_50",
+    "joint_covered_90",
+    "mean_marginal_interval_width_m",
+    "observation_count",
+    "configured_observation_count",
+    "prediction_count",
+    "inference_mode",
+    "inference_method",
+    "model_variant",
+    "converged",
+    "mcmc_diagnostics_ok",
+    "mcmc_rhat_max",
+    "position_noise_std_m",
+    "position_observation_noise_std_m",
+    "position_noise_seed",
+    "posterior_speed_at_origin_median_mps",
+    "posterior_heading_at_origin_median_rad",
+    "posterior_turn_rate_at_origin_median_rad_s",
+    "posterior_sigma_position_observation_median_m",
+    "posterior_sigma_speed_process_median_mps",
+    "posterior_sigma_turn_rate_process_median_rad_s",
+    "radar_processed_cycle_count",
+    "radar_accepted_measurement_count",
+    "radar_fit_status",
+    "is_prior_predictive",
+    "fit_status",
+    "processed_cycle_count",
+    "accepted_measurement_count",
+    "window_cycle_count",
+    "window_accepted_measurement_count",
+    "posterior_fit_count",
+    "last_fit_time_seconds",
+    "last_fit_runtime_seconds",
+    "cumulative_fit_runtime_seconds",
+    "bootstrap_completed",
+    "last_fit_error",
+    "particle_effective_sample_size",
+    "particle_resample_count",
+    "particle_processed_observation_count",
+    "particle_count",
+    "sequential_vi_bootstrap_runtime_seconds",
+    "sequential_vi_latest_update_runtime_seconds",
+    "sequential_vi_cumulative_update_runtime_seconds",
+    "sequential_vi_processed_observation_count",
+    "forecast_origin_time",
+    "forecast_origin_seconds",
+    "forecast_origin_x_route",
+    "forecast_origin_y_route",
+    "x_actual_route",
+    "y_actual_route",
+    "x_median_route",
+    "y_median_route",
+    "fit_runtime_seconds",
+    "window_runtime_seconds",
+)
+
 
 def run_evaluation(
     *,
@@ -67,7 +147,7 @@ def run_evaluation(
         show_time_labels=show_time_labels,
     )
     if output_path is not None:
-        _export_csv(predictions, output_path)
+        export_evaluation_csv(predictions, output_path)
     if show_rolling_diagnostics_plot:
         runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
             predictions,
@@ -94,8 +174,8 @@ def run_observation_count_comparison(
 ):
     """Sweep BR24 batch-window sizes using the existing rolling evaluation.
 
-    Score identical forecast origins after the largest window can be filled.
-    The radar tracker still processes all preceding cycles for initialization.
+    Score identical forecast origins from N=2, including the startup phase.
+    Each training window grows until it reaches its configured maximum size.
     BR24 window sizes count cycles, not necessarily accepted measurements.
     Each CSV retains the existing actual-count columns and adds the configured
     window size. A summary row per size collects the existing aggregate metrics.
@@ -135,15 +215,7 @@ def run_observation_count_comparison(
         prediction_count=experiment.prediction_count,
         stride=experiment.stride,
     )
-    selected = tuple(
-        window.window_index
-        for window in windows
-        if window.forecast_start_index >= upper
-    )
-    if not selected:
-        raise ValueError(
-            "No forecast origins remain after the largest observation count."
-        )
+    selected = tuple(window.window_index for window in windows)
     if vi_config is None:
         vi_config = inference.create_default_vi_config()
     rows = []
@@ -179,13 +251,10 @@ def run_observation_count_comparison(
             selected_window_indices=selected,
             show_plot=False,
         )
-        predictions = predictions.copy()
-        predictions["configured_observation_count"] = count
-        predictions["evaluation_start_observation_count"] = upper
         destination = arguments.output_dir / (
             f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"
         )
-        if not _export_csv(predictions, destination):
+        if not export_evaluation_csv(predictions, destination):
             raise OSError(f"Could not export evaluation CSV: {destination}")
         row = {
             field.name: getattr(summary, field.name)
@@ -194,7 +263,6 @@ def run_observation_count_comparison(
         }
         row.update(
             observation_count=count,
-            evaluation_start_observation_count=upper,
             prediction_count=experiment.prediction_count,
             inference_seed=experiment.inference_seed,
             data_file=str(Path(data_file).resolve()),
@@ -205,7 +273,7 @@ def run_observation_count_comparison(
 
     summary_table = pd.DataFrame(rows)
     destination = arguments.output_dir / "summary.csv"
-    if not _export_csv(summary_table, destination):
+    if not export_evaluation_csv(summary_table, destination, summary=True):
         raise OSError(f"Could not export summary CSV: {destination}")
     print("\nObservation-count comparison:")
     print(
@@ -237,6 +305,30 @@ def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | 
         return None
 
 
+def export_evaluation_csv(
+    table: pd.DataFrame, output_path: str | Path, *, summary: bool = False
+) -> bool:
+    """Export evaluation results through the shared atomic CSV writer.
+
+    Individual forecast CSVs always use PREDICTION_CSV_COLUMNS in that order.
+    Missing method-specific fields are empty cells; existing values and the
+    input table are preserved. Unknown columns are rejected rather than lost.
+    Pass summary=True for the aggregate summary's separate table format.
+    Return False with a warning when normalization or writing fails.
+    """
+    try:
+        path = Path(output_path)
+        if not summary:
+            unknown = set(table.columns).difference(PREDICTION_CSV_COLUMNS)
+            if unknown:
+                raise ValueError(f"Unknown prediction CSV columns: {sorted(unknown)}")
+            table = table.reindex(columns=PREDICTION_CSV_COLUMNS)
+    except (TypeError, ValueError) as error:
+        print(f"Warning: OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped.")
+        return False
+    return _export_csv(table, path)
+
+
 def _export_csv(predictions, output_path: Path) -> bool:
     """Replace the destination only after writing the complete CSV successfully."""
     try:
@@ -245,7 +337,7 @@ def _export_csv(predictions, output_path: Path) -> bool:
             prefix=".bayestraj-csv-", dir=output_path.parent
         ) as work:
             temporary_csv = Path(work) / "metrics.csv"
-            predictions.to_csv(temporary_csv, index=False)
+            predictions.to_csv(temporary_csv, index=False, na_rep="")
             temporary_csv.replace(output_path)
     except (OSError, ValueError) as error:
         print(f"Warning: OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped.")

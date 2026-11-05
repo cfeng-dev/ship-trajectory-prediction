@@ -2,7 +2,7 @@
 
 Run directly with the header settings, or limit a run with
 --min-observations 2 --max-observations 20 --max-windows 1.
-Forecast origins start after MAX_OBSERVATION_COUNT cycles for every size.
+All sizes are evaluated from N=2 while each training window grows to its limit.
 """
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config

@@ -1025,7 +1025,10 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     monkeypatch.setitem(
         settings, "EXPERIMENT", replace(settings["EXPERIMENT"], inference_method="smc")
     )
-    predictions = _table("bayesian")
+    predictions = _table("bayesian").rename(
+        columns={"log_predictive_density": "negative_log_predictive_density"}
+    )
+    predictions["negative_log_predictive_density"] *= -1
     original = predictions.copy(deep=True)
     summary = object()
     output = tmp_path / "results/bayesian_ctrv_smc_evaluation.csv"
@@ -1054,5 +1057,7 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     assert output.is_file()
     exported = pd.read_csv(output)
     exported["time"] = pd.to_datetime(exported["time"], format="mixed", utc=True)
-    pd.testing.assert_frame_equal(exported, original)
+    pd.testing.assert_frame_equal(
+        exported, original.reindex(columns=evaluation.PREDICTION_CSV_COLUMNS)
+    )
     pd.testing.assert_frame_equal(predictions, original)
