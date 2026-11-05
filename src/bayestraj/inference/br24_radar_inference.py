@@ -1,13 +1,14 @@
-"""Causal VI, MCMC, and Sequential VI backends for raw radar cycles.
+"""Peer SMC, batch, and Sequential VI adapters for raw radar cycles.
 
-Association uses each backend's own latent predictive distribution. Until a
-fit is available, a labelled seed-conditioned prior is propagated without
-conditioning on buffered fixes. The first fit starts from the configured
-priors and real fixes, discarding that temporary predictive population.
+Association uses each backend's own latent predictive distribution. Batch
+and Sequential VI propagate a labelled seed-conditioned prior until their
+first fit, without conditioning on buffered fixes. That fit starts from the
+configured priors and real fixes, discarding the temporary predictive population.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -18,6 +19,10 @@ import pandas as pd
 
 from bayestraj import numeric_validation
 from bayestraj.inference import ctrv_cmdstan, ctrv_sequential_vi, particle_utils
+from bayestraj.inference.ctrv_smc import (
+    SequentialMonteCarloCTRVConfig,
+    SequentialMonteCarloCTRVFilter,
+)
 from bayestraj.models import ctrv
 from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.observations.position import PositionObservations
@@ -220,8 +225,8 @@ def _observation_arrays(
 
 
 @dataclass(slots=True)
-class CausalBR24RadarFilter:
-    """Adapt batch or Sequential VI to one raw radar cycle at a time."""
+class _BR24PriorAdapter(ABC):
+    """Share prior propagation and radar bookkeeping across non-SMC adapters."""
 
     inference_method: str
     priors: BayesianCTRVPriors
@@ -231,9 +236,6 @@ class CausalBR24RadarFilter:
     last_observation_time_seconds: float
     _population: _PredictivePopulation = field(repr=False)
     _cycles: list[_CycleFix] = field(repr=False)
-    _sequential: ctrv_sequential_vi.SequentialCTRVVI | None = field(
-        default=None, repr=False
-    )
     processed_observation_count: int = 1
     accepted_measurement_count: int = 1
     posterior_fit_count: int = 0
@@ -248,7 +250,7 @@ class CausalBR24RadarFilter:
     predictive_log_density_history: list[float] = field(default_factory=list)
 
     @classmethod
-    def initialize(
+    def _initialize(
         cls,
         time_seconds: float,
         position: np.ndarray,
@@ -256,15 +258,11 @@ class CausalBR24RadarFilter:
         *,
         inference_method: str,
         priors: BayesianCTRVPriors,
-        observation_count: int = 10,
-        vi_config: Mapping[str, Any] | None = None,
-        mcmc_config: Mapping[str, Any] | None = None,
-        sequential_vi_config: ctrv_sequential_vi.SequentialVIConfig | None = None,
-        seed: int = 42,
-    ) -> CausalBR24RadarFilter:
-        normalize_radar_inference_method(inference_method)
-        if inference_method == "smc":
-            raise ValueError("Use the existing SMC filter for SMC inference.")
+        observation_count: int,
+        config: Mapping[str, Any] | ctrv_sequential_vi.SequentialVIConfig,
+        draw_count: int,
+        seed: int,
+    ):
         observation_count = numeric_validation.validate_non_negative_integer(
             "observation_count", observation_count
         )
@@ -273,30 +271,6 @@ class CausalBR24RadarFilter:
                 f"observation_count must be at least {MIN_OBSERVATION_COUNT} raw cycles."
             )
         seed = numeric_validation.validate_non_negative_integer("seed", seed)
-        if inference_method == "sequential_vi":
-            config = sequential_vi_config or ctrv_sequential_vi.SequentialVIConfig()
-            if not isinstance(config, ctrv_sequential_vi.SequentialVIConfig):
-                raise TypeError("sequential_vi_config must be a SequentialVIConfig.")
-            draw_count = config.draws
-        else:
-            selected = vi_config if inference_method == "vi" else mcmc_config
-            config = dict(selected or {})
-            if inference_method == "vi":
-                config.setdefault("require_converged", False)
-            forbidden = {"seed", "priors", "position_observations", "inference_method"}
-            if forbidden.intersection(config):
-                raise ValueError(
-                    "Inference options must not override radar inputs or seed."
-                )
-            draw_count = config.get("draws", 1_000)
-            if (
-                isinstance(draw_count, bool)
-                or not isinstance(draw_count, int)
-                or draw_count < 2
-            ):
-                raise ValueError(
-                    "draws must be an integer greater than or equal to two."
-                )
         return cls(
             inference_method=inference_method,
             priors=priors,
@@ -326,16 +300,12 @@ class CausalBR24RadarFilter:
     @property
     def converged(self) -> bool | None:
         """Return convergence for VI; MCMC diagnostics remain on last_fit."""
-        if self._sequential is not None:
-            return self._sequential.bootstrap_converged and all(
-                update.converged for update in self._sequential.updates
-            )
         return self.fit_converged
 
     @property
     def sequential_filter(self) -> ctrv_sequential_vi.SequentialCTRVVI | None:
         """Expose the initialized Sequential VI backend for reporting."""
-        return self._sequential
+        return None
 
     @property
     def diagnostics(self) -> dict[str, Any]:
@@ -355,14 +325,15 @@ class CausalBR24RadarFilter:
             "last_fit_runtime_seconds": self.last_fit_runtime_seconds,
             "cumulative_fit_runtime_seconds": self.cumulative_fit_runtime_seconds,
             "converged": self.converged,
-            "bootstrap_completed": self._sequential is not None,
+            "bootstrap_completed": self.sequential_filter is not None,
             "last_fit_error": self.last_fit_error,
         }
 
     @property
     def estimated_position(self) -> np.ndarray:
-        if self._sequential is not None:
-            return self._sequential.estimated_position
+        backend = self.sequential_filter
+        if backend is not None:
+            return backend.estimated_position
         return np.array(
             [
                 self._population.draws["x_at_origin"].mean(),
@@ -372,26 +343,30 @@ class CausalBR24RadarFilter:
 
     @property
     def expected_position_observation_variance(self) -> float:
-        if self._sequential is not None:
-            return self._sequential.expected_position_observation_variance
+        backend = self.sequential_filter
+        if backend is not None:
+            return backend.expected_position_observation_variance
         return float(np.mean(self._population.draws["sigma_position_observation"] ** 2))
 
     def predict_position_distribution(self, time_seconds: float):
         time_seconds = self._validate_next_time(time_seconds)
-        if self._sequential is not None:
-            return self._sequential.predict_position_distribution(time_seconds)
+        backend = self.sequential_filter
+        if backend is not None:
+            return backend.predict_position_distribution(time_seconds)
         return self._population.predict(time_seconds)
 
     def sample_current_posterior(self, *, seed: int):
         numeric_validation.validate_non_negative_integer("seed", seed)
-        if self._sequential is not None:
-            return self._sequential.sample_current_posterior(seed=seed)
+        backend = self.sequential_filter
+        if backend is not None:
+            return backend.sample_current_posterior(seed=seed)
         return particle_utils.SequentialCTRVFit(self._population.draws)
 
     def forecast(self, future_time_seconds, *, seed: int):
         numeric_validation.validate_non_negative_integer("seed", seed)
-        if self._sequential is not None:
-            return self._sequential.forecast(future_time_seconds, seed=seed)
+        backend = self.sequential_filter
+        if backend is not None:
+            return backend.forecast(future_time_seconds, seed=seed)
         return self._population.forecast(future_time_seconds, seed=seed)
 
     def update(self, time_seconds, x_observed, y_observed, *, measurement_covariance):
@@ -425,47 +400,16 @@ class CausalBR24RadarFilter:
     def _process(self, time_seconds, position, covariance):
         value = self._validate_next_time(time_seconds)
         log_predictive_density = None
-        if self._sequential is None and position is not None:
+        if self.sequential_filter is None and position is not None:
             # Evaluate before advance/refit, which can replace the population
             # with a posterior already conditioned on this observation.
             log_predictive_density = self._population.log_predictive_density(
                 value, position, covariance
             )
         self._cycles.append(_CycleFix(value, position, covariance))
-        if self.inference_method != "sequential_vi" or self._sequential is not None:
-            self._cycles = self._cycles[-self.observation_count :]
-        if self._sequential is not None:
-            if position is None:
-                self._sequential.advance_without_measurement(value)
-            else:
-                record = self._sequential.update(
-                    value, *position, measurement_covariance=covariance
-                )
-                log_predictive_density = self._sequential.last_log_predictive_density
-                self.posterior_fit_count += 1
-                self.last_fit_time_seconds = value
-                self.fit_converged = record.converged
-                self.last_fit_runtime_seconds = record.runtime_seconds
-                self.cumulative_fit_runtime_seconds += record.runtime_seconds
-            self.fit_status = (
-                "posterior" if position is not None else "posterior_prediction"
-            )
-        else:
-            self._population.advance(value)
-            times, positions, covariances, mask = _observation_arrays(self._cycles)
-            minimum = (
-                self.config.n_bootstrap
-                if self.inference_method == "sequential_vi"
-                else MIN_OBSERVATION_COUNT
-            )
-            if np.count_nonzero(mask) >= minimum:
-                self._fit(times, positions, covariances, mask)
-            else:
-                self.fit_status = (
-                    "seed_conditioned_prior"
-                    if self.is_prior_predictive
-                    else "posterior_prediction_insufficient_fixes"
-                )
+        log_predictive_density = self._process_cycle(
+            value, position, covariance, log_predictive_density
+        )
         self.last_observation_time_seconds = value
         self.processed_observation_count += 1
         self.accepted_measurement_count += int(position is not None)
@@ -477,70 +421,7 @@ class CausalBR24RadarFilter:
         fit_seed = _stream_seed(self.seed, 0, self.processed_observation_count)
         started = perf_counter()
         try:
-            if self.inference_method == "sequential_vi":
-                self._sequential = ctrv_sequential_vi.SequentialCTRVVI.initialize(
-                    times,
-                    positions[:, 0],
-                    positions[:, 1],
-                    priors=self.priors,
-                    config=self.config,
-                    seed=fit_seed,
-                    measurement_covariances=covariances,
-                    observed_mask=mask,
-                    batch_fitter=self._sequential_batch_fit,
-                    update_fitter=self._sequential_update_fit,
-                )
-                self.fit_converged = self._sequential.bootstrap_converged
-            else:
-                interval = float(times[-1] - times[-2])
-                window_times = np.append(times, times[-1] + interval)
-                window = TrajectoryWindowData(
-                    timestamps=pd.DatetimeIndex(
-                        pd.to_datetime(window_times, unit="s", origin="unix", utc=True)
-                    ),
-                    time_seconds=window_times,
-                    x_meters=np.append(positions[:, 0], 0.0),
-                    y_meters=np.append(positions[:, 1], 0.0),
-                    reference_longitude=None,
-                    reference_latitude=None,
-                    gps_speed_mps=np.full(window_times.shape, np.nan),
-                    observation_count=times.size,
-                )
-                observations = PositionObservations(
-                    time_seconds=times,
-                    x_meters=positions[:, 0],
-                    y_meters=positions[:, 1],
-                    position_noise_std_m=0.0,
-                    noise_seed=fit_seed,
-                    measurement_covariances=covariances,
-                    observed_mask=mask,
-                )
-                fit = ctrv_cmdstan.fit_bayesian_ctrv_model(
-                    window,
-                    priors=self.priors,
-                    position_observations=observations,
-                    inference_method=self.inference_method,
-                    seed=fit_seed,
-                    **self.config,
-                )
-                self.last_fit = fit
-                draws = ctrv_sequential_vi._physical_fit_draws(fit)
-                generator = np.random.default_rng(
-                    _stream_seed(self.seed, 2, self.processed_observation_count)
-                )
-                self._population = _PredictivePopulation(
-                    draws=draws,
-                    next_states=_perturb_motion(
-                        _states(draws), draws, interval, generator
-                    ),
-                    time_seconds=float(times[-1]),
-                    generator=generator,
-                )
-                self.fit_converged = (
-                    ctrv_sequential_vi._variational_fit_converged(fit)
-                    if self.inference_method == "vi"
-                    else None
-                )
+            self._fit_backend(times, positions, covariances, mask, fit_seed)
         except Exception as error:
             self.fit_status = "fit_failed"
             self.last_fit_error = str(error)
@@ -552,6 +433,222 @@ class CausalBR24RadarFilter:
         self.last_fit_runtime_seconds = perf_counter() - started
         self.cumulative_fit_runtime_seconds += self.last_fit_runtime_seconds
 
+    @abstractmethod
+    def _process_cycle(
+        self, time_seconds, position, covariance, log_predictive_density
+    ):
+        """Apply this adapter's cycle buffering and inference update."""
+
+    @abstractmethod
+    def _fit_backend(self, times, positions, covariances, mask, fit_seed):
+        """Fit the method-specific backend without changing common diagnostics."""
+
+
+class BR24BatchAdapter(_BR24PriorAdapter):
+    """Refit MCMC or VI on a sliding window of raw radar cycles."""
+
+    @classmethod
+    def initialize(
+        cls,
+        time_seconds,
+        position,
+        measurement_covariance,
+        *,
+        inference_method,
+        priors,
+        observation_count=10,
+        vi_config=None,
+        mcmc_config=None,
+        seed=42,
+    ) -> BR24BatchAdapter:
+        if inference_method not in {"vi", "mcmc"}:
+            raise ValueError("BR24BatchAdapter requires VI or MCMC inference.")
+        selected = vi_config if inference_method == "vi" else mcmc_config
+        config = dict(selected or {})
+        if inference_method == "vi":
+            config.setdefault("require_converged", False)
+        forbidden = {"seed", "priors", "position_observations", "inference_method"}
+        if forbidden.intersection(config):
+            raise ValueError(
+                "Inference options must not override radar inputs or seed."
+            )
+        draw_count = config.get("draws", 1_000)
+        if (
+            isinstance(draw_count, bool)
+            or not isinstance(draw_count, int)
+            or draw_count < 2
+        ):
+            raise ValueError("draws must be an integer greater than or equal to two.")
+        return cls._initialize(
+            time_seconds,
+            position,
+            measurement_covariance,
+            inference_method=inference_method,
+            priors=priors,
+            observation_count=observation_count,
+            config=config,
+            draw_count=draw_count,
+            seed=seed,
+        )
+
+    def _process_cycle(
+        self, time_seconds, position, covariance, log_predictive_density
+    ):
+        self._cycles = self._cycles[-self.observation_count :]
+        self._population.advance(time_seconds)
+        times, positions, covariances, mask = _observation_arrays(self._cycles)
+        if np.count_nonzero(mask) >= MIN_OBSERVATION_COUNT:
+            self._fit(times, positions, covariances, mask)
+        else:
+            self.fit_status = (
+                "seed_conditioned_prior"
+                if self.is_prior_predictive
+                else "posterior_prediction_insufficient_fixes"
+            )
+        return log_predictive_density
+
+    def _fit_backend(self, times, positions, covariances, mask, fit_seed):
+        interval = float(times[-1] - times[-2])
+        window_times = np.append(times, times[-1] + interval)
+        window = TrajectoryWindowData(
+            timestamps=pd.DatetimeIndex(
+                pd.to_datetime(window_times, unit="s", origin="unix", utc=True)
+            ),
+            time_seconds=window_times,
+            x_meters=np.append(positions[:, 0], 0.0),
+            y_meters=np.append(positions[:, 1], 0.0),
+            reference_longitude=None,
+            reference_latitude=None,
+            gps_speed_mps=np.full(window_times.shape, np.nan),
+            observation_count=times.size,
+        )
+        observations = PositionObservations(
+            time_seconds=times,
+            x_meters=positions[:, 0],
+            y_meters=positions[:, 1],
+            position_noise_std_m=0.0,
+            noise_seed=fit_seed,
+            measurement_covariances=covariances,
+            observed_mask=mask,
+        )
+        fit = ctrv_cmdstan.fit_bayesian_ctrv_model(
+            window,
+            priors=self.priors,
+            position_observations=observations,
+            inference_method=self.inference_method,
+            seed=fit_seed,
+            **self.config,
+        )
+        self.last_fit = fit
+        draws = ctrv_sequential_vi._physical_fit_draws(fit)
+        generator = np.random.default_rng(
+            _stream_seed(self.seed, 2, self.processed_observation_count)
+        )
+        self._population = _PredictivePopulation(
+            draws=draws,
+            next_states=_perturb_motion(_states(draws), draws, interval, generator),
+            time_seconds=float(times[-1]),
+            generator=generator,
+        )
+        self.fit_converged = (
+            ctrv_sequential_vi._variational_fit_converged(fit)
+            if self.inference_method == "vi"
+            else None
+        )
+
+
+@dataclass(slots=True)
+class BR24SequentialVIAdapter(_BR24PriorAdapter):
+    """Bootstrap Sequential VI from real fixes, then update its carried posterior."""
+
+    _sequential: ctrv_sequential_vi.SequentialCTRVVI | None = field(
+        default=None, repr=False
+    )
+
+    @classmethod
+    def initialize(
+        cls,
+        time_seconds,
+        position,
+        measurement_covariance,
+        *,
+        priors,
+        observation_count=10,
+        config=None,
+        seed=42,
+    ) -> BR24SequentialVIAdapter:
+        if config is None:
+            config = ctrv_sequential_vi.SequentialVIConfig()
+        if not isinstance(config, ctrv_sequential_vi.SequentialVIConfig):
+            raise TypeError("sequential_vi_config must be a SequentialVIConfig.")
+        return cls._initialize(
+            time_seconds,
+            position,
+            measurement_covariance,
+            inference_method="sequential_vi",
+            priors=priors,
+            observation_count=observation_count,
+            config=config,
+            draw_count=config.draws,
+            seed=seed,
+        )
+
+    @property
+    def sequential_filter(self) -> ctrv_sequential_vi.SequentialCTRVVI | None:
+        return self._sequential
+
+    @property
+    def converged(self) -> bool | None:
+        if self._sequential is not None:
+            return self._sequential.bootstrap_converged and all(
+                update.converged for update in self._sequential.updates
+            )
+        return self.fit_converged
+
+    def _process_cycle(
+        self, time_seconds, position, covariance, log_predictive_density
+    ):
+        if self._sequential is None:
+            self._population.advance(time_seconds)
+            times, positions, covariances, mask = _observation_arrays(self._cycles)
+            if np.count_nonzero(mask) >= self.config.n_bootstrap:
+                self._fit(times, positions, covariances, mask)
+            else:
+                self.fit_status = "seed_conditioned_prior"
+        else:
+            self._cycles = self._cycles[-self.observation_count :]
+            if position is None:
+                self._sequential.advance_without_measurement(time_seconds)
+            else:
+                record = self._sequential.update(
+                    time_seconds, *position, measurement_covariance=covariance
+                )
+                log_predictive_density = self._sequential.last_log_predictive_density
+                self.posterior_fit_count += 1
+                self.last_fit_time_seconds = time_seconds
+                self.fit_converged = record.converged
+                self.last_fit_runtime_seconds = record.runtime_seconds
+                self.cumulative_fit_runtime_seconds += record.runtime_seconds
+            self.fit_status = (
+                "posterior" if position is not None else "posterior_prediction"
+            )
+        return log_predictive_density
+
+    def _fit_backend(self, times, positions, covariances, mask, fit_seed):
+        self._sequential = ctrv_sequential_vi.SequentialCTRVVI.initialize(
+            times,
+            positions[:, 0],
+            positions[:, 1],
+            priors=self.priors,
+            config=self.config,
+            seed=fit_seed,
+            measurement_covariances=covariances,
+            observed_mask=mask,
+            batch_fitter=self._sequential_batch_fit,
+            update_fitter=self._sequential_update_fit,
+        )
+        self.fit_converged = self._sequential.bootstrap_converged
+
     def _sequential_batch_fit(self, *args, **kwargs):
         fit = ctrv_cmdstan.fit_bayesian_ctrv_model(*args, **kwargs)
         self.last_fit = fit
@@ -561,3 +658,110 @@ class CausalBR24RadarFilter:
         fit = ctrv_sequential_vi.fit_sequential_update(*args, **kwargs)
         self.last_fit = fit
         return fit
+
+
+@dataclass(slots=True)
+class BR24SMCAdapter:
+    """Expose the native particle filter through the shared radar interface."""
+
+    backend: SequentialMonteCarloCTRVFilter
+
+    @classmethod
+    def initialize(
+        cls,
+        time_seconds,
+        position,
+        measurement_covariance,
+        *,
+        priors,
+        config=None,
+        seed=42,
+    ) -> BR24SMCAdapter:
+        if config is None:
+            config = SequentialMonteCarloCTRVConfig()
+        return cls(
+            SequentialMonteCarloCTRVFilter.initialize(
+                np.array([time_seconds]),
+                np.array([position[0]]),
+                np.array([position[1]]),
+                priors=priors,
+                config=config,
+                seed=seed,
+                initial_measurement_covariance=measurement_covariance,
+            )
+        )
+
+    @property
+    def estimated_position(self) -> np.ndarray:
+        origins = self.backend.forecast_origin_particles
+        if origins is None:
+            origins = self.backend.state_particles
+        return np.sum(self.backend.weights[:, None] * origins[:, :2], axis=0)
+
+    @property
+    def is_prior_predictive(self) -> bool:
+        return False
+
+    @property
+    def fit_status(self) -> str:
+        return "posterior"
+
+    @property
+    def config(self):
+        return self.backend.config
+
+    @property
+    def last_observation_time_seconds(self):
+        return self.backend.last_observation_time_seconds
+
+    @property
+    def processed_observation_count(self):
+        return self.backend.processed_observation_count
+
+    @property
+    def expected_position_observation_variance(self):
+        return self.backend.expected_position_observation_variance
+
+    @property
+    def position_observation_noise_floor_m(self):
+        return self.backend.position_observation_noise_floor_m
+
+    @property
+    def effective_sample_size(self):
+        return self.backend.effective_sample_size
+
+    @property
+    def last_effective_sample_size(self):
+        return self.backend.last_effective_sample_size
+
+    @property
+    def resample_count(self):
+        return self.backend.resample_count
+
+    @property
+    def last_log_predictive_density(self):
+        return self.backend.last_log_predictive_density
+
+    @property
+    def predictive_log_density_history(self):
+        return self.backend.predictive_log_density_history
+
+    def predict_position_distribution(self, time_seconds):
+        return self.backend.predict_position_distribution(time_seconds)
+
+    def update(self, time_seconds, x_observed, y_observed, *, measurement_covariance):
+        return self.backend.update(
+            time_seconds,
+            x_observed,
+            y_observed,
+            measurement_covariance=measurement_covariance,
+        )
+
+    def advance_without_measurement(self, time_seconds):
+        return self.backend.advance_without_measurement(time_seconds)
+
+    def sample_current_posterior(self, *, seed):
+        return self.backend.sample_current_posterior(seed=seed)
+
+    def forecast(self, future_time_seconds, *, seed):
+        return self.backend.forecast(future_time_seconds, seed=seed)

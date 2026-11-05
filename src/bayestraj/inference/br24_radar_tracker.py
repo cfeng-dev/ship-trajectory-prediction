@@ -10,13 +10,14 @@ from typing import Any
 import numpy as np
 
 from bayestraj.inference.br24_radar_inference import (
-    CausalBR24RadarFilter,
+    BR24BatchAdapter,
+    BR24SequentialVIAdapter,
+    BR24SMCAdapter,
     normalize_radar_inference_method,
 )
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
     SequentialMonteCarloCTRVConfig,
-    SequentialMonteCarloCTRVFilter,
 )
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import (
@@ -44,7 +45,7 @@ class BR24TrackerStep:
 class BR24BayesianRadarTracker:
     """Associate raw detections using the selected method's predictive state."""
 
-    filter: SequentialMonteCarloCTRVFilter | CausalBR24RadarFilter
+    filter: BR24SMCAdapter | BR24BatchAdapter | BR24SequentialVIAdapter
     association_gate_nis: float = ASSOCIATION_GATE_NIS
     inference_method: str = "smc"
     _accepted_measurement_count: int = 1
@@ -64,12 +65,7 @@ class BR24BayesianRadarTracker:
     @property
     def estimated_position(self) -> np.ndarray:
         """Return the current weighted posterior position in local metres."""
-        if isinstance(self.filter, CausalBR24RadarFilter):
-            return self.filter.estimated_position
-        origins = self.filter.forecast_origin_particles
-        if origins is None:
-            origins = self.filter.state_particles
-        return np.sum(self.filter.weights[:, None] * origins[:, :2], axis=0)
+        return self.filter.estimated_position
 
     @classmethod
     def initialize(
@@ -96,34 +92,38 @@ class BR24BayesianRadarTracker:
             priors,
             sigma_position_observation_floor_m=residual_observation_noise_floor_m,
         )
-        if inference_method != "smc":
-            return cls(
-                filter=CausalBR24RadarFilter.initialize(
-                    cycle.time_seconds,
-                    position,
-                    covariance,
-                    inference_method=inference_method,
-                    priors=radar_priors,
-                    observation_count=observation_count,
-                    vi_config=vi_config,
-                    mcmc_config=mcmc_config,
-                    sequential_vi_config=sequential_vi_config,
-                    seed=seed,
-                ),
-                inference_method=inference_method,
+        if inference_method == "smc":
+            radar_filter = BR24SMCAdapter.initialize(
+                cycle.time_seconds,
+                position,
+                covariance,
+                priors=radar_priors,
+                config=config,
+                seed=seed,
             )
-        if config is None:
-            config = SequentialMonteCarloCTRVConfig()
-        online_filter = SequentialMonteCarloCTRVFilter.initialize(
-            np.array([cycle.time_seconds]),
-            np.array([position[0]]),
-            np.array([position[1]]),
-            priors=radar_priors,
-            config=config,
-            seed=seed,
-            initial_measurement_covariance=covariance,
-        )
-        return cls(filter=online_filter)
+        elif inference_method == "sequential_vi":
+            radar_filter = BR24SequentialVIAdapter.initialize(
+                cycle.time_seconds,
+                position,
+                covariance,
+                priors=radar_priors,
+                observation_count=observation_count,
+                config=sequential_vi_config,
+                seed=seed,
+            )
+        else:
+            radar_filter = BR24BatchAdapter.initialize(
+                cycle.time_seconds,
+                position,
+                covariance,
+                inference_method=inference_method,
+                priors=radar_priors,
+                observation_count=observation_count,
+                vi_config=vi_config,
+                mcmc_config=mcmc_config,
+                seed=seed,
+            )
+        return cls(filter=radar_filter, inference_method=inference_method)
 
     def process_cycle(self, cycle: BR24RadarCycle) -> BR24TrackerStep:
         """Associate and assimilate one later cycle, or propagate on a miss."""

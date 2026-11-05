@@ -1,9 +1,11 @@
 """Contracts for causal method-specific raw BR24 inference."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
-from bayestraj.inference import ctrv_cmdstan, ctrv_sequential_vi
+from bayestraj.inference import br24_radar_inference, ctrv_cmdstan, ctrv_sequential_vi
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
@@ -12,7 +14,11 @@ from bayestraj.inference.ctrv_smc import (
 )
 from bayestraj.inference.particle_utils import SequentialCTRVFit
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
-from bayestraj.observations.br24 import BR24Detection, BR24RadarCycle
+from bayestraj.observations.br24 import (
+    BR24Detection,
+    BR24RadarCycle,
+    br24_measurement_covariance,
+)
 
 
 def _cycle(time, *, ranges=(10.0,), azimuth=0.0):
@@ -70,6 +76,95 @@ def _tracker(method, **options):
         seed=42,
         **options,
     )
+
+
+@pytest.mark.parametrize(
+    ("method", "adapter_name"),
+    [
+        ("smc", "BR24SMCAdapter"),
+        ("mcmc", "BR24BatchAdapter"),
+        ("vi", "BR24BatchAdapter"),
+        ("sequential_vi", "BR24SequentialVIAdapter"),
+    ],
+)
+def test_tracker_selects_a_method_specific_radar_adapter(method, adapter_name):
+    adapter = _tracker(method).filter
+    assert type(adapter).__name__ == adapter_name
+    assert adapter.estimated_position.shape == (2,)
+    assert adapter.processed_observation_count == 1
+    assert adapter.last_observation_time_seconds == 0.0
+
+
+def test_sequential_vi_adapter_does_not_inherit_batch_adapter():
+    adapter = _tracker("sequential_vi").filter
+    assert hasattr(br24_radar_inference, "BR24BatchAdapter")
+    assert not isinstance(adapter, br24_radar_inference.BR24BatchAdapter)
+
+
+def test_smc_adapter_preserves_native_filter_state_draws_and_diagnostics():
+    adapter = _tracker("smc").filter
+    assert type(adapter).__name__ == "BR24SMCAdapter"
+    covariance = br24_measurement_covariance(
+        range_m=10.0, azimuth_rad=0.0, std_range_m=0.5, std_azimuth_rad=0.02
+    )
+    native = SequentialMonteCarloCTRVFilter.initialize(
+        np.array([0.0]),
+        np.array([110.0]),
+        np.array([-20.0]),
+        priors=replace(BayesianCTRVPriors(), sigma_position_observation_floor_m=1e-6),
+        config=SequentialMonteCarloCTRVConfig(
+            particle_count=128, posterior_draw_count=32
+        ),
+        seed=42,
+        initial_measurement_covariance=covariance,
+    )
+    for radar_filter in (adapter, native):
+        radar_filter.update(0.4, 110.2, -20.0, measurement_covariance=covariance)
+        radar_filter.advance_without_measurement(1.7)
+        radar_filter.update(2.2, 110.8, -20.0, measurement_covariance=covariance)
+
+    expected_position = np.sum(
+        native.weights[:, None] * native.forecast_origin_particles[:, :2], axis=0
+    )
+    np.testing.assert_array_equal(adapter.estimated_position, expected_position)
+    for name in (
+        "processed_observation_count",
+        "last_observation_time_seconds",
+        "effective_sample_size",
+        "last_effective_sample_size",
+        "resample_count",
+        "last_log_predictive_density",
+        "predictive_log_density_history",
+        "position_observation_noise_floor_m",
+        "expected_position_observation_variance",
+    ):
+        assert getattr(adapter, name) == getattr(native, name)
+    for actual, expected in zip(
+        adapter.predict_position_distribution(2.7),
+        native.predict_position_distribution(2.7),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(actual, expected)
+    for method_name, args in (
+        ("sample_current_posterior", ()),
+        ("forecast", ([2.7, 3.7],)),
+    ):
+        actual = getattr(adapter, method_name)(*args, seed=100)
+        expected = getattr(native, method_name)(*args, seed=100)
+        variables = (
+            "speed_at_origin",
+            "heading_at_origin",
+            "turn_rate_at_origin",
+            "sigma_position_observation",
+            "sigma_speed_process",
+            "sigma_turn_rate_process",
+        )
+        if method_name == "forecast":
+            variables += ("x_at_origin", "y_at_origin", "x_prediction", "y_prediction")
+        for name in variables:
+            np.testing.assert_array_equal(
+                actual.stan_variable(name), expected.stan_variable(name)
+            )
 
 
 @pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
