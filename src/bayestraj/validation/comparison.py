@@ -1,5 +1,8 @@
 """Compare saved Bayesian CTRV and IMM rolling evaluation results."""
 
+import dataclasses
+import hashlib
+import re
 import warnings
 from pathlib import Path
 
@@ -7,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
+import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
 MODEL_CSV_SPECS = {
@@ -265,134 +270,253 @@ def read_model_comparison_csvs(csv_paths):
     return _align_forecasts(models)
 
 
-def read_observation_count_summary_csvs(mcmc_csv=None, vi_csv=None):
-    """Read one or both saved sweep summaries and align observation counts.
+def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
+    """Recompute summaries from saved forecasts, without reading old summaries.
 
-    This checks the configuration and cohort sizes recorded in the summaries;
-    it does not read raw data, fit models, or recompute forecast scores.
-    Current summaries omit the fixed N=2 start. Optional legacy start metadata
-    is still checked for compatibility, then removed from the returned tables.
+    Require identical complete forecast cohorts across all selected files. Old
+    folders without metadata remain usable; unavailable provenance stays empty.
     """
-    if mcmc_csv is None and vi_csv is None:
-        raise ValueError("Provide at least one observation-count summary CSV.")
-    metadata = ("data_file", "prediction_count", "evaluation_start_observation_count")
-    integers = (
-        "observation_count",
-        "prediction_count",
-        "evaluation_start_observation_count",
-        "window_count",
-        "forecast_count",
-    )
-    metrics = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
-    models = {}
-    for method, path in (("mcmc", mcmc_csv), ("vi", vi_csv)):
-        if path is None:
+    if mcmc_dir is None and vi_dir is None:
+        raise ValueError("Provide at least one observation-count results directory.")
+    models, cohorts, provenance = {}, {}, []
+    for method, directory in (("mcmc", mcmc_dir), ("vi", vi_dir)):
+        if directory is None:
             continue
-        table = _read_csv(Path(path))
-        table["evaluation_start_observation_count"] = table.get(
-            "evaluation_start_observation_count", 2
-        )
-        required = {
-            *metadata,
-            *integers,
-            *metrics,
-            "inference_mode",
-            "inference_method",
-        }
-        missing = sorted(required.difference(table.columns))
-        if missing:
-            raise ValueError(f"{method.upper()} summary is missing columns: {missing}")
-        if table.empty:
-            raise ValueError(f"{method.upper()} summary is empty.")
-        if (
-            not table["inference_method"].eq(method).all()
-            or not table["inference_mode"].eq("batch").all()
-        ):
-            raise ValueError(f"Expected batch {method.upper()} results in {path}.")
-        for column in (*integers, *metrics):
-            table[column] = pd.to_numeric(table[column], errors="raise")
-            values = table[column].to_numpy(dtype=float)
-            if not np.all(np.isfinite(values)):
-                raise ValueError(f"{column} must contain finite values in {path}.")
-            if column in integers:
-                minimum = (
-                    2
-                    if column
-                    in {"observation_count", "evaluation_start_observation_count"}
-                    else 1
-                )
-                if np.any(values < minimum) or np.any(values != np.floor(values)):
-                    raise ValueError(f"{column} must contain integers >= {minimum}.")
-            elif column != "mean_negative_log_predictive_density" and np.any(
-                values < 0
+        directory = Path(directory)
+        metadata = evaluation.read_observation_count_metadata(directory)
+        rows, counts, seeds = [], set(), set()
+        for path in sorted(directory.glob(f"bayesian_ctrv_{method}_*.csv")):
+            match = re.fullmatch(rf"bayesian_ctrv_{method}_(\d+)\.csv", path.name)
+            if match is None:
+                continue
+            count = int(match[1])
+            if count < 2 or count in counts:
+                raise ValueError(f"Duplicate or invalid observation count in {path}.")
+            counts.add(count)
+            record = metadata.get(path.name)
+            if record is not None:
+                _validate_observation_count_metadata(record, path, method, count)
+                provenance.append(record)
+                seeds.add(record["inference_seed"])
+            table = _validate_table(_read_csv(path), "bayesian")
+            if (
+                table["inference_method"].iloc[0] != method
+                or "inference_mode" not in table
+                or not table["inference_mode"].eq("batch").all()
             ):
-                raise ValueError(f"{column} must be non-negative.")
-        if table["observation_count"].duplicated().any():
-            raise ValueError(f"Duplicate observation_count values in {path}.")
-        if (
-            table["data_file"].isna().any()
-            or not table["data_file"]
-            .map(lambda value: isinstance(value, str) and bool(value.strip()))
-            .all()
-        ):
-            raise ValueError(f"data_file must identify the source dataset in {path}.")
-        for column in metadata:
-            if table[column].nunique() != 1:
-                raise ValueError(f"{column} must be constant within one sweep summary.")
-        if (table[["joint_coverage_50", "joint_coverage_90"]] > 1).any().any():
-            raise ValueError("Joint coverage must lie between zero and one.")
-        if (table["joint_coverage_50"] > table["joint_coverage_90"]).any():
-            raise ValueError(
-                "Joint 50% coverage must be nested inside joint 90% coverage."
+                raise ValueError(
+                    f"Expected batch {method.upper()} forecasts in {path}."
+                )
+            if (
+                "configured_observation_count" not in table
+                or not pd.to_numeric(
+                    table["configured_observation_count"], errors="raise"
+                )
+                .eq(count)
+                .all()
+            ):
+                raise ValueError(
+                    f"configured_observation_count must match filename count {count}: {path}"
+                )
+            _validate_observation_count_scores(table, path)
+            if (
+                record is not None
+                and table["prediction_count"].max() > record["prediction_count"]
+            ):
+                raise ValueError(
+                    f"Forecast horizons exceed metadata prediction_count: {path}"
+                )
+            summary = rolling.summarize_rolling_predictions(table)
+            row = {
+                field.name: getattr(summary, field.name)
+                for field in dataclasses.fields(summary)
+                if field.name != "per_horizon_table"
+            }
+            rhat = pd.to_numeric(
+                table.get("mcmc_rhat_max", pd.Series(dtype=float)), errors="raise"
             )
-        models[method.upper()] = table.sort_values("observation_count").reset_index(
-            drop=True
+            if not np.isfinite(rhat.dropna()).all():
+                raise ValueError(f"mcmc_rhat_max must be finite or empty: {path}")
+            row.update(
+                observation_count=count,
+                prediction_count=record["prediction_count"]
+                if record is not None
+                else int(table["prediction_count"].max()),
+                inference_seed=record["inference_seed"]
+                if record is not None
+                else pd.NA,
+                data_file=record["data_file"] if record is not None else pd.NA,
+                rmse_m=float((table["position_error_m"] ** 2).mean() ** 0.5),
+                mcmc_rhat_max=float(rhat.max()) if method == "mcmc" else np.nan,
+            )
+            rows.append(row)
+            cohorts[f"{method.upper()} N={count}"] = table[
+                [
+                    "forecast_origin_seconds",
+                    "horizon_step",
+                    "horizon_seconds",
+                    "time",
+                    "x_actual",
+                    "y_actual",
+                ]
+            ]
+        if not rows:
+            raise ValueError(
+                f"No observation-count forecast CSV files found for {method.upper()}: {directory}"
+            )
+        if len(seeds) > 1:
+            raise ValueError(f"Mixed inference_seed values in {directory}.")
+        models[method.upper()] = (
+            pd.DataFrame(rows).sort_values("observation_count").reset_index(drop=True)
         )
-
-    tables = list(models.values())
-    left = tables[0]
-    common = left["observation_count"].to_numpy()
-    for right in tables[1:]:
-        for column in metadata:
-            if left[column].iloc[0] != right[column].iloc[0]:
-                raise ValueError(f"Sweep summaries have different {column} values.")
-        common = np.intersect1d(common, right["observation_count"])
+    for field in (
+        "data_file",
+        "prediction_count",
+        "credible_interval",
+        "position_noise_std_m",
+        "position_noise_seed",
+    ):
+        known = {record[field] for record in provenance if field in record}
+        if len(known) > 1:
+            raise ValueError(
+                f"Observation-count evaluations have different {field} values."
+            )
+    reference = next(iter(cohorts.values()))
+    keys = ["forecast_origin_seconds", "horizon_step"]
+    if any(
+        not np.array_equal(reference[keys], table[keys]) for table in cohorts.values()
+    ):
+        raise ValueError(
+            "Observation-count CSVs must contain identical forecast origins and complete horizons."
+        )
+    if len(cohorts) > 1:
+        _align_forecasts(cohorts)
+    common = None
+    for table in models.values():
+        counts = table["observation_count"].to_numpy()
+        common = counts if common is None else np.intersect1d(common, counts)
     if common.size == 0:
-        raise ValueError("Sweep summaries have no common observation counts.")
+        raise ValueError("Evaluations have no common observation counts.")
     if any(len(table) != len(common) for table in models.values()):
         warnings.warn(
             "Comparing only common observation counts; unmatched sizes are omitted.",
             UserWarning,
             stacklevel=2,
         )
-    aligned = {
-        name: table[table["observation_count"].isin(common)].reset_index(drop=True)
-        for name, table in models.items()
-    }
-    tables = list(aligned.values())
-    for right in tables[1:]:
-        for column in ("window_count", "forecast_count"):
-            if not np.array_equal(tables[0][column], right[column]):
-                raise ValueError(
-                    f"Sweep summaries have different {column} values for matched sizes."
-                )
     return {
-        name: table.drop(columns="evaluation_start_observation_count")
-        for name, table in aligned.items()
+        label: table[table["observation_count"].isin(common)].reset_index(drop=True)
+        for label, table in models.items()
     }
+
+
+def _validate_observation_count_metadata(record, path, method, count):
+    """Reject stale provenance after replacement or manual changes to a CSV."""
+    required = {
+        "sha256",
+        "data_file",
+        "inference_seed",
+        "prediction_count",
+        "inference_method",
+        "observation_count",
+    }
+    if not required.issubset(record):
+        raise ValueError(f"Incomplete metadata for {path}.")
+    if record["sha256"] != hashlib.sha256(path.read_bytes()).hexdigest():
+        raise ValueError(f"CSV does not match its metadata: {path}.")
+    if record["inference_method"] != method or record["observation_count"] != count:
+        raise ValueError(
+            f"Method or observation count does not match metadata: {path}."
+        )
+    for field, minimum in (("inference_seed", 0), ("prediction_count", 1)):
+        value = record[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            raise ValueError(f"Invalid metadata {field}: {path}.")
+    if not isinstance(record["data_file"], str) or not record["data_file"].strip():
+        raise ValueError(f"Invalid metadata data_file: {path}.")
+    for field in ("credible_interval", "position_noise_std_m"):
+        if field not in record:
+            continue
+        value = record[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not np.isfinite(value)
+        ):
+            raise ValueError(f"Invalid metadata {field}: {path}.")
+        if (field == "credible_interval" and not 0 < value < 1) or (
+            field == "position_noise_std_m" and value < 0
+        ):
+            raise ValueError(f"Invalid metadata {field}: {path}.")
+    if "position_noise_seed" in record:
+        value = record["position_noise_seed"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"Invalid metadata position_noise_seed: {path}.")
+
+
+def _validate_observation_count_scores(table, path):
+    """Normalize CSV booleans and validate the additional rolling-score inputs."""
+    required = {
+        "radial_covered",
+        "prediction_radius_m",
+        "mean_marginal_interval_width_m",
+        "window_runtime_seconds",
+        "converged",
+        "mcmc_diagnostics_ok",
+    }
+    missing = sorted(required.difference(table.columns))
+    if missing:
+        raise ValueError(f"Missing forecast CSV columns {missing}: {path}")
+    for field in (
+        "radial_covered",
+        "converged",
+        "mcmc_diagnostics_ok",
+        "is_prior_predictive",
+    ):
+        if field not in table:
+            continue
+        if field == "is_prior_predictive" and table[field].isna().all():
+            table.drop(columns=field, inplace=True)
+            continue
+        if not table[field].dropna().isin([False, True]).all():
+            raise ValueError(
+                f"{field} must contain boolean flags or empty values: {path}"
+            )
+        if field in {"radial_covered", "is_prior_predictive"}:
+            if table[field].isna().any():
+                raise ValueError(f"{field} must not be missing: {path}")
+            table[field] = table[field].astype(bool)
+    for field in (
+        "prediction_radius_m",
+        "mean_marginal_interval_width_m",
+        "window_runtime_seconds",
+    ):
+        table[field] = pd.to_numeric(table[field], errors="raise")
+        if not np.isfinite(table[field]).all() or (table[field] < 0).any():
+            raise ValueError(f"{field} must be finite and non-negative: {path}")
+    for field in ("converged", "mcmc_diagnostics_ok"):
+        if (table.groupby("window_index")[field].nunique(dropna=False) > 1).any():
+            raise ValueError(f"{field} must be constant within each window: {path}")
+    table["horizon_step"] = table["horizon_step"].astype(int)
 
 
 def run_observation_count_comparison(
-    mcmc_csv=None,
-    vi_csv=None,
+    mcmc_dir=None,
+    vi_dir=None,
     *,
     show=True,
     output_dir=None,
     show_points=True,
     plot_language="de",
 ):
-    """Display saved sweep metrics against observation_count without inference."""
-    models = read_observation_count_summary_csvs(mcmc_csv, vi_csv)
+    """Summarize saved forecast CSVs, export summary.csv, and plot without inference."""
+    models = read_observation_count_evaluations(mcmc_dir, vi_dir)
+    for method, directory in (("MCMC", mcmc_dir), ("VI", vi_dir)):
+        if directory is not None:
+            destination = Path(directory) / "summary.csv"
+            if not evaluation.export_evaluation_csv(
+                models[method], destination, summary=True
+            ):
+                raise OSError(f"Could not export summary CSV: {destination}")
     for label, table in models.items():
         print(f"\n{label} observation-count comparison:")
         print(

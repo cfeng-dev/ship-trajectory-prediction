@@ -116,11 +116,20 @@ To compare saved radar-detection choices without rerunning Bayesian inference:
 uv run python scripts/tracking_checks/check_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
 ```
 
-Observation-count sweeps export only forecast CSVs and `summary.csv` under
+Observation-count sweeps export one forecast CSV per window size under
 `results/inference_evaluation/bayesian_ctrv_<method>/`. The sweep option `--output-dir`
-overrides that directory.
+overrides that directory. A per-file record in `metadata.json` preserves the
+source dataset, inference seed and configuration without changing the forecast
+CSV schema. Checksums prevent stale provenance after a CSV is replaced.
 The shared `run_observation_count_evaluation()` calls `run_evaluation()` for each
 window size with diagnostic plots and association exports disabled.
+Run `scripts/model_comparison/compare_mcmc_observation_counts.py` or
+`compare_vi_observation_counts.py` afterward: these read their method's forecast
+CSVs, recompute the metrics, save `summary.csv` beside them, and display plots.
+Existing summary files are ignored as inputs. Missing window sizes are allowed;
+the available files must contain identical forecast origins, complete horizons
+and reference positions. Folders without metadata remain usable, with unknown
+source/seed fields left empty. Runtime summaries count each window once.
 Use `scripts/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.

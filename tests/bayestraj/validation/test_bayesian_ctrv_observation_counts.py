@@ -1,5 +1,6 @@
 """Observation-count sweeps reuse the rolling evaluation and CSV exporter."""
 
+import json
 import runpy
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pandas as pd
 import pytest
 
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
+import bayestraj.validation.comparison as comparison
 import bayestraj.validation.rolling as rolling
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -48,6 +50,16 @@ def sweep_run(tmp_path, monkeypatch):
                     "forecast_origin_seconds": float(window.forecast_start_index - 1),
                     "horizon_step": step,
                     "horizon_seconds": float(step),
+                    "time": pd.Timestamp(
+                        window.forecast_start_index + step - 1, unit="s", tz="UTC"
+                    ),
+                    "prediction_count": window.prediction_count,
+                    "x_actual": float(window.forecast_start_index + step - 1),
+                    "y_actual": 0.0,
+                    "x_median": float(window.forecast_start_index + 2 * step - 1),
+                    "y_median": 0.0,
+                    "model_variant": "bayesian",
+                    "is_prior_predictive": False,
                     "observation_count": window.observation_count,
                     "configured_observation_count": options.observation_count,
                     "window_cycle_count": min(
@@ -96,6 +108,25 @@ def _script(method):
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_evaluation_exports_forecasts_and_metadata_without_creating_summary(
+    tmp_path, sweep_run, method
+):
+    outputs = _script(method)["main"](
+        ["--min-observations", "2", "--max-observations", "3", "--max-windows", "1"]
+    )
+    directory = tmp_path / f"results/inference_evaluation/bayesian_ctrv_{method}"
+    assert not (directory / "summary.csv").exists()
+    assert outputs == tuple(
+        directory / f"bayesian_ctrv_{method}_{count:02d}.csv" for count in [2, 3]
+    )
+    metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+    assert set(metadata["evaluations"]) == {path.name for path in outputs}
+    assert all(
+        record["inference_seed"] == 42 for record in metadata["evaluations"].values()
+    )
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
 def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     tmp_path, monkeypatch, sweep_run, method
 ):
@@ -104,7 +135,7 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     monkeypatch.setitem(namespace["main"].__globals__, "MAX_WINDOWS", 2)
     monkeypatch.chdir(tmp_path)
 
-    summary = namespace["main"]([])
+    outputs = namespace["main"]([])
 
     assert [call["options"].observation_count for call in sweep_run] == list(
         range(2, 21)
@@ -127,7 +158,7 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     assert not (tmp_path / "results/associations").exists()
     assert sorted(path.name for path in output.iterdir()) == [
         *(f"bayesian_ctrv_{method}_{count:02d}.csv" for count in range(2, 21)),
-        "summary.csv",
+        "metadata.json",
     ]
     for count in range(2, 21):
         table = pd.read_csv(output / f"bayesian_ctrv_{method}_{count:02d}.csv")
@@ -142,10 +173,13 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
             == [1] * 3 + [min(3, count) - 1] * 3
         )
 
-    saved = pd.read_csv(output / "summary.csv")
+    assert len(outputs) == 19
+    assert not (output / "summary.csv").exists()
+    saved = comparison.read_observation_count_evaluations(**{f"{method}_dir": output})[
+        method.upper()
+    ]
     assert saved["observation_count"].tolist() == list(range(2, 21))
     assert "evaluation_start_observation_count" not in saved
-    assert "evaluation_start_observation_count" not in summary
     assert saved["window_count"].tolist() == [2] * 19
     assert saved["forecast_count"].tolist() == [6] * 19
     np.testing.assert_allclose(saved["ade_m"], 2.0)
@@ -158,9 +192,8 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     else:
         assert saved["mcmc_rhat_max"].isna().all()
     assert "per_horizon_table" not in saved
-    pd.testing.assert_frame_equal(
-        saved, summary.where(summary.notna(), np.nan), check_dtype=False
-    )
+    assert saved["inference_seed"].tolist() == [42] * 19
+    assert saved["data_file"].tolist() == [str(namespace["DATA_FILE"].resolve())] * 19
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
@@ -181,7 +214,6 @@ def test_sweeps_use_the_same_public_csv_api(tmp_path, monkeypatch, sweep_run, me
     assert exports == [
         (f"bayesian_ctrv_{method}_02.csv", False),
         (f"bayesian_ctrv_{method}_03.csv", False),
-        ("summary.csv", True),
     ]
 
 
@@ -263,18 +295,18 @@ def test_observation_count_evaluation_preserves_explicit_inference_settings(
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
 def test_complete_sweep_has_normal_evaluation_row_count(tmp_path, sweep_run, method):
-    summary = _script(method)["main"](
+    outputs = _script(method)["main"](
         ["--min-observations", "20", "--max-observations", "20"]
     )
 
     # A 24-cycle route evaluated from N=2 has 22 origins and horizons 3, ..., 3, 2, 1.
-    assert summary["window_count"].tolist() == [22]
-    assert summary["forecast_count"].tolist() == [63]
+    assert len(outputs) == 1
     path = (
         tmp_path
         / f"results/inference_evaluation/bayesian_ctrv_{method}/bayesian_ctrv_{method}_20.csv"
     )
     table = pd.read_csv(path)
+    assert table["window_index"].nunique() == 22
     assert len(table) == 63
     assert table["forecast_start_index"].iloc[0] == 2
     assert table["forecast_start_index"].iloc[-1] == 23
@@ -289,7 +321,7 @@ def test_sweep_cli_can_limit_counts_origins_and_output_directory(
     namespace = _script(method)
     destination = tmp_path / "limited"
 
-    summary = namespace["main"](
+    outputs = namespace["main"](
         [
             "--min-observations",
             "3",
@@ -303,8 +335,8 @@ def test_sweep_cli_can_limit_counts_origins_and_output_directory(
     )
 
     assert [call["options"].observation_count for call in sweep_run] == [3, 4]
-    assert "evaluation_start_observation_count" not in summary
-    assert summary["window_count"].tolist() == [1, 1]
+    assert len(outputs) == 2
+    assert all(pd.read_csv(path)["window_index"].nunique() == 1 for path in outputs)
     assert (destination / f"bayesian_ctrv_{method}_03.csv").is_file()
     assert (destination / f"bayesian_ctrv_{method}_04.csv").is_file()
 
@@ -325,12 +357,11 @@ def test_invalid_sweep_limits_fail_before_any_inference(sweep_run, arguments):
 
 
 def test_sweep_can_evaluate_before_the_largest_window_fills(tmp_path, sweep_run):
-    summary = _script("vi")["main"](
+    outputs = _script("vi")["main"](
         ["--min-observations", "24", "--max-observations", "24", "--max-windows", "1"]
     )
 
-    assert "evaluation_start_observation_count" not in summary
-    assert summary["observation_count"].tolist() == [24]
+    assert len(outputs) == 1 and outputs[0].name == "bayesian_ctrv_vi_24.csv"
     output = (
         tmp_path
         / "results/inference_evaluation/bayesian_ctrv_vi/bayesian_ctrv_vi_24.csv"
@@ -364,20 +395,79 @@ def test_sweep_stops_on_csv_export_failure(tmp_path, monkeypatch, sweep_run):
     ).exists()
 
 
-def test_sweep_reports_summary_export_failure(tmp_path, monkeypatch, sweep_run):
-    original_export = evaluation.export_evaluation_csv
+def test_sweep_stops_on_metadata_export_failure(tmp_path, monkeypatch, sweep_run):
+    original_replace = Path.replace
 
-    def export(table, path, *, summary=False):
-        return False if summary else original_export(table, path)
+    def replace(path, destination):
+        if Path(destination).name == "metadata.json":
+            raise OSError("metadata is read-only")
+        return original_replace(path, destination)
 
-    monkeypatch.setattr(evaluation, "export_evaluation_csv", export)
+    monkeypatch.setattr(Path, "replace", replace)
 
-    with pytest.raises(OSError, match="summary.csv"):
-        _script("vi")["main"](
-            ["--min-observations", "2", "--max-observations", "2", "--max-windows", "1"]
-        )
+    with pytest.raises(OSError, match="metadata"):
+        _script("vi")["main"](["--max-windows", "1"])
 
     assert len(sweep_run) == 1
     destination = tmp_path / "results/inference_evaluation/bayesian_ctrv_vi"
     assert (destination / "bayesian_ctrv_vi_02.csv").is_file()
     assert not (destination / "summary.csv").exists()
+
+
+def test_partial_sweeps_preserve_other_metadata_and_existing_summary(
+    tmp_path, sweep_run
+):
+    namespace = _script("vi")
+    namespace["main"](
+        ["--min-observations", "2", "--max-observations", "3", "--max-windows", "1"]
+    )
+    directory = tmp_path / "results/inference_evaluation/bayesian_ctrv_vi"
+    (directory / "summary.csv").write_text("previous derived results", encoding="utf-8")
+
+    namespace["main"](
+        ["--min-observations", "4", "--max-observations", "4", "--max-windows", "1"]
+    )
+
+    metadata = evaluation.read_observation_count_metadata(directory)
+    assert set(metadata) == {f"bayesian_ctrv_vi_{count:02d}.csv" for count in [2, 3, 4]}
+    assert (directory / "summary.csv").read_text(
+        encoding="utf-8"
+    ) == "previous derived results"
+    table = comparison.read_observation_count_evaluations(vi_dir=directory)["VI"]
+    assert table["observation_count"].tolist() == [2, 3, 4]
+
+
+def test_rerunning_one_size_preserves_seed_provenance_for_other_sizes(
+    tmp_path, monkeypatch, sweep_run
+):
+    namespace = _script("mcmc")
+    namespace["main"](
+        ["--min-observations", "2", "--max-observations", "3", "--max-windows", "1"]
+    )
+    monkeypatch.setitem(
+        namespace["main"].__globals__,
+        "EXPERIMENT",
+        evaluation.dataclasses.replace(namespace["EXPERIMENT"], inference_seed=43),
+    )
+
+    namespace["main"](
+        ["--min-observations", "2", "--max-observations", "2", "--max-windows", "1"]
+    )
+
+    directory = tmp_path / "results/inference_evaluation/bayesian_ctrv_mcmc"
+    metadata = evaluation.read_observation_count_metadata(directory)
+    assert metadata["bayesian_ctrv_mcmc_02.csv"]["inference_seed"] == 43
+    assert metadata["bayesian_ctrv_mcmc_03.csv"]["inference_seed"] == 42
+    with pytest.raises(ValueError, match="inference_seed"):
+        comparison.read_observation_count_evaluations(mcmc_dir=directory)
+
+
+def test_invalid_metadata_stops_before_inference(tmp_path, sweep_run):
+    directory = tmp_path / "results/inference_evaluation/bayesian_ctrv_vi"
+    directory.mkdir(parents=True)
+    (directory / "metadata.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metadata"):
+        _script("vi")["main"]([])
+
+    assert sweep_run == []

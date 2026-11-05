@@ -2,6 +2,8 @@
 
 import argparse
 import dataclasses
+import hashlib
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -235,8 +237,8 @@ def run_observation_count_evaluation(
     Each training window grows until it reaches its configured maximum size.
     BR24 window sizes count cycles, not necessarily accepted measurements.
     Each CSV retains the existing actual-count columns and adds the configured
-    window size. A summary row per size collects the existing aggregate metrics.
-    Export only forecast metrics and the aggregate summary for this sweep.
+    window size. Save provenance in metadata.json without changing the forecast
+    CSV schema. Return the exported paths; summaries are computed by comparison.
     """
     if experiment.inference_method not in {"mcmc", "vi"}:
         raise ValueError("Observation-count evaluations support only MCMC and VI.")
@@ -276,7 +278,8 @@ def run_observation_count_evaluation(
     selected = tuple(window.window_index for window in windows)
     if vi_config is None:
         vi_config = inference.create_default_vi_config()
-    rows = []
+    metadata = read_observation_count_metadata(arguments.output_dir)
+    outputs = []
     for count in range(lower, upper + 1):
         current_experiment = dataclasses.replace(experiment, observation_count=count)
         options = cli.BayesianCTRVEvaluationOptions(
@@ -298,7 +301,7 @@ def run_observation_count_evaluation(
         destination = arguments.output_dir / (
             f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"
         )
-        predictions, summary = run_evaluation(
+        run_evaluation(
             data_file=data_file,
             output_csv=destination,
             associations_output_csv=None,
@@ -314,32 +317,62 @@ def run_observation_count_evaluation(
             selected_window_indices=selected,
             require_csv_export=True,
         )
-        row = {
-            field.name: getattr(summary, field.name)
-            for field in dataclasses.fields(summary)
-            if field.name != "per_horizon_table"
-        }
-        row.update(
-            observation_count=count,
-            prediction_count=experiment.prediction_count,
-            inference_seed=experiment.inference_seed,
-            data_file=str(Path(data_file).resolve()),
-            rmse_m=float((predictions["position_error_m"] ** 2).mean() ** 0.5),
-            mcmc_rhat_max=float(predictions["mcmc_rhat_max"].max()),
+        _record_observation_count_metadata(
+            destination,
+            metadata,
+            data_file=data_file,
+            experiment=current_experiment,
+            credible_interval=credible_interval,
         )
-        rows.append(row)
+        outputs.append(destination)
+    return tuple(outputs)
 
-    summary_table = pd.DataFrame(rows)
-    destination = arguments.output_dir / "summary.csv"
-    if not export_evaluation_csv(summary_table, destination, summary=True):
-        raise OSError(f"Could not export summary CSV: {destination}")
-    print("\nObservation-count evaluation:")
-    print(
-        summary_table[["observation_count", "ade_m", "fde_m", "rmse_m"]].to_string(
-            index=False
-        )
-    )
-    return summary_table
+
+def read_observation_count_metadata(directory: str | Path) -> dict:
+    """Read per-file provenance; older result folders may have no metadata."""
+    path = Path(directory) / "metadata.json"
+    if not path.exists():
+        return {}
+    try:
+        content = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError) as error:
+        raise ValueError(f"Invalid observation-count metadata: {path}") from error
+    if (
+        not isinstance(content, dict)
+        or content.get("version") != 1
+        or not isinstance(content.get("evaluations"), dict)
+        or not all(isinstance(value, dict) for value in content["evaluations"].values())
+    ):
+        raise ValueError(f"Invalid observation-count metadata: {path}")
+    return content["evaluations"]
+
+
+def _record_observation_count_metadata(
+    destination, metadata, *, data_file, experiment, credible_interval
+):
+    """Atomically associate provenance with the exact exported forecast CSV."""
+    metadata[destination.name] = {
+        "data_file": str(Path(data_file).resolve()),
+        "inference_method": experiment.inference_method,
+        "inference_seed": experiment.inference_seed,
+        "observation_count": experiment.observation_count,
+        "prediction_count": experiment.prediction_count,
+        "credible_interval": credible_interval,
+        "position_noise_std_m": experiment.position_noise_std_m,
+        "position_noise_seed": experiment.position_noise_seed,
+        "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+    }
+    path = destination.parent / "metadata.json"
+    try:
+        with TemporaryDirectory(prefix=".bayestraj-metadata-", dir=path.parent) as work:
+            temporary = Path(work) / "metadata.json"
+            temporary.write_text(
+                json.dumps({"version": 1, "evaluations": metadata}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+    except OSError as error:
+        raise OSError(f"Could not export observation-count metadata: {path}") from error
 
 
 def _csv_output_path(

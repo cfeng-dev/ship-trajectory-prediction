@@ -1,5 +1,7 @@
-"""CSV-only comparison of MCMC and VI observation-count sweeps."""
+"""Compare observation counts by recomputing summaries from forecast CSVs."""
 
+import hashlib
+import json
 import runpy
 from pathlib import Path
 
@@ -8,157 +10,303 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from bayestraj.validation import bayesian_ctrv_evaluation as evaluation
 from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
-METRICS = (
-    "ade_m",
-    "fde_m",
-    "rmse_m",
-    "mean_energy_score_m",
-    "mean_negative_log_predictive_density",
-    "joint_coverage_50",
-    "joint_coverage_90",
-    "mean_window_runtime_seconds",
-)
+METRICS = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
 
 
-def _summary(method):
-    table = pd.DataFrame(
-        {
-            "observation_count": [4, 2, 3],
-            "inference_mode": "batch",
-            "inference_method": method,
-            "data_file": "BR24.csv",
-            "prediction_count": 3,
-            "window_count": 5,
-            "forecast_count": 15,
-            "ade_m": [2.0, 4.0, 3.0],
-            "fde_m": [3.0, 5.0, 4.0],
-            "rmse_m": [2.5, 4.5, 3.5],
-            "mean_energy_score_m": [1.5, 3.0, 2.5],
-            "mean_negative_log_predictive_density": [-0.5, 1.0, 0.0],
-            "joint_coverage_50": [0.5, 0.4, 0.6],
-            "joint_coverage_90": [0.9, 0.8, 1.0],
-            "mean_window_runtime_seconds": [0.4, 0.2, 0.3],
-        }
-    )
-    if method == "vi":
-        table[["ade_m", "fde_m", "rmse_m", "mean_energy_score_m"]] += 0.3
-        table["mean_negative_log_predictive_density"] += 0.2
-        table[["joint_coverage_50", "joint_coverage_90"]] -= 0.1
-        table["mean_window_runtime_seconds"] /= 4
-    return table
+def _predictions(method, count):
+    rows = []
+    for window, horizons, origin in [(0, 3, 10.0), (1, 1, 11.0)]:
+        for step in range(1, horizons + 1):
+            error = float(count * (step if window == 0 else 4))
+            rows.append(
+                dict(
+                    window_index=window,
+                    forecast_origin_seconds=origin,
+                    horizon_step=step,
+                    horizon_seconds=float(step),
+                    time=pd.Timestamp(origin + step, unit="s", tz="UTC"),
+                    prediction_count=horizons,
+                    observation_count=window + 2,
+                    configured_observation_count=count,
+                    x_actual=origin + step,
+                    y_actual=0.0,
+                    x_median=origin + step + error,
+                    y_median=0.0,
+                    position_error_m=error,
+                    energy_score_m=error / 2,
+                    negative_log_predictive_density=step - 0.5,
+                    prediction_radius_m=5.0,
+                    radial_covered=True,
+                    joint_covered_50=step == 1,
+                    joint_covered_90=True,
+                    mean_marginal_interval_width_m=6.0,
+                    inference_mode="batch",
+                    inference_method=method,
+                    model_variant="bayesian",
+                    is_prior_predictive=False,
+                    converged=window == 0 if method == "vi" else None,
+                    mcmc_diagnostics_ok=window == 0 if method == "mcmc" else None,
+                    mcmc_rhat_max=(1.002 if window == 0 else 1.010) + count / 1000
+                    if method == "mcmc"
+                    else np.nan,
+                    fit_runtime_seconds=(window + 1) * count / 10,
+                    window_runtime_seconds=(1 if window == 0 else 3) * float(count),
+                )
+            )
+    return pd.DataFrame(rows)
+
+
+@pytest.fixture(autouse=True)
+def no_inference(monkeypatch):
+    def fail(**kwargs):
+        pytest.fail("CSV comparison must never start inference")
+
+    monkeypatch.setattr(evaluation.workflow, "run_bayesian_ctrv_evaluation", fail)
 
 
 @pytest.fixture
-def summary_csvs(tmp_path):
-    paths = {}
-    for method in ("mcmc", "vi"):
-        path = (
-            tmp_path
-            / f"results/inference_evaluation/bayesian_ctrv_{method}/summary.csv"
+def result_dirs(tmp_path):
+    directories = {}
+    for method in ["mcmc", "vi"]:
+        directory = tmp_path / f"results/inference_evaluation/bayesian_ctrv_{method}"
+        directory.mkdir(parents=True)
+        for count in [4, 2, 3]:
+            assert evaluation.export_evaluation_csv(
+                _predictions(method, count),
+                directory / f"bayesian_ctrv_{method}_{count:02d}.csv",
+            )
+        (directory / "summary.csv").write_text("obsolete summary", encoding="utf-8")
+        directories[method] = directory
+    return directories
+
+
+def _read(directories):
+    return comparison.read_observation_count_evaluations(
+        directories["mcmc"], directories["vi"]
+    )
+
+
+def _edit(directories, column, value, method="vi", count=3):
+    path = directories[method] / f"bayesian_ctrv_{method}_{count:02d}.csv"
+    table = pd.read_csv(path)
+    table[column] = value
+    table.to_csv(path, index=False)
+
+
+def _metadata(directory, method):
+    records = {}
+    for count in [2, 3, 4]:
+        path = directory / f"bayesian_ctrv_{method}_{count:02d}.csv"
+        records[path.name] = dict(
+            data_file="BR24.csv",
+            inference_seed=42,
+            inference_method=method,
+            observation_count=count,
+            prediction_count=3,
+            credible_interval=0.9,
+            position_noise_std_m=0.0,
+            position_noise_seed=2026,
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
         )
-        path.parent.mkdir(parents=True)
-        _summary(method).to_csv(path, index=False)
-        paths[method] = path
-    return paths
+    path = directory / "metadata.json"
+    path.write_text(json.dumps(dict(version=1, evaluations=records)), encoding="utf-8")
+    return path, records
 
 
-def _read(paths):
-    return comparison.read_observation_count_summary_csvs(paths["mcmc"], paths["vi"])
-
-
-def test_summary_reader_sorts_counts_and_preserves_saved_metrics(summary_csvs):
-    models = _read(summary_csvs)
+def test_reader_recomputes_metrics_and_counts_runtime_once_per_window(result_dirs):
+    models = _read(result_dirs)
     assert list(models) == ["MCMC", "VI"]
     for method, table in models.items():
-        expected = (
-            _summary(method.lower())
-            .sort_values("observation_count")
-            .reset_index(drop=True)
+        counts = np.array([2, 3, 4])
+        assert table["observation_count"].tolist() == counts.tolist()
+        assert table["window_count"].tolist() == [2] * 3
+        assert table["forecast_count"].tolist() == [4] * 3
+        np.testing.assert_allclose(table["ade_m"], counts * 2.5)
+        np.testing.assert_allclose(table["fde_m"], counts * 3.0)
+        np.testing.assert_allclose(table["rmse_m"], counts * np.sqrt(7.5))
+        np.testing.assert_allclose(table["mean_energy_score_m"], counts * 1.25)
+        np.testing.assert_allclose(table["mean_negative_log_predictive_density"], 1.25)
+        np.testing.assert_allclose(table["mean_window_runtime_seconds"], counts * 2.0)
+        np.testing.assert_allclose(
+            table["total_computation_time_seconds"], counts * 4.0
         )
-        pd.testing.assert_frame_equal(table, expected)
+        np.testing.assert_allclose(table["joint_coverage_50"], 0.5)
+        np.testing.assert_allclose(table["joint_coverage_90"], 1.0)
+        assert table["data_file"].isna().all() and table["inference_seed"].isna().all()
+        if method == "MCMC":
+            np.testing.assert_allclose(table["mcmc_rhat_max"], 1.010 + counts / 1000)
+            np.testing.assert_allclose(table["mcmc_diagnostics_pass_rate"], 0.5)
+        else:
+            assert table["mcmc_rhat_max"].isna().all()
+            np.testing.assert_allclose(table["vi_convergence_rate"], 0.5)
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
-def test_summary_reader_accepts_one_method(summary_csvs, method):
-    models = comparison.read_observation_count_summary_csvs(
-        **{f"{method}_csv": summary_csvs[method]}
+def test_reader_accepts_a_partial_sweep_and_one_method(result_dirs, method):
+    directory = result_dirs[method]
+    extra = directory / f"bayesian_ctrv_{method}_04.csv"
+    extra.rename(directory / "unrelated.csv")
+    models = comparison.read_observation_count_evaluations(
+        **{f"{method}_dir": directory}
     )
     assert list(models) == [method.upper()]
-    expected = _summary(method).sort_values("observation_count").reset_index(drop=True)
-    pd.testing.assert_frame_equal(models[method.upper()], expected)
+    assert models[method.upper()]["observation_count"].tolist() == [2, 3]
 
 
-def test_summary_reader_requires_at_least_one_csv():
+def test_reader_requires_at_least_one_directory():
     with pytest.raises(ValueError, match="at least one"):
-        comparison.read_observation_count_summary_csvs()
+        comparison.read_observation_count_evaluations()
 
 
-def test_summary_reader_still_checks_optional_legacy_start_metadata(summary_csvs):
-    for method, path in summary_csvs.items():
-        table = _summary(method)
-        table["evaluation_start_observation_count"] = 20
-        table.to_csv(path, index=False)
-
-    models = _read(summary_csvs)
-
-    assert all(
-        "evaluation_start_observation_count" not in table for table in models.values()
-    )
-
-
-def test_summary_reader_aligns_common_counts_with_a_warning(summary_csvs):
-    _summary("vi").iloc[:2].to_csv(summary_csvs["vi"], index=False)
-    with pytest.warns(UserWarning, match="common observation counts"):
-        models = _read(summary_csvs)
-    assert models["MCMC"]["observation_count"].tolist() == [2, 4]
-    assert models["VI"]["observation_count"].tolist() == [2, 4]
+def test_reader_requires_forecast_csvs_even_if_summary_exists(tmp_path):
+    (tmp_path / "summary.csv").write_text("old summary", encoding="utf-8")
+    with pytest.raises(ValueError, match="forecast CSV"):
+        comparison.read_observation_count_evaluations(mcmc_dir=tmp_path)
 
 
 @pytest.mark.parametrize(
-    ("column", "value"),
+    "column,value",
     [
-        ("observation_count", 2),
-        ("observation_count", 1.5),
-        ("ade_m", np.nan),
-        ("mean_window_runtime_seconds", -1.0),
-        ("joint_coverage_90", 1.1),
+        ("configured_observation_count", 9),
         ("inference_method", "smc"),
-        ("data_file", "different.csv"),
-        ("prediction_count", 4),
-        ("evaluation_start_observation_count", 21),
-        ("evaluation_start_observation_count", 20),
-        ("window_count", 6),
-        ("forecast_count", 18),
+        ("inference_mode", "online"),
+        ("model_variant", "imm"),
+        ("position_error_m", np.nan),
+        ("joint_covered_90", 1.1),
+        ("energy_score_m", np.nan),
+        ("window_runtime_seconds", -1.0),
+        ("mcmc_rhat_max", np.inf),
+        ("is_prior_predictive", "invalid"),
+        ("converged", "invalid"),
+        ("horizon_step", 1.5),
     ],
 )
-def test_summary_reader_rejects_invalid_or_incomparable_results(
-    summary_csvs, column, value
-):
-    table = _summary("vi")
-    table[column] = value
-    table.to_csv(summary_csvs["vi"], index=False)
+def test_reader_rejects_invalid_forecast_inputs(result_dirs, column, value):
+    _edit(result_dirs, column, value)
     with pytest.raises(ValueError):
-        _read(summary_csvs)
+        _read(result_dirs)
 
 
-def test_missing_summary_does_not_start_inference(tmp_path, monkeypatch):
-    import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
-
-    def fail(**kwargs):
-        pytest.fail("Reading summaries must never run inference")
-
-    monkeypatch.setattr(evaluation.workflow, "run_bayesian_ctrv_evaluation", fail)
-    with pytest.raises(ValueError, match="not found"):
-        comparison.read_observation_count_summary_csvs(
-            tmp_path / "missing.csv", tmp_path / "vi.csv"
+@pytest.mark.parametrize(
+    "change", ["origins", "reference", "incomplete", "missing_window"]
+)
+def test_reader_rejects_different_forecast_cohorts(result_dirs, change):
+    path = result_dirs["vi"] / "bayesian_ctrv_vi_03.csv"
+    table = pd.read_csv(path)
+    if change == "origins":
+        table["forecast_origin_seconds"] += 100
+        table["time"] = pd.to_datetime(
+            table["forecast_origin_seconds"] + table["horizon_seconds"],
+            unit="s",
+            utc=True,
         )
+    elif change == "reference":
+        table["x_actual"] += 1
+        table["x_median"] += 1
+    elif change == "incomplete":
+        table = table.iloc[1:]
+    else:
+        table = table[table["window_index"] == 0]
+    table.to_csv(path, index=False)
+    with pytest.raises(ValueError):
+        _read(result_dirs)
 
 
-def test_plot_uses_observation_count_and_saved_metric_values(summary_csvs, tmp_path):
-    models = _read(summary_csvs)
+def test_reader_rejects_duplicate_sizes(result_dirs):
+    directory = result_dirs["mcmc"]
+    (directory / "bayesian_ctrv_mcmc_2.csv").write_bytes(
+        (directory / "bayesian_ctrv_mcmc_02.csv").read_bytes()
+    )
+    with pytest.raises(ValueError, match="Duplicate"):
+        _read(result_dirs)
+
+
+def test_reader_preserves_negative_log_predictive_density(result_dirs):
+    _edit(result_dirs, "negative_log_predictive_density", -2.0)
+    table = _read(result_dirs)["VI"]
+    assert (
+        table.loc[
+            table["observation_count"] == 3, "mean_negative_log_predictive_density"
+        ].iloc[0]
+        == -2.0
+    )
+
+
+def test_reader_accepts_boolean_flags_encoded_as_zero_and_one(result_dirs):
+    for field, value in [("is_prior_predictive", 0), ("radial_covered", 1)]:
+        _edit(result_dirs, field, value)
+
+    table = _read(result_dirs)["VI"]
+
+    assert table.loc[table["observation_count"] == 3, "radial_coverage"].iloc[0] == 1.0
+
+
+def test_reader_aligns_common_sizes_with_warning(result_dirs):
+    path = result_dirs["vi"] / "bayesian_ctrv_vi_03.csv"
+    path.rename(path.with_suffix(".backup"))
+    with pytest.warns(UserWarning, match="common observation counts"):
+        models = _read(result_dirs)
+    assert all(
+        table["observation_count"].tolist() == [2, 4] for table in models.values()
+    )
+
+
+def test_reader_preserves_verified_provenance(result_dirs):
+    for method, directory in result_dirs.items():
+        _metadata(directory, method)
+    models = _read(result_dirs)
+    assert all(
+        table["data_file"].tolist() == ["BR24.csv"] * 3 for table in models.values()
+    )
+    assert all(
+        table["inference_seed"].tolist() == [42] * 3 for table in models.values()
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("data_file", "other.csv"), ("inference_seed", 43), ("prediction_count", 4)],
+)
+def test_reader_rejects_mixed_run_metadata(result_dirs, field, value):
+    path, records = _metadata(result_dirs["vi"], "vi")
+    records["bayesian_ctrv_vi_03.csv"][field] = value
+    path.write_text(json.dumps(dict(version=1, evaluations=records)), encoding="utf-8")
+    with pytest.raises(ValueError, match=field):
+        _read(result_dirs)
+
+
+def test_reader_rejects_stale_metadata_after_csv_changes(result_dirs):
+    _metadata(result_dirs["vi"], "vi")
+    _edit(result_dirs, "negative_log_predictive_density", -2.0)
+    with pytest.raises(ValueError, match="metadata"):
+        _read(result_dirs)
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_prior_predictive_windows_do_not_require_fit_diagnostics(result_dirs, method):
+    _edit(result_dirs, "is_prior_predictive", True, method=method)
+    _edit(
+        result_dirs,
+        "mcmc_diagnostics_ok" if method == "mcmc" else "converged",
+        np.nan,
+        method=method,
+    )
+    _edit(result_dirs, "mcmc_rhat_max", np.nan, method=method)
+
+    table = _read(result_dirs)[method.upper()]
+
+    diagnostic = (
+        "mcmc_diagnostics_pass_rate" if method == "mcmc" else "vi_convergence_rate"
+    )
+    assert table.loc[table["observation_count"] == 3, diagnostic].isna().all()
+
+
+def test_plot_uses_recomputed_metrics_and_integer_ticks(result_dirs, tmp_path):
+    models = _read(result_dirs)
     figures = runtime_plotting.plot_observation_count_comparison(
         models, show=False, output_dir=tmp_path, plot_language="en"
     )
@@ -167,28 +315,22 @@ def test_plot_uses_observation_count_and_saved_metric_values(summary_csvs, tmp_p
         for metric, (figure, axis) in zip(METRICS, figures, strict=True):
             assert "observation_count" in axis.get_xlabel()
             assert [line.get_label() for line in axis.lines[:2]] == ["MCMC", "VI"]
-            scale = 100.0 if metric.startswith("joint_coverage_") else 1.0
+            scale = 100 if metric.startswith("joint_coverage_") else 1
             for line, table in zip(axis.lines[:2], models.values(), strict=True):
                 np.testing.assert_array_equal(line.get_xdata(), [2, 3, 4])
-                np.testing.assert_allclose(line.get_ydata(), scale * table[metric])
+                np.testing.assert_allclose(line.get_ydata(), table[metric] * scale)
+            for line, method in zip(axis.lines[:2], ["mcmc", "vi"], strict=True):
+                assert (
+                    line.get_color()
+                    == runtime_plotting.COMPARISON_INFERENCE_COLORS[method]
+                )
             if scale == 100:
-                nominal = float(metric.rsplit("_", 1)[1])
-                np.testing.assert_allclose(axis.lines[2].get_ydata(), nominal)
                 assert axis.get_ylim() == (0.0, 100.0)
-            assert (
-                axis.lines[0].get_color()
-                == runtime_plotting.COMPARISON_INFERENCE_COLORS["mcmc"]
-            )
-            assert (
-                axis.lines[1].get_color()
-                == runtime_plotting.COMPARISON_INFERENCE_COLORS["vi"]
-            )
             width, height = figure.get_size_inches()
             expected_width, expected_height = (
                 runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
             )
-            assert width == expected_width
-            assert height >= expected_height
+            assert width == expected_width and height >= expected_height
             figure.canvas.draw()
             assert (tmp_path / f"{metric}.png").is_file()
     finally:
@@ -196,8 +338,8 @@ def test_plot_uses_observation_count_and_saved_metric_values(summary_csvs, tmp_p
             plt.close(figure)
 
 
-def test_singleton_comparison_keeps_integer_observation_count_ticks(summary_csvs):
-    models = {label: table.iloc[:1] for label, table in _read(summary_csvs).items()}
+def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs):
+    models = {label: table.iloc[:1] for label, table in _read(result_dirs).items()}
     figures = runtime_plotting.plot_observation_count_comparison(models, show=False)
     try:
         for _, axis in figures:
@@ -209,39 +351,65 @@ def test_singleton_comparison_keeps_integer_observation_count_ticks(summary_csvs
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
-def test_comparison_script_only_reads_its_method_csv_and_displays_plots(
-    summary_csvs, tmp_path, monkeypatch, method
+def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
+    result_dirs, tmp_path, monkeypatch, method
 ):
-    import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
-
     monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
+    original_read = comparison._read_csv
 
-    def fail(**kwargs):
-        pytest.fail("The comparison script must never run inference")
+    def read_selected(path):
+        assert path.parent == result_dirs[method] and path.name != "summary.csv"
+        return original_read(path)
 
-    monkeypatch.setattr(evaluation.workflow, "run_bayesian_ctrv_evaluation", fail)
-    read_csv = comparison._read_csv
-
-    def read_selected_csv(path):
-        assert path == summary_csvs[method]
-        return read_csv(path)
-
-    monkeypatch.setattr(comparison, "_read_csv", read_selected_csv)
-    displayed = []
-    monkeypatch.setattr(plt, "show", lambda: displayed.append(plt.gcf()))
+    monkeypatch.setattr(comparison, "_read_csv", read_selected)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    script = ROOT / f"scripts/model_comparison/compare_{method}_observation_counts.py"
     try:
-        script = (
-            ROOT / f"scripts/model_comparison/compare_{method}_observation_counts.py"
+        module = runpy.run_path(script)
+        models = module["main"]()
+        saved = pd.read_csv(result_dirs[method] / "summary.csv")
+        expected = (
+            models[method.upper()]
+            .astype(object)
+            .where(models[method.upper()].notna(), np.nan)
         )
-        models = runpy.run_path(script, run_name="__main__")
-        assert "main" in models
-        assert len(displayed) == len(METRICS)
-        for figure in displayed:
-            assert figure.axes[0].lines[0].get_label() == method.upper()
-            assert not any(
-                line.get_label() == ("VI" if method == "mcmc" else "MCMC")
-                for line in figure.axes[0].lines
-            )
+        pd.testing.assert_frame_equal(saved, expected, check_dtype=False)
+        assert saved["observation_count"].tolist() == [2, 3, 4]
+        assert len(shown) == len(METRICS)
+        assert all(
+            figure.axes[0].lines[0].get_label() == method.upper() for figure in shown
+        )
     finally:
-        for figure in displayed:
+        for figure in shown:
             plt.close(figure)
+
+
+def test_failed_validation_keeps_previous_summary_and_does_not_plot(
+    result_dirs, monkeypatch
+):
+    directory = result_dirs["vi"]
+    original = (directory / "summary.csv").read_bytes()
+    _edit(result_dirs, "position_error_m", np.nan)
+    monkeypatch.setattr(
+        plt,
+        "subplots",
+        lambda *args, **kwargs: pytest.fail("Invalid inputs must not plot"),
+    )
+    with pytest.raises(ValueError):
+        comparison.run_observation_count_comparison(vi_dir=directory, show=False)
+    assert (directory / "summary.csv").read_bytes() == original
+
+
+def test_summary_export_failure_stops_before_plotting(result_dirs, monkeypatch):
+    directory = result_dirs["mcmc"]
+    original = (directory / "summary.csv").read_bytes()
+    monkeypatch.setattr(evaluation, "_export_csv", lambda *args: False)
+    monkeypatch.setattr(
+        plt,
+        "subplots",
+        lambda *args, **kwargs: pytest.fail("Failed export must not plot"),
+    )
+    with pytest.raises(OSError, match="summary.csv"):
+        comparison.run_observation_count_comparison(mcmc_dir=directory, show=False)
+    assert (directory / "summary.csv").read_bytes() == original
