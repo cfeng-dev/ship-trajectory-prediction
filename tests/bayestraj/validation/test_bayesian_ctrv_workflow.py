@@ -537,7 +537,7 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
 ):
     input_csv = tmp_path / "radar.csv"
     _write_br24_evaluation_input(input_csv)
-    tracker_type = workflow.br24_radar_smc.BR24BayesianRadarTracker
+    tracker_type = workflow.br24_radar_tracker.BR24BayesianRadarTracker
     original_initialize = tracker_type.initialize
     configured = []
 

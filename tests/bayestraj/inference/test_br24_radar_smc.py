@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from bayestraj.inference.br24_radar_smc import (
+from bayestraj.inference.br24_radar_tracker import (
     BR24BayesianRadarTracker,
     track_br24_csv,
 )
@@ -86,7 +86,9 @@ def test_bayesian_br24_tracker_keeps_predicting_after_three_rejected_detections(
     )
 
     steps = tuple(
-        tracker.process_cycle(_cycle(float(cycle - 1), cycle, [_detection(cycle, 500.0)]))
+        tracker.process_cycle(
+            _cycle(float(cycle - 1), cycle, [_detection(cycle, 500.0)])
+        )
         for cycle in (2, 3, 4)
     )
 

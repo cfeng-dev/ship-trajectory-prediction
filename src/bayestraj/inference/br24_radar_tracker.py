@@ -1,4 +1,4 @@
-"""Online Bayesian CTRV tracking from raw BR24 radar cycles."""
+"""Bayesian CTRV radar tracking with SMC, VI, MCMC, and Sequential VI."""
 
 from __future__ import annotations
 

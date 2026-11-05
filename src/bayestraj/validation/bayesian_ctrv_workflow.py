@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
-import bayestraj.inference.br24_radar_smc as br24_radar_smc
+import bayestraj.inference.br24_radar_tracker as br24_radar_tracker
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
@@ -587,7 +587,7 @@ def _run_br24_radar_evaluation(
         windows = windows[:max_windows]
 
     initial_detection = cycles[0].detections[0]
-    tracker = br24_radar_smc.BR24BayesianRadarTracker.initialize(
+    tracker = br24_radar_tracker.BR24BayesianRadarTracker.initialize(
         cycles[0],
         initial_detection_id=initial_detection.detection_id,
         priors=priors,

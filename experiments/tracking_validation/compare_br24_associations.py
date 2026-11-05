@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import read_br24_tracking_input

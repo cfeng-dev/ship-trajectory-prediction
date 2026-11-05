@@ -25,7 +25,7 @@ import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 import bayestraj.validation.metrics as validation_metrics
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
-from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.observations.br24 import (
     br24_measurement_covariance,
     read_br24_tracking_input,

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from bayestraj.inference import ctrv_cmdstan, ctrv_sequential_vi
-from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
     SequentialMonteCarloCTRVConfig,

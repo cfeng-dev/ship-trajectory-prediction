@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from bayestraj.forecasting.bayesian_ctrv import RollingExperimentConfig
-from bayestraj.inference.br24_radar_smc import BR24BayesianRadarTracker
+from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
