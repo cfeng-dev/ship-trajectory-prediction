@@ -10,7 +10,6 @@ from scipy.stats import chi2, norm
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
-import bayestraj.validation.plotting as validation_plotting
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
 from bayestraj.validation.cli import IMMEvaluationOptions
@@ -48,11 +47,14 @@ def run_imm_evaluation(
     data_file: str | Path,
     imm_python: str | Path,
     options: IMMEvaluationOptions,
-    credible_interval: float,
-    gaussian_plot_draws: int,
-    plot_seed: int,
+    credible_interval: float = 0.9,
+    forecast_seed: int = 42,
 ) -> tuple[pd.DataFrame, IMMRollingSummary]:
-    """Track raw radar cycles online and evaluate only after each forecast."""
+    """Track raw cycles and score forecasts without preparing trajectory plots.
+
+    Scoring uses 90-percent intervals by default. Keep the historical forecast
+    seed sequence independently of visualization in the predictor tools.
+    """
     data_file = Path(data_file)
     imm_python = Path(imm_python)
     tracker_type = _load_optional_imm_tracker(imm_python)
@@ -82,10 +84,7 @@ def run_imm_evaluation(
         cycles[0], initial_detection_id=initial_detection.detection_id
     )
     cycle_times = np.asarray([cycle.time_seconds for cycle in cycles], dtype=float)
-    tracked_positions = [tracker.estimated_position]
     processed_cycle_count = 1
-    show_rolling_plot = options.show_plot and options.stride == options.prediction_count
-    plot_groups = []
     prediction_tables = []
 
     _print_configuration(
@@ -98,7 +97,6 @@ def run_imm_evaluation(
         runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
             tracker.process_cycle(cycles[processed_cycle_count])
-            tracked_positions.append(tracker.estimated_position)
             processed_cycle_count += 1
 
         forecast_stop_index = (
@@ -109,14 +107,14 @@ def run_imm_evaluation(
         ]
         forecast = tracker.forecast(
             future_times,
-            seed=plot_seed + specification.window_index,
+            seed=forecast_seed + specification.window_index,
         )
         # Share the predictor's exact marginal medians, not a sample median.
         forecast_medians = imm_adapter.forecast_position_medians(tracker, forecast)
         forecast_runtime_seconds = time.perf_counter() - runtime_started
 
         # Evaluation labels are read only after the raw-radar tracker forecast.
-        table, covariances = _evaluate_forecast(
+        table, _ = _evaluate_forecast(
             forecast,
             credible_interval=credible_interval,
             forecast_median_positions=forecast_medians,
@@ -128,29 +126,6 @@ def run_imm_evaluation(
             forecast_runtime_seconds=forecast_runtime_seconds,
         )
         prediction_tables.append(table)
-        if show_rolling_plot:
-            position_samples = _draw_gaussian_position_samples(
-                forecast.position_means,
-                covariances,
-                sample_count=gaussian_plot_draws,
-                seed=plot_seed + specification.window_index,
-            )
-            plot_groups.append(
-                validation_plotting.RollingPosteriorPlotData(
-                    forecast_origin_x=float(tracker.estimated_position[0]),
-                    forecast_origin_y=float(tracker.estimated_position[1]),
-                    x_samples=position_samples[:, :, 0],
-                    y_samples=position_samples[:, :, 1],
-                    forecast_positions=forecast_medians,
-                    forecast_time_seconds=np.concatenate(
-                        (
-                            [0.0],
-                            forecast.time_seconds
-                            - tracker.last_observation_time_seconds,
-                        )
-                    ),
-                )
-            )
         print(
             f"Forecast {number}/{len(windows)}: "
             f"ADE={table['position_error_m'].mean():.2f} m, "
@@ -161,28 +136,6 @@ def run_imm_evaluation(
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = _summarize_predictions(predictions)
     _print_summary(summary)
-    if options.show_plot and not show_rolling_plot:
-        print("\nRolling plot skipped because forecast origins overlap.")
-        print(
-            "Use --stride equal to --predictions to display non-overlapping "
-            "IMM forecast paths."
-        )
-    elif show_rolling_plot:
-        tracked_positions = np.asarray(tracked_positions)
-        validation_plotting.plot_bayesian_rolling_predictions(
-            reference.x_meters,
-            reference.y_meters,
-            plot_groups,
-            initial_observation_count=options.observation_count,
-            inference_mode="online",
-            sample_trajectories_per_forecast=0,
-            observed_route_x=tracked_positions[:, 0],
-            observed_route_y=tracked_positions[:, 1],
-            observed_trajectory_label="IMM-Trackpositionen",
-            title_prefix="Python IMM BR24",
-            forecast_label="IMM-Prognosemediane",
-            show_time_labels=False,
-        )
     return predictions, summary
 
 
@@ -411,21 +364,6 @@ def _squared_mahalanobis(difference, covariance) -> float:
     """Return a squared Mahalanobis distance for one Gaussian forecast."""
     difference = np.asarray(difference, dtype=float)
     return float(difference @ np.linalg.solve(covariance, difference))
-
-
-def _draw_gaussian_position_samples(
-    means, covariances, *, sample_count, seed
-) -> np.ndarray:
-    """Draw independent marginal samples solely to render IMM covariance regions."""
-    generator = np.random.default_rng(seed)
-    samples = np.empty((sample_count, len(means), 2), dtype=float)
-    for index, (mean, covariance) in enumerate(zip(means, covariances, strict=True)):
-        samples[:, index] = generator.multivariate_normal(
-            mean,
-            covariance,
-            size=sample_count,
-        )
-    return samples
 
 
 def _summarize_predictions(predictions: pd.DataFrame) -> IMMRollingSummary:

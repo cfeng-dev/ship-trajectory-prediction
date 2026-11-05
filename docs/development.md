@@ -107,6 +107,8 @@ to `results/associations/bayesian_ctrv_<method>.csv`. Both output paths are
 configured centrally in `src/bayestraj/validation/bayesian_ctrv_evaluation.py`.
 The IMM evaluator writes
 `results/evaluation/imm.csv`.
+It uses the same default stride and interval level and shows summary diagnostic
+plots only. Its `--no-plot` option disables those diagnostics.
 
 To compare saved radar-detection choices without rerunning Bayesian inference:
 

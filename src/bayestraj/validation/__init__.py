@@ -9,7 +9,6 @@ from bayestraj.validation.metrics import (
 from bayestraj.validation.plotting import (
     RollingPosteriorPlotData,
     plot_bayesian_rolling_predictions,
-    plot_deterministic_rolling_predictions,
 )
 from bayestraj.validation.prediction_plotting import (
     plot_operational_prediction,
@@ -35,7 +34,6 @@ __all__ = [
     "format_position_evaluation",
     "plot_operational_prediction",
     "plot_bayesian_rolling_predictions",
-    "plot_deterministic_rolling_predictions",
     "plot_prediction",
     "plot_trajectory_paths",
     "print_position_evaluation",

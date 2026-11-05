@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
-import bayestraj.forecasting.deterministic_ctrv as deterministic_forecasting
 import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 
@@ -36,22 +35,8 @@ class BayesianCTRVEvaluationOptions:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class DeterministicCTRVEvaluationOptions:
-    """Runtime overrides for one deterministic CTRV rolling evaluation."""
-
-    window_mode: str
-    observation_count: int
-    prediction_count: int
-    stride: int | None
-    position_noise_std_m: float
-    position_noise_seed: int
-    max_windows: int | None
-    show_plot: bool
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
 class IMMEvaluationOptions:
-    """Command-line settings for one leakage-free IMM evaluation."""
+    """IMM evaluation settings; show_plot controls summary diagnostic plots."""
 
     observation_count: int
     prediction_count: int
@@ -159,74 +144,17 @@ def parse_bayesian_ctrv_evaluation_arguments(
         parser.error(str(error))
 
 
-def parse_deterministic_ctrv_evaluation_arguments(
-    *,
-    description: str | None,
-    experiment: deterministic_forecasting.DeterministicRollingExperimentConfig,
-    max_windows: int | None,
-    show_plot: bool,
-    argv: Sequence[str] | None = None,
-) -> DeterministicCTRVEvaluationOptions:
-    """Parse shared options for one deterministic CTRV rolling evaluation."""
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument(
-        "--window-mode",
-        choices=("sliding", "expanding"),
-        default=experiment.window_mode,
-    )
-    parser.add_argument(
-        "--observations",
-        type=int,
-        default=experiment.observation_count,
-    )
-    parser.add_argument(
-        "--predictions",
-        type=int,
-        default=experiment.prediction_count,
-    )
-    parser.add_argument("--stride", type=int, default=experiment.stride)
-    parser.add_argument(
-        "--position-noise-std-m",
-        type=float,
-        default=experiment.position_noise_std_m,
-    )
-    parser.add_argument(
-        "--position-noise-seed",
-        type=int,
-        default=experiment.position_noise_seed,
-    )
-    parser.add_argument("--max-windows", type=int, default=max_windows)
-    parser.add_argument(
-        "--no-plot",
-        action="store_false",
-        dest="show_plot",
-        default=show_plot,
-        help="Print metrics without opening the route-wide plot.",
-    )
-    arguments = parser.parse_args(argv)
-    return DeterministicCTRVEvaluationOptions(
-        window_mode=arguments.window_mode,
-        observation_count=arguments.observations,
-        prediction_count=arguments.predictions,
-        stride=arguments.stride,
-        position_noise_std_m=arguments.position_noise_std_m,
-        position_noise_seed=arguments.position_noise_seed,
-        max_windows=arguments.max_windows,
-        show_plot=arguments.show_plot,
-    )
-
-
 def parse_imm_evaluation_arguments(
     *,
     description: str | None,
-    observation_count: int,
+    observation_count: int = 2,
     prediction_count: int,
-    stride: int,
+    stride: int = 1,
     max_windows: int | None,
-    show_plot: bool,
+    show_plot: bool = True,
     argv: Sequence[str] | None = None,
 ) -> IMMEvaluationOptions:
-    """Parse the rolling controls shared with the Bayesian BR24 evaluator."""
+    """Parse rolling controls; evaluate from N=2 like Bayesian CTRV by default."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--observations", type=int, default=observation_count)
     parser.add_argument("--predictions", type=int, default=prediction_count)
@@ -242,7 +170,7 @@ def parse_imm_evaluation_arguments(
         action="store_false",
         dest="show_plot",
         default=show_plot,
-        help="Print and export metrics without opening plots.",
+        help="Print and export metrics without opening summary diagnostic plots.",
     )
     arguments = parser.parse_args(argv)
     for name, value in (

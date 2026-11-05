@@ -1,12 +1,62 @@
 """IMM evaluation configuration belongs in the shared validation workflow."""
 
 import importlib
+import runpy
+from pathlib import Path
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytest
 
 import bayestraj.validation.cli as cli
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_observations"),
+    [([], 2), (["--observations", "5"], 5)],
+)
+def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
+    tmp_path, monkeypatch, arguments, expected_observations
+):
+    script = Path(__file__).resolve().parents[3] / "experiments/model_evaluation/imm.py"
+    module = runpy.run_path(script)
+    settings = module["main"].__globals__
+    calls = []
+    plots = []
+    table = pd.DataFrame({"position_error_m": [1.0]})
+
+    def evaluate(**kwargs):
+        calls.append(kwargs)
+        return table, None
+
+    def diagnostics(predictions):
+        assert (tmp_path / "imm.csv").is_file()
+        plots.append(predictions)
+
+    monkeypatch.setattr(module["workflow"], "run_imm_evaluation", evaluate)
+    monkeypatch.setattr(
+        module["runtime_plotting"], "plot_imm_rolling_diagnostics", diagnostics
+    )
+    monkeypatch.setitem(settings, "OUTPUT_CSV", tmp_path / "imm.csv")
+
+    module["main"](arguments)
+
+    assert not {
+        "INITIAL_OBSERVATION_COUNT",
+        "STRIDE",
+        "CREDIBLE_INTERVAL",
+        "GAUSSIAN_PLOT_DRAWS",
+        "PLOT_SEED",
+        "SHOW_ROLLING_PLOT",
+    }.intersection(module)
+    assert module["SHOW_ROLLING_DIAGNOSTICS_PLOT"] is True
+    assert calls[0]["options"].stride == 1
+    assert calls[0]["options"].observation_count == expected_observations
+    assert set(calls[0]) == {"data_file", "imm_python", "options"}
+    assert len(plots) == 1 and plots[0] is table
+    pd.testing.assert_frame_equal(pd.read_csv(tmp_path / "imm.csv"), table)
 
 
 def _parse(arguments):
@@ -61,8 +111,9 @@ def test_shared_imm_cli_rejects_nonpositive_counts(flag, value):
         _parse([flag, value])
 
 
-def test_shared_imm_workflow_uses_explicit_paths_seed_and_plot_settings(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("use_defaults", [False, True])
+def test_shared_imm_workflow_preserves_scoring_and_seed_without_trajectory_plots(
+    tmp_path, monkeypatch, use_defaults
 ):
     workflow = importlib.import_module("bayestraj.validation.imm_workflow")
     options = cli.IMMEvaluationOptions(1, 2, 2, 1, True)
@@ -91,7 +142,7 @@ def test_shared_imm_workflow_uses_explicit_paths_seed_and_plot_settings(
             return cls()
 
         def forecast(self, times, *, seed):
-            assert seed == 137
+            assert seed == (42 if use_defaults else 137)
             np.testing.assert_array_equal(times, [1, 2])
             return SimpleNamespace(
                 time_seconds=np.asarray(times),
@@ -112,30 +163,23 @@ def test_shared_imm_workflow_uses_explicit_paths_seed_and_plot_settings(
         assert path == data_file
         return reference
 
-    captured = []
-
-    def plot(route_x, route_y, groups, **kwargs):
-        captured.extend(groups)
+    def unexpected_plot(*args, **kwargs):
+        pytest.fail("The IMM workflow must not create trajectory figures.")
 
     monkeypatch.setattr(workflow, "_load_optional_imm_tracker", load)
     monkeypatch.setattr(workflow.br24, "read_br24_tracking_input", read_input)
     monkeypatch.setattr(workflow.br24, "read_br24_tracking_reference", read_reference)
-    monkeypatch.setattr(
-        workflow.validation_plotting, "plot_bayesian_rolling_predictions", plot
-    )
+    monkeypatch.setattr(plt, "subplots", unexpected_plot)
+    overrides = {} if use_defaults else {"credible_interval": 0.5, "forecast_seed": 137}
     table, summary = workflow.run_imm_evaluation(
         data_file=data_file,
         imm_python=backend,
         options=options,
-        credible_interval=0.5,
-        gaussian_plot_draws=7,
-        plot_seed=137,
+        **overrides,
     )
     assert summary.window_count == 1
-    assert len(captured) == 1
-    assert captured[0].x_samples.shape == captured[0].y_samples.shape == (7, 2)
-    np.testing.assert_array_equal(captured[0].forecast_positions, [[0, 0], [0, 0]])
-    # Standard normal central 50% quantiles; no accidental fallback to 90% defaults.
-    np.testing.assert_allclose(table["x_lower"], -0.6744897501960817)
-    np.testing.assert_allclose(table["x_upper"], 0.6744897501960817)
+    # Standard normal central 90% by default, or the explicitly requested 50%.
+    quantile = 1.6448536269514722 if use_defaults else 0.6744897501960817
+    np.testing.assert_allclose(table["x_lower"], -quantile)
+    np.testing.assert_allclose(table["x_upper"], quantile)
     assert list(tmp_path.iterdir()) == []

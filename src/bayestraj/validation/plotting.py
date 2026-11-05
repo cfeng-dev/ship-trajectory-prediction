@@ -1,4 +1,4 @@
-"""Plot deterministic and Bayesian rolling trajectory evaluations."""
+"""Plot Bayesian rolling trajectory evaluations."""
 
 from dataclasses import dataclass
 
@@ -113,71 +113,6 @@ def plot_bayesian_rolling_predictions(
         figsize=ROLLING_FIGURE_SIZE,
         forecast_alpha=0.35,
         forecast_linewidth=1.5,
-    )
-    plt.show()
-    return figure, axis
-
-
-def plot_deterministic_rolling_predictions(
-    route_x,
-    route_y,
-    predictions,
-    *,
-    initial_observation_count,
-    window_mode,
-    observed_route_x,
-    observed_route_y,
-    position_noise_std_m,
-    show_time_labels=False,
-):
-    """Plot deterministic rolling forecasts with shared scientific styling."""
-    _window_mode_label(window_mode)
-    forecast_paths = []
-    forecast_horizon_groups = []
-    forecast_origin_x = []
-    forecast_origin_y = []
-    for _, group in predictions.groupby("window_index", sort=True):
-        forecast_paths.append(
-            (
-                np.concatenate(
-                    (
-                        [group["forecast_origin_x_route"].iloc[0]],
-                        group["x_predicted_route"],
-                    )
-                ),
-                np.concatenate(
-                    (
-                        [group["forecast_origin_y_route"].iloc[0]],
-                        group["y_predicted_route"],
-                    )
-                ),
-            )
-        )
-        forecast_horizon_groups.append(group["horizon_seconds"].to_numpy(dtype=float))
-        forecast_origin_x.append(group["forecast_origin_x_route"].iloc[0])
-        forecast_origin_y.append(group["forecast_origin_y_route"].iloc[0])
-
-    figure, axis = prediction_plotting.plot_trajectory_paths(
-        observed_path=(
-            observed_route_x[:initial_observation_count],
-            observed_route_y[:initial_observation_count],
-        ),
-        reference_path=(route_x, route_y),
-        forecast_paths=forecast_paths,
-        forecast_horizon_groups=(forecast_horizon_groups if show_time_labels else ()),
-        prediction_origins=(forecast_origin_x, forecast_origin_y),
-        title=None,
-        observed_label=(
-            "Verrauschte Anfangsbeobachtungen"
-            if position_noise_std_m > 0
-            else "Anfängliche Beobachtungen"
-        ),
-        reference_label="Aufgezeichnete Trajektorie",
-        forecast_label="Rollierende deterministische CTRV-Prognosen",
-        prediction_origin_label="Startpunkte der Prognosen",
-        figsize=ROLLING_FIGURE_SIZE,
-        forecast_alpha=0.65,
-        forecast_linewidth=1.3,
     )
     plt.show()
     return figure, axis

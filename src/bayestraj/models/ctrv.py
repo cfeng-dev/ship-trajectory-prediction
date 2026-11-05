@@ -88,30 +88,6 @@ def ctrv_step(state: CTRVState, dt: float) -> CTRVState:
     )
 
 
-def predict_ctrv(
-    initial_state: CTRVState,
-    dt: float,
-    steps: int,
-) -> tuple[CTRVState, ...]:
-    """Return ``steps`` future CTRV states at a constant time interval.
-
-    The returned tuple contains future states only; the input state is not
-    included and is never modified.
-    """
-    if not isinstance(initial_state, CTRVState):
-        raise TypeError("initial_state must be a CTRVState instance.")
-    dt = _positive_finite_float(dt, name="dt")
-    if isinstance(steps, bool) or not isinstance(steps, int) or steps < 1:
-        raise ValueError("steps must be an integer greater than or equal to 1.")
-
-    states = []
-    current_state = initial_state
-    for _ in range(steps):
-        current_state = ctrv_step(current_state, dt)
-        states.append(current_state)
-    return tuple(states)
-
-
 def displacements(
     speed: np.ndarray,
     heading: np.ndarray,

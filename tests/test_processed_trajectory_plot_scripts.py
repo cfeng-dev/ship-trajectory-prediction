@@ -156,9 +156,8 @@ def test_imm_evaluation_rejects_invalid_median_positions(imm_median_case, median
         _score_imm_case(imm_median_case, medians)
 
 
-@pytest.mark.parametrize("show_plot", [False, True])
-def test_imm_evaluation_exports_and_plots_the_predictor_medians(
-    imm_median_case, tmp_path, monkeypatch, show_plot
+def test_imm_evaluation_exports_predictor_medians_without_trajectory_plots(
+    imm_median_case, tmp_path, monkeypatch
 ):
     case = imm_median_case
     namespace = case.module["main"].__globals__
@@ -193,6 +192,7 @@ def test_imm_evaluation_exports_and_plots_the_predictor_medians(
             return cls()
 
         def forecast(self, times, *, seed):
+            assert seed == 42
             np.testing.assert_array_equal(times, [1, 2])
             return case.forecast
 
@@ -210,8 +210,6 @@ def test_imm_evaluation_exports_and_plots_the_predictor_medians(
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     arguments = ["--observations", "1", "--predictions", "2", "--stride", "2"]
-    if not show_plot:
-        arguments.append("--no-plot")
     try:
         table, summary = case.module["main"](arguments)
         assert summary.ade_m == 3.5
@@ -221,15 +219,7 @@ def test_imm_evaluation_exports_and_plots_the_predictor_medians(
         np.testing.assert_array_equal(
             exported[["x_median", "y_median"]], [[2, 0], [0, 5]]
         )
-        assert len(shown) == int(show_plot)
-        if show_plot:
-            forecast_line = next(
-                line
-                for line in shown[0].axes[0].lines
-                if line.get_label() == "IMM-Prognosemediane"
-            )
-            np.testing.assert_array_equal(forecast_line.get_xdata(), [100, 2, 0])
-            np.testing.assert_array_equal(forecast_line.get_ydata(), [200, 0, 5])
+        assert shown == []
     finally:
         for figure in shown:
             plt.close(figure)
@@ -290,7 +280,7 @@ def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
         pytest.skip("Optional local IMM implementation or BR24 data is unavailable")
     output = tmp_path / "imm_evaluation.csv"
     monkeypatch.setitem(settings, "OUTPUT_CSV", output)
-    monkeypatch.setitem(settings, "SHOW_ROLLING_PLOT", False)
+    monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", False)
     monkeypatch.setitem(settings, "MAX_WINDOWS", 2)
     cycles = imm_workflow.br24.read_br24_tracking_input(settings["DATA_FILE"])
     bayesian = runpy.run_path(
@@ -371,9 +361,7 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         assert options.stride == (2 if "--stride" in arguments else 1)
         assert kwargs["data_file"] == module["DATA_FILE"]
         assert kwargs["imm_python"] == module["IMM_PYTHON"]
-        assert kwargs["credible_interval"] == module["CREDIBLE_INTERVAL"]
-        assert kwargs["gaussian_plot_draws"] == module["GAUSSIAN_PLOT_DRAWS"]
-        assert kwargs["plot_seed"] == module["PLOT_SEED"]
+        assert set(kwargs) == {"data_file", "imm_python", "options"}
         return predictions, summary
 
     monkeypatch.setattr(namespace["workflow"], "run_imm_evaluation", evaluate)
