@@ -286,8 +286,7 @@ def test_main_replaces_cyclewise_comparison_at_fixed_output_path(
 ):
     module = runpy.run_path(SCRIPT)
     assert module["OUTPUT_CSV"] == (
-        SCRIPT.parents[2]
-        / "results/tracking_validation/BR24_imm_implementation_comparison.csv"
+        SCRIPT.parents[2] / "results/validation/BR24_imm_implementation_comparison.csv"
     )
     if not module["IMM_PYTHON"].is_file():
         pytest.skip("Optional external IMM implementation is not available")
