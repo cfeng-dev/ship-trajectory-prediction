@@ -5,7 +5,6 @@ the shared evaluation module.
 """
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
-import bayestraj.inference.configuration as inference_config
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
@@ -41,7 +40,6 @@ def main(argv=None):
         data_file=DATA_FILE,
         experiment=EXPERIMENT,
         priors=PRIORS,
-        fullrank_grad_samples=inference_config.DEFAULT_FULLRANK_GRAD_SAMPLES,
         max_windows=MAX_WINDOWS,
         show_rolling_diagnostics_plot=SHOW_ROLLING_DIAGNOSTICS_PLOT,
         description=__doc__,

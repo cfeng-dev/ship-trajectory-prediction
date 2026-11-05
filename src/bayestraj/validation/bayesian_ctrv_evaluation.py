@@ -118,7 +118,7 @@ def run_evaluation(
     output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     experiment: ctrv_config.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
-    fullrank_grad_samples,
+    fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
     credible_interval=0.9,
     max_windows,
     show_rolling_diagnostics_plot,
