@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
     "relative_path",
     [
         "data/processed/BR24Dataset20131107_with_reference.csv",
-        "results/bayesian_ctrv_smc_evaluation.csv",
+        "results/evaluation/bayesian_ctrv_smc.csv",
         "figures/model_comparison/comparison.png",
         "external/IMM/br24_imm.py",
         "src/stan/models/bayesian_ctrv.stan",
@@ -51,7 +51,7 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
         (
             "experiments/model_comparison/compare_bayesian_ctrv_imm.py",
             "BAYESIAN_SMC_CSV",
-            "results/bayesian_ctrv_smc_evaluation.csv",
+            "results/evaluation/bayesian_ctrv_smc.csv",
         ),
         (
             "experiments/model_evaluation/imm.py",
@@ -61,7 +61,7 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
         (
             "experiments/model_comparison/compare_bayesian_ctrv_imm.py",
             "IMM_CSV",
-            "results/imm_evaluation.csv",
+            "results/evaluation/imm.csv",
         ),
         (
             "examples/plot_simulated_trajectory.py",

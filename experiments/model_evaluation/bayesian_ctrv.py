@@ -1,6 +1,7 @@
 """Evaluate Bayesian CTRV forecasts across rolling windows (SMC by default).
 
-Set OUTPUT_CSV to None to skip CSV export.
+BR24 runs also export the selected raw fixes. CSV destinations are managed by
+the shared evaluation module.
 """
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
@@ -10,7 +11,6 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
 
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = project_path("results/bayesian_ctrv_{inference_method}_evaluation.csv")
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
     prediction_count=3,  # Future positions per forecast.
@@ -44,7 +44,6 @@ def main(argv=None):
     """Run rolling evaluation using this script's header settings."""
     return evaluation.run_evaluation(
         data_file=DATA_FILE,
-        output_csv=OUTPUT_CSV,
         experiment=EXPERIMENT,
         priors=PRIORS,
         fullrank_grad_samples=inference_config.DEFAULT_FULLRANK_GRAD_SAMPLES,

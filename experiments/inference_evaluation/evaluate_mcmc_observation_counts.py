@@ -11,7 +11,7 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
 
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_DIR = project_path("results/bayesian_ctrv_mcmc_evaluation")
+OUTPUT_DIR = project_path("results/inference_evaluation/bayesian_ctrv_mcmc")
 MIN_OBSERVATION_COUNT = 2
 MAX_OBSERVATION_COUNT = 20
 MAX_WINDOWS = None  # Optional limit on evaluated origins after initialization.

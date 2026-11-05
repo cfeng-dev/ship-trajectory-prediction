@@ -253,3 +253,74 @@ def test_cli_rejects_multiple_methods_before_tracking(monkeypatch):
     with pytest.raises(SystemExit) as error:
         module["main"](["--method", "smc", "vi"])
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize("cycle_count", [2, 3])
+def test_saved_bayesian_csv_compares_only_processed_cycles_without_running_inference(
+    tmp_path, monkeypatch, cycle_count
+):
+    module = runpy.run_path(SCRIPT_PATH)
+    raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
+    saved = tmp_path / "bayesian_ctrv_mcmc_associations.csv"
+    pd.DataFrame(
+        {
+            "time": [0.0, 1.0, 2.0],
+            "cycle_counter": [4, 5, 6],
+            "detection_id": [9, 10, None],
+            "x": [110.0, 110.0, None],
+            "y": [-20.0, -20.0, None],
+        }
+    ).iloc[:cycle_count].to_csv(saved, index=False)
+
+    def forbidden_inference(*args, **kwargs):
+        pytest.fail("Saved association comparisons must not run inference")
+
+    monkeypatch.setattr(
+        module["BR24BayesianRadarTracker"], "initialize", forbidden_inference
+    )
+    result = module["main"](
+        [
+            "--method",
+            "mcmc",
+            "--raw-csv",
+            str(raw_csv),
+            "--imm-csv",
+            str(imm_csv),
+            "--bayesian-csv",
+            str(saved),
+            "--output-dir",
+            str(tmp_path / "comparison"),
+        ]
+    )
+
+    assert result["cycle_counter"].tolist() == [4, 5, 6][:cycle_count]
+    assert (
+        result["association_status"].tolist()
+        == ["same_detection", "same_detection", "both_missed"][:cycle_count]
+    )
+    assert result["configured_observation_count"].isna().all()
+    assert result["inference_seed"].isna().all()
+
+
+@pytest.mark.parametrize("bad_field", ["cycle_counter", "time", "detection_id", "x"])
+def test_saved_association_csv_rejects_misalignment_or_invalid_raw_fixes(
+    tmp_path, bad_field
+):
+    module = runpy.run_path(SCRIPT_PATH)
+    raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
+    table = pd.DataFrame(
+        {
+            "time": [0.0, 1.0],
+            "cycle_counter": [4, 5],
+            "detection_id": [9, 10],
+            "x": [110.0, 110.0],
+            "y": [-20.0, -20.0],
+        }
+    )
+    table.loc[1, bad_field] += 1
+    path = tmp_path / "saved.csv"
+    table.to_csv(path, index=False)
+    with pytest.raises(ValueError):
+        module["compare_associations"](
+            raw_csv=raw_csv, imm_csv=imm_csv, output_csv=output_csv, bayesian_csv=path
+        )

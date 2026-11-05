@@ -68,3 +68,55 @@ def test_export_rejects_unknown_columns_instead_of_discarding_them(tmp_path, cap
     assert path.read_bytes() == original
     assert "new_diagnostic" in capsys.readouterr().out
     assert list(tmp_path.iterdir()) == [path]
+
+
+def test_association_export_preserves_misses_and_integer_detection_ids(tmp_path):
+    table = pd.DataFrame(
+        [
+            {
+                "time": 10.0,
+                "cycle_counter": 1,
+                "detection_id": 7,
+                "x": 110.0,
+                "y": -20.0,
+            },
+            {
+                "time": 11.0,
+                "cycle_counter": 2,
+                "detection_id": None,
+                "x": None,
+                "y": None,
+            },
+        ]
+    )
+    original = table.copy(deep=True)
+    path = tmp_path / "associations.csv"
+    assert hasattr(evaluation, "export_associations_csv")
+
+    assert evaluation.export_associations_csv(table, path)
+
+    with path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        assert reader.fieldnames == ["time", "cycle_counter", "detection_id", "x", "y"]
+        accepted, missed = list(reader)
+    assert accepted["detection_id"] == "7"
+    assert float(accepted["x"]) == 110.0
+    assert missed["detection_id"] == missed["x"] == missed["y"] == ""
+    pd.testing.assert_frame_equal(table, original)
+
+
+@pytest.mark.parametrize(
+    ("metrics", "associations"),
+    [
+        ("bayesian_ctrv_mcmc_evaluation.csv", "bayesian_ctrv_mcmc_associations.csv"),
+        ("bayesian_ctrv_vi_02.csv", "bayesian_ctrv_vi_02_associations.csv"),
+        ("metrics.csv", "metrics_associations.csv"),
+    ],
+)
+def test_association_output_path_keeps_method_and_window_identity(
+    tmp_path, metrics, associations
+):
+    assert hasattr(evaluation, "association_csv_path")
+    assert (
+        evaluation.association_csv_path(tmp_path / metrics) == tmp_path / associations
+    )

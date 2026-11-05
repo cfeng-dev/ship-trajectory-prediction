@@ -36,6 +36,9 @@ def sweep_run(tmp_path, monkeypatch):
         windows = [window for window in windows if window.window_index in selected]
         if options.max_windows is not None:
             windows = windows[: options.max_windows]
+        assert kwargs.get("association_records") is None, (
+            "Sweeps must not record associations"
+        )
         predictions = pd.DataFrame(
             [
                 {
@@ -98,6 +101,7 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     tmp_path, monkeypatch, sweep_run, method
 ):
     namespace = _script(method)
+    assert "ASSOCIATIONS_OUTPUT_DIR" not in namespace
     monkeypatch.setitem(namespace["main"].__globals__, "MAX_WINDOWS", 2)
     monkeypatch.chdir(tmp_path)
 
@@ -120,7 +124,8 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
         assert call["show_plot"] is False
         assert call["options"].plot_each_window is False
 
-    output = tmp_path / f"results/bayesian_ctrv_{method}_evaluation"
+    output = tmp_path / f"results/inference_evaluation/bayesian_ctrv_{method}"
+    assert not (tmp_path / "results/associations").exists()
     assert sorted(path.name for path in output.iterdir()) == [
         *(f"bayesian_ctrv_{method}_{count:02d}.csv" for count in range(2, 21)),
         "summary.csv",
@@ -192,7 +197,7 @@ def test_complete_sweep_has_normal_evaluation_row_count(tmp_path, sweep_run, met
     assert summary["forecast_count"].tolist() == [63]
     path = (
         tmp_path
-        / f"results/bayesian_ctrv_{method}_evaluation/bayesian_ctrv_{method}_20.csv"
+        / f"results/inference_evaluation/bayesian_ctrv_{method}/bayesian_ctrv_{method}_20.csv"
     )
     table = pd.read_csv(path)
     assert len(table) == 63
@@ -251,7 +256,10 @@ def test_sweep_can_evaluate_before_the_largest_window_fills(tmp_path, sweep_run)
 
     assert "evaluation_start_observation_count" not in summary
     assert summary["observation_count"].tolist() == [24]
-    output = tmp_path / "results/bayesian_ctrv_vi_evaluation/bayesian_ctrv_vi_24.csv"
+    output = (
+        tmp_path
+        / "results/inference_evaluation/bayesian_ctrv_vi/bayesian_ctrv_vi_24.csv"
+    )
     table = pd.read_csv(output)
     assert table["forecast_start_index"].tolist() == [2] * 3
     assert table["window_cycle_count"].tolist() == [2] * 3
@@ -276,4 +284,6 @@ def test_sweep_stops_on_csv_export_failure(tmp_path, monkeypatch, sweep_run):
         _script("vi")["main"](["--max-windows", "1"])
 
     assert len(sweep_run) == 1
-    assert not (tmp_path / "results/bayesian_ctrv_vi_evaluation/summary.csv").exists()
+    assert not (
+        tmp_path / "results/inference_evaluation/bayesian_ctrv_vi/summary.csv"
+    ).exists()

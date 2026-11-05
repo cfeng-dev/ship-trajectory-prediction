@@ -55,7 +55,10 @@ def _summary(method):
 def summary_csvs(tmp_path):
     paths = {}
     for method in ("mcmc", "vi"):
-        path = tmp_path / f"results/bayesian_ctrv_{method}_evaluation/summary.csv"
+        path = (
+            tmp_path
+            / f"results/inference_evaluation/bayesian_ctrv_{method}/summary.csv"
+        )
         path.parent.mkdir(parents=True)
         _summary(method).to_csv(path, index=False)
         paths[method] = path

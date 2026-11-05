@@ -18,7 +18,10 @@ from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
-from bayestraj.observations.br24 import read_br24_tracking_input
+from bayestraj.observations.br24 import (
+    br24_measurement_position,
+    read_br24_tracking_input,
+)
 from bayestraj.paths import project_path
 
 RAW_INPUT_CSV = project_path("data/processed/BR24Dataset20131107.csv")
@@ -46,6 +49,7 @@ def compare_associations(
     mcmc_config: Mapping[str, Any] | None = None,
     sequential_vi_config: SequentialVIConfig | None = None,
     max_cycles: int | None = None,
+    bayesian_csv: str | Path | None = None,
 ) -> pd.DataFrame:
     """Write one IMM-versus-Bayesian association decision for every raw cycle.
 
@@ -54,6 +58,8 @@ def compare_associations(
     starts at its second cycle, so its initial selection is reconstructed here.
     Supply the complete IMM association export for these raw cycles: absent
     rows are interpreted as IMM misses, not as an incomplete recording.
+    With bayesian_csv, compare saved decisions on their recorded cycle prefix
+    without constructing a tracker or running inference.
     """
     inference_mode, inference_method = inference.normalize_inference_method(
         inference_method
@@ -83,40 +89,46 @@ def compare_associations(
     ):
         raise ValueError("IMM initial detection does not match the common BR24 seed.")
     imm_detection_ids.setdefault(initial_cycle.cycle_counter, initial_detection_id)
+    if bayesian_csv is not None:
+        cycles, bayesian_detection_ids = _read_saved_associations(bayesian_csv, cycles)
+        if bayesian_detection_ids[initial_cycle.cycle_counter] != initial_detection_id:
+            raise ValueError(
+                "Bayesian initial detection does not match the common BR24 seed."
+            )
     if max_cycles is not None:
         cycles = cycles[:max_cycles]
 
-    # Use the same shared defaults and full-rank VI settings as the evaluator.
-    vi_options = inference.create_default_vi_config()
-    vi_options.update(vi_config or {})
-    mcmc_options = inference.create_default_mcmc_config()
-    mcmc_options.update(mcmc_config or {})
-    _, vi_options = inference.select_inference_config(
-        "batch",
-        "vi",
-        vi_algorithm=vi_options["algorithm"],
-        require_converged=vi_options["require_converged"],
-        vi_config=vi_options,
-        mcmc_config=mcmc_options,
-        fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
-    )
-
-    tracker = BR24BayesianRadarTracker.initialize(
-        initial_cycle,
-        initial_detection_id=initial_detection_id,
-        priors=BayesianCTRVPriors() if priors is None else priors,
-        config=config,
-        seed=seed,
-        inference_method=inference_method,
-        observation_count=observation_count,
-        vi_config=vi_options,
-        mcmc_config=mcmc_options,
-        sequential_vi_config=sequential_vi_config,
-    )
-    bayesian_detection_ids = {initial_cycle.cycle_counter: initial_detection_id}
-    for cycle in cycles[1:]:
-        step = tracker.process_cycle(cycle)
-        bayesian_detection_ids[cycle.cycle_counter] = step.detection_id
+    if bayesian_csv is None:
+        # Use the same shared defaults and full-rank VI settings as the evaluator.
+        vi_options = inference.create_default_vi_config()
+        vi_options.update(vi_config or {})
+        mcmc_options = inference.create_default_mcmc_config()
+        mcmc_options.update(mcmc_config or {})
+        _, vi_options = inference.select_inference_config(
+            "batch",
+            "vi",
+            vi_algorithm=vi_options["algorithm"],
+            require_converged=vi_options["require_converged"],
+            vi_config=vi_options,
+            mcmc_config=mcmc_options,
+            fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
+        )
+        tracker = BR24BayesianRadarTracker.initialize(
+            initial_cycle,
+            initial_detection_id=initial_detection_id,
+            priors=BayesianCTRVPriors() if priors is None else priors,
+            config=config,
+            seed=seed,
+            inference_method=inference_method,
+            observation_count=observation_count,
+            vi_config=vi_options,
+            mcmc_config=mcmc_options,
+            sequential_vi_config=sequential_vi_config,
+        )
+        bayesian_detection_ids = {initial_cycle.cycle_counter: initial_detection_id}
+        for cycle in cycles[1:]:
+            step = tracker.process_cycle(cycle)
+            bayesian_detection_ids[cycle.cycle_counter] = step.detection_id
 
     comparison = pd.DataFrame(
         {
@@ -142,13 +154,68 @@ def compare_associations(
     ]
     comparison["inference_method"] = inference_method
     comparison["configured_observation_count"] = (
-        observation_count if inference_mode == "batch" else np.nan
+        observation_count
+        if inference_mode == "batch" and bayesian_csv is None
+        else np.nan
     )
-    comparison["inference_seed"] = seed
+    comparison["inference_seed"] = seed if bayesian_csv is None else np.nan
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(output_path, index=False)
     return comparison
+
+
+def _read_saved_associations(path, cycles):
+    """Require every consumed cycle, including explicit misses, in source order."""
+    data = pd.read_csv(path)
+    required = {"time", "cycle_counter", "detection_id", "x", "y"}
+    if data.empty or not required.issubset(data.columns) or len(data) > len(cycles):
+        raise ValueError(
+            "Bayesian association CSV must contain recorded radar cycles and raw fixes."
+        )
+    recorded = cycles[: len(data)]
+    if not np.array_equal(
+        data["cycle_counter"], [cycle.cycle_counter for cycle in recorded]
+    ):
+        raise ValueError(
+            "Bayesian association cycles must match a complete prefix of the raw input."
+        )
+    if not np.allclose(
+        data["time"], [cycle.time_seconds for cycle in recorded], rtol=0.0, atol=1e-6
+    ):
+        raise ValueError("Bayesian association times do not match the raw input.")
+    identities = {}
+    for row, cycle in zip(data.itertuples(index=False), recorded, strict=True):
+        if pd.isna(row.detection_id):
+            if not pd.isna([row.x, row.y]).all():
+                raise ValueError(
+                    "A missed Bayesian detection must have empty radar coordinates."
+                )
+            identity = None
+        else:
+            if not np.isfinite(row.detection_id) or row.detection_id != int(
+                row.detection_id
+            ):
+                raise ValueError("Bayesian detection IDs must be integers or empty.")
+            identity = int(row.detection_id)
+            detection = next(
+                (d for d in cycle.detections if d.detection_id == identity), None
+            )
+            if detection is None:
+                raise ValueError(
+                    f"Bayesian detection {identity} is absent from cycle {cycle.cycle_counter}."
+                )
+            position = br24_measurement_position(
+                sensor_position=cycle.sensor_position,
+                range_m=detection.range_m,
+                azimuth_rad=detection.azimuth_rad,
+            )
+            if not np.allclose([row.x, row.y], position, rtol=0.0, atol=1e-6):
+                raise ValueError(
+                    "Bayesian radar coordinates do not match the selected detection."
+                )
+        identities[cycle.cycle_counter] = identity
+    return recorded, identities
 
 
 def _read_imm_detection_ids(imm_csv, *, cycles) -> dict[int, int]:
@@ -252,6 +319,11 @@ def main(argv=None) -> pd.DataFrame:
     )
     parser.add_argument("--raw-csv", type=Path, default=RAW_INPUT_CSV)
     parser.add_argument("--imm-csv", type=Path, default=IMM_TRACKED_TRAJECTORY_CSV)
+    parser.add_argument(
+        "--bayesian-csv",
+        type=Path,
+        help="Read an exported association CSV without running inference.",
+    )
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--observations", type=int, default=OBSERVATION_COUNT)
     parser.add_argument("--seed", type=int, default=INFERENCE_SEED)
@@ -269,6 +341,7 @@ def main(argv=None) -> pd.DataFrame:
         observation_count=options.observations,
         seed=options.seed,
         max_cycles=options.max_cycles,
+        bayesian_csv=options.bayesian_csv,
     )
     print_association_summary(comparison, inference_method=method)
     print(f"Saved association comparison: {output}")

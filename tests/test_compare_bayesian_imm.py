@@ -1032,7 +1032,7 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     original = predictions.copy(deep=True)
     summary = object()
     output = tmp_path / "results/bayesian_ctrv_smc_evaluation.csv"
-    monkeypatch.setitem(settings, "OUTPUT_CSV", output)
+    monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", output)
     monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", show_diagnostics)
     monkeypatch.setattr(
         evaluation.workflow,

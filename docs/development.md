@@ -77,7 +77,7 @@ working directory used to launch a script:
 from bayestraj.paths import project_path
 
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
-OUTPUT_CSV = project_path("results/bayesian_ctrv_smc_evaluation.csv")
+RESULTS_DIR = project_path("results/evaluation")
 ```
 
 Include the top-level directory, such as `data/`, `results/`, or `figures/`, in
@@ -97,8 +97,22 @@ ten past points per fit: start with two points, grow to ten, then slide.
 Evaluation starts at N=2; Sequential VI initializes once from three accepted
 measurements by default, then updates one measurement at a time.
 
-Results are saved to `results/bayesian_ctrv_<method>_evaluation.csv`
-(`seq_vi` for Sequential VI).
+Forecast results are saved to `results/evaluation/bayesian_ctrv_<method>.csv`
+(`seq_vi` for Sequential VI). BR24 runs also save accepted radar detections
+to `results/associations/bayesian_ctrv_<method>.csv`. Both output paths are
+configured centrally in `src/bayestraj/validation/bayesian_ctrv_evaluation.py`.
+The IMM evaluator writes
+`results/evaluation/imm.csv`.
+
+To compare saved radar-detection choices without rerunning Bayesian inference:
+
+```bash
+uv run python experiments/tracking_validation/compare_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
+```
+
+Observation-count sweeps export only forecast CSVs and `summary.csv` under
+`results/inference_evaluation/bayesian_ctrv_<method>/`. The sweep option `--output-dir`
+overrides that directory.
 Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.

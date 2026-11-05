@@ -131,6 +131,41 @@ def _write_br24_evaluation_input(path, *, reference_x_offset=0.0, cycle_count=5)
     ).to_csv(path, index=False)
 
 
+def test_association_recording_keeps_misses_and_rejections_without_processing_future(
+    tmp_path,
+):
+    path = tmp_path / "radar.csv"
+    _write_br24_evaluation_input(path, cycle_count=6)
+    data = pd.read_csv(path)
+    detection_columns = [
+        "detection_id",
+        "range",
+        "azimuth",
+        "std_range",
+        "std_azimuth",
+        "x_relative",
+        "y_relative",
+    ]
+    data.loc[2, detection_columns] = np.nan
+    data.loc[3, ["range", "x_relative"]] = 1e9
+    data.to_csv(path, index=False)
+    records = []
+
+    actual, _ = _run_br24_evaluation(
+        path, max_windows=3, prediction_count=2, association_records=records
+    )
+    expected, _ = _run_br24_evaluation(path, max_windows=3, prediction_count=2)
+
+    assert [row["cycle_counter"] for row in records] == [1, 2, 3, 4]
+    assert [row["detection_id"] for row in records] == [1, 2, None, None]
+    assert [row["x"] for row in records[:2]] == [10.0, 11.0]
+    assert all(np.isnan(row["x"]) and np.isnan(row["y"]) for row in records[2:])
+    pd.testing.assert_frame_equal(
+        actual[["x_median", "y_median", "position_error_m"]],
+        expected[["x_median", "y_median", "position_error_m"]],
+    )
+
+
 def _run_br24_evaluation(
     data_file,
     *,
@@ -139,6 +174,7 @@ def _run_br24_evaluation(
     max_windows=None,
     sequential_vi_config=None,
     prediction_count=1,
+    association_records=None,
 ):
     experiment = forecasting.RollingExperimentConfig(
         observation_count=10,
@@ -177,6 +213,7 @@ def _run_br24_evaluation(
         sample_trajectories_per_forecast=4,
         options=options,
         show_plot=False,
+        association_records=association_records,
     )
 
 
@@ -242,9 +279,22 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     monkeypatch.setattr(
         workflow.cmdstan_inference, "variational_converged", lambda fit: True
     )
+    associations = []
     predictions, summary = _run_br24_evaluation(
-        input_csv, inference_method=method, max_windows=1, prediction_count=2
+        input_csv,
+        inference_method=method,
+        max_windows=1,
+        prediction_count=2,
+        association_records=associations,
     )
+
+    if radar_input:
+        assert associations == [
+            {"time": 0.0, "cycle_counter": 1, "detection_id": 1, "x": 10.0, "y": 0.0},
+            {"time": 1.0, "cycle_counter": 2, "detection_id": 2, "x": 11.0, "y": 0.0},
+        ]
+    else:
+        assert associations == []
 
     assert summary.window_count == 1
     assert predictions["observation_count"].tolist() == [2, 2]

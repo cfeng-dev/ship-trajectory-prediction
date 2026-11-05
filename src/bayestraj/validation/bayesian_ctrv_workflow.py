@@ -65,8 +65,13 @@ def run_bayesian_ctrv_evaluation(
     show_time_labels=False,
     selected_window_indices=None,
     show_plot=True,
+    association_records=None,
 ):
-    """Evaluate Bayesian CTRV forecasts from a processed trajectory or raw BR24 data."""
+    """Evaluate forecasts and optionally collect consumed BR24 association rows.
+
+    association_records receives raw fixes and explicit misses without changing
+    the two-value return contract or processing additional radar cycles.
+    """
     vi_config, mcmc_config, smc_config, sequential_vi_config = (
         _resolve_inference_configs(
             vi_config,
@@ -114,6 +119,7 @@ def run_bayesian_ctrv_evaluation(
             selected_window_indices=selected_window_indices,
             show_time_labels=show_time_labels,
             show_plot=show_plot,
+            association_records=association_records,
         )
     return _run_evaluation(
         data_file=data_file,
@@ -543,6 +549,7 @@ def _run_br24_radar_evaluation(
     selected_window_indices,
     show_time_labels,
     show_plot,
+    association_records=None,
 ):
     """Evaluate leakage-free rolling forecasts from raw BR24 radar cycles."""
     inference_mode, inference_method, _ = (
@@ -603,6 +610,9 @@ def _run_br24_radar_evaluation(
         mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,
     )
+    _record_br24_association(
+        association_records, cycles[0], initial_detection.detection_id
+    )
     tracked_positions = [tracker.estimated_position]
     processed_cycle_count = 1
     route_x = reference.x_meters
@@ -643,7 +653,9 @@ def _run_br24_radar_evaluation(
     for number, specification in enumerate(windows, start=1):
         runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
-            tracker.process_cycle(cycles[processed_cycle_count])
+            cycle = cycles[processed_cycle_count]
+            step = tracker.process_cycle(cycle)
+            _record_br24_association(association_records, cycle, step.detection_id)
             tracked_positions.append(tracker.estimated_position)
             processed_cycle_count += 1
 
@@ -775,6 +787,29 @@ def _run_br24_radar_evaluation(
         show_time_labels=show_time_labels,
     )
     return predictions, summary
+
+
+def _record_br24_association(records, cycle, detection_id):
+    """Capture the selected raw fix, never the filtered state or reference labels."""
+    if records is None:
+        return
+    position = np.full(2, np.nan)
+    if detection_id is not None:
+        detection = next(d for d in cycle.detections if d.detection_id == detection_id)
+        position = br24_observations.br24_measurement_position(
+            sensor_position=cycle.sensor_position,
+            range_m=detection.range_m,
+            azimuth_rad=detection.azimuth_rad,
+        )
+    records.append(
+        {
+            "time": cycle.time_seconds,
+            "cycle_counter": cycle.cycle_counter,
+            "detection_id": detection_id,
+            "x": float(position[0]),
+            "y": float(position[1]),
+        }
+    )
 
 
 def _radar_filter_diagnostics(tracker, inference_method, smc_config):

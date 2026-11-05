@@ -8,7 +8,9 @@ This script only reads and displays the VI results.
 import bayestraj.validation.comparison as comparison
 from bayestraj.paths import project_path
 
-VI_SUMMARY_CSV = project_path("results/bayesian_ctrv_vi_evaluation/summary.csv")
+VI_SUMMARY_CSV = project_path(
+    "results/inference_evaluation/bayesian_ctrv_vi/summary.csv"
+)
 SHOW_POINTS = True
 PLOT_LANGUAGE = "de"  # "de" or "en".
 OUTPUT_DIR = None  # Optional directory for PNG copies of the displayed figures.

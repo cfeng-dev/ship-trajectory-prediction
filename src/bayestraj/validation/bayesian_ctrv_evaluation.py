@@ -12,10 +12,21 @@ import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.inference.configuration as inference
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
+import bayestraj.paths as paths
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as cli
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
+
+EVALUATION_OUTPUT_CSV = "results/evaluation/bayesian_ctrv_{inference_method}.csv"
+ASSOCIATIONS_OUTPUT_CSV = "results/associations/bayesian_ctrv_{inference_method}.csv"
+
+
+class _DefaultOutput:
+    """Distinguish source-owned defaults from explicitly disabled exports."""
+
+
+_DEFAULT_OUTPUT = _DefaultOutput()
 
 # Stable union of shared forecast fields and all method-specific diagnostics.
 PREDICTION_CSV_COLUMNS = (
@@ -96,12 +107,13 @@ PREDICTION_CSV_COLUMNS = (
     "fit_runtime_seconds",
     "window_runtime_seconds",
 )
+ASSOCIATION_CSV_COLUMNS = ("time", "cycle_counter", "detection_id", "x", "y")
 
 
 def run_evaluation(
     *,
     data_file: str | Path,
-    output_csv: str | Path | None,
+    output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     experiment: ctrv_config.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
     fullrank_grad_samples,
@@ -111,6 +123,7 @@ def run_evaluation(
     sample_trajectories_per_forecast,
     show_time_labels,
     show_rolling_diagnostics_plot,
+    associations_output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     vi_config=None,
     sequential_vi_config=None,
     description: str | None = None,
@@ -118,10 +131,14 @@ def run_evaluation(
 ):
     """Evaluate and export forecasts using settings supplied by the entrypoint.
 
+    Omitted output paths use this module's settings, resolved from the project
+    root when the evaluation runs. Explicit arguments remain available.
     The optional `{inference_method}` placeholder in `output_csv` follows the
     actual selection, including command-line overrides. Sequential VI uses
     `seq_vi` in filenames. Literal paths are also accepted for custom output
     filenames. None or an empty string skips export with a terminal warning.
+    associations_output_csv accepts the same placeholder for BR24 raw choices;
+    None disables that export. Disabling output_csv still disables both files.
     Export failures do not prevent diagnostic plots.
     """
     options = cli.parse_bayesian_ctrv_evaluation_arguments(
@@ -133,7 +150,33 @@ def run_evaluation(
         plot_each_window=plot_each_window,
         argv=argv,
     )
+    use_default_output = output_csv is _DEFAULT_OUTPUT
+    if use_default_output:
+        output_csv = EVALUATION_OUTPUT_CSV
     output_path = _csv_output_path(output_csv, options.inference_method)
+    if use_default_output and output_path is not None:
+        output_path = paths.project_path(output_path)
+    use_default_associations = associations_output_csv is _DEFAULT_OUTPUT
+    if use_default_associations:
+        associations_output_csv = ASSOCIATIONS_OUTPUT_CSV
+    association_path = None
+    if output_path is not None and associations_output_csv is not None:
+        association_path = _csv_output_path(
+            associations_output_csv,
+            options.inference_method,
+            setting="ASSOCIATIONS_OUTPUT_CSV",
+        )
+        if use_default_associations and association_path is not None:
+            association_path = paths.project_path(association_path)
+        if (
+            association_path is not None
+            and association_path.resolve() == output_path.resolve()
+        ):
+            print(
+                "Warning: ASSOCIATIONS_OUTPUT_CSV must differ from EVALUATION_OUTPUT_CSV. Association CSV export skipped."
+            )
+            association_path = None
+    association_records = [] if association_path is not None else None
     predictions, summary = workflow.run_bayesian_ctrv_evaluation(
         data_file=data_file,
         experiment=experiment,
@@ -145,9 +188,12 @@ def run_evaluation(
         sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         options=options,
         show_time_labels=show_time_labels,
+        association_records=association_records,
     )
     if output_path is not None:
         export_evaluation_csv(predictions, output_path)
+    if association_path is not None and association_records:
+        export_associations_csv(pd.DataFrame(association_records), association_path)
     if show_rolling_diagnostics_plot:
         runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
             predictions,
@@ -179,6 +225,7 @@ def run_observation_count_comparison(
     BR24 window sizes count cycles, not necessarily accepted measurements.
     Each CSV retains the existing actual-count columns and adds the configured
     window size. A summary row per size collects the existing aggregate metrics.
+    Export only forecast metrics and the aggregate summary for this comparison.
     """
     if experiment.inference_method not in {"mcmc", "vi"}:
         raise ValueError("Observation-count comparisons support only MCMC and VI.")
@@ -284,13 +331,17 @@ def run_observation_count_comparison(
     return summary_table
 
 
-def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | None:
+def _csv_output_path(
+    value: str | Path | None, inference_method: str, *, setting="EVALUATION_OUTPUT_CSV"
+) -> Path | None:
     """Resolve an optional CSV destination without creating any files."""
     try:
         if value is None or (isinstance(value, str) and not value.strip()):
             raise ValueError("no output file configured")
         if not isinstance(value, (str, Path)):
             raise TypeError("expected a .csv path or None")
+        if "\0" in str(value):
+            raise ValueError("CSV paths must not contain null characters")
         filename_method = (
             "seq_vi" if inference_method == "sequential_vi" else inference_method
         )
@@ -301,7 +352,7 @@ def _csv_output_path(value: str | Path | None, inference_method: str) -> Path | 
             raise ValueError("the output path names a directory")
         return path
     except (OSError, ValueError, TypeError) as error:
-        print(f"Warning: OUTPUT_CSV={value!r}: {error}. CSV export skipped.")
+        print(f"Warning: {setting}={value!r}: {error}. CSV export skipped.")
         return None
 
 
@@ -324,12 +375,50 @@ def export_evaluation_csv(
                 raise ValueError(f"Unknown prediction CSV columns: {sorted(unknown)}")
             table = table.reindex(columns=PREDICTION_CSV_COLUMNS)
     except (TypeError, ValueError) as error:
-        print(f"Warning: OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped.")
+        print(
+            f"Warning: EVALUATION_OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped."
+        )
         return False
     return _export_csv(table, path)
 
 
-def _export_csv(predictions, output_path: Path) -> bool:
+def association_csv_path(evaluation_path: str | Path) -> Path:
+    """Keep each method/window's association trace next to its forecast CSV."""
+    path = Path(evaluation_path)
+    stem = path.stem.removesuffix("_evaluation")
+    return path.with_name(f"{stem}_associations.csv")
+
+
+def export_associations_csv(table: pd.DataFrame, output_path: str | Path) -> bool:
+    """Export raw radar choices with nullable integer IDs through the atomic writer."""
+    try:
+        if set(table.columns) != set(ASSOCIATION_CSV_COLUMNS):
+            raise ValueError(
+                f"Association CSV requires columns {ASSOCIATION_CSV_COLUMNS}."
+            )
+        normalized = table.loc[:, ASSOCIATION_CSV_COLUMNS].copy()
+        normalized["detection_id"] = pd.array(normalized["detection_id"], dtype="Int64")
+        path = Path(output_path)
+    except (TypeError, ValueError) as error:
+        print(
+            f"Warning: ASSOCIATIONS_OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped."
+        )
+        return False
+    return _export_csv(
+        normalized,
+        path,
+        description="BR24 radar associations",
+        setting="ASSOCIATIONS_OUTPUT_CSV",
+    )
+
+
+def _export_csv(
+    predictions,
+    output_path: Path,
+    *,
+    description="per-forecast Bayesian CTRV metrics",
+    setting="EVALUATION_OUTPUT_CSV",
+) -> bool:
     """Replace the destination only after writing the complete CSV successfully."""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -340,8 +429,8 @@ def _export_csv(predictions, output_path: Path) -> bool:
             predictions.to_csv(temporary_csv, index=False, na_rep="")
             temporary_csv.replace(output_path)
     except (OSError, ValueError) as error:
-        print(f"Warning: OUTPUT_CSV={str(output_path)!r}: {error}. CSV export skipped.")
+        print(f"Warning: {setting}={str(output_path)!r}: {error}. CSV export skipped.")
         return False
     else:
-        print(f"\nSaved per-forecast Bayesian CTRV metrics: {output_path}")
+        print(f"\nSaved {description}: {output_path}")
         return True
