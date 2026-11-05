@@ -11,7 +11,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-SCRIPT_PATH = PROJECT_ROOT / "experiments/tracking_checks/check_br24_associations.py"
+SCRIPT_PATH = PROJECT_ROOT / "scripts/tracking_checks/check_br24_associations.py"
 
 
 def test_default_association_output_is_in_results_directory(monkeypatch, tmp_path):

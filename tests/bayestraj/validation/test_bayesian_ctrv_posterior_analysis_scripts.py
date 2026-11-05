@@ -18,7 +18,7 @@ SCRIPT_PARAMETERS = {
 
 
 def _load_script(filename):
-    script_path = PROJECT_ROOT / "experiments" / "posterior_analysis" / filename
+    script_path = PROJECT_ROOT / "scripts" / "posterior_analysis" / filename
     if not script_path.is_file():
         pytest.fail(f"Posterior-analysis script is missing: {script_path}")
     module_name = f"{script_path.stem}_for_tests"

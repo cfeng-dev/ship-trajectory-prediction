@@ -85,10 +85,10 @@ the argument. Resolving a path does not create its file or directory.
 
 ## Model Evaluation
 
-Run `experiments/model_evaluation/bayesian_ctrv.py` with your IDE's Run button or:
+Run `scripts/model_evaluation/bayesian_ctrv.py` with your IDE's Run button or:
 
 ```bash
-uv run python experiments/model_evaluation/bayesian_ctrv.py
+uv run python scripts/model_evaluation/bayesian_ctrv.py
 ```
 
 Configure the inference method (`smc`, `vi`, `mcmc`, or `seq_vi`), priors,
@@ -113,13 +113,13 @@ plots only. Its `--no-plot` option disables those diagnostics.
 To compare saved radar-detection choices without rerunning Bayesian inference:
 
 ```bash
-uv run python experiments/tracking_checks/check_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
+uv run python scripts/tracking_checks/check_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
 ```
 
 Observation-count sweeps export only forecast CSVs and `summary.csv` under
 `results/inference_evaluation/bayesian_ctrv_<method>/`. The sweep option `--output-dir`
 overrides that directory.
-Use `experiments/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
+Use `scripts/model_comparison/compare_bayesian_ctrv_imm.py` to compare saved
 evaluation CSVs. Set its `IMM_CSV` and `BAYESIAN_*_CSV` paths; `None` excludes a
 model. All selected models are compared on their common forecast origins.
 `SHOW_POINTS` and `SHOW_MEAN_LINES` control curve markers and dashed mean lines.

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / "experiments/model_evaluation/bayesian_ctrv.py"
+SCRIPT = ROOT / "scripts/model_evaluation/bayesian_ctrv.py"
 
 
 def test_entrypoint_keeps_scoring_defaults_without_trajectory_plot_settings(
@@ -521,7 +521,7 @@ def test_comparison_defines_individual_csv_paths_for_all_five_methods(
     monkeypatch.chdir(tmp_path)
 
     namespace = runpy.run_path(
-        ROOT / "experiments/model_comparison/compare_bayesian_ctrv_imm.py"
+        ROOT / "scripts/model_comparison/compare_bayesian_ctrv_imm.py"
     )
 
     assert namespace["IMM_CSV"] == ROOT / "results/evaluation/imm.csv"

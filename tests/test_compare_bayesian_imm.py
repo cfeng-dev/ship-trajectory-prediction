@@ -13,7 +13,7 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "experiments/model_comparison/compare_bayesian_ctrv_imm.py"
+SCRIPT = ROOT / "scripts/model_comparison/compare_bayesian_ctrv_imm.py"
 MODEL_CSVS = (
     ("IMM_CSV", "imm", "IMM"),
     ("BAYESIAN_SMC_CSV", "smc", "Bayesian CTRV (SMC)"),
@@ -1020,7 +1020,7 @@ def test_comparison_reports_missing_csv_without_creating_outputs(tmp_path, monke
 def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     tmp_path, monkeypatch, show_diagnostics
 ):
-    module = runpy.run_path(ROOT / "experiments/model_evaluation/bayesian_ctrv.py")
+    module = runpy.run_path(ROOT / "scripts/model_evaluation/bayesian_ctrv.py")
     settings = module["main"].__globals__
     monkeypatch.setitem(
         settings, "EXPERIMENT", replace(settings["EXPERIMENT"], inference_method="smc")

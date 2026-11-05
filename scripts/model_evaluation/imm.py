@@ -9,7 +9,7 @@ IMM_PYTHON = project_path("external/IMM/br24_imm.py")
 DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 OUTPUT_CSV = project_path("results/evaluation/imm.csv")
 
-# Match experiments/model_evaluation/bayesian_ctrv.py for a direct comparison.
+# Match scripts/model_evaluation/bayesian_ctrv.py for a direct comparison.
 PREDICTION_COUNT = 3
 MAX_WINDOWS = None
 SHOW_ROLLING_DIAGNOSTICS_PLOT = True

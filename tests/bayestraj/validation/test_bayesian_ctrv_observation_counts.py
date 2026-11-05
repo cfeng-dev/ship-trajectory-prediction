@@ -91,8 +91,7 @@ def sweep_run(tmp_path, monkeypatch):
 
 def _script(method):
     return runpy.run_path(
-        ROOT
-        / f"experiments/inference_evaluation/evaluate_{method}_observation_counts.py"
+        ROOT / f"scripts/inference_evaluation/evaluate_{method}_observation_counts.py"
     )
 
 

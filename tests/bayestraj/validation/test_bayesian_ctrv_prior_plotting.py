@@ -15,13 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _load_prior_plotting_module():
-    """Load the repository script without treating experiments as a package."""
+    """Load the repository script without treating scripts as a package."""
     module_name = "plot_bayesian_ctrv_priors_for_tests"
     script_path = (
-        PROJECT_ROOT
-        / "experiments"
-        / "data_exploration"
-        / "plot_bayesian_ctrv_priors.py"
+        PROJECT_ROOT / "scripts" / "data_exploration" / "plot_bayesian_ctrv_priors.py"
     )
     specification = importlib.util.spec_from_file_location(module_name, script_path)
     if specification is None or specification.loader is None:
@@ -36,7 +33,7 @@ prior_plotting = _load_prior_plotting_module()
 prior_plotting_support = importlib.import_module("bayestraj.validation.prior_plotting")
 prior_reporting = importlib.import_module("bayestraj.validation.prior_reporting")
 EVALUATION_PRIORS = runpy.run_path(
-    PROJECT_ROOT / "experiments" / "model_evaluation" / "bayesian_ctrv.py"
+    PROJECT_ROOT / "scripts" / "model_evaluation" / "bayesian_ctrv.py"
 )["PRIORS"]
 
 
@@ -44,7 +41,7 @@ def test_visualization_uses_current_evaluation_prior_configuration():
     assert prior_plotting.PRIORS == EVALUATION_PRIORS
 
 
-def test_experiments_use_shared_bayesian_ctrv_prior_defaults():
+def test_scripts_use_shared_bayesian_ctrv_prior_defaults():
     expected = prior_plotting.bayesian_model.BayesianCTRVPriors()
 
     assert prior_plotting.PRIORS == expected

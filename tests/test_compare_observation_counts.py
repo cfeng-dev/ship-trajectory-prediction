@@ -231,8 +231,7 @@ def test_comparison_script_only_reads_its_method_csv_and_displays_plots(
     monkeypatch.setattr(plt, "show", lambda: displayed.append(plt.gcf()))
     try:
         script = (
-            ROOT
-            / f"experiments/model_comparison/compare_{method}_observation_counts.py"
+            ROOT / f"scripts/model_comparison/compare_{method}_observation_counts.py"
         )
         models = runpy.run_path(script, run_name="__main__")
         assert "main" in models

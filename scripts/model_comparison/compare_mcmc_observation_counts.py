@@ -1,6 +1,6 @@
 """Read the saved MCMC sweep summary and compare observation-count settings.
 
-Run experiments/inference_evaluation/evaluate_mcmc_observation_counts.py
+Run scripts/inference_evaluation/evaluate_mcmc_observation_counts.py
 first to generate the CSVs.
 This script only reads and displays the MCMC results.
 """

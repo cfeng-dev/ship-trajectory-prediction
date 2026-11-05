@@ -20,7 +20,7 @@ import bayestraj.validation.cli as cli
 def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     tmp_path, monkeypatch, arguments, expected_observations
 ):
-    script = Path(__file__).resolve().parents[3] / "experiments/model_evaluation/imm.py"
+    script = Path(__file__).resolve().parents[3] / "scripts/model_evaluation/imm.py"
     module = runpy.run_path(script)
     settings = module["main"].__globals__
     calls = []

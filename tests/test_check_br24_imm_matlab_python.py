@@ -16,7 +16,7 @@ from bayestraj.observations.br24 import (
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
-    / "experiments/tracking_checks/check_br24_imm_matlab_python.py"
+    / "scripts/tracking_checks/check_br24_imm_matlab_python.py"
 )
 
 

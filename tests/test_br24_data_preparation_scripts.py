@@ -8,10 +8,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 def test_br24_tracking_input_export_writes_to_processed_data():
     module = runpy.run_path(
-        PROJECT_ROOT
-        / "experiments"
-        / "data_preparation"
-        / "export_br24_dataset20131107.py"
+        PROJECT_ROOT / "scripts" / "data_preparation" / "export_br24_dataset20131107.py"
     )
 
     assert (
@@ -24,7 +21,7 @@ def test_br24_tracking_input_export_writes_to_processed_data():
 def test_br24_tracking_input_with_reference_export_writes_to_processed_data():
     module = runpy.run_path(
         PROJECT_ROOT
-        / "experiments"
+        / "scripts"
         / "data_preparation"
         / "export_br24_dataset20131107_with_reference.py"
     )

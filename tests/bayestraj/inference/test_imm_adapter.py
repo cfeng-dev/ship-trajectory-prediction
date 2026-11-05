@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_imm_evaluation_imports_without_the_predictor_package(monkeypatch):
     monkeypatch.setitem(sys.modules, "imm_predictor", None)
     monkeypatch.setitem(sys.modules, "imm_predictor.player", None)
-    module = runpy.run_path(ROOT / "experiments/model_evaluation/imm.py")
+    module = runpy.run_path(ROOT / "scripts/model_evaluation/imm.py")
     assert callable(module["main"])
 
 

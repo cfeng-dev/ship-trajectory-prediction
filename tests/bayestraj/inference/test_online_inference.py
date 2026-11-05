@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_sequential_vi_uses_shared_bayesian_ctrv_evaluation_entrypoint():
-    model_evaluation = PROJECT_ROOT / "experiments" / "model_evaluation"
+    model_evaluation = PROJECT_ROOT / "scripts" / "model_evaluation"
 
     assert (model_evaluation / "bayesian_ctrv.py").is_file()
     assert not (model_evaluation / "compare_bayesian_ctrv_sequential_vi.py").exists()

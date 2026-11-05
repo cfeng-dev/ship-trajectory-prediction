@@ -44,22 +44,22 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
     ("script", "name", "relative_path"),
     [
         (
-            "experiments/model_evaluation/bayesian_ctrv.py",
+            "scripts/model_evaluation/bayesian_ctrv.py",
             "DATA_FILE",
             "data/processed/BR24Dataset20131107_with_reference.csv",
         ),
         (
-            "experiments/model_comparison/compare_bayesian_ctrv_imm.py",
+            "scripts/model_comparison/compare_bayesian_ctrv_imm.py",
             "BAYESIAN_SMC_CSV",
             "results/evaluation/bayesian_ctrv_smc.csv",
         ),
         (
-            "experiments/model_evaluation/imm.py",
+            "scripts/model_evaluation/imm.py",
             "IMM_PYTHON",
             "external/IMM/br24_imm.py",
         ),
         (
-            "experiments/model_comparison/compare_bayesian_ctrv_imm.py",
+            "scripts/model_comparison/compare_bayesian_ctrv_imm.py",
             "IMM_CSV",
             "results/evaluation/imm.csv",
         ),

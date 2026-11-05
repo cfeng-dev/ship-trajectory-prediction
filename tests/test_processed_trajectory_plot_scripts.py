@@ -87,7 +87,7 @@ def imm_median_case():
         )
     )
     return SimpleNamespace(
-        module=runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py"),
+        module=runpy.run_path(PROJECT_ROOT / "scripts/model_evaluation/imm.py"),
         workflow=imm_workflow,
         forecast=SimpleNamespace(
             time_seconds=np.array([1.0, 2.0]),
@@ -229,7 +229,7 @@ def test_imm_evaluation_loader_matches_predictor_medians_without_changing_filter
     if not imm_player.IMM_PYTHON.is_file():
         pytest.skip("Optional local IMM implementation is unavailable")
     backend = runpy.run_path(str(imm_player.IMM_PYTHON))
-    module = runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py")
+    module = runpy.run_path(PROJECT_ROOT / "scripts/model_evaluation/imm.py")
     state = backend["_IMMState"](
         cv_state=np.array([10.0, 3.0, 20.0, 4.0]),
         cv_covariance=np.zeros((4, 4)),
@@ -274,7 +274,7 @@ def test_imm_evaluation_loader_matches_predictor_medians_without_changing_filter
 def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
     tmp_path, monkeypatch
 ):
-    module = runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py")
+    module = runpy.run_path(PROJECT_ROOT / "scripts/model_evaluation/imm.py")
     settings = module["main"].__globals__
     if not settings["IMM_PYTHON"].is_file() or not settings["DATA_FILE"].is_file():
         pytest.skip("Optional local IMM implementation or BR24 data is unavailable")
@@ -284,7 +284,7 @@ def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
     monkeypatch.setitem(settings, "MAX_WINDOWS", 2)
     cycles = imm_workflow.br24.read_br24_tracking_input(settings["DATA_FILE"])
     bayesian = runpy.run_path(
-        PROJECT_ROOT / "experiments/model_evaluation/bayesian_ctrv.py"
+        PROJECT_ROOT / "scripts/model_evaluation/bayesian_ctrv.py"
     )
     experiment = bayesian["EXPERIMENT"]
     windows = bayesian_workflow._build_evaluation_windows(
@@ -337,7 +337,7 @@ def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
 def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
     tmp_path, monkeypatch, arguments, diagnostics_enabled, expected_plots
 ):
-    module = runpy.run_path(PROJECT_ROOT / "experiments/model_evaluation/imm.py")
+    module = runpy.run_path(PROJECT_ROOT / "scripts/model_evaluation/imm.py")
     predictions = pd.DataFrame(
         {
             "window_index": [0, 0, 1, 1],
@@ -415,9 +415,7 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
         }
     ).to_csv(input_csv, index=False)
 
-    module = runpy.run_path(
-        PROJECT_ROOT / "experiments" / "data_exploration" / script_name
-    )
+    module = runpy.run_path(PROJECT_ROOT / "scripts" / "data_exploration" / script_name)
     monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", input_csv)
     monkeypatch.setattr(module["plotting"].plt, "show", lambda: None)
     try:
@@ -444,9 +442,7 @@ def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monke
         }
     ).to_csv(reference_csv, index=False)
     pd.DataFrame({"Time": [10.0, 5.0]}).to_csv(sensor_csv, index=False)
-    script = (
-        PROJECT_ROOT / "experiments/data_exploration/plot_br24_reference_trajectory.py"
-    )
+    script = PROJECT_ROOT / "scripts/data_exploration/plot_br24_reference_trajectory.py"
     module = runpy.run_path(script)
     monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", reference_csv)
     monkeypatch.setitem(module["main"].__globals__, "SENSOR_CSV", sensor_csv)
@@ -467,7 +463,7 @@ def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
     """The displayed track is online SMC output, including missed cycles."""
     script = (
         PROJECT_ROOT
-        / "experiments/data_exploration/plot_br24_bayesian_ctrv_tracked_trajectory.py"
+        / "scripts/data_exploration/plot_br24_bayesian_ctrv_tracked_trajectory.py"
     )
     assert script.exists()
     module = runpy.run_path(script)
