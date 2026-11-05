@@ -364,7 +364,7 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         assert set(kwargs) == {"data_file", "imm_python", "options"}
         return predictions, summary
 
-    monkeypatch.setattr(namespace["workflow"], "run_imm_evaluation", evaluate)
+    monkeypatch.setattr(namespace["evaluation"], "run_imm_evaluation", evaluate)
     monkeypatch.setitem(namespace, "OUTPUT_CSV", output_csv)
     monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", diagnostics_enabled)
     shown = []

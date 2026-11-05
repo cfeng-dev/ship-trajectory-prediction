@@ -13,6 +13,42 @@ import pytest
 import bayestraj.validation.cli as cli
 
 
+def test_imm_main_delegates_header_settings_and_return_value(tmp_path, monkeypatch):
+    workflow = importlib.import_module("bayestraj.validation.imm_workflow")
+    script = Path(__file__).resolve().parents[3] / "scripts/model_evaluation/imm.py"
+    module = runpy.run_path(script)
+    calls = []
+    result = (object(), object())
+
+    def run(**kwargs):
+        calls.append(kwargs)
+        return result
+
+    def unexpected_workflow(**kwargs):
+        pytest.fail("The entrypoint must delegate orchestration to run_evaluation.")
+
+    monkeypatch.setattr(workflow, "run_evaluation", run)
+    monkeypatch.setattr(workflow, "run_imm_evaluation", unexpected_workflow)
+    monkeypatch.setitem(module["main"].__globals__, "OUTPUT_CSV", tmp_path / "imm.csv")
+    arguments = ["--max-windows", "1"]
+
+    assert module["main"](arguments) is result
+
+    assert calls == [
+        dict(
+            data_file=module["DATA_FILE"],
+            imm_python=module["IMM_PYTHON"],
+            output_csv=tmp_path / "imm.csv",
+            prediction_count=module["PREDICTION_COUNT"],
+            max_windows=module["MAX_WINDOWS"],
+            show_rolling_diagnostics_plot=module["SHOW_ROLLING_DIAGNOSTICS_PLOT"],
+            description=module["__doc__"],
+            argv=arguments,
+        )
+    ]
+    assert not (tmp_path / "imm.csv").exists()
+
+
 @pytest.mark.parametrize(
     ("arguments", "expected_observations"),
     [([], 2), (["--observations", "5"], 5)],
@@ -35,9 +71,11 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
         assert (tmp_path / "imm.csv").is_file()
         plots.append(predictions)
 
-    monkeypatch.setattr(module["workflow"], "run_imm_evaluation", evaluate)
+    monkeypatch.setattr(module["evaluation"], "run_imm_evaluation", evaluate)
     monkeypatch.setattr(
-        module["runtime_plotting"], "plot_imm_rolling_diagnostics", diagnostics
+        module["evaluation"].runtime_plotting,
+        "plot_imm_rolling_diagnostics",
+        diagnostics,
     )
     monkeypatch.setitem(settings, "OUTPUT_CSV", tmp_path / "imm.csv")
 

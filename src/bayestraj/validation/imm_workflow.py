@@ -10,8 +10,10 @@ from scipy.stats import chi2, norm
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
+import bayestraj.validation.cli as cli
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
+import bayestraj.validation.runtime_plotting as runtime_plotting
 from bayestraj.validation.cli import IMMEvaluationOptions
 
 # The IMM forecast covariance is the complete predictive position uncertainty.
@@ -40,6 +42,38 @@ class IMMRollingSummary:
     total_negative_log_predictive_density: float
     mean_negative_log_predictive_density: float
     per_horizon_table: pd.DataFrame
+
+
+def run_evaluation(
+    *,
+    data_file: str | Path,
+    imm_python: str | Path,
+    output_csv: str | Path,
+    prediction_count: int,
+    max_windows: int | None,
+    show_rolling_diagnostics_plot: bool,
+    description: str | None = None,
+    argv=None,
+) -> tuple[pd.DataFrame, IMMRollingSummary]:
+    """Parse script settings, evaluate IMM, export metrics, and show diagnostics."""
+    options = cli.parse_imm_evaluation_arguments(
+        description=description,
+        prediction_count=prediction_count,
+        max_windows=max_windows,
+        argv=argv,
+    )
+    predictions, summary = run_imm_evaluation(
+        data_file=data_file,
+        imm_python=imm_python,
+        options=options,
+    )
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    predictions.to_csv(output_path, index=False)
+    print(f"\nSaved per-forecast IMM metrics: {output_path}")
+    if options.show_plot and show_rolling_diagnostics_plot:
+        runtime_plotting.plot_imm_rolling_diagnostics(predictions)
+    return predictions, summary
 
 
 def run_imm_evaluation(

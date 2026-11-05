@@ -1,8 +1,6 @@
 """Evaluate local Python BR24 IMM forecasts across rolling radar origins."""
 
-import bayestraj.validation.cli as cli
-import bayestraj.validation.imm_workflow as workflow
-import bayestraj.validation.runtime_plotting as runtime_plotting
+import bayestraj.validation.imm_workflow as evaluation
 from bayestraj.paths import project_path
 
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
@@ -16,24 +14,17 @@ SHOW_ROLLING_DIAGNOSTICS_PLOT = True
 
 
 def main(argv=None):
-    """Run rolling multi-step forecasts from the optional local Python IMM."""
-    options = cli.parse_imm_evaluation_arguments(
-        description=__doc__,
-        prediction_count=PREDICTION_COUNT,
-        max_windows=MAX_WINDOWS,
-        argv=argv,
-    )
-    predictions, summary = workflow.run_imm_evaluation(
+    """Run rolling evaluation using this script's header settings."""
+    return evaluation.run_evaluation(
         data_file=DATA_FILE,
         imm_python=IMM_PYTHON,
-        options=options,
+        output_csv=OUTPUT_CSV,
+        prediction_count=PREDICTION_COUNT,
+        max_windows=MAX_WINDOWS,
+        show_rolling_diagnostics_plot=SHOW_ROLLING_DIAGNOSTICS_PLOT,
+        description=__doc__,
+        argv=argv,
     )
-    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    predictions.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nSaved per-forecast IMM metrics: {OUTPUT_CSV}")
-    if options.show_plot and SHOW_ROLLING_DIAGNOSTICS_PLOT:
-        runtime_plotting.plot_imm_rolling_diagnostics(predictions)
-    return predictions, summary
 
 
 if __name__ == "__main__":
