@@ -390,7 +390,6 @@ def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
         experiment=experiment,
         priors=ctrv_model.BayesianCTRVPriors(),
         max_windows=None,
-        plot_each_window=False,
         argv=["--inference-method", inference_method],
     )
 
@@ -415,7 +414,6 @@ def test_ctrv_rolling_cli_observations_override_source_owned_default():
         experiment=experiment,
         priors=ctrv_model.BayesianCTRVPriors(),
         max_windows=None,
-        plot_each_window=False,
         argv=["--observations", "12"],
     )
 
@@ -432,7 +430,6 @@ def test_ctrv_rolling_cli_accepts_turn_rate_prior_threshold_in_degrees_per_secon
         priors=ctrv_model.BayesianCTRVPriors(),
         vi_config=inference.create_default_vi_config(),
         max_windows=None,
-        plot_each_window=False,
         argv=["--turn-rate-prior-abs-rate-deg-s", "6.5"],
     )
 
@@ -449,6 +446,5 @@ def test_ctrv_rolling_cli_rejects_removed_window_mode_option():
             priors=ctrv_model.BayesianCTRVPriors(),
             vi_config=inference.create_default_vi_config(),
             max_windows=None,
-            plot_each_window=False,
             argv=["--window-mode", "sliding"],
         )

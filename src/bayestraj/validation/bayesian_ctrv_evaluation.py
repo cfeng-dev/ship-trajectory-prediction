@@ -117,11 +117,8 @@ def run_evaluation(
     experiment: ctrv_config.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
     fullrank_grad_samples,
-    credible_interval,
+    credible_interval=0.9,
     max_windows,
-    plot_each_window,
-    sample_trajectories_per_forecast,
-    show_time_labels,
     show_rolling_diagnostics_plot,
     associations_output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     vi_config=None,
@@ -140,6 +137,8 @@ def run_evaluation(
     associations_output_csv accepts the same placeholder for BR24 raw choices;
     None disables that export. Disabling output_csv still disables both files.
     Export failures do not prevent diagnostic plots.
+    Trajectory visualization belongs to the predictor tools. Scoring uses
+    90-percent intervals by default, independently of diagnostic plots.
     """
     options = cli.parse_bayesian_ctrv_evaluation_arguments(
         description=description,
@@ -147,7 +146,6 @@ def run_evaluation(
         priors=priors,
         vi_config=vi_config,
         max_windows=max_windows,
-        plot_each_window=plot_each_window,
         argv=argv,
     )
     use_default_output = output_csv is _DEFAULT_OUTPUT
@@ -185,9 +183,7 @@ def run_evaluation(
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
-        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         options=options,
-        show_time_labels=show_time_labels,
         association_records=association_records,
     )
     if output_path is not None:
@@ -215,7 +211,6 @@ def run_observation_count_comparison(
     mcmc_config=None,
     credible_interval=0.9,
     fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
-    sample_trajectories_per_forecast=15,
     argv: Sequence[str] | None = None,
 ):
     """Sweep BR24 batch-window sizes using the existing rolling evaluation.
@@ -280,7 +275,6 @@ def run_observation_count_comparison(
             position_noise_seed=experiment.position_noise_seed,
             require_converged=vi_config["require_converged"],
             max_windows=arguments.max_windows,
-            plot_each_window=False,
         )
         print(
             f"\n=== {experiment.inference_method.upper()}: observation_count={count} ==="
@@ -293,10 +287,8 @@ def run_observation_count_comparison(
             mcmc_config=mcmc_config,
             fullrank_grad_samples=fullrank_grad_samples,
             credible_interval=credible_interval,
-            sample_trajectories_per_forecast=sample_trajectories_per_forecast,
             options=options,
             selected_window_indices=selected,
-            show_plot=False,
         )
         destination = arguments.output_dir / (
             f"bayesian_ctrv_{experiment.inference_method}_{count:02d}.csv"

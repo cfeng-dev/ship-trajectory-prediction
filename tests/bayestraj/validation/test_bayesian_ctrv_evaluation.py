@@ -12,6 +12,40 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "experiments/model_evaluation/bayesian_ctrv.py"
 
 
+def test_entrypoint_keeps_scoring_defaults_without_trajectory_plot_settings(
+    evaluation_run,
+):
+    _, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+
+    namespace["main"]([])
+
+    assert not {
+        "CREDIBLE_INTERVAL",
+        "PLOT_EACH_WINDOW",
+        "SAMPLE_TRAJECTORIES_PER_FORECAST",
+        "SHOW_TIME_LABELS",
+    }.intersection(namespace)
+    assert namespace["SHOW_ROLLING_DIAGNOSTICS_PLOT"] is True
+    assert calls[0]["credible_interval"] == 0.9
+    assert calls[0]["options"].stride == 1
+    assert not {
+        "sample_trajectories_per_forecast",
+        "show_time_labels",
+        "show_plot",
+    }.intersection(calls[0])
+    assert not hasattr(calls[0]["options"], "plot_each_window")
+
+
+def test_removed_window_plot_flag_is_rejected_before_evaluation(evaluation_run):
+    _, calls = evaluation_run
+
+    with pytest.raises(SystemExit, match="2"):
+        runpy.run_path(SCRIPT)["main"](["--plot-each-window"])
+
+    assert calls == []
+
+
 @pytest.fixture
 def evaluation_run(tmp_path, monkeypatch):
     evaluation = importlib.import_module(
@@ -453,11 +487,7 @@ def test_script_settings_and_source_output_control_evaluation(
         "DATA_FILE": data_file,
         "EXPERIMENT": experiment,
         "PRIORS": priors,
-        "CREDIBLE_INTERVAL": 0.8,
         "MAX_WINDOWS": 2,
-        "PLOT_EACH_WINDOW": True,
-        "SAMPLE_TRAJECTORIES_PER_FORECAST": 8,
-        "SHOW_TIME_LABELS": True,
         "SHOW_ROLLING_DIAGNOSTICS_PLOT": False,
     }.items():
         monkeypatch.setitem(settings, name, value)
@@ -471,9 +501,7 @@ def test_script_settings_and_source_output_control_evaluation(
     assert call["priors"] is priors
     assert call["vi_config"] is None
     assert call["sequential_vi_config"] is None
-    assert call["credible_interval"] == 0.8
-    assert call["sample_trajectories_per_forecast"] == 8
-    assert call["show_time_labels"] is True
+    assert call["credible_interval"] == 0.9
     assert call["options"].observation_count == 14
     assert call["options"].prediction_count == 7
     assert call["options"].stride == 3
@@ -484,7 +512,6 @@ def test_script_settings_and_source_output_control_evaluation(
     assert call["options"].vi_algorithm == "fullrank"
     assert call["options"].require_converged is False
     assert call["options"].max_windows == 2
-    assert call["options"].plot_each_window is True
     assert pd.read_csv(output)["inference_method"].tolist() == [method]
 
 

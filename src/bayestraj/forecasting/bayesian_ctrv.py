@@ -18,7 +18,7 @@ class RollingExperimentConfig:
 
         position_noise_seed: Random seed for reproducible position noise.
 
-        stride: Number of newly observed positions between forecast origins.
+        stride: Number of newly observed positions between forecast origins; defaults to one. None uses the prediction horizon.
 
         inference_method: ``vi``, ``mcmc``, ``smc``, or ``seq_vi`` (Sequential VI). VI and MCMC use a fixed sliding window.
 
@@ -28,9 +28,9 @@ class RollingExperimentConfig:
     prediction_count: int
     position_noise_std_m: float
     position_noise_seed: int
-    stride: int | None
-    inference_method: str
-    inference_seed: int
+    stride: int | None = 1
+    inference_method: str = "smc"
+    inference_seed: int = 42
     observation_count: int = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
 
     def __post_init__(self) -> None:

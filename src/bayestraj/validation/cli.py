@@ -26,7 +26,6 @@ class BayesianCTRVEvaluationOptions:
     position_noise_seed: int
     require_converged: bool
     max_windows: int | None
-    plot_each_window: bool
 
     def __post_init__(self) -> None:
         """Validate the combined rolling inference selection."""
@@ -68,7 +67,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
     priors: bayesian_model.BayesianCTRVPriors,
     vi_config: Mapping[str, Any] | None = None,
     max_windows: int | None,
-    plot_each_window: bool,
     argv: Sequence[str] | None = None,
 ) -> BayesianCTRVEvaluationOptions:
     """Parse options for one parametric Bayesian CTRV rolling evaluation."""
@@ -90,7 +88,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         "--stride",
         type=int,
         default=experiment.stride,
-        help="Forecast-origin step; defaults to the prediction horizon.",
+        help="Forecast-origin step; uses the configured stride (normally 1).",
     )
     parser.add_argument(
         "--inference-method",
@@ -142,12 +140,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
         default=max_windows,
         help="Optional smoke-test limit; omit it to evaluate the complete run.",
     )
-    parser.add_argument(
-        "--plot-each-window",
-        action="store_true",
-        default=plot_each_window,
-        help="Show each fitted window and continue after its plot is closed.",
-    )
     arguments = parser.parse_args(argv)
     try:
         return BayesianCTRVEvaluationOptions(
@@ -162,7 +154,6 @@ def parse_bayesian_ctrv_evaluation_arguments(
             position_noise_seed=arguments.position_noise_seed,
             require_converged=arguments.require_converged,
             max_windows=arguments.max_windows,
-            plot_each_window=arguments.plot_each_window,
         )
     except ValueError as error:
         parser.error(str(error))

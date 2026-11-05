@@ -64,7 +64,6 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         position_noise_seed=2026,
         require_converged=False,
         max_windows=3,
-        plot_each_window=False,
     )
     vi_config = dict(
         algorithm="fullrank",
@@ -108,9 +107,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         sequential_vi_config=SequentialVIConfig(n_bootstrap=3, **vi_config),
         fullrank_grad_samples=20,
         credible_interval=0.9,
-        sample_trajectories_per_forecast=0,
         options=options,
-        show_plot=False,
     )
 
     assert summary.inference_method == method

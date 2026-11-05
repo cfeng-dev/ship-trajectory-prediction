@@ -97,6 +97,10 @@ ten past points per fit: start with two points, grow to ten, then slide.
 Evaluation starts at N=2; Sequential VI initializes once from three accepted
 measurements by default, then updates one measurement at a time.
 
+Forecasts run after each new input point by default (`stride=1`). Scoring keeps
+90-percent intervals internally. The evaluator shows summary diagnostic plots;
+use the predictor tools to visualize individual forecasts and trajectories.
+
 Forecast results are saved to `results/evaluation/bayesian_ctrv_<method>.csv`
 (`seq_vi` for Sequential VI). BR24 runs also save accepted radar detections
 to `results/associations/bayesian_ctrv_<method>.csv`. Both output paths are

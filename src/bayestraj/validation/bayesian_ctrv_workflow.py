@@ -3,7 +3,6 @@
 import dataclasses
 import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -21,8 +20,6 @@ import bayestraj.observations.io as observations_io
 import bayestraj.observations.window as observation_window
 import bayestraj.validation.cli as validation_cli
 import bayestraj.validation.metrics as metrics
-import bayestraj.validation.plotting as plotting
-import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling_validation
 
@@ -60,11 +57,8 @@ def run_bayesian_ctrv_evaluation(
     sequential_vi_config=None,
     fullrank_grad_samples,
     credible_interval,
-    sample_trajectories_per_forecast,
     options: validation_cli.BayesianCTRVEvaluationOptions,
-    show_time_labels=False,
     selected_window_indices=None,
-    show_plot=True,
     association_records=None,
 ):
     """Evaluate forecasts and optionally collect consumed BR24 association rows.
@@ -113,12 +107,8 @@ def run_bayesian_ctrv_evaluation(
             smc_config=smc_config,
             sequential_vi_config=sequential_vi_config,
             credible_interval=credible_interval,
-            sample_trajectories_per_forecast=sample_trajectories_per_forecast,
             max_windows=options.max_windows,
-            plot_each_window=options.plot_each_window,
             selected_window_indices=selected_window_indices,
-            show_time_labels=show_time_labels,
-            show_plot=show_plot,
             association_records=association_records,
         )
     return _run_evaluation(
@@ -131,14 +121,10 @@ def run_bayesian_ctrv_evaluation(
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
-        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
         vi_algorithm=options.vi_algorithm,
         require_converged=options.require_converged,
         max_windows=options.max_windows,
-        plot_each_window=options.plot_each_window,
-        show_time_labels=show_time_labels,
         selected_window_indices=selected_window_indices,
-        show_plot=show_plot,
     )
 
 
@@ -153,14 +139,10 @@ def _run_evaluation(
     sequential_vi_config,
     fullrank_grad_samples,
     credible_interval,
-    sample_trajectories_per_forecast,
     vi_algorithm,
     require_converged,
     max_windows,
-    plot_each_window,
-    show_time_labels,
     selected_window_indices,
-    show_plot,
 ):
     """Run one configured rolling evaluation."""
     inference_mode, inference_method, window_mode = (
@@ -226,11 +208,6 @@ def _run_evaluation(
     effective_stride = (
         experiment.prediction_count if experiment.stride is None else experiment.stride
     )
-    show_rolling_plot = _should_show_rolling_plot(
-        show_plot=show_plot,
-        prediction_count=experiment.prediction_count,
-        stride=experiment.stride,
-    )
     print("=" * 72)
     print("Parametric Bayesian CTRV Rolling Evaluation")
     print("=" * 72)
@@ -295,10 +272,8 @@ def _run_evaluation(
             particle_filter_config=particle_filter_config,
             sequential_vi_config=sequential_vi_config,
         )
-    print(f"Plot each window      : {plot_each_window}")
 
     prediction_tables = []
-    posterior_plot_groups = []
     online_filter = None
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
@@ -462,15 +437,6 @@ def _run_evaluation(
             position_noise_std_m=experiment.position_noise_std_m,
             position_noise_seed=experiment.position_noise_seed,
         )
-        posterior_plot_groups.append(
-            _build_rolling_plot_data(
-                fit,
-                specification=specification,
-                window=window,
-                route_x=route_x,
-                route_y=route_y,
-            )
-        )
         window_runtime_seconds = time.perf_counter() - runtime_started
         table["fit_runtime_seconds"] = fit_runtime_seconds
         table["window_runtime_seconds"] = window_runtime_seconds
@@ -479,26 +445,6 @@ def _run_evaluation(
             f"{_window_metric_summary(evaluation)}, "
             f"runtime={window_runtime_seconds:.3f} s, {inference_status}"
         )
-        if plot_each_window:
-            figure, _ = prediction_plotting.plot_prediction(
-                window,
-                fit,
-                state_prediction_variable_names=("x_prediction", "y_prediction"),
-                observed_position_values=(
-                    position_observations.x_meters,
-                    position_observations.y_meters,
-                ),
-                observed_trajectory_label=(
-                    "Für Fit verwendete verrauschte Beobachtungen"
-                    if experiment.position_noise_std_m > 0
-                    else "Für Fit verwendete Beobachtungen"
-                ),
-                position_noise_std_m=experiment.position_noise_std_m,
-                forecast_label="Median der latenten CTRV-Trajektorie",
-                sample_label="Latente CTRV-Trajektorienprognosen",
-                show_time_labels=show_time_labels,
-            )
-            plt.close(figure)
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
     summary = rolling_validation.summarize_rolling_predictions(
@@ -507,29 +453,6 @@ def _run_evaluation(
     )
     _print_summary(summary, credible_interval=credible_interval)
     _print_parameter_summary(predictions)
-    if not show_rolling_plot:
-        print("\nRolling plot skipped because forecast origins overlap.")
-        return predictions, summary
-    plotting.plot_bayesian_rolling_predictions(
-        route_x,
-        route_y,
-        posterior_plot_groups,
-        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
-        inference_mode=inference_mode,
-        window_mode=window_mode,
-        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
-        sample_seed=experiment.inference_seed,
-        observed_route_x=route_x + route_noise_x,
-        observed_route_y=route_y + route_noise_y,
-        observed_trajectory_label=(
-            "Verrauschte Anfangsbeobachtungen"
-            if experiment.position_noise_std_m > 0
-            else "Anfängliche Beobachtungen"
-        ),
-        forecast_label="Rollierende latente Prognosemediane",
-        sample_label="Latente CTRV-Trajektorienprognosen",
-        show_time_labels=show_time_labels,
-    )
     return predictions, summary
 
 
@@ -543,12 +466,8 @@ def _run_br24_radar_evaluation(
     smc_config,
     sequential_vi_config,
     credible_interval,
-    sample_trajectories_per_forecast,
     max_windows,
-    plot_each_window,
     selected_window_indices,
-    show_time_labels,
-    show_plot,
     association_records=None,
 ):
     """Evaluate leakage-free rolling forecasts from raw BR24 radar cycles."""
@@ -613,17 +532,11 @@ def _run_br24_radar_evaluation(
     _record_br24_association(
         association_records, cycles[0], initial_detection.detection_id
     )
-    tracked_positions = [tracker.estimated_position]
     processed_cycle_count = 1
     route_x = reference.x_meters
     route_y = reference.y_meters
     effective_stride = (
         experiment.prediction_count if experiment.stride is None else experiment.stride
-    )
-    show_rolling_plot = _should_show_rolling_plot(
-        show_plot=show_plot,
-        prediction_count=experiment.prediction_count,
-        stride=experiment.stride,
     )
     print("=" * 72)
     print("Bayesian CTRV BR24 Radar Rolling Evaluation")
@@ -649,14 +562,12 @@ def _run_br24_radar_evaluation(
         )
 
     prediction_tables = []
-    posterior_plot_groups = []
     for number, specification in enumerate(windows, start=1):
         runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
             cycle = cycles[processed_cycle_count]
             step = tracker.process_cycle(cycle)
             _record_br24_association(association_records, cycle, step.detection_id)
-            tracked_positions.append(tracker.estimated_position)
             processed_cycle_count += 1
 
         forecast_stop_index = (
@@ -722,34 +633,6 @@ def _run_br24_radar_evaluation(
         table["fit_runtime_seconds"] = fit_runtime_seconds
         table["window_runtime_seconds"] = time.perf_counter() - runtime_started
         prediction_tables.append(table)
-        posterior_plot_groups.append(
-            _build_rolling_plot_data(
-                fit,
-                specification=specification,
-                window=window,
-                route_x=route_x,
-                route_y=route_y,
-            )
-        )
-        if plot_each_window:
-            observed_positions = np.asarray(
-                tracked_positions[: specification.forecast_start_index]
-            )
-            figure, _ = prediction_plotting.plot_prediction(
-                window,
-                fit,
-                state_prediction_variable_names=("x_prediction", "y_prediction"),
-                observed_position_values=(
-                    observed_positions[:, 0],
-                    observed_positions[:, 1],
-                ),
-                observed_trajectory_label="Bayesian CTRV track",
-                position_noise_std_m=0.0,
-                forecast_label="Median der latenten CTRV-Trajektorie",
-                sample_label="Latente CTRV-Trajektorienprognosen",
-                show_time_labels=show_time_labels,
-            )
-            plt.close(figure)
         print(
             f"{_window_metric_summary(evaluation)}, "
             f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s, "
@@ -765,27 +648,6 @@ def _run_br24_radar_evaluation(
     )
     _print_summary(summary, credible_interval=credible_interval)
     _print_parameter_summary(predictions)
-    if not show_rolling_plot:
-        print("\nRolling plot skipped because forecast origins overlap.")
-        return predictions, summary
-    tracked_positions = np.asarray(tracked_positions)
-    plotting.plot_bayesian_rolling_predictions(
-        route_x,
-        route_y,
-        posterior_plot_groups,
-        initial_observation_count=EVALUATION_START_OBSERVATION_COUNT,
-        inference_mode="online",
-        window_mode=None,
-        sample_trajectories_per_forecast=sample_trajectories_per_forecast,
-        sample_seed=experiment.inference_seed,
-        observed_route_x=tracked_positions[:, 0],
-        observed_route_y=tracked_positions[:, 1],
-        observed_trajectory_label="Assoziierte Radar-Trackpositionen",
-        title_prefix="Bayesian CTRV BR24 Radar",
-        forecast_label="Rollierende latente Prognosemediane",
-        sample_label="Latente CTRV-Trajektorienprognosen",
-        show_time_labels=show_time_labels,
-    )
     return predictions, summary
 
 
@@ -930,20 +792,6 @@ def _print_online_configuration(
     print(
         "Parameter rejuvenation: Liu-West scale "
         f"{particle_filter_config.rejuvenation_scale:g}"
-    )
-
-
-def _should_plot_rolling_predictions(*, prediction_count, stride):
-    """Return whether rolling forecast origins do not overlap."""
-    effective_stride = prediction_count if stride is None else stride
-    return effective_stride == prediction_count
-
-
-def _should_show_rolling_plot(*, show_plot, prediction_count, stride):
-    """Return whether the caller and rolling cadence both allow plotting."""
-    return show_plot and _should_plot_rolling_predictions(
-        prediction_count=prediction_count,
-        stride=stride,
     )
 
 
@@ -1111,47 +959,6 @@ def _posterior_diagnostics(fit):
             "sigma_turn_rate_process"
         ],
     }
-
-
-def _build_rolling_plot_data(
-    fit,
-    *,
-    specification,
-    window,
-    route_x,
-    route_y,
-):
-    """Build one forecast's model-position draws in the local route frame."""
-    x_samples = reporting.posterior_variable_samples(fit, "x_prediction")
-    y_samples = reporting.posterior_variable_samples(fit, "y_prediction")
-    expected_shape = (x_samples.shape[0], specification.prediction_count)
-    if (
-        x_samples.ndim != 2
-        or x_samples.shape[0] == 0
-        or x_samples.shape != expected_shape
-        or y_samples.shape != expected_shape
-        or not np.all(np.isfinite(x_samples))
-        or not np.all(np.isfinite(y_samples))
-    ):
-        raise ValueError("Rolling posterior position draws must be aligned matrices.")
-    sample_shape = x_samples.shape
-    forecast_origin_index = specification.forecast_start_index - 1
-    prediction_start_time = float(
-        window.time_seconds[specification.observation_count - 1]
-    )
-    prediction_times = np.asarray(
-        window.time_seconds[window.prediction_slice],
-        dtype=float,
-    )
-    return plotting.RollingPosteriorPlotData(
-        forecast_origin_x=float(route_x[forecast_origin_index]),
-        forecast_origin_y=float(route_y[forecast_origin_index]),
-        x_samples=x_samples.reshape(sample_shape),
-        y_samples=y_samples.reshape(sample_shape),
-        forecast_time_seconds=np.concatenate(
-            ([0.0], prediction_times - prediction_start_time)
-        ),
-    )
 
 
 def _build_route_prediction_table(

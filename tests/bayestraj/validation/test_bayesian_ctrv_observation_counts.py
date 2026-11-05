@@ -121,8 +121,8 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
         assert call["options"].position_noise_std_m == 0.0
         assert call["priors"] is namespace["PRIORS"]
         assert call["experiment"].observation_count == call["options"].observation_count
-        assert call["show_plot"] is False
-        assert call["options"].plot_each_window is False
+        assert "show_plot" not in call
+        assert not hasattr(call["options"], "plot_each_window")
 
     output = tmp_path / f"results/inference_evaluation/bayesian_ctrv_{method}"
     assert not (tmp_path / "results/associations").exists()

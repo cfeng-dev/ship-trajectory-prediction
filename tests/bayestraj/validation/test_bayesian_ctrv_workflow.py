@@ -197,7 +197,6 @@ def _run_br24_evaluation(
         position_noise_seed=2026,
         require_converged=False,
         max_windows=max_windows,
-        plot_each_window=False,
     )
     return workflow.run_bayesian_ctrv_evaluation(
         data_file=data_file,
@@ -210,9 +209,7 @@ def _run_br24_evaluation(
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=1,
         credible_interval=0.9,
-        sample_trajectories_per_forecast=4,
         options=options,
-        show_plot=False,
         association_records=association_records,
     )
 
@@ -679,24 +676,30 @@ def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys
     assert "Particles" not in output
 
 
-def test_rolling_plot_is_hidden_only_for_overlapping_forecast_origins():
-    assert workflow._should_plot_rolling_predictions(prediction_count=3, stride=None)
-    assert workflow._should_plot_rolling_predictions(prediction_count=3, stride=3)
-    assert not workflow._should_plot_rolling_predictions(prediction_count=3, stride=1)
-    assert not workflow._should_plot_rolling_predictions(prediction_count=3, stride=2)
+@pytest.mark.parametrize("radar_input", [False, True])
+def test_workflow_scores_non_overlapping_forecasts_without_trajectory_plots(
+    tmp_path, monkeypatch, radar_input
+):
+    input_csv = tmp_path / "trajectory.csv"
+    if radar_input:
+        _write_br24_evaluation_input(input_csv)
+    else:
+        pd.DataFrame(
+            {"time": [10.0, 12.8, 16.0], "x": [0.0, 1.0, 2.0], "y": 0.0}
+        ).to_csv(input_csv, index=False)
 
+    def unexpected_plot(*args, **kwargs):
+        pytest.fail("The evaluation workflow must not create trajectory figures.")
 
-def test_explicit_plot_switch_disables_non_overlapping_rolling_plots():
-    assert not workflow._should_show_rolling_plot(
-        show_plot=False,
-        prediction_count=3,
-        stride=3,
+    monkeypatch.setattr(runtime_plotting.plt, "subplots", unexpected_plot)
+
+    predictions, summary = _run_br24_evaluation(
+        input_csv, max_windows=1, prediction_count=1
     )
-    assert workflow._should_show_rolling_plot(
-        show_plot=True,
-        prediction_count=3,
-        stride=3,
-    )
+
+    assert summary.window_count == 1
+    assert len(predictions) == 1
+    assert np.isfinite(predictions["position_error_m"]).all()
 
 
 def test_selected_window_indices_preserve_chronological_online_safe_order():
