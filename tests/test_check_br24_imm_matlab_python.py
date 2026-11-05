@@ -16,7 +16,7 @@ from bayestraj.observations.br24 import (
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
-    / "experiments/tracking_validation/compare_br24_imm_implementations.py"
+    / "experiments/tracking_checks/check_br24_imm_matlab_python.py"
 )
 
 
@@ -154,7 +154,7 @@ def test_main_prints_a_clear_verdict_and_exports_the_comparison(
     monkeypatch.setitem(main.__globals__, "align_cycle_times", lambda _, value: value)
     monkeypatch.setitem(main.__globals__, "read_matlab_trace", lambda *_: _trace())
     monkeypatch.setitem(main.__globals__, "track_python_trace", lambda _: _trace())
-    output = tmp_path / "tracking_validation/comparison.csv"
+    output = tmp_path / "tracking_checks/comparison.csv"
 
     result = main(output_csv=output)
 

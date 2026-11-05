@@ -113,7 +113,7 @@ plots only. Its `--no-plot` option disables those diagnostics.
 To compare saved radar-detection choices without rerunning Bayesian inference:
 
 ```bash
-uv run python experiments/tracking_validation/compare_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
+uv run python experiments/tracking_checks/check_br24_associations.py --method mcmc --bayesian-csv results/associations/bayesian_ctrv_mcmc.csv
 ```
 
 Observation-count sweeps export only forecast CSVs and `summary.csv` under
