@@ -15,7 +15,9 @@ from bayestraj.paths import project_path
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
 INPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 MATLAB_TRACE = project_path("data/processed/BR24_imm_matlab_trace.mat")
-OUTPUT_CSV = project_path("results/BR24_imm_implementation_comparison.csv")
+OUTPUT_CSV = project_path("results/validation/BR24_imm_implementation_comparison.csv")
+ABSOLUTE_TOLERANCE = 1e-6
+RELATIVE_TOLERANCE = 1e-8
 
 
 NUMERIC_FIELDS = (
@@ -295,6 +297,73 @@ def compare_traces(matlab: pd.DataFrame, python: pd.DataFrame) -> pd.DataFrame:
     return merged.drop(columns="_merge")
 
 
+def print_comparison_summary(
+    comparison, *, atol=ABSOLUTE_TOLERANCE, rtol=RELATIVE_TOLERANCE
+):
+    """Report agreement of the checked diagnostics, retaining unresolved IDs."""
+    if comparison.empty:
+        raise ValueError("No radar cycles available for comparison.")
+    if not np.isfinite([atol, rtol]).all() or atol < 0 or rtol < 0:
+        raise ValueError("Comparison tolerances must be finite and non-negative.")
+
+    different = pd.DataFrame(
+        {
+            field: ~np.isclose(
+                comparison[f"{field}_python"],
+                comparison[f"{field}_matlab"],
+                atol=atol,
+                rtol=rtol,
+            )
+            for field in NUMERIC_FIELDS
+        },
+        index=comparison.index,
+    )
+    numeric_different = different.any(axis=1)
+    associations = comparison["association_comparison"]
+    association_different = associations.eq("different")
+    unresolved = associations.eq("ambiguous")
+    differing_cycles = numeric_different | association_different
+    if differing_cycles.any():
+        verdict = "DIFFERENT"
+        explanation = "MATLAB and Python differ in the checked diagnostics."
+    elif unresolved.any():
+        verdict = "INCONCLUSIVE"
+        explanation = "Numeric values agree, but some detection IDs cannot be verified."
+    else:
+        verdict = "MATCH"
+        explanation = "MATLAB and Python agree in all checked fields within tolerance."
+
+    print(f"\nBR24 IMM comparison: {verdict}")
+    print(explanation)
+    print(f"Compared {len(comparison)} cycles.")
+    print("Checked: associations, positions, position covariances, mode probabilities.")
+    print(f"Tolerance (MATLAB reference): atol={atol:g}, rtol={rtol:g}")
+    print(
+        f"Associations: {associations.eq('same').sum()} same, "
+        f"{association_different.sum()} different, {unresolved.sum()} unresolved"
+    )
+    print(f"Numeric differences: {numeric_different.sum()}/{len(comparison)} cycles")
+    summary = pd.DataFrame(
+        [
+            {
+                "field": field,
+                "result": "DIFFERENT" if different[field].any() else "MATCH",
+                "cycles_different": int(different[field].sum()),
+                "max_abs_difference": comparison[f"delta_{field}"].abs().max(),
+            }
+            for field in NUMERIC_FIELDS
+        ]
+    )
+    print(summary.to_string(index=False, float_format=lambda value: f"{value:.9g}"))
+    for label, mask in (
+        ("First differing cycles", differing_cycles),
+        ("First unresolved cycles", unresolved),
+    ):
+        if mask.any():
+            counters = comparison.loc[mask, "cycle_counter"].iloc[:10]
+            print(f"{label}: {', '.join(f'{value:g}' for value in counters)}")
+
+
 def main(matlab_trace=None, output_csv=None) -> pd.DataFrame:
     """Compare configured traces and replace the cyclewise results CSV."""
     matlab_trace = MATLAB_TRACE if matlab_trace is None else Path(matlab_trace)
@@ -306,13 +375,10 @@ def main(matlab_trace=None, output_csv=None) -> pd.DataFrame:
     comparison = compare_traces(matlab, python)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(output_csv, index=False)
-    print(f"Compared {len(comparison)} cycles; output: {output_csv}")
-    print("Association counts:")
-    print(comparison["association_comparison"].value_counts().to_string())
-    for field in NUMERIC_FIELDS:
-        print(
-            f"Maximum absolute {field} difference: {comparison[f'delta_{field}'].abs().max():.9g}"
-        )
+    print_comparison_summary(
+        comparison, atol=ABSOLUTE_TOLERANCE, rtol=RELATIVE_TOLERANCE
+    )
+    print(f"Saved cyclewise comparison: {output_csv}")
     return comparison
 
 

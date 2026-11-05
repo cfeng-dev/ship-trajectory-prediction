@@ -103,6 +103,68 @@ def test_comparison_rejects_nonfinite_states_and_invalid_associations():
         module["compare_traces"](_trace(), invalid)
 
 
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("identical", "MATCH"),
+        ("roundoff", "MATCH"),
+        ("numeric_difference", "DIFFERENT"),
+        ("association_difference", "DIFFERENT"),
+        ("unresolved", "INCONCLUSIVE"),
+        ("unresolved_and_difference", "DIFFERENT"),
+    ],
+)
+def test_summary_reports_numeric_and_association_verdicts(case, expected, capsys):
+    module = runpy.run_path(SCRIPT)
+    matlab, python = _trace(), _trace()
+    if case == "roundoff":
+        python.loc[1, "x"] += 1e-9
+    if case in {"numeric_difference", "unresolved_and_difference"}:
+        python.loc[1, "x"] += 0.5
+    if case == "association_difference":
+        python.loc[1, "detection_id"] = 4
+    if case in {"unresolved", "unresolved_and_difference"}:
+        matlab.loc[2, "association_status"] = "ambiguous"
+    comparison = module["compare_traces"](matlab, python)
+
+    assert "print_comparison_summary" in module
+    module["print_comparison_summary"](comparison)
+
+    output = capsys.readouterr().out
+    assert f"BR24 IMM comparison: {expected}" in output
+    assert "Tolerance" in output
+    assert "3 cycles" in output
+    if case in {"numeric_difference", "unresolved_and_difference"}:
+        assert "Numeric differences: 1/3 cycles" in output
+        assert "First differing cycles: 2" in output
+    if case == "association_difference":
+        assert "Associations: 2 same, 1 different, 0 unresolved" in output
+    if case in {"unresolved", "unresolved_and_difference"}:
+        assert "1 unresolved" in output
+        assert "First unresolved cycles: 3" in output
+
+
+def test_main_prints_a_clear_verdict_and_exports_the_comparison(
+    tmp_path, monkeypatch, capsys
+):
+    module = runpy.run_path(SCRIPT)
+    main = module["main"]
+    cycles = object()
+    monkeypatch.setitem(main.__globals__, "read_br24_tracking_input", lambda _: cycles)
+    monkeypatch.setitem(main.__globals__, "align_cycle_times", lambda _, value: value)
+    monkeypatch.setitem(main.__globals__, "read_matlab_trace", lambda *_: _trace())
+    monkeypatch.setitem(main.__globals__, "track_python_trace", lambda _: _trace())
+    output = tmp_path / "tracking_validation/comparison.csv"
+
+    result = main(output_csv=output)
+
+    assert output.is_file()
+    pd.testing.assert_frame_equal(pd.read_csv(output), result)
+    text = capsys.readouterr().out
+    assert "BR24 IMM comparison: MATCH" in text
+    assert str(output) in text
+
+
 def test_cycle_times_use_unrounded_matlab_values_without_changing_input(tmp_path):
     module = runpy.run_path(SCRIPT)
     cycles = (
@@ -224,7 +286,8 @@ def test_main_replaces_cyclewise_comparison_at_fixed_output_path(
 ):
     module = runpy.run_path(SCRIPT)
     assert module["OUTPUT_CSV"] == (
-        SCRIPT.parents[2] / "results/BR24_imm_implementation_comparison.csv"
+        SCRIPT.parents[2]
+        / "results/tracking_validation/BR24_imm_implementation_comparison.csv"
     )
     if not module["IMM_PYTHON"].is_file():
         pytest.skip("Optional external IMM implementation is not available")
