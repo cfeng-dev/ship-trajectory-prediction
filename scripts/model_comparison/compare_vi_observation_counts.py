@@ -10,8 +10,8 @@ from bayestraj.paths import project_path
 
 VI_RESULTS_DIR = project_path("results/inference_evaluation/bayesian_ctrv_vi")
 SHOW_POINTS = True
+METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
 PLOT_LANGUAGE = "de"  # "de" or "en".
-OUTPUT_DIR = None  # Optional directory for PNG copies of the displayed figures.
 
 
 def main():
@@ -20,8 +20,8 @@ def main():
         return comparison.run_observation_count_comparison(
             vi_dir=VI_RESULTS_DIR,
             show_points=SHOW_POINTS,
+            metric_y_scale=METRIC_Y_SCALE,
             plot_language=PLOT_LANGUAGE,
-            output_dir=OUTPUT_DIR,
         )
     except (OSError, ValueError) as error:
         raise SystemExit(str(error)) from None

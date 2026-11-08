@@ -305,10 +305,17 @@ def test_prior_predictive_windows_do_not_require_fit_diagnostics(result_dirs, me
     assert table.loc[table["observation_count"] == 3, diagnostic].isna().all()
 
 
-def test_plot_uses_recomputed_metrics_and_integer_ticks(result_dirs, tmp_path):
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+def test_plot_uses_recomputed_metrics_and_integer_ticks(
+    result_dirs, tmp_path, metric_y_scale
+):
     models = _read(result_dirs)
     figures = runtime_plotting.plot_observation_count_comparison(
-        models, show=False, output_dir=tmp_path, plot_language="en"
+        models,
+        show=False,
+        output_dir=tmp_path,
+        metric_y_scale=metric_y_scale,
+        plot_language="en",
     )
     try:
         assert len(figures) == len(METRICS)
@@ -326,6 +333,7 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(result_dirs, tmp_path):
                 )
             if scale == 100:
                 assert axis.get_ylim() == (0.0, 100.0)
+            assert axis.get_yscale() == ("linear" if scale == 100 else metric_y_scale)
             width, height = figure.get_size_inches()
             expected_width, expected_height = (
                 runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
@@ -336,6 +344,32 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(result_dirs, tmp_path):
     finally:
         for figure, _ in figures:
             plt.close(figure)
+
+
+@pytest.mark.parametrize("values", [[-2.0, 0.0, 200.0], [0.0, 0.0, 0.0]])
+def test_symlog_preserves_negative_and_zero_metrics(result_dirs, values):
+    models = _read(result_dirs)
+    for table in models.values():
+        table["mean_negative_log_predictive_density"] = values
+    figures = runtime_plotting.plot_observation_count_comparison(
+        models, show=False, metric_y_scale="symlog"
+    )
+    try:
+        axis = figures[4][1]
+        assert axis.get_yscale() == "symlog"
+        np.testing.assert_array_equal(axis.lines[0].get_ydata(), values)
+        axis.figure.canvas.draw()
+        assert np.isfinite(axis.get_ylim()).all()
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_plot_rejects_unsupported_metric_y_scale(result_dirs):
+    with pytest.raises(ValueError, match="metric_y_scale"):
+        runtime_plotting.plot_observation_count_comparison(
+            _read(result_dirs), show=False, metric_y_scale="log"
+        )
 
 
 def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs):
@@ -351,8 +385,9 @@ def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs)
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
 def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
-    result_dirs, tmp_path, monkeypatch, method
+    result_dirs, tmp_path, monkeypatch, method, metric_y_scale
 ):
     monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
     original_read = comparison._read_csv
@@ -367,6 +402,9 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
     script = ROOT / f"scripts/model_comparison/compare_{method}_observation_counts.py"
     try:
         module = runpy.run_path(script)
+        monkeypatch.setitem(
+            module["main"].__globals__, "METRIC_Y_SCALE", metric_y_scale
+        )
         models = module["main"]()
         saved = pd.read_csv(result_dirs[method] / "summary.csv")
         expected = (
@@ -380,6 +418,11 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         assert all(
             figure.axes[0].lines[0].get_label() == method.upper() for figure in shown
         )
+        for metric, figure in zip(METRICS, shown, strict=True):
+            expected_scale = (
+                "linear" if metric.startswith("joint_coverage_") else metric_y_scale
+            )
+            assert figure.axes[0].get_yscale() == expected_scale
     finally:
         for figure in shown:
             plt.close(figure)

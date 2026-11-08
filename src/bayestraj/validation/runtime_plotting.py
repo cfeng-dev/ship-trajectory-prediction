@@ -326,9 +326,17 @@ def plot_model_comparison(
 
 
 def plot_observation_count_comparison(
-    models, *, show=True, output_dir=None, show_points=True, plot_language="de"
+    models,
+    *,
+    show=True,
+    output_dir=None,
+    show_points=True,
+    metric_y_scale="linear",
+    plot_language="de",
 ):
     """Plot saved sweep metrics against window size using shared plot styles."""
+    if metric_y_scale not in {"linear", "symlog"}:
+        raise ValueError("metric_y_scale must be 'linear' or 'symlog'.")
     if plot_language not in COMPARISON_PLOT_TEXT:
         raise ValueError("plot_language must be 'de' or 'en'.")
     text = COMPARISON_PLOT_TEXT[plot_language]
@@ -346,6 +354,16 @@ def plot_observation_count_comparison(
     for metric, (ylabel, metric_name) in OBSERVATION_COUNT_METRICS.items():
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
         coverage = metric.startswith("joint_coverage_")
+        if not coverage and metric_y_scale == "symlog":
+            # Use the same adaptive linear range as the forecast metric curves.
+            magnitudes = np.abs(
+                np.concatenate(
+                    [table[metric].to_numpy(dtype=float) for table in models.values()]
+                )
+            )
+            positive = magnitudes[magnitudes > 0]
+            threshold = float(np.percentile(positive, 10)) if positive.size else 1.0
+            axis.set_yscale("symlog", linthresh=threshold)
         for label, table in models.items():
             method = table["inference_method"].iloc[0]
             values = table[metric].to_numpy(dtype=float)

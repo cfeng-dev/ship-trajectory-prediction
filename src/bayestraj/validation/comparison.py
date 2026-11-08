@@ -506,6 +506,7 @@ def run_observation_count_comparison(
     show=True,
     output_dir=None,
     show_points=True,
+    metric_y_scale="linear",
     plot_language="de",
 ):
     """Summarize saved forecast CSVs, export summary.csv, and plot without inference."""
@@ -529,6 +530,7 @@ def run_observation_count_comparison(
         show=show,
         output_dir=output_dir,
         show_points=show_points,
+        metric_y_scale=metric_y_scale,
         plot_language=plot_language,
     )
     if not show:
