@@ -331,6 +331,7 @@ def plot_observation_count_comparison(
     show=True,
     output_dir=None,
     show_points=True,
+    show_summary_table=False,
     metric_y_scale="linear",
     plot_language="de",
 ):
@@ -411,14 +412,75 @@ def plot_observation_count_comparison(
         if show:
             plt.show()
         figures.append((figure, axis))
+    if show_summary_table:
+        configurations = {
+            f"{label} (n={int(row['observation_count'])})": [
+                row[metric] for metric in OBSERVATION_COUNT_METRICS
+            ]
+            for label, table in models.items()
+            for _, row in table.iterrows()
+        }
+        summary = pd.DataFrame(
+            {
+                "metric": list(OBSERVATION_COUNT_METRICS),
+                **configurations,
+                "preferred": [
+                    f"near {metric.rsplit('_', 1)[1]}%"
+                    if metric.startswith("joint_coverage_")
+                    else "lower"
+                    for metric in OBSERVATION_COUNT_METRICS
+                ],
+            }
+        )
+        summary_text = {
+            **text,
+            "metric": "Konfiguration" if plot_language == "de" else "Configuration",
+            "summary_note": (
+                "n = konfigurierte Beobachtungsanzahl. Mittelwerte je Fenster.\n"
+                "Coverage über alle Vorhersagepunkte; fett: nächster Sollwert."
+                if plot_language == "de"
+                else "n = configured observation count. Mean metrics per window.\n"
+                "Coverage over all forecast positions; bold: closest to nominal."
+            ),
+        }
+        metric_labels = {
+            metric: labels[0] for metric, labels in OBSERVATION_COUNT_METRICS.items()
+        }
+        metric_labels["mean_window_runtime_seconds"] = (
+            "Mittlere Fenster-\nlaufzeit [s]"
+            if plot_language == "de"
+            else "Mean window\nruntime [s]"
+        )
+        figure, axis = _plot_comparison_summary_table(
+            summary,
+            list(configurations),
+            text=summary_text,
+            title=f"{title} ({text['summary']})",
+            metric_labels=metric_labels,
+            transpose=True,
+        )
+        if output_dir is not None:
+            figure.savefig(
+                output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
+            )
+        if show:
+            plt.show()
+        figures.append((figure, axis))
     return tuple(figures)
 
 
-def _plot_comparison_summary_table(summary, labels, *, text, title):
+def _plot_comparison_summary_table(
+    summary, labels, *, text, title, metric_labels=None, transpose=False
+):
     """Render the computed comparison summary without recalculating metrics."""
     style = RUNTIME_PLOT_STYLE
-    width = max(8.0, 2.0 + 2.0 * len(labels))
-    figure, axis = plt.subplots(figsize=(width, 5.5))
+    width = (
+        max(12.0, 2.0 + 1.5 * len(summary))
+        if transpose
+        else max(8.0, 2.0 + 2.0 * len(labels))
+    )
+    height = max(5.5, 2.0 + 0.35 * len(labels)) if transpose else 5.5
+    figure, axis = plt.subplots(figsize=(width, height))
     axis.set_axis_off()
     rows = []
     best_cells = set()
@@ -434,7 +496,11 @@ def _plot_comparison_summary_table(summary, labels, *, text, title):
         elif name == "fit_runtime_seconds":
             label = f"{text['runtime']} [s]"
         else:
-            label = COMPARISON_METRIC_LABELS[name][0]
+            label = (
+                metric_labels[name]
+                if metric_labels is not None
+                else COMPARISON_METRIC_LABELS[name][0]
+            )
         finite = np.isfinite(scores)
         if finite.any():
             # Allow floating-point roundoff in otherwise equal scores.
@@ -448,17 +514,31 @@ def _plot_comparison_summary_table(summary, labels, *, text, title):
             [label]
             + [f"{value:.1%}" if coverage else f"{value:.3f}" for value in values]
         )
+    column_labels = [text["metric"], *[label.replace(" (", "\n(") for label in labels]]
+    if transpose:
+        transposed = list(zip([text["metric"], *labels], *rows, strict=True))
+        column_labels = [
+            label
+            if "\n" in label
+            else label.replace(" Coverage", "\nCoverage").replace(" [", "\n[")
+            for label in transposed[0]
+        ]
+        rows = transposed[1:]
+        best_cells = {(column, row) for row, column in best_cells}
     metric_width = 2.0 / width
     table = axis.table(
         cellText=rows,
-        colLabels=[text["metric"], *[label.replace(" (", "\n(") for label in labels]],
-        colWidths=[metric_width] + [(1 - metric_width) / len(labels)] * len(labels),
+        colLabels=column_labels,
+        colWidths=[metric_width]
+        + [(1 - metric_width) / (len(column_labels) - 1)] * (len(column_labels) - 1),
         cellLoc="right",
         bbox=(0, 0.12, 1, 0.84),
     )
     table.auto_set_font_size(False)
     table.set_fontsize(style.axis_tick_font_size)
     for (row, column), cell in table.get_celld().items():
+        if transpose and row == 0:
+            cell.set_height(2 * cell.get_height())
         cell.set_edgecolor("0.8")
         cell.set_linewidth(0.6)
         cell.set_facecolor("0.92" if row == 0 else ("0.97" if row % 2 else "white"))

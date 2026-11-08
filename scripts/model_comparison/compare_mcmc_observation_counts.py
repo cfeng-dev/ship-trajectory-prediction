@@ -10,6 +10,7 @@ from bayestraj.paths import project_path
 
 MCMC_RESULTS_DIR = project_path("results/inference_evaluation/bayesian_ctrv_mcmc")
 SHOW_POINTS = True
+SHOW_SUMMARY_TABLE = True  # Display all summary metrics in an additional table.
 METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
 PLOT_LANGUAGE = "de"  # "de" or "en".
 
@@ -20,6 +21,7 @@ def main():
         return comparison.run_observation_count_comparison(
             mcmc_dir=MCMC_RESULTS_DIR,
             show_points=SHOW_POINTS,
+            show_summary_table=SHOW_SUMMARY_TABLE,
             metric_y_scale=METRIC_Y_SCALE,
             plot_language=PLOT_LANGUAGE,
         )

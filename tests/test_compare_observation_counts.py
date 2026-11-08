@@ -386,8 +386,9 @@ def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs)
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+@pytest.mark.parametrize("show_summary_table", [False, True])
 def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
-    result_dirs, tmp_path, monkeypatch, method, metric_y_scale
+    result_dirs, tmp_path, monkeypatch, method, metric_y_scale, show_summary_table
 ):
     monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
     original_read = comparison._read_csv
@@ -405,6 +406,8 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         monkeypatch.setitem(
             module["main"].__globals__, "METRIC_Y_SCALE", metric_y_scale
         )
+        if not show_summary_table:
+            monkeypatch.setitem(module["main"].__globals__, "SHOW_SUMMARY_TABLE", False)
         models = module["main"]()
         saved = pd.read_csv(result_dirs[method] / "summary.csv")
         expected = (
@@ -414,17 +417,71 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         )
         pd.testing.assert_frame_equal(saved, expected, check_dtype=False)
         assert saved["observation_count"].tolist() == [2, 3, 4]
-        assert len(shown) == len(METRICS)
+        assert len(shown) == len(METRICS) + int(show_summary_table)
+        metric_figures = shown[: len(METRICS)]
         assert all(
-            figure.axes[0].lines[0].get_label() == method.upper() for figure in shown
+            figure.axes[0].lines[0].get_label() == method.upper()
+            for figure in metric_figures
         )
-        for metric, figure in zip(METRICS, shown, strict=True):
+        for metric, figure in zip(METRICS, metric_figures, strict=True):
             expected_scale = (
                 "linear" if metric.startswith("joint_coverage_") else metric_y_scale
             )
             assert figure.axes[0].get_yscale() == expected_scale
+        if show_summary_table:
+            cells = shown[-1].axes[0].tables[0].get_celld()
+            assert cells[1, 0].get_text().get_text() == f"{method.upper()} (n=2)"
+            assert cells[1, 1].get_text().get_text() == "5.000"
     finally:
         for figure in shown:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+@pytest.mark.parametrize("count", [3, 19])
+def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
+    result_dirs, tmp_path, plot_language, count
+):
+    models = {"MCMC": _read(result_dirs)["MCMC"]}
+    table = models["MCMC"].reindex(range(count)).ffill()
+    table["observation_count"] = np.arange(2, count + 2)
+    table["joint_coverage_50"] = [0.2, 0.5] + [0.95] * (count - 2)
+    table["joint_coverage_90"] = [0.95, 0.9] + [0.8] * (count - 2)
+    models["MCMC"] = table
+    figures = runtime_plotting.plot_observation_count_comparison(
+        models,
+        show=False,
+        show_summary_table=True,
+        plot_language=plot_language,
+        output_dir=tmp_path,
+    )
+    try:
+        assert len(figures) == len(METRICS) + 1
+        figure, axis = figures[-1]
+        assert not axis.axison
+        cells = axis.tables[0].get_celld()
+        assert len(cells) == (count + 1) * 9
+        assert cells[1, 0].get_text().get_text() == "MCMC (n=2)"
+        assert cells[count, 0].get_text().get_text() == f"MCMC (n={count + 1})"
+        assert cells[1, 1].get_text().get_text() == "5.000"
+        assert cells[1, 6].get_text().get_text() == "20.0%"
+        assert cells[1, 8].get_text().get_text() == "4.000"
+        assert cells[1, 1].get_text().get_weight() == "bold"
+        assert cells[2, 6].get_text().get_weight() == "bold"
+        assert cells[2, 7].get_text().get_weight() == "bold"
+        assert cells[1, 6].get_text().get_weight() != "bold"
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        for cell in cells.values():
+            cell_box = cell.get_window_extent(renderer)
+            text_box = cell.get_text().get_window_extent(renderer)
+            assert figure.bbox.contains(cell_box.x0, cell_box.y0)
+            assert figure.bbox.contains(cell_box.x1, cell_box.y1)
+            assert cell_box.contains(text_box.x0, text_box.y0)
+            assert cell_box.contains(text_box.x1, text_box.y1)
+        assert (tmp_path / "metrics_summary.png").stat().st_size > 0
+    finally:
+        for figure, _ in figures:
             plt.close(figure)
 
 

@@ -506,6 +506,7 @@ def run_observation_count_comparison(
     show=True,
     output_dir=None,
     show_points=True,
+    show_summary_table=False,
     metric_y_scale="linear",
     plot_language="de",
 ):
@@ -530,6 +531,7 @@ def run_observation_count_comparison(
         show=show,
         output_dir=output_dir,
         show_points=show_points,
+        show_summary_table=show_summary_table,
         metric_y_scale=metric_y_scale,
         plot_language=plot_language,
     )
