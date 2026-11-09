@@ -15,6 +15,7 @@ from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
 METRICS = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
+MCMC_METRICS = (*METRICS, "mcmc_rhat_max")
 
 
 def _predictions(method, count):
@@ -318,18 +319,21 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(
         plot_language="en",
     )
     try:
-        assert len(figures) == len(METRICS)
-        for metric, (figure, axis) in zip(METRICS, figures, strict=True):
+        assert len(figures) == len(MCMC_METRICS)
+        for metric, (figure, axis) in zip(MCMC_METRICS, figures, strict=True):
             assert "observation_count" in axis.get_xlabel()
-            assert [line.get_label() for line in axis.lines[:2]] == ["MCMC", "VI"]
+            selected = {"MCMC": models["MCMC"]} if metric == "mcmc_rhat_max" else models
+            curves = axis.lines[: len(selected)]
+            assert [line.get_label() for line in curves] == list(selected)
             scale = 100 if metric.startswith("joint_coverage_") else 1
-            for line, table in zip(axis.lines[:2], models.values(), strict=True):
+            for line, table in zip(curves, selected.values(), strict=True):
                 np.testing.assert_array_equal(line.get_xdata(), [2, 3, 4])
                 np.testing.assert_allclose(line.get_ydata(), table[metric] * scale)
-            for line, method in zip(axis.lines[:2], ["mcmc", "vi"], strict=True):
                 assert (
                     line.get_color()
-                    == runtime_plotting.COMPARISON_INFERENCE_COLORS[method]
+                    == runtime_plotting.COMPARISON_INFERENCE_COLORS[
+                        table["inference_method"].iloc[0]
+                    ]
                 )
             if scale == 100:
                 assert axis.get_ylim() == (0.0, 100.0)
@@ -388,6 +392,44 @@ def test_plot_rejects_unsupported_metric_y_scale(result_dirs):
         )
 
 
+@pytest.mark.parametrize("missing", [False, True])
+def test_plot_skips_rhat_without_defined_mcmc_diagnostics(result_dirs, missing):
+    models = _read(result_dirs)
+    if missing:
+        models["MCMC"] = models["MCMC"].drop(columns="mcmc_rhat_max")
+    else:
+        models["MCMC"]["mcmc_rhat_max"] = np.nan
+    figures = runtime_plotting.plot_observation_count_comparison(models, show=False)
+    try:
+        assert len(figures) == len(METRICS)
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_rhat_plot_preserves_missing_values_and_highlights_nearest_one(result_dirs):
+    models = _read(result_dirs)
+    models["MCMC"]["mcmc_rhat_max"] = [0.98, np.nan, 1.005]
+    figures = runtime_plotting.plot_observation_count_comparison(
+        models, show=False, show_summary_table=True, metric_y_scale="symlog"
+    )
+    try:
+        _, axis = figures[-2]
+        assert "R-hat" in axis.get_ylabel()
+        assert [line.get_label() for line in axis.lines] == ["MCMC"]
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), [0.98, np.nan, 1.005])
+        assert np.isfinite(axis.get_ylim()).all()
+        assert 0 in axis.get_yticks()
+        cells = figures[-1][1].tables[0].get_celld()
+        assert cells[1, 9].get_text().get_text() == "0.980"
+        assert cells[3, 9].get_text().get_text() == "1.005"
+        assert cells[1, 9].get_text().get_weight() != "bold"
+        assert cells[3, 9].get_text().get_weight() == "bold"
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
 def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs):
     models = {label: table.iloc[:1] for label, table in _read(result_dirs).items()}
     figures = runtime_plotting.plot_observation_count_comparison(models, show=False)
@@ -433,13 +475,14 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         )
         pd.testing.assert_frame_equal(saved, expected, check_dtype=False)
         assert saved["observation_count"].tolist() == [2, 3, 4]
-        assert len(shown) == len(METRICS) + int(show_summary_table)
-        metric_figures = shown[: len(METRICS)]
+        metrics = MCMC_METRICS if method == "mcmc" else METRICS
+        assert len(shown) == len(metrics) + int(show_summary_table)
+        metric_figures = shown[: len(metrics)]
         assert all(
             figure.axes[0].lines[0].get_label() == method.upper()
             for figure in metric_figures
         )
-        for metric, figure in zip(METRICS, metric_figures, strict=True):
+        for metric, figure in zip(metrics, metric_figures, strict=True):
             expected_scale = (
                 "linear" if metric.startswith("joint_coverage_") else metric_y_scale
             )
@@ -452,6 +495,8 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
             cells = shown[-1].axes[0].tables[0].get_celld()
             assert cells[1, 0].get_text().get_text() == f"{method.upper()} (n=2)"
             assert cells[1, 1].get_text().get_text() == "5.000"
+            if method == "mcmc":
+                assert cells[1, 9].get_text().get_text() == "1.012"
     finally:
         for figure in shown:
             plt.close(figure)
@@ -476,11 +521,11 @@ def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
         output_dir=tmp_path,
     )
     try:
-        assert len(figures) == len(METRICS) + 1
+        assert len(figures) == len(MCMC_METRICS) + 1
         figure, axis = figures[-1]
         assert not axis.axison
         cells = axis.tables[0].get_celld()
-        assert len(cells) == (count + 1) * 9
+        assert len(cells) == (count + 1) * 10
         assert cells[1, 0].get_text().get_text() == "MCMC (n=2)"
         assert cells[count, 0].get_text().get_text() == f"MCMC (n={count + 1})"
         assert cells[1, 1].get_text().get_text() == "5.000"

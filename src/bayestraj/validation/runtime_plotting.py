@@ -352,20 +352,42 @@ def plot_observation_count_comparison(
         output_dir.mkdir(parents=True, exist_ok=True)
     style = RUNTIME_PLOT_STYLE
     figures = []
-    for metric, (ylabel, metric_name) in OBSERVATION_COUNT_METRICS.items():
+    metrics = dict(OBSERVATION_COUNT_METRICS)
+    if any(
+        table["inference_method"].iloc[0] == "mcmc"
+        and "mcmc_rhat_max" in table
+        and table["mcmc_rhat_max"].notna().any()
+        for table in models.values()
+    ):
+        metrics["mcmc_rhat_max"] = (
+            "Max. R-hat",
+            "Maximaler R-hat" if plot_language == "de" else "Maximum R-hat",
+        )
+    for metric, (ylabel, metric_name) in metrics.items():
         figure, axis = plt.subplots(figsize=style.speed_figure_size)
         coverage = metric.startswith("joint_coverage_")
+        metric_models = {
+            label: table
+            for label, table in models.items()
+            if metric != "mcmc_rhat_max"
+            or (
+                table["inference_method"].iloc[0] == "mcmc" and "mcmc_rhat_max" in table
+            )
+        }
         if not coverage and metric_y_scale == "symlog":
             # Use the same adaptive linear range as the forecast metric curves.
             magnitudes = np.abs(
                 np.concatenate(
-                    [table[metric].to_numpy(dtype=float) for table in models.values()]
+                    [
+                        table[metric].to_numpy(dtype=float)
+                        for table in metric_models.values()
+                    ]
                 )
             )
-            positive = magnitudes[magnitudes > 0]
+            positive = magnitudes[np.isfinite(magnitudes) & (magnitudes > 0)]
             threshold = float(np.percentile(positive, 10)) if positive.size else 1.0
             axis.set_yscale("symlog", linthresh=threshold)
-        for label, table in models.items():
+        for label, table in metric_models.items():
             method = table["inference_method"].iloc[0]
             values = table[metric].to_numpy(dtype=float)
             axis.plot(
@@ -418,20 +440,22 @@ def plot_observation_count_comparison(
     if show_summary_table:
         configurations = {
             f"{label} (n={int(row['observation_count'])})": [
-                row[metric] for metric in OBSERVATION_COUNT_METRICS
+                row.get(metric, np.nan) for metric in metrics
             ]
             for label, table in models.items()
             for _, row in table.iterrows()
         }
         summary = pd.DataFrame(
             {
-                "metric": list(OBSERVATION_COUNT_METRICS),
+                "metric": list(metrics),
                 **configurations,
                 "preferred": [
                     f"near {metric.rsplit('_', 1)[1]}%"
                     if metric.startswith("joint_coverage_")
+                    else "near 1"
+                    if metric == "mcmc_rhat_max"
                     else "lower"
-                    for metric in OBSERVATION_COUNT_METRICS
+                    for metric in metrics
                 ],
             }
         )
@@ -446,9 +470,13 @@ def plot_observation_count_comparison(
                 "Coverage over all forecast positions; bold: closest to nominal."
             ),
         }
-        metric_labels = {
-            metric: labels[0] for metric, labels in OBSERVATION_COUNT_METRICS.items()
-        }
+        if "mcmc_rhat_max" in metrics:
+            summary_text["summary_note"] += (
+                "\nR-hat: Maximum über Parameter und Fenster; fett: nächster Wert zu 1."
+                if plot_language == "de"
+                else "\nR-hat: maximum over parameters and windows; bold: closest to 1."
+            )
+        metric_labels = {metric: labels[0] for metric, labels in metrics.items()}
         metric_labels["mean_window_runtime_seconds"] = (
             "Mittlere Fenster-\nlaufzeit [s]"
             if plot_language == "de"
@@ -505,6 +533,8 @@ def _plot_comparison_summary_table(
                 else COMPARISON_METRIC_LABELS[name][0]
             )
         finite = np.isfinite(scores)
+        if name == "mcmc_rhat_max":
+            scores = np.abs(values - 1.0)
         if finite.any():
             # Allow floating-point roundoff in otherwise equal scores.
             best = finite & np.isclose(
@@ -515,7 +545,14 @@ def _plot_comparison_summary_table(
             )
         rows.append(
             [label]
-            + [f"{value:.1%}" if coverage else f"{value:.3f}" for value in values]
+            + [
+                "—"
+                if name == "mcmc_rhat_max" and not np.isfinite(value)
+                else f"{value:.1%}"
+                if coverage
+                else f"{value:.3f}"
+                for value in values
+            ]
         )
     column_labels = [text["metric"], *[label.replace(" (", "\n(") for label in labels]]
     if transpose:
