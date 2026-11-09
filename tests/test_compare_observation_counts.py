@@ -392,6 +392,48 @@ def test_plot_rejects_unsupported_metric_y_scale(result_dirs):
         )
 
 
+@pytest.mark.parametrize("interactive", [False, True])
+@pytest.mark.parametrize("plot_kind", ["models", "observation_counts"])
+def test_comparison_figures_finish_layout_before_display(
+    result_dirs, monkeypatch, interactive, plot_kind
+):
+    original_interactive = plt.isinteractive()
+    original_subplots = plt.subplots
+    created, shown = [], []
+
+    def create_hidden(*args, **kwargs):
+        assert not plt.isinteractive(), "Figure creation must not open a GUI window"
+        figure, axis = original_subplots(*args, **kwargs)
+        created.append(figure)
+        return figure, axis
+
+    def show_finished():
+        assert plt.isinteractive() == interactive
+        figure = plt.gcf()
+        assert not figure.stale, "Draw the final layout before showing the window"
+        shown.append(figure)
+
+    monkeypatch.setattr(plt, "subplots", create_hidden)
+    monkeypatch.setattr(plt, "show", show_finished)
+    try:
+        plt.interactive(interactive)
+        if plot_kind == "models":
+            _, figures = runtime_plotting.plot_model_comparison(
+                {method.upper(): _predictions(method, 3) for method in ("mcmc", "vi")},
+                show_summary_table=True,
+            )
+        else:
+            figures = runtime_plotting.plot_observation_count_comparison(
+                _read(result_dirs), show_summary_table=True
+            )
+        assert shown == created == [figure for figure, _ in figures]
+        assert plt.isinteractive() == interactive
+    finally:
+        for figure in created:
+            plt.close(figure)
+        plt.interactive(original_interactive)
+
+
 @pytest.mark.parametrize("missing", [False, True])
 def test_plot_skips_rhat_without_defined_mcmc_diagnostics(result_dirs, missing):
     models = _read(result_dirs)

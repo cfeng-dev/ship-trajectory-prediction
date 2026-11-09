@@ -160,6 +160,18 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
     )
 
 
+def _comparison_subplots(*, figsize):
+    """Create a comparison window without interactive auto-display."""
+    with plt.ioff():
+        return plt.subplots(figsize=figsize)
+
+
+def _show_comparison_figure(figure):
+    """Render the final layout before making comparison windows visible."""
+    figure.canvas.draw()
+    plt.show()
+
+
 def _comparison_label_with_window(label, table):
     """Label batch window limits from explicit CSV configuration only."""
     if (
@@ -242,7 +254,7 @@ def plot_model_comparison(
         if name == "fit_runtime_seconds":
             metric_name = text["runtime"]
             ylabel = f"{metric_name} [s]"
-        figure, axis = plt.subplots(figsize=style.speed_figure_size)
+        figure, axis = _comparison_subplots(figsize=style.speed_figure_size)
         if nominal is None and metric_y_scale == "symlog":
             # Adapt the linear range to each metric's units and typical low values.
             magnitudes = np.abs(np.concatenate([values[name] for _, values in series]))
@@ -329,7 +341,7 @@ def plot_model_comparison(
         if output_dir is not None:
             figure.savefig(output_dir / f"{name}.png", dpi=150, bbox_inches="tight")
         if show:
-            plt.show()
+            _show_comparison_figure(figure)
         figures.append((figure, axis))
         rows.append(
             {
@@ -350,7 +362,7 @@ def plot_model_comparison(
                 output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
             )
         if show:
-            plt.show()
+            _show_comparison_figure(figure)
         figures.append((figure, axis))
     return summary, tuple(figures)
 
@@ -394,7 +406,7 @@ def plot_observation_count_comparison(
             "Maximaler R-hat" if plot_language == "de" else "Maximum R-hat",
         )
     for metric, (ylabel, metric_name) in metrics.items():
-        figure, axis = plt.subplots(figsize=style.speed_figure_size)
+        figure, axis = _comparison_subplots(figsize=style.speed_figure_size)
         coverage = metric.startswith("joint_coverage_")
         metric_models = {
             label: table
@@ -465,7 +477,7 @@ def plot_observation_count_comparison(
         if output_dir is not None:
             figure.savefig(output_dir / f"{metric}.png", dpi=150, bbox_inches="tight")
         if show:
-            plt.show()
+            _show_comparison_figure(figure)
         figures.append((figure, axis))
     if show_summary_table:
         configurations = {
@@ -525,7 +537,7 @@ def plot_observation_count_comparison(
                 output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
             )
         if show:
-            plt.show()
+            _show_comparison_figure(figure)
         figures.append((figure, axis))
     return tuple(figures)
 
@@ -541,7 +553,7 @@ def _plot_comparison_summary_table(
         else max(8.0, 2.0 + 2.0 * len(labels))
     )
     height = max(5.5, 2.0 + 0.35 * len(labels)) if transpose else 5.5
-    figure, axis = plt.subplots(figsize=(width, height))
+    figure, axis = _comparison_subplots(figsize=(width, height))
     axis.set_axis_off()
     rows = []
     best_cells = set()
