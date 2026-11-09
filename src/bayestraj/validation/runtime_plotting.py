@@ -160,6 +160,33 @@ def plot_bayesian_imm_comparison(bayesian, imm, *, show=True, output_dir=None):
     )
 
 
+def _comparison_label_with_window(label, table):
+    """Label batch window limits from explicit CSV configuration only."""
+    if (
+        table["inference_method"].iloc[0] not in {"vi", "mcmc"}
+        or "configured_observation_count" not in table
+        or table["configured_observation_count"].isna().all()
+    ):
+        return label
+    counts = pd.to_numeric(
+        table["configured_observation_count"], errors="coerce"
+    ).to_numpy(dtype=float)
+    if (
+        not np.isfinite(counts).all()
+        or (counts <= 0).any()
+        or (counts != np.floor(counts)).any()
+        or np.unique(counts).size != 1
+    ):
+        raise ValueError(
+            "configured_observation_count must contain one consistent positive "
+            "integer for every row of a batch evaluation."
+        )
+    count = int(counts[0])
+    if label.endswith(")"):
+        return f"{label[:-1]}, T={count})"
+    return f"{label} (T={count})"
+
+
 def plot_model_comparison(
     models,
     *,
@@ -184,9 +211,12 @@ def plot_model_comparison(
     names = list(models)
     tables = list(models.values())
     labels = [
-        str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
-        if labels is None
-        else labels[name]
+        _comparison_label_with_window(
+            str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
+            if labels is None
+            else labels[name],
+            models[name],
+        )
         for name in names
     ]
     series = [_rolling_window_metric_series(table) for table in tables]

@@ -148,6 +148,87 @@ def test_named_csvs_load_all_five_methods_without_modifying_files(tmp_path):
         assert paths[variable].read_bytes() == originals[variable]
 
 
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+def test_configured_window_sizes_appear_in_curves_coverage_and_summary(
+    tmp_path, plot_language
+):
+    paths = _write_model_csvs(tmp_path)
+    for variable, path in paths.items():
+        table = pd.read_csv(path)
+        table["observation_count"] = [2, 2, 2, 2]
+        table["configured_observation_count"] = {
+            "BAYESIAN_VI_CSV": 5,
+            "BAYESIAN_MCMC_CSV": 3,
+        }.get(variable, 99)
+        table.to_csv(path, index=False)
+    models = comparison.read_model_comparison_csvs(paths)
+    expected = [
+        label.replace("(VI)", "(VI, T=5)").replace("(MCMC)", "(MCMC, T=3)")
+        for label in PLOT_MODEL_LABELS[plot_language]
+    ]
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models, show=False, show_summary_table=True, plot_language=plot_language
+    )
+    try:
+        assert [line.get_label() for line in figures[0][1].lines[::2]] == expected
+        assert all("T=" in line.get_label() for line in figures[0][1].lines[-4:])
+        for _, axis in figures[5:7]:
+            assert [tick.get_text() for tick in axis.get_xticklabels()] == [
+                label.replace(" (", "\n(") for label in expected
+            ]
+        figure, axis = figures[-1]
+        cells = axis.tables[0].get_celld()
+        for column, label in enumerate(expected, start=1):
+            assert cells[0, column].get_text().get_text() == label.replace(" (", "\n(")
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        for cell in cells.values():
+            bounds = cell.get_window_extent(renderer)
+            text_bounds = cell.get_text().get_window_extent(renderer)
+            assert bounds.contains(text_bounds.x0, text_bounds.y0)
+            assert bounds.contains(text_bounds.x1, text_bounds.y1)
+        assert list(summary) == ["metric", *MODEL_DISPLAY_ORDER, "preferred"]
+        assert summary.set_index("metric").loc["ade_m", "Bayesian CTRV (VI)"] == 7.0
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_legacy_csvs_do_not_infer_window_limits_from_observed_counts(method, missing):
+    table = _table("bayesian").assign(inference_method=method, observation_count=2)
+    if not missing:
+        table["configured_observation_count"] = np.nan
+    table, imm = comparison.prepare_comparison(table, _table("imm"))
+    models = {"IMM": imm, f"Bayesian CTRV ({method.upper()})": table}
+    _, figures = runtime_plotting.plot_model_comparison(models, show=False)
+    try:
+        assert figures[0][1].lines[2].get_label() == f"Bayesian CTRV ({method.upper()})"
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    "counts", [[3, 3, 5, 5], [3, 3, np.nan, 3], [2.5] * 4, [0] * 4, [np.inf] * 4]
+)
+def test_invalid_configured_window_sizes_do_not_produce_misleading_labels(counts):
+    table = _table("bayesian").assign(
+        inference_method="vi", configured_observation_count=counts
+    )
+    table, imm = comparison.prepare_comparison(table, _table("imm"))
+    previous_figures = set(plt.get_fignums())
+    try:
+        with pytest.raises(ValueError, match="configured_observation_count"):
+            runtime_plotting.plot_model_comparison(
+                {"IMM": imm, "Bayesian CTRV (VI)": table}, show=False
+            )
+    finally:
+        for number in set(plt.get_fignums()) - previous_figures:
+            plt.close(number)
+
+
 def test_named_comparison_supports_bayesian_only_subsets_and_none_paths(tmp_path):
     paths = _write_model_csvs(tmp_path)
     paths.update(IMM_CSV=None, BAYESIAN_MCMC_CSV=None, BAYESIAN_SEQ_VI_CSV=None)
@@ -966,8 +1047,9 @@ def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
 
 
 @pytest.mark.parametrize("show_summary_table", [False, True])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_comparison_script_shows_plots_using_configured_csvs(
-    tmp_path, monkeypatch, capsys, show_summary_table
+    tmp_path, monkeypatch, capsys, show_summary_table, method
 ):
     module = runpy.run_path(SCRIPT)
     namespace = module["main"].__globals__
@@ -978,9 +1060,15 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         tmp_path / "configured_bayesian.csv",
         tmp_path / "configured_imm.csv",
     )
-    _table("bayesian").to_csv(bayesian_csv, index=False)
+    table = _table("bayesian").assign(inference_method=method)
+    if method in {"vi", "mcmc"}:
+        table["configured_observation_count"] = 5 if method == "vi" else 3
+    table.to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
     _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv)
+    if method != "smc":
+        monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", None)
+        monkeypatch.setitem(namespace, f"BAYESIAN_{method.upper()}_CSV", bayesian_csv)
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     previous_figures = set(plt.get_fignums())
@@ -989,9 +1077,14 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         summary = module["main"]()
 
         indexed = summary.set_index("metric")
-        assert indexed.loc["ade_m", "Bayesian CTRV (SMC)"] == 6.0
+        assert indexed.loc["ade_m", f"Bayesian CTRV ({method.upper()})"] == 6.0
         assert indexed.loc["ade_m", "IMM"] == 9.25
         assert len(shown) == (9 if show_summary_table else 8)
+        if method != "smc":
+            count = 5 if method == "vi" else 3
+            assert shown[0].axes[0].lines[1].get_label() == (
+                f"Bayessches CTRV ({method.upper()}, T={count})"
+            )
         assert "Matched forecast positions: 4" in capsys.readouterr().out
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
     finally:
