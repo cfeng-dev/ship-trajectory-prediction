@@ -229,6 +229,36 @@ def test_invalid_configured_window_sizes_do_not_produce_misleading_labels(counts
             plt.close(number)
 
 
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+def test_coverage_legend_stays_above_bars_and_percent_labels(tmp_path, plot_language):
+    models = comparison.read_model_comparison_csvs(_write_model_csvs(tmp_path))
+    models["Bayesian CTRV (MCMC)"]["joint_covered_90"] = True
+    _, figures = runtime_plotting.plot_model_comparison(
+        models, show=False, plot_language=plot_language
+    )
+    try:
+        for figure, axis in figures[5:7]:
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            legend_box = axis.get_legend().get_window_extent(renderer)
+            plot_box = axis.get_window_extent(renderer)
+            title_box = figure._suptitle.get_window_extent(renderer)
+            assert plot_box.contains(legend_box.x0, legend_box.y0)
+            assert plot_box.contains(legend_box.x1, legend_box.y1)
+            assert legend_box.y1 < title_box.y0
+            assert figure.bbox.contains(legend_box.x0, legend_box.y0)
+            assert figure.bbox.contains(legend_box.x1, legend_box.y1)
+            for artist in [*axis.patches, *axis.texts]:
+                assert artist.get_window_extent(renderer).y1 + 2 < legend_box.y0
+            lower, upper = axis.get_ylim()
+            assert lower == 0.0 and upper > 100.0
+            np.testing.assert_array_equal(axis.get_yticks(), [0, 20, 40, 60, 80, 100])
+        assert figures[6][1].texts[-1].get_text() == "100.0%"
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
 def test_named_comparison_supports_bayesian_only_subsets_and_none_paths(tmp_path):
     paths = _write_model_csvs(tmp_path)
     paths.update(IMM_CSV=None, BAYESIAN_MCMC_CSV=None, BAYESIAN_SEQ_VI_CSV=None)
@@ -364,7 +394,9 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
                 == f"{text['title']} (Joint {nominal}% Coverage)"
             )
             assert len(axis.patches) == 5
-            assert axis.get_ylim() == (0.0, 100.0)
+            lower, upper = axis.get_ylim()
+            assert lower == 0.0 and upper > 100.0
+            np.testing.assert_array_equal(axis.get_yticks(), [0, 20, 40, 60, 80, 100])
             assert axis.lines[0].get_label() == text["nominal"].format(percent=nominal)
             assert axis.get_ylabel() == text["coverage"].format(percent=nominal)
             assert [tick.get_text() for tick in axis.get_xticklabels()] == [
@@ -900,7 +932,9 @@ def test_comparison_plots_eight_paired_metrics_and_correct_window_means(monkeypa
         ):
             assert axis.get_xlabel() == ""
             assert axis.get_ylabel() == "Coverage [%]"
-            np.testing.assert_allclose(axis.get_ylim(), [0, 100])
+            lower, upper = axis.get_ylim()
+            assert lower == 0.0 and upper > 100.0
+            np.testing.assert_array_equal(axis.get_yticks(), [0, 20, 40, 60, 80, 100])
             assert [tick.get_text() for tick in axis.get_xticklabels()] == [
                 "Bayesian CTRV (SMC)",
                 "IMM",

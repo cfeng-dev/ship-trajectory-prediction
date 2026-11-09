@@ -307,6 +307,7 @@ def plot_model_comparison(
                 label=text["nominal"].format(percent=f"{100 * nominal:.0f}"),
             )
             axis.set_ylim(0, 100)
+            axis.set_yticks(np.arange(0, 101, 20))
         axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
         axis.tick_params(axis="both", labelsize=style.axis_tick_font_size)
         axis.set_axisbelow(True)
@@ -324,8 +325,7 @@ def plot_model_comparison(
             fontweight=style.title_font_weight,
         )
         figure.tight_layout()
-        if nominal is None:
-            _reserve_legend_headroom(figure, axis, legend)
+        _reserve_legend_headroom(figure, axis, legend)
         if output_dir is not None:
             figure.savefig(output_dir / f"{name}.png", dpi=150, bbox_inches="tight")
         if show:
@@ -627,7 +627,7 @@ def _plot_comparison_summary_table(
 
 
 def _reserve_legend_headroom(figure, axis, legend):
-    """Keep the legend inside the axes and above the metric curves."""
+    """Keep the legend inside the axes and above the plotted data."""
     figure.canvas.draw()
     renderer = figure.canvas.get_renderer()
     padding = COMPARISON_LEGEND_PADDING_POINTS * figure.dpi / 72.0
