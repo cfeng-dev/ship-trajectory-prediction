@@ -334,6 +334,10 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(
             if scale == 100:
                 assert axis.get_ylim() == (0.0, 100.0)
             assert axis.get_yscale() == ("linear" if scale == 100 else metric_y_scale)
+            if metric_y_scale == "symlog":
+                lower, upper = axis.get_ylim()
+                assert lower <= 0 <= upper
+                assert 0 in axis.get_yticks()
             width, height = figure.get_size_inches()
             expected_width, expected_height = (
                 runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
@@ -346,7 +350,15 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(
             plt.close(figure)
 
 
-@pytest.mark.parametrize("values", [[-2.0, 0.0, 200.0], [0.0, 0.0, 0.0]])
+@pytest.mark.parametrize(
+    "values",
+    [
+        [-2.0, 0.0, 200.0],
+        [0.0, 0.0, 0.0],
+        [12.0, 13.0, 700.0],
+        [-200.0, -100.0, -2.0],
+    ],
+)
 def test_symlog_preserves_negative_and_zero_metrics(result_dirs, values):
     models = _read(result_dirs)
     for table in models.values():
@@ -360,6 +372,10 @@ def test_symlog_preserves_negative_and_zero_metrics(result_dirs, values):
         np.testing.assert_array_equal(axis.lines[0].get_ydata(), values)
         axis.figure.canvas.draw()
         assert np.isfinite(axis.get_ylim()).all()
+        lower, upper = axis.get_ylim()
+        assert lower <= min(0.0, *values)
+        assert upper >= max(0.0, *values)
+        assert 0 in axis.get_yticks()
     finally:
         for figure, _ in figures:
             plt.close(figure)
@@ -428,6 +444,10 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
                 "linear" if metric.startswith("joint_coverage_") else metric_y_scale
             )
             assert figure.axes[0].get_yscale() == expected_scale
+            if metric_y_scale == "symlog":
+                lower, upper = figure.axes[0].get_ylim()
+                assert lower <= 0 <= upper
+                assert 0 in figure.axes[0].get_yticks()
         if show_summary_table:
             cells = shown[-1].axes[0].tables[0].get_celld()
             assert cells[1, 0].get_text().get_text() == f"{method.upper()} (n=2)"

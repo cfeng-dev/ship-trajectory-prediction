@@ -385,6 +385,9 @@ def plot_observation_count_comparison(
                 label=text["nominal"].format(percent=nominal),
             )
             axis.set_ylim(0, 100)
+        elif metric_y_scale == "symlog":
+            lower, upper = axis.get_ylim()
+            axis.set_ylim(min(lower, 0.0), max(upper, 0.0))
         if metric == "mean_window_runtime_seconds":
             ylabel = (
                 "Mittlere Fensterlaufzeit [s]"
