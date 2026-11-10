@@ -11,8 +11,7 @@ from bayestraj.paths import project_path
 
 INPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
 TRAJECTORY_LABEL = "Bayesian-CTRV-getrackte BR24-Zieltrajektorie"
-SHOW_POINTS = True  # Show point markers along the trajectory.
-DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
+DIRECTION_ARROW_STEP = 100  # Point interval; None disables direction arrows.
 PRIORS = BayesianCTRVPriors()
 SMC_CONFIG = SequentialMonteCarloCTRVConfig()
 INFERENCE_SEED = 42
@@ -43,8 +42,7 @@ def main() -> None:
     plotting.plot_processed_trajectory(
         trajectory,
         trajectory_label=TRAJECTORY_LABEL,
-        show_points=SHOW_POINTS,
-        direction_arrow_interval_seconds=DIRECTION_ARROW_INTERVAL_SECONDS,
+        direction_arrow_step=DIRECTION_ARROW_STEP,
     )
 
 

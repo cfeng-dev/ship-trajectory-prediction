@@ -301,15 +301,17 @@ def plot_processed_trajectory(
     *,
     trajectory_label="Schiffstrajektorie",
     title=None,
-    direction_arrow_interval_seconds=180.0,
+    direction_arrow_step=100,
     position_noise_std_m=0.0,
     position_noise_seed=2026,
     plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
-    show_points=True,
+    show_points=False,
 ):
     """Plot a local trajectory with optional points and reproducible position noise.
 
-    ``show_points`` controls markers along the line; start/end markers remain.
+    ``show_points`` defaults to False; start/end markers remain visible.
+    ``direction_arrow_step`` spaces arrows by point intervals, starting after
+    the first interval. ``None`` disables arrows.
     """
     required_columns = ("time", "x", "y")
     missing_columns = [
@@ -360,24 +362,12 @@ def plot_processed_trajectory(
     if title is None:
         title = f"{displayed_trajectory_label} mit Fahrtrichtung"
 
-    if direction_arrow_interval_seconds is not None:
-        if isinstance(direction_arrow_interval_seconds, bool):
-            raise ValueError(
-                "direction_arrow_interval_seconds must be positive or None."
-            )
-        try:
-            direction_arrow_interval_seconds = float(direction_arrow_interval_seconds)
-        except (TypeError, ValueError) as error:
-            raise ValueError(
-                "direction_arrow_interval_seconds must be positive or None."
-            ) from error
-        if (
-            not np.isfinite(direction_arrow_interval_seconds)
-            or direction_arrow_interval_seconds <= 0.0
-        ):
-            raise ValueError(
-                "direction_arrow_interval_seconds must be positive or None."
-            )
+    if direction_arrow_step is not None:
+        direction_arrow_step = numeric_validation.validate_non_negative_integer(
+            "direction_arrow_step", direction_arrow_step
+        )
+        if direction_arrow_step == 0:
+            raise ValueError("direction_arrow_step must be a positive integer or None.")
 
     figure, axis = plt.subplots(figsize=plot_style.trajectory_figure_size)
     trajectory_line = axis.plot(
@@ -410,14 +400,10 @@ def plot_processed_trajectory(
     )
 
     direction_arrow_indices = ()
-    if direction_arrow_interval_seconds is not None:
-        direction_arrow_indices = [0]
-        next_arrow_time = time_seconds[0] + direction_arrow_interval_seconds
-        for index, time_value in enumerate(time_seconds[1:-1], start=1):
-            if time_value >= next_arrow_time:
-                direction_arrow_indices.append(index)
-                next_arrow_time = time_value + direction_arrow_interval_seconds
-
+    if direction_arrow_step is not None:
+        direction_arrow_indices = range(
+            direction_arrow_step, len(x_coordinates) - 1, direction_arrow_step
+        )
         for index in direction_arrow_indices:
             axis.annotate(
                 "",

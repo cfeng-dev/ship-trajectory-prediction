@@ -9,8 +9,7 @@ from bayestraj.paths import project_path
 INPUT_CSV = project_path("data/raw/BR24_reference_trajectory.csv")
 SENSOR_CSV = project_path("data/raw/BR24_sensor_state.csv")
 TRAJECTORY_LABEL = "BR24-Ziel-Referenztrajektorie"
-SHOW_POINTS = False  # Show point markers along the trajectory.
-DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
+DIRECTION_ARROW_STEP = 200  # Point interval; None disables direction arrows.
 POSITION_NOISE_STD_M = 0.0  # Per x/y axis [m]; 0 disables.
 POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 
@@ -28,8 +27,7 @@ def main() -> None:
     plotting.plot_processed_trajectory(
         trajectory_data,
         trajectory_label=TRAJECTORY_LABEL,
-        show_points=SHOW_POINTS,
-        direction_arrow_interval_seconds=DIRECTION_ARROW_INTERVAL_SECONDS,
+        direction_arrow_step=DIRECTION_ARROW_STEP,
         position_noise_std_m=POSITION_NOISE_STD_M,
         position_noise_seed=POSITION_NOISE_SEED,
     )

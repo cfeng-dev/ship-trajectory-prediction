@@ -7,8 +7,7 @@ from bayestraj.paths import project_path
 
 INPUT_CSV = project_path("data/processed/ship_trajectory_run_42.csv")
 TRAJECTORY_LABEL = "Shiptech-Trajektorie"
-SHOW_POINTS = True  # Show point markers along the trajectory.
-DIRECTION_ARROW_INTERVAL_SECONDS = 180.0
+DIRECTION_ARROW_STEP = 100  # Point interval; None disables direction arrows.
 POSITION_NOISE_STD_M = 0.0  # Per x/y axis [m]; 0 disables.
 POSITION_NOISE_SEED = 2026  # Reproduces the added position noise.
 
@@ -19,8 +18,7 @@ def main() -> None:
     plotting.plot_processed_trajectory(
         trajectory_data,
         trajectory_label=TRAJECTORY_LABEL,
-        show_points=SHOW_POINTS,
-        direction_arrow_interval_seconds=DIRECTION_ARROW_INTERVAL_SECONDS,
+        direction_arrow_step=DIRECTION_ARROW_STEP,
         position_noise_std_m=POSITION_NOISE_STD_M,
         position_noise_seed=POSITION_NOISE_SEED,
     )
