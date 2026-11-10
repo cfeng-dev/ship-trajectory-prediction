@@ -398,12 +398,14 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         ),
     ),
 )
+@pytest.mark.parametrize("show_points", [None, False, True])
 def test_processed_trajectory_plot_script_loads_its_configured_csv(
     tmp_path,
     monkeypatch,
     script_name,
     title,
     expected_x_coordinates,
+    show_points,
 ):
     """Each entrypoint plots an interchangeable processed position CSV."""
     input_csv = tmp_path / "processed_trajectory.csv"
@@ -416,6 +418,9 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
     ).to_csv(input_csv, index=False)
 
     module = runpy.run_path(PROJECT_ROOT / "scripts" / "data_exploration" / script_name)
+    assert module["SHOW_POINTS"] is True
+    if show_points is not None:
+        monkeypatch.setitem(module["main"].__globals__, "SHOW_POINTS", show_points)
     monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", input_csv)
     monkeypatch.setattr(module["plotting"].plt, "show", lambda: None)
     try:
@@ -423,6 +428,10 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
 
         trajectory_axis = plt.gcf().axes[0]
         assert trajectory_axis.get_title() == title
+        assert trajectory_axis.lines[0].get_marker() == (
+            "None" if show_points is False else "o"
+        )
+        assert trajectory_axis.lines[0].get_linestyle() == "-"
         np.testing.assert_allclose(
             trajectory_axis.lines[0].get_xdata(),
             expected_x_coordinates,
@@ -431,7 +440,10 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
         plt.close("all")
 
 
-def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monkeypatch):
+@pytest.mark.parametrize("show_points", [None, False, True])
+def test_br24_reference_plot_uses_raw_points_within_radar_window(
+    tmp_path, monkeypatch, show_points
+):
     reference_csv = tmp_path / "reference.csv"
     sensor_csv = tmp_path / "sensor.csv"
     pd.DataFrame(
@@ -444,6 +456,9 @@ def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monke
     pd.DataFrame({"Time": [10.0, 5.0]}).to_csv(sensor_csv, index=False)
     script = PROJECT_ROOT / "scripts/data_exploration/plot_br24_reference_trajectory.py"
     module = runpy.run_path(script)
+    assert module["SHOW_POINTS"] is True
+    if show_points is not None:
+        monkeypatch.setitem(module["main"].__globals__, "SHOW_POINTS", show_points)
     monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", reference_csv)
     monkeypatch.setitem(module["main"].__globals__, "SENSOR_CSV", sensor_csv)
     monkeypatch.setattr(module["plotting"].plt, "show", lambda: None)
@@ -451,14 +466,17 @@ def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monke
     try:
         module["main"]()
         line = plt.gcf().axes[0].lines[0]
+        assert line.get_marker() == ("None" if show_points is False else "o")
+        assert line.get_linestyle() == "-"
         np.testing.assert_allclose(line.get_xdata(), [3.0, 6.0, 9.0])
         np.testing.assert_allclose(line.get_ydata(), [4.0, 8.0, 12.0])
     finally:
         plt.close("all")
 
 
+@pytest.mark.parametrize("show_points", [None, False, True])
 def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, show_points
 ):
     """The displayed track is online SMC output, including missed cycles."""
     script = (
@@ -490,6 +508,9 @@ def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
     )
     radar.to_csv(input_csv, index=False)
     globals_ = module["main"].__globals__
+    assert module["SHOW_POINTS"] is True
+    if show_points is not None:
+        monkeypatch.setitem(globals_, "SHOW_POINTS", show_points)
     monkeypatch.setitem(globals_, "INPUT_CSV", input_csv)
     monkeypatch.setitem(
         globals_,
@@ -511,6 +532,8 @@ def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
         module["main"]()
         axis = plt.gcf().axes[0]
         first_x = np.asarray(axis.lines[0].get_xdata()).copy()
+        assert axis.lines[0].get_marker() == ("None" if show_points is False else "o")
+        assert axis.lines[0].get_linestyle() == "-"
         first_y = np.asarray(axis.lines[0].get_ydata()).copy()
         assert len(first_x) == 3
         assert abs(first_x[0] - 110.0) < 2.0

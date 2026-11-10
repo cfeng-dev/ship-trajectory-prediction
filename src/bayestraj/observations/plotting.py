@@ -305,8 +305,12 @@ def plot_processed_trajectory(
     position_noise_std_m=0.0,
     position_noise_seed=2026,
     plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
+    show_points=True,
 ):
-    """Plot a processed local trajectory with optional reproducible position noise."""
+    """Plot a local trajectory with optional points and reproducible position noise.
+
+    ``show_points`` controls markers along the line; start/end markers remain.
+    """
     required_columns = ("time", "x", "y")
     missing_columns = [
         column for column in required_columns if column not in data.columns
@@ -380,7 +384,7 @@ def plot_processed_trajectory(
         x_coordinates,
         y_coordinates,
         color=plot_style.recorded_data_color,
-        marker="o",
+        marker="o" if show_points else "None",
         markersize=TRAJECTORY_MARKER_SIZE,
         linewidth=TRAJECTORY_LINE_WIDTH,
         label=displayed_trajectory_label,
