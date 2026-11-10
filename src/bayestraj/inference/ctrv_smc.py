@@ -26,7 +26,7 @@ _STATE_TURN_RATE_INDEX = ctrv_dynamics.STATE_TURN_RATE_INDEX
 class SequentialMonteCarloCTRVConfig:
     """Numerical settings for full-state online CTRV particle filtering."""
 
-    particle_count: int = 4_000
+    particle_count: int = 10_000
     posterior_draw_count: int = 1_000
     resample_ess_fraction: float = 0.5
     rejuvenation_scale: float = 0.05

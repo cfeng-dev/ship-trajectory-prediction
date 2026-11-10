@@ -12,7 +12,7 @@ import bayestraj.models.bayesian_ctrv as ctrv_model
 def test_smc_config_has_comparable_particle_filter_defaults():
     config = smc.SequentialMonteCarloCTRVConfig()
 
-    assert config.particle_count == 4_000
+    assert config.particle_count == 10_000
     assert config.posterior_draw_count == 1_000
     assert config.resample_ess_fraction == 0.5
     assert config.rejuvenation_scale == 0.05
@@ -264,9 +264,7 @@ def test_smc_predictive_log_density_history_does_not_change_filter_state():
     assert len(first_filter.predictive_log_density_history) == 2
     assert not hasattr(first_filter, "track_lost")
     assert not hasattr(second_filter, "track_lost")
-    assert second_filter.state_particles == pytest.approx(
-        first_filter.state_particles
-    )
+    assert second_filter.state_particles == pytest.approx(first_filter.state_particles)
     assert second_filter.parameter_particles == pytest.approx(
         first_filter.parameter_particles
     )

@@ -808,7 +808,7 @@ def test_batch_options_are_forwarded_without_hidden_overrides(form):
 def test_defaults_are_independent_and_missing_file_is_rejected(form):
     values = settings.default_form_values()
     values["smc"]["particle_count"] = "2"
-    assert settings.default_form_values()["smc"]["particle_count"] == "4000"
+    assert settings.default_form_values()["smc"]["particle_count"] == "10000"
     form["data"]["data_file"] += ".missing"
     with pytest.raises(ValueError, match="CSV"):
         settings.parse_settings(form)
