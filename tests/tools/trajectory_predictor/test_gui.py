@@ -853,22 +853,29 @@ def test_imm_forecast_switches_redraw_cached_mean_and_median(
     app._analysis_active = True
     app.config = view.store.config
     app.store, app.plot_view = view.store, view
-    for show_median, show_mean in [
-        (True, False),
-        (False, True),
-        (True, True),
-        (False, False),
+    assert app.config.show_forecast_points is True
+    for show_median, show_mean, show_points in [
+        (True, False, True),
+        (False, True, True),
+        (True, True, False),
+        (True, True, True),
+        (False, False, False),
     ]:
         assert app._apply_plot_settings(
             replace(
                 app.config,
                 show_forecast_median=show_median,
                 show_forecast_mean=show_mean,
+                show_forecast_points=show_points,
             )
         )
         lines = {line.get_label(): line for line in view.route_axis.lines}
         assert ("Forecast (median)" in lines) == (forecast_enabled and show_median)
         assert ("Forecast (mean)" in lines) == (forecast_enabled and show_mean)
+        for label in ("Forecast (median)", "Forecast (mean)"):
+            if label in lines:
+                assert lines[label].get_marker() == ("o" if show_points else "None")
+                assert lines[label].get_markersize() == 3
         scale = 0.001 if coordinate_mode == "km" else 1
         if forecast_enabled and show_median:
             np.testing.assert_allclose(

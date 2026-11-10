@@ -292,6 +292,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "ADE, FDE and RMSE always evaluate the median, regardless of visible forecast lines; display switches do not change inference, regions or scores",
             ),
             (
+                "Forecast points",
+                "Point markers on the median and mean forecast lines; on by default",
+            ),
+            (
                 "Possible future trajectories",
                 "Sampled future paths illustrating uncertainty; their display count does not change the full draws used for regions and metrics",
             ),

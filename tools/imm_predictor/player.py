@@ -47,6 +47,7 @@ PLOT_DISPLAY_OPTIONS = {
     "show_sample_trajectories": "Show sampled IMM trajectories",
     "show_forecast_median": "Show forecast (median)",
     "show_forecast_mean": "Show forecast (mean)",
+    "show_forecast_points": "Show forecast points",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
 }
@@ -72,6 +73,7 @@ class IMMPlayerConfig:
     show_current_position: bool = True
     show_forecast_median: bool = True
     show_forecast_mean: bool = False
+    show_forecast_points: bool = True
     show_sample_trajectories: bool = True
     prediction_sample_count: int = 20
     forecast_seed: int = 42

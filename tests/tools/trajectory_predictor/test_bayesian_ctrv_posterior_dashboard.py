@@ -386,11 +386,13 @@ def test_forecast_mean_and_median_toggle_independently_without_inference(
         assert "Forecast (mean)" not in [
             line.get_label() for line in navigator.trajectory_axis.lines
         ]
-        for show_median, show_mean in [
-            (True, False),
-            (False, True),
-            (True, True),
-            (False, False),
+        assert navigator.show_forecast_points is True
+        for show_median, show_mean, show_points in [
+            (True, False, True),
+            (False, True, True),
+            (True, True, False),
+            (True, True, True),
+            (False, False, False),
         ]:
             navigator.set_display_options(
                 show_legend=True,
@@ -400,6 +402,7 @@ def test_forecast_mean_and_median_toggle_independently_without_inference(
                 show_sample_trajectories=False,
                 show_median_forecast=show_median,
                 show_mean_forecast=show_mean,
+                show_forecast_points=show_points,
                 show_prediction_region_50=False,
                 show_prediction_region_90=False,
             )
@@ -407,6 +410,12 @@ def test_forecast_mean_and_median_toggle_independently_without_inference(
             assert ("Forecast (median)" in lines) == (forecast_enabled and show_median)
             assert ("Forecast (mean)" in lines) == (forecast_enabled and show_mean)
             if forecast_enabled:
+                for label in ("Forecast (median)", "Forecast (mean)"):
+                    if label in lines:
+                        assert lines[label].get_marker() == (
+                            "o" if show_points else "None"
+                        )
+                        assert lines[label].get_markersize() == 3
                 scale = 0.001 if coordinate_mode == "km" else 1.0
                 if show_mean:
                     np.testing.assert_allclose(

@@ -845,16 +845,16 @@ def test_imm_reference_time_display_starts_at_the_selected_input_origin(start_in
 
 
 @pytest.mark.parametrize("enabled", [None, False, True])
-def test_reference_point_setting_is_parsed_as_a_display_option(form, enabled):
+@pytest.mark.parametrize(
+    "field, default", [("show_reference_points", False), ("show_forecast_points", True)]
+)
+def test_point_setting_is_parsed_as_a_display_option(form, enabled, field, default):
     if enabled is not None:
-        form["data"]["show_reference_points"] = enabled
-    expected = False if enabled is None else enabled
+        form["data"][field] = enabled
+    expected = default if enabled is None else enabled
     parsed = settings.parse_settings(form)
-    assert parsed.show_reference_points is expected
-    assert (
-        settings.validate_dialog_values("plot", form["data"])["show_reference_points"]
-        is expected
-    )
+    assert getattr(parsed, field) is expected
+    assert settings.validate_dialog_values("plot", form["data"])[field] is expected
 
 
 def test_defaults_are_independent_and_missing_file_is_rejected(form):
@@ -957,6 +957,7 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "connect_sample_trajectories": True,
         "show_median_forecast": True,
         "show_mean_forecast": False,
+        "show_forecast_points": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
         "prediction_region_style": display_style,

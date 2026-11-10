@@ -940,6 +940,7 @@ class PosteriorDashboardNavigator:
         connect_sample_trajectories=False,
         show_median_forecast=True,
         show_mean_forecast=False,
+        show_forecast_points=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
         prediction_region_style="funnel",
@@ -981,6 +982,7 @@ class PosteriorDashboardNavigator:
         self.connect_sample_trajectories = connect_sample_trajectories
         self.show_median_forecast = show_median_forecast
         self.show_mean_forecast = show_mean_forecast
+        self.show_forecast_points = show_forecast_points
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
         self.prediction_region_style = normalize_prediction_region_style(
@@ -1743,8 +1745,8 @@ class PosteriorDashboardNavigator:
                     path[:, 1],
                     color="#DC2626",
                     linewidth=2.2,
-                    marker=".",
-                    markersize=4,
+                    marker="o" if self.show_forecast_points else "None",
+                    markersize=3,
                     zorder=4,
                     label="Forecast (median)",
                 )
@@ -1760,8 +1762,8 @@ class PosteriorDashboardNavigator:
                         color="#B91C1C",
                         linewidth=2.2,
                         linestyle="--",
-                        marker=".",
-                        markersize=4,
+                        marker="o" if self.show_forecast_points else "None",
+                        markersize=3,
                         zorder=4,
                         label="Forecast (mean)",
                     )
@@ -1807,6 +1809,7 @@ class PosteriorDashboardNavigator:
         show_prediction_region_90,
         show_mean_forecast=None,
         show_reference_points=None,
+        show_forecast_points=None,
         connect_sample_trajectories=None,
         prediction_region_style=None,
         follow_ship_view_span_m=None,
@@ -1828,6 +1831,8 @@ class PosteriorDashboardNavigator:
             options["show_mean_forecast"] = show_mean_forecast
         if show_reference_points is not None:
             options["show_reference_points"] = show_reference_points
+        if show_forecast_points is not None:
+            options["show_forecast_points"] = show_forecast_points
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
@@ -2019,6 +2024,7 @@ def create_sequential_posterior_dashboard_figure(
     connect_sample_trajectories=False,
     show_median_forecast=True,
     show_mean_forecast=False,
+    show_forecast_points=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
     prediction_region_style="funnel",
@@ -2118,6 +2124,7 @@ def create_sequential_posterior_dashboard_figure(
         connect_sample_trajectories=connect_sample_trajectories,
         show_median_forecast=show_median_forecast,
         show_mean_forecast=show_mean_forecast,
+        show_forecast_points=show_forecast_points,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
         prediction_region_style=prediction_region_style,

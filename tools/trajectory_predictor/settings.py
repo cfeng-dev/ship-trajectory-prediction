@@ -76,6 +76,7 @@ DISPLAY_OPTION_FIELDS = (
     "connect_sample_trajectories",
     "show_median_forecast",
     "show_mean_forecast",
+    "show_forecast_points",
     "show_prediction_region_50",
     "show_prediction_region_90",
 )
@@ -105,6 +106,7 @@ LABELS = {
     "connect_sample_trajectories": "Connect samples to current position",
     "show_median_forecast": "Show forecast (median)",
     "show_mean_forecast": "Show forecast (mean)",
+    "show_forecast_points": "Show forecast points",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
     "prediction_region_style": "Prediction uncertainty",
@@ -167,6 +169,7 @@ class ExplorerSettings:
     prediction_region_style: str
     follow_ship_view_span_m: float
     show_reference_points: bool = False
+    show_forecast_points: bool = True
 
 
 def _defaults():
@@ -197,6 +200,7 @@ def _defaults():
             "connect_sample_trajectories": False,
             "show_median_forecast": True,
             "show_mean_forecast": False,
+            "show_forecast_points": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
             "prediction_region_style": "funnel",

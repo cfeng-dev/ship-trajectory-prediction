@@ -58,6 +58,7 @@ class PosteriorPlotView(tk.Frame):
             connect_sample_trajectories=settings.connect_sample_trajectories,
             show_median_forecast=settings.show_median_forecast,
             show_mean_forecast=settings.show_mean_forecast,
+            show_forecast_points=settings.show_forecast_points,
             show_prediction_region_50=settings.show_prediction_region_50,
             show_prediction_region_90=settings.show_prediction_region_90,
             prediction_region_style=settings.prediction_region_style,
