@@ -12,7 +12,7 @@ import bayestraj.models.bayesian_ctrv as ctrv_model
 def test_smc_config_has_comparable_particle_filter_defaults():
     config = smc.SequentialMonteCarloCTRVConfig()
 
-    assert config.particle_count == 10_000
+    assert config.particle_count == 4_000
     assert config.posterior_draw_count == 1_000
     assert config.resample_ess_fraction == 0.5
     assert config.rejuvenation_scale == 0.05
