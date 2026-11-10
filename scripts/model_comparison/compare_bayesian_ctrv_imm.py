@@ -19,7 +19,7 @@ BAYESIAN_MCMC_CSV = project_path("results/evaluation/bayesian_ctrv_mcmc_03.csv")
 SHOW_POINTS = False  # Mark forecast origins on metric curves.
 SHOW_MEAN_LINES = False  # Show mean metric values as dashed lines.
 SHOW_SUMMARY_TABLE = True  # Display all summary metrics in an additional table.
-METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
+METRIC_Y_SCALE = "symlog"  # "linear" or "symlog" for metric curves.
 PLOT_LANGUAGE = "de"  # "de" or "en" for plot labels.
 
 

@@ -51,6 +51,10 @@ COMPARISON_PLOT_TEXT = {
         "nominal": "Sollwert: {percent}%",
         "metric": "Metrik",
         "summary": "Metrikübersicht",
+        "window_note": (
+            "T: maximale Anzahl der Zeitschritte im Beobachtungsfenster "
+            "von MCMC und VI."
+        ),
         "summary_note": (
             "Mittelwerte über gemeinsame Vorhersageursprünge.\n"
             "Coverage über alle zugeordneten Vorhersagepunkte."
@@ -65,6 +69,9 @@ COMPARISON_PLOT_TEXT = {
         "nominal": "Nominal {percent}%",
         "metric": "Metric",
         "summary": "Metric summary",
+        "window_note": (
+            "T: maximum number of time steps in the observation window of MCMC and VI."
+        ),
         "summary_note": (
             "Mean metrics over common forecast origins.\n"
             "Coverage over all matched forecast positions."
@@ -231,6 +238,8 @@ def plot_model_comparison(
         )
         for name in names
     ]
+    show_window_note = any("T=" in label for label in labels)
+    layout_rect = (0, 0.06, 1, 1) if show_window_note else None
     series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
@@ -336,8 +345,12 @@ def plot_model_comparison(
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )
-        figure.tight_layout()
-        _reserve_legend_headroom(figure, axis, legend)
+        if show_window_note:
+            figure.text(
+                0.5, 0.02, text["window_note"], ha="center", va="bottom", fontsize=9
+            )
+        figure.tight_layout(rect=layout_rect)
+        _reserve_legend_headroom(figure, axis, legend, layout_rect=layout_rect)
         if output_dir is not None:
             figure.savefig(output_dir / f"{name}.png", dpi=150, bbox_inches="tight")
         if show:
@@ -354,8 +367,13 @@ def plot_model_comparison(
         )
     summary = pd.DataFrame(rows)
     if show_summary_table:
+        summary_text = (
+            {**text, "summary_note": f"{text['summary_note']}\n{text['window_note']}"}
+            if show_window_note
+            else text
+        )
         figure, axis = _plot_comparison_summary_table(
-            summary, labels, text=text, title=title
+            summary, labels, text=summary_text, title=title
         )
         if output_dir is not None:
             figure.savefig(
@@ -638,7 +656,7 @@ def _plot_comparison_summary_table(
     return figure, axis
 
 
-def _reserve_legend_headroom(figure, axis, legend):
+def _reserve_legend_headroom(figure, axis, legend, *, layout_rect=None):
     """Keep the legend inside the axes and above the plotted data."""
     figure.canvas.draw()
     renderer = figure.canvas.get_renderer()
@@ -646,7 +664,7 @@ def _reserve_legend_headroom(figure, axis, legend):
     legend_height = legend.get_window_extent(renderer).height
     width, height = figure.get_size_inches()
     figure.set_size_inches(width, height + (legend_height + 2 * padding) / figure.dpi)
-    figure.tight_layout()
+    figure.tight_layout(rect=layout_rect)
 
     renderer = figure.canvas.get_renderer()
     plot_box = axis.get_window_extent(renderer)

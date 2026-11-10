@@ -167,7 +167,11 @@ def test_configured_window_sizes_appear_in_curves_coverage_and_summary(
         for label in PLOT_MODEL_LABELS[plot_language]
     ]
     summary, figures = runtime_plotting.plot_model_comparison(
-        models, show=False, show_summary_table=True, plot_language=plot_language
+        models,
+        show=False,
+        show_summary_table=True,
+        plot_language=plot_language,
+        output_dir=tmp_path / "plots",
     )
     try:
         assert [line.get_label() for line in figures[0][1].lines[::2]] == expected
@@ -189,6 +193,28 @@ def test_configured_window_sizes_appear_in_curves_coverage_and_summary(
             assert bounds.contains(text_bounds.x1, text_bounds.y1)
         assert list(summary) == ["metric", *MODEL_DISPLAY_ORDER, "preferred"]
         assert summary.set_index("metric").loc["ade_m", "Bayesian CTRV (VI)"] == 7.0
+        note = (
+            "T: maximale Anzahl der Zeitschritte im Beobachtungsfenster von MCMC und VI."
+            if plot_language == "de"
+            else "T: maximum number of time steps in the observation window of MCMC and VI."
+        )
+        for figure, axis in figures:
+            captions = [text for text in figure.texts if note in text.get_text()]
+            assert len(captions) == 1
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            caption_box = captions[0].get_window_extent(renderer)
+            assert figure.bbox.contains(caption_box.x0, caption_box.y0)
+            assert figure.bbox.contains(caption_box.x1, caption_box.y1)
+            if axis.axison:
+                for text in [axis.xaxis.label, *axis.get_xticklabels()]:
+                    if text.get_text():
+                        assert text.get_window_extent(renderer).y0 > caption_box.y1 + 2
+            else:
+                for cell in axis.tables[0].get_celld().values():
+                    assert cell.get_window_extent(renderer).y0 > caption_box.y1 + 2
+        assert (tmp_path / "plots/ade_m.png").is_file()
+        assert (tmp_path / "plots/metrics_summary.png").is_file()
     finally:
         for figure, _ in figures:
             plt.close(figure)
