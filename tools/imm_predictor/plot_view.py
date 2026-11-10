@@ -712,6 +712,8 @@ class IMMPlotView(tk.Frame):
                 linestyle="--",
                 linewidth=1.5,
                 label="Reference trajectory",
+                marker="o" if self.store.config.show_reference_points else "None",
+                markersize=3,
                 zorder=1,
             )
         if self.current_state is None:

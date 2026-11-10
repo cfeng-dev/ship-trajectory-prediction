@@ -272,6 +272,10 @@ POSTERIOR_HELP_SECTIONS = (
                 "Dashed gray reference path; visibility does not affect inference or evaluation",
             ),
             (
+                "Reference points",
+                "Optional point markers on the reference trajectory; off by default",
+            ),
+            (
                 "Blue trajectory",
                 "Observations through N for position CSVs; Bayesian track through N for filtered BR24 positions. The legend follows the displayed data",
             ),

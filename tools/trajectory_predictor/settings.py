@@ -69,6 +69,7 @@ DATA_OPTION_FIELDS = (
 DISPLAY_OPTION_FIELDS = (
     "show_legend",
     "show_reference_trajectory",
+    "show_reference_points",
     "show_observed_trajectory",
     "show_current_position",
     "show_sample_trajectories",
@@ -97,6 +98,7 @@ LABELS = {
     "playback_interval_seconds": "Playback interval [s]",
     "show_legend": "Show legend",
     "show_reference_trajectory": "Show reference trajectory",
+    "show_reference_points": "Show reference points",
     "show_observed_trajectory": "Show observations / Bayesian track through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show possible future trajectories",
@@ -164,6 +166,7 @@ class ExplorerSettings:
     show_prediction_region_90: bool
     prediction_region_style: str
     follow_ship_view_span_m: float
+    show_reference_points: bool = False
 
 
 def _defaults():
@@ -187,6 +190,7 @@ def _defaults():
             "coordinate_display_mode": "m",
             "show_legend": True,
             "show_reference_trajectory": True,
+            "show_reference_points": False,
             "show_observed_trajectory": True,
             "show_current_position": True,
             "show_sample_trajectories": True,

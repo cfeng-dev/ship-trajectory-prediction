@@ -886,6 +886,39 @@ def test_imm_forecast_switches_redraw_cached_mean_and_median(
         assert view.current_state.stage is stage
 
 
+@pytest.mark.parametrize("coordinate_mode", ["m", "km"])
+def test_imm_reference_points_toggle_redraws_without_restarting(coordinate_mode):
+    from dataclasses import replace
+
+    from imm_predictor.gui import IMMPredictorApp
+
+    view = _headless_imm_panels(None)
+    coordinates = np.array([0.0, 10.0, 20.0])
+    view.store.reference = SimpleNamespace(x_meters=coordinates, y_meters=coordinates)
+    view.show_reference_var = _Value(True)
+    view._coordinate_display_mode = coordinate_mode
+    view._draw_route()
+    assert view.route_axis.lines[0].get_marker() == "None"
+    app = IMMPredictorApp.__new__(IMMPredictorApp)
+    app._closing = False
+    app._analysis_active = True
+    app.config = view.store.config
+    app.store, app.plot_view = view.store, view
+    original_store = app.store
+    for enabled in (True, False):
+        assert app._apply_plot_settings(
+            replace(app.config, show_reference_points=enabled)
+        )
+        line = view.route_axis.lines[0]
+        assert line.get_label() == "Reference trajectory"
+        assert line.get_marker() == ("o" if enabled else "None")
+        assert line.get_linestyle() == "--"
+        scale = 0.001 if coordinate_mode == "km" else 1.0
+        np.testing.assert_allclose(line.get_xdata(), coordinates * scale)
+        assert app.store is original_store
+    np.testing.assert_array_equal(view.store.reference.x_meters, coordinates)
+
+
 def test_imm_motion_panels_draw_fused_gaussian_marginals_in_display_units():
     view = _headless_imm_panels(_imm_motion_stage())
     view._draw()

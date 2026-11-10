@@ -41,6 +41,7 @@ PREDICTION_REGION_STYLE_LABELS = {
 PLOT_DISPLAY_OPTIONS = {
     "show_legend": "Show legend",
     "show_recorded_trajectory": "Show reference trajectory",
+    "show_reference_points": "Show reference points",
     "show_imm_track": "Show IMM track through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show sampled IMM trajectories",
@@ -66,6 +67,7 @@ class IMMPlayerConfig:
     show_prediction_region_90: bool = True
     show_legend: bool = True
     show_recorded_trajectory: bool = True
+    show_reference_points: bool = False
     show_imm_track: bool = True
     show_current_position: bool = True
     show_forecast_median: bool = True

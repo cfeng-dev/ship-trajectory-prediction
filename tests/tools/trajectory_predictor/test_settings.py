@@ -844,6 +844,19 @@ def test_imm_reference_time_display_starts_at_the_selected_input_origin(start_in
     np.testing.assert_array_equal(reference.time_seconds, times)
 
 
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_reference_point_setting_is_parsed_as_a_display_option(form, enabled):
+    if enabled is not None:
+        form["data"]["show_reference_points"] = enabled
+    expected = False if enabled is None else enabled
+    parsed = settings.parse_settings(form)
+    assert parsed.show_reference_points is expected
+    assert (
+        settings.validate_dialog_values("plot", form["data"])["show_reference_points"]
+        is expected
+    )
+
+
 def test_defaults_are_independent_and_missing_file_is_rejected(form):
     values = settings.default_form_values()
     values["smc"]["particle_count"] = "2"
@@ -937,6 +950,7 @@ def test_plot_options_dialog_validates_display_switches_independently(
     values = {
         "show_legend": False,
         "show_reference_trajectory": False,
+        "show_reference_points": False,
         "show_observed_trajectory": True,
         "show_current_position": True,
         "show_sample_trajectories": False,

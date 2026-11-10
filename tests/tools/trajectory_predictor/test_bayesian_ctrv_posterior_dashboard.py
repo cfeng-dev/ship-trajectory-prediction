@@ -3185,6 +3185,68 @@ def test_dashboard_synchronizes_route_and_three_switchable_posterior_axes():
         plt.close(figure)
 
 
+@pytest.mark.parametrize("coordinate_mode", ["m", "km"])
+@pytest.mark.parametrize("initial_points", [None, True])
+def test_reference_points_toggle_redraws_cached_trajectory(
+    coordinate_mode, initial_points
+):
+    dashboard = _load_dashboard_module()
+    coordinates = np.array([0.0, 10.0, 20.0])
+    trajectory = dashboard.PosteriorDashboardTrajectory(*([coordinates] * 4))
+    loaded = []
+
+    def load_update(count):
+        loaded.append(count)
+        return dashboard.PosteriorDashboardUpdate(count, _dashboard_samples())
+
+    options = (
+        {} if initial_points is None else {"show_reference_points": initial_points}
+    )
+    figure, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load_update,
+        maximum_observation_count=3,
+        coordinate_display_mode=coordinate_mode,
+        **options,
+    )
+    try:
+        navigator.slider.set_val(2)
+        navigator.show_selected_observation_count(None)
+        cached_calls = list(loaded)
+
+        def reference_line():
+            return next(
+                line
+                for line in navigator.trajectory_axis.lines
+                if line.get_label() == "Reference trajectory"
+            )
+
+        assert reference_line().get_marker() == ("o" if initial_points else "None")
+        for enabled in (True, False):
+            navigator.set_display_options(
+                show_legend=True,
+                show_reference_trajectory=True,
+                show_reference_points=enabled,
+                show_observed_trajectory=True,
+                show_current_position=True,
+                show_sample_trajectories=True,
+                show_median_forecast=True,
+                show_prediction_region_50=True,
+                show_prediction_region_90=True,
+            )
+            line = reference_line()
+            assert line.get_marker() == ("o" if enabled else "None")
+            assert line.get_linestyle() == "--"
+            scale = 0.001 if coordinate_mode == "km" else 1.0
+            np.testing.assert_allclose(line.get_xdata(), coordinates * scale)
+            np.testing.assert_allclose(line.get_ydata(), coordinates * scale)
+            assert loaded == cached_calls
+        np.testing.assert_array_equal(trajectory.reference_x, coordinates)
+    finally:
+        plt.close(figure)
+
+
 def test_dashboard_legend_follows_the_displayed_positions_when_changing_stages():
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(

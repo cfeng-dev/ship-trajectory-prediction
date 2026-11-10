@@ -51,6 +51,7 @@ class PosteriorPlotView(tk.Frame):
             prediction_count=settings.analysis.experiment.prediction_count,
             coordinate_display_mode=settings.coordinate_display_mode,
             show_reference_trajectory=settings.show_reference_trajectory,
+            show_reference_points=settings.show_reference_points,
             show_observed_trajectory=settings.show_observed_trajectory,
             show_current_position=settings.show_current_position,
             show_sample_trajectories=settings.show_sample_trajectories,

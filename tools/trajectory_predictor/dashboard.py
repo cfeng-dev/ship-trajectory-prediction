@@ -933,6 +933,7 @@ class PosteriorDashboardNavigator:
         coordinate_display_mode="m",
         posterior_axes_by_group=None,
         show_reference_trajectory=True,
+        show_reference_points=False,
         show_observed_trajectory=True,
         show_current_position=True,
         show_sample_trajectories=True,
@@ -973,6 +974,7 @@ class PosteriorDashboardNavigator:
         self.show_reference_trajectory = (
             show_reference_trajectory and trajectory.has_reference
         )
+        self.show_reference_points = show_reference_points
         self.show_observed_trajectory = show_observed_trajectory
         self.show_current_position = show_current_position
         self.show_sample_trajectories = show_sample_trajectories
@@ -1472,6 +1474,8 @@ class PosteriorDashboardNavigator:
                 linestyle="--",
                 linewidth=1.5,
                 label="Reference trajectory",
+                marker="o" if self.show_reference_points else "None",
+                markersize=3,
                 zorder=1,
             )
         if self.observation_count > 0:
@@ -1802,6 +1806,7 @@ class PosteriorDashboardNavigator:
         show_prediction_region_50,
         show_prediction_region_90,
         show_mean_forecast=None,
+        show_reference_points=None,
         connect_sample_trajectories=None,
         prediction_region_style=None,
         follow_ship_view_span_m=None,
@@ -1821,6 +1826,8 @@ class PosteriorDashboardNavigator:
             options["connect_sample_trajectories"] = connect_sample_trajectories
         if show_mean_forecast is not None:
             options["show_mean_forecast"] = show_mean_forecast
+        if show_reference_points is not None:
+            options["show_reference_points"] = show_reference_points
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
@@ -2005,6 +2012,7 @@ def create_sequential_posterior_dashboard_figure(
     prediction_count=0,
     coordinate_display_mode="m",
     show_reference_trajectory=True,
+    show_reference_points=False,
     show_observed_trajectory=True,
     show_current_position=True,
     show_sample_trajectories=True,
@@ -2103,6 +2111,7 @@ def create_sequential_posterior_dashboard_figure(
         coordinate_display_mode=coordinate_display_mode,
         posterior_axes_by_group=posterior_axes_by_group,
         show_reference_trajectory=show_reference_trajectory,
+        show_reference_points=show_reference_points,
         show_observed_trajectory=show_observed_trajectory,
         show_current_position=show_current_position,
         show_sample_trajectories=show_sample_trajectories,
