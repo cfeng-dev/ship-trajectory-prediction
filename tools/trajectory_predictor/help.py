@@ -130,7 +130,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Reference state",
-                "Unmodified reference position and time; motion values come from reference fields or position differences, not the posterior",
+                "Reference position and elapsed time since the first selected input timestamp; motion values come from reference fields or position differences, not the posterior",
             ),
             (
                 "Reference motion",

@@ -287,7 +287,7 @@ class PosteriorDashboardTrajectory:
             object.__setattr__(self, "reference_latitude", latitude)
 
     def reference_state_at(self, observation_count, *, coordinate_display_mode="m"):
-        """Return reference values that are identifiable at one display stage."""
+        """Return identifiable reference values and time since the input start."""
         observation_count = int(observation_count)
         coordinate_display_mode = normalize_coordinate_display_mode(
             coordinate_display_mode
@@ -333,7 +333,7 @@ class PosteriorDashboardTrajectory:
                 else np.nan
             ),
             coordinate_display_mode,
-            self.reference_time_seconds[index],
+            self.reference_time_seconds[index] - self.reference_time_seconds[0],
         )
 
 

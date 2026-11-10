@@ -405,7 +405,7 @@ class SettingsPanel(tk.Frame):
         speed_is_derived=False,
         heading_is_derived=False,
     ):
-        """Show the unmodified reference state for the selected CSV row."""
+        """Show the reference motion and elapsed time for the selected CSV row."""
         if state is None:
             for variable in self.posterior_state_values.values():
                 variable.set("—")

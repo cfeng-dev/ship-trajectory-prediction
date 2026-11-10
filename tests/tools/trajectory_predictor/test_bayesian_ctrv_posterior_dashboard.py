@@ -1425,7 +1425,10 @@ def _dashboard_samples(offset=0.0):
     }
 
 
-def test_dashboard_trajectory_reveals_reference_state_when_informative():
+@pytest.mark.parametrize("time_origin_seconds", [0.0, 49_078.25])
+def test_dashboard_trajectory_reveals_reference_state_when_informative(
+    time_origin_seconds,
+):
     """The reference sidebar follows the same observability stages as the plots."""
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
@@ -1436,7 +1439,7 @@ def test_dashboard_trajectory_reveals_reference_state_when_informative():
         reference_speed_mps=[5.0, 6.0, 7.0],
         reference_heading_degrees=[20.0, 25.0, 30.0],
         reference_turn_rate_degrees_per_second=[0.5, 0.75, 1.0],
-        reference_time_seconds=[0.0, 12.5, 25.0],
+        reference_time_seconds=np.array([0.0, 12.5, 25.0]) + time_origin_seconds,
     )
 
     prior = trajectory.reference_state_at(0)
@@ -1455,6 +1458,10 @@ def test_dashboard_trajectory_reveals_reference_state_when_informative():
     assert third_position[:5] == pytest.approx((15.0, 1.0, 30.0, 7.0, 1.0))
     assert third_position[5] == "m"
     assert third_position[6] == pytest.approx(25.0)
+    np.testing.assert_array_equal(
+        trajectory.reference_time_seconds,
+        np.array([0.0, 12.5, 25.0]) + time_origin_seconds,
+    )
 
 
 def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable():

@@ -805,6 +805,45 @@ def test_batch_options_are_forwarded_without_hidden_overrides(form):
     assert result.analysis.vi_config["require_converged"] is True
 
 
+@pytest.mark.parametrize("start_index", [0, 1])
+def test_imm_reference_time_display_starts_at_the_selected_input_origin(start_index):
+    from types import SimpleNamespace
+
+    from imm_predictor.player import IMMPlayerStage, _reference_state
+
+    times = np.array([49_078.25, 49_080.75, 49_085.25])[start_index:]
+    positions = np.column_stack((np.arange(len(times)), np.zeros(len(times))))
+    reference = SimpleNamespace(
+        time_seconds=times.copy(),
+        x_meters=positions[:, 0],
+        y_meters=positions[:, 1],
+        resolved_velocity_mps=np.ones(len(times)),
+        resolved_yaw_rad=np.zeros(len(times)),
+        resolved_turn_rate_rad_s=np.zeros(len(times)),
+        turn_rate_is_derived=False,
+        speed_is_derived=False,
+        heading_is_derived=False,
+    )
+    for index, timestamp in enumerate(times):
+        stage = IMMPlayerStage(
+            observation_count=index + 1,
+            cycle_counter=index + 10,
+            observation_time_seconds=timestamp,
+            detection_id=None,
+            nis=None,
+            measurement_covariance=None,
+            update_time_seconds=0.0,
+            tracked_times_seconds=times[: index + 1].copy(),
+            tracked_positions=positions[: index + 1].copy(),
+            forecast=None,
+        )
+        state = _reference_state(stage, reference)
+        assert state.time_seconds == pytest.approx(timestamp - times[0])
+        assert stage.observation_time_seconds == timestamp
+        np.testing.assert_array_equal(state.position_meters, positions[index])
+    np.testing.assert_array_equal(reference.time_seconds, times)
+
+
 def test_defaults_are_independent_and_missing_file_is_rejected(form):
     values = settings.default_form_values()
     values["smc"]["particle_count"] = "2"

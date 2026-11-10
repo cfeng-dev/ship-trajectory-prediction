@@ -408,7 +408,7 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Reference state",
-                "Ground-truth position, speed, heading and time at the current radar cycle, when available",
+                "Ground-truth position, speed, heading and elapsed time since the first selected input timestamp, when available",
             ),
             (
                 "Reference motion",

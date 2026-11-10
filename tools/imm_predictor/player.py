@@ -417,7 +417,7 @@ def _add_position_noise(cycles, config: IMMPlayerConfig):
 
 
 def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | None:
-    """Read aligned evaluation labels only after the IMM stage is complete."""
+    """Read aligned reference values with elapsed time for the completed stage."""
     if reference is None:
         return None
     index = stage.observation_count - 1
@@ -431,7 +431,7 @@ def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | Non
         speed_mps=speed if np.isfinite(speed) else None,
         heading_degrees=heading if np.isfinite(heading) else None,
         turn_rate_degrees_per_second=turn_rate if np.isfinite(turn_rate) else None,
-        time_seconds=float(reference.time_seconds[index]),
+        time_seconds=float(reference.time_seconds[index] - reference.time_seconds[0]),
         turn_rate_is_derived=reference.turn_rate_is_derived,
         speed_is_derived=reference.speed_is_derived,
         heading_is_derived=reference.heading_is_derived,
