@@ -182,8 +182,8 @@ def test_configured_window_sizes_appear_in_curves_coverage_and_summary(
             ]
         figure, axis = figures[-1]
         cells = axis.tables[0].get_celld()
-        for column, label in enumerate(expected, start=1):
-            assert cells[0, column].get_text().get_text() == label.replace(" (", "\n(")
+        for row, label in enumerate(expected, start=1):
+            assert cells[row, 0].get_text().get_text() == label.replace(" (", "\n(")
         figure.canvas.draw()
         renderer = figure.canvas.get_renderer()
         for cell in cells.values():
@@ -537,11 +537,11 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
             assert axis.get_yscale() == "linear"
             np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
         table = shown[8].axes[0].tables[0]
-        assert [table[0, column].get_text().get_text() for column in range(1, 6)] == [
+        assert [table[row, 0].get_text().get_text() for row in range(1, 6)] == [
             label.replace(" (", "\n(") for label in PLOT_MODEL_LABELS[plot_language]
         ]
         assert table[1, 1].get_text().get_text() == "9.250"
-        assert table[6, 1].get_text().get_text() == "25.0%"
+        assert table[1, 6].get_text().get_text() == "25.0%"
         assert set(tmp_path.iterdir()) == set(paths.values())
         assert {path: path.read_bytes() for path in paths.values()} == originals
     finally:
@@ -574,26 +574,26 @@ def test_summary_table_preserves_values_and_fits_labels_inside_export(
         cells = table.get_celld()
         assert len(cells) == 9 * (model_count + 1)
         assert cells[0, 0].get_text().get_text() == (
-            "Metrik" if plot_language == "de" else "Metric"
+            "Modell" if plot_language == "de" else "Model"
         )
         assert figure._suptitle.get_text() == (
             "Modellvergleich (Metrikübersicht)"
             if plot_language == "de"
             else "Model comparison (Metric summary)"
         )
-        assert cells[8, 0].get_text().get_text() == (
-            "Laufzeit [s]" if plot_language == "de" else "Runtime [s]"
+        assert cells[0, 8].get_text().get_text() == (
+            "Laufzeit\n[s]" if plot_language == "de" else "Runtime\n[s]"
         )
         assert cells[1, 1].get_text().get_text() == "9.250"
-        assert cells[8, 1].get_text().get_text() == "0.003"
-        assert cells[6, 1].get_text().get_text() == "25.0%"
-        assert cells[7, 1].get_text().get_text() == "75.0%"
+        assert cells[1, 8].get_text().get_text() == "0.003"
+        assert cells[1, 6].get_text().get_text() == "25.0%"
+        assert cells[1, 7].get_text().get_text() == "75.0%"
         assert list(summary.columns) == ["metric", *models, "preferred"]
-        for column, name in enumerate(models, start=1):
-            assert cells[0, column].get_text().get_text() == (
-                PLOT_MODEL_LABELS[plot_language][column - 1].replace(" (", "\n(")
+        for row, name in enumerate(models, start=1):
+            assert cells[row, 0].get_text().get_text() == (
+                PLOT_MODEL_LABELS[plot_language][row - 1].replace(" (", "\n(")
             )
-            for row, (metric, value) in enumerate(
+            for column, (metric, value) in enumerate(
                 zip(summary["metric"], summary[name], strict=True), start=1
             ):
                 assert cells[row, column].get_text().get_text() == (
@@ -617,7 +617,10 @@ def test_summary_table_preserves_values_and_fits_labels_inside_export(
 
 
 @pytest.mark.parametrize("plot_language", ["de", "en"])
-def test_summary_table_bolds_best_metrics_and_coverage_calibration(plot_language):
+@pytest.mark.parametrize("transpose", [False, True])
+def test_summary_table_bolds_best_metrics_and_coverage_calibration(
+    plot_language, transpose
+):
     summary = pd.DataFrame(
         {
             "metric": [
@@ -642,6 +645,7 @@ def test_summary_table_bolds_best_metrics_and_coverage_calibration(plot_language
         ["A", "B", "C"],
         text=runtime_plotting.COMPARISON_PLOT_TEXT[plot_language],
         title=None,
+        transpose=transpose,
     )
     try:
         cells = axis.tables[0].get_celld()
@@ -650,12 +654,16 @@ def test_summary_table_bolds_best_metrics_and_coverage_calibration(plot_language
             assert {
                 column
                 for column in (1, 2, 3)
-                if cells[row, column].get_text().get_weight() == "bold"
+                if cells[(column, row) if transpose else (row, column)]
+                .get_text()
+                .get_weight()
+                == "bold"
             } == expected
-            assert cells[row, 0].get_text().get_weight() == "normal"
+            if not transpose:
+                assert cells[row, 0].get_text().get_weight() == "normal"
         # Rank the original values even when displayed values round identically.
-        assert cells[6, 1].get_text().get_text() == "0.011"
-        assert cells[6, 2].get_text().get_text() == "0.011"
+        assert cells[(1, 6) if transpose else (6, 1)].get_text().get_text() == "0.011"
+        assert cells[(2, 6) if transpose else (6, 2)].get_text().get_text() == "0.011"
         pd.testing.assert_frame_equal(summary, original)
     finally:
         plt.close(figure)

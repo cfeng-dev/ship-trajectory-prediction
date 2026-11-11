@@ -373,7 +373,15 @@ def plot_model_comparison(
             else text
         )
         figure, axis = _plot_comparison_summary_table(
-            summary, labels, text=summary_text, title=title
+            summary,
+            [label.replace(" (", "\n(") for label in labels],
+            text={
+                **summary_text,
+                "metric": "Modell" if plot_language == "de" else "Model",
+            },
+            title=title,
+            transpose=True,
+            metric_column_width=1.1,
         )
         if output_dir is not None:
             figure.savefig(
@@ -403,9 +411,9 @@ def plot_observation_count_comparison(
     text = COMPARISON_PLOT_TEXT[plot_language]
     title = "Fenstervergleich" if plot_language == "de" else "Window-size comparison"
     xlabel = (
-        "observation_count [Radarzyklen]"
+        "Beobachtungsfenstergröße T [Zeitschritte]"
         if plot_language == "de"
-        else "observation_count [radar cycles]"
+        else "Observation window size T [time steps]"
     )
     if output_dir is not None:
         output_dir = Path(output_dir)
@@ -495,7 +503,7 @@ def plot_observation_count_comparison(
         figures.append((figure, axis))
     if show_summary_table:
         configurations = {
-            f"{label} (n={int(row['observation_count'])})": [
+            f"{label} (T={int(row['observation_count'])})": [
                 row.get(metric, np.nan) for metric in metrics
             ]
             for label, table in models.items()
@@ -519,10 +527,12 @@ def plot_observation_count_comparison(
             **text,
             "metric": "Konfiguration" if plot_language == "de" else "Configuration",
             "summary_note": (
-                "n = konfigurierte Beobachtungsanzahl. Mittelwerte je Fenster.\n"
+                "T: maximale Anzahl der Zeitschritte im Beobachtungsfenster. "
+                "Mittelwerte je Fenster.\n"
                 "Coverage über alle Vorhersagepunkte; fett: nächster Sollwert."
                 if plot_language == "de"
-                else "n = configured observation count. Mean metrics per window.\n"
+                else "T: maximum number of time steps in the observation window. "
+                "Mean metrics per window.\n"
                 "Coverage over all forecast positions; bold: closest to nominal."
             ),
         }
@@ -553,12 +563,19 @@ def plot_observation_count_comparison(
 
 
 def _plot_comparison_summary_table(
-    summary, labels, *, text, title, metric_labels=None, transpose=False
+    summary,
+    labels,
+    *,
+    text,
+    title,
+    metric_labels=None,
+    transpose=False,
+    metric_column_width=1.5,
 ):
     """Render the computed comparison summary without recalculating metrics."""
     style = RUNTIME_PLOT_STYLE
     width = (
-        max(12.0, 2.0 + 1.5 * len(summary))
+        max(8.0, 2.0 + metric_column_width * len(summary))
         if transpose
         else max(8.0, 2.0 + 2.0 * len(labels))
     )

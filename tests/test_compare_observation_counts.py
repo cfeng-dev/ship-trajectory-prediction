@@ -326,8 +326,9 @@ def test_prior_predictive_windows_do_not_require_fit_diagnostics(result_dirs, me
 
 
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+@pytest.mark.parametrize("plot_language", ["de", "en"])
 def test_plot_uses_recomputed_metrics_and_integer_ticks(
-    result_dirs, tmp_path, metric_y_scale
+    result_dirs, tmp_path, metric_y_scale, plot_language
 ):
     models = _read(result_dirs)
     figures = runtime_plotting.plot_observation_count_comparison(
@@ -335,12 +336,16 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(
         show=False,
         output_dir=tmp_path,
         metric_y_scale=metric_y_scale,
-        plot_language="en",
+        plot_language=plot_language,
     )
     try:
         assert len(figures) == len(MCMC_METRICS)
         for metric, (figure, axis) in zip(MCMC_METRICS, figures, strict=True):
-            assert "observation_count" in axis.get_xlabel()
+            assert axis.get_xlabel() == (
+                "Beobachtungsfenstergröße T [Zeitschritte]"
+                if plot_language == "de"
+                else "Observation window size T [time steps]"
+            )
             selected = {"MCMC": models["MCMC"]} if metric == "mcmc_rhat_max" else models
             curves = axis.lines[: len(selected)]
             assert [line.get_label() for line in curves] == list(selected)
@@ -554,7 +559,7 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
                 assert 0 in figure.axes[0].get_yticks()
         if show_summary_table:
             cells = shown[-1].axes[0].tables[0].get_celld()
-            assert cells[1, 0].get_text().get_text() == f"{method.upper()} (n=2)"
+            assert cells[1, 0].get_text().get_text() == f"{method.upper()} (T=2)"
             assert cells[1, 1].get_text().get_text() == "5.000"
             if method == "mcmc":
                 assert cells[1, 9].get_text().get_text() == "1.012"
@@ -587,8 +592,8 @@ def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
         assert not axis.axison
         cells = axis.tables[0].get_celld()
         assert len(cells) == (count + 1) * 10
-        assert cells[1, 0].get_text().get_text() == "MCMC (n=2)"
-        assert cells[count, 0].get_text().get_text() == f"MCMC (n={count + 1})"
+        assert cells[1, 0].get_text().get_text() == "MCMC (T=2)"
+        assert cells[count, 0].get_text().get_text() == f"MCMC (T={count + 1})"
         assert cells[1, 1].get_text().get_text() == "5.000"
         assert cells[1, 6].get_text().get_text() == "20.0%"
         assert cells[1, 8].get_text().get_text() == "0.300"
