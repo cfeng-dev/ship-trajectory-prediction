@@ -39,7 +39,7 @@ OBSERVATION_COUNT_METRICS = {
     ],
     "joint_coverage_50": COMPARISON_METRIC_LABELS["joint_coverage_50"],
     "joint_coverage_90": COMPARISON_METRIC_LABELS["joint_coverage_90"],
-    "mean_window_runtime_seconds": ("Runtime [s]", "Mean Window Runtime"),
+    "mean_fit_runtime_seconds": ("Runtime [s]", "Runtime"),
 }
 COMPARISON_PLOT_TEXT = {
     "de": {
@@ -470,12 +470,8 @@ def plot_observation_count_comparison(
         elif metric_y_scale == "symlog":
             lower, upper = axis.get_ylim()
             axis.set_ylim(min(lower, 0.0), max(upper, 0.0))
-        if metric == "mean_window_runtime_seconds":
-            ylabel = (
-                "Mittlere Fensterlaufzeit [s]"
-                if plot_language == "de"
-                else "Mean window runtime [s]"
-            )
+        if metric == "mean_fit_runtime_seconds":
+            ylabel = f"{text['runtime']} [s]"
             metric_name = text["runtime"]
         axis.set_xlabel(xlabel, fontsize=style.axis_label_font_size)
         axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
@@ -537,11 +533,7 @@ def plot_observation_count_comparison(
                 else "\nR-hat: maximum over parameters and windows; bold: closest to 1."
             )
         metric_labels = {metric: labels[0] for metric, labels in metrics.items()}
-        metric_labels["mean_window_runtime_seconds"] = (
-            "Mittlere Fenster-\nlaufzeit [s]"
-            if plot_language == "de"
-            else "Mean window\nruntime [s]"
-        )
+        metric_labels["mean_fit_runtime_seconds"] = f"{text['runtime']} [s]"
         figure, axis = _plot_comparison_summary_table(
             summary,
             list(configurations),

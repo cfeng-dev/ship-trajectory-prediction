@@ -347,6 +347,11 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                 else pd.NA,
                 data_file=record["data_file"] if record is not None else pd.NA,
                 rmse_m=float((table["position_error_m"] ** 2).mean() ** 0.5),
+                # Match the model comparison: count fit/forecast time once per
+                # origin, independently of the number of saved horizon rows.
+                mean_fit_runtime_seconds=float(
+                    table.groupby("window_index")["fit_runtime_seconds"].first().mean()
+                ),
                 mcmc_rhat_max=float(rhat.max()) if method == "mcmc" else np.nan,
             )
             rows.append(row)

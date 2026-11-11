@@ -132,6 +132,7 @@ def test_reader_recomputes_metrics_and_counts_runtime_once_per_window(result_dir
         np.testing.assert_allclose(table["mean_energy_score_m"], counts * 1.25)
         np.testing.assert_allclose(table["mean_negative_log_predictive_density"], 1.25)
         np.testing.assert_allclose(table["mean_window_runtime_seconds"], counts * 2.0)
+        np.testing.assert_allclose(table["mean_fit_runtime_seconds"], counts * 0.15)
         np.testing.assert_allclose(
             table["total_computation_time_seconds"], counts * 4.0
         )
@@ -144,6 +145,24 @@ def test_reader_recomputes_metrics_and_counts_runtime_once_per_window(result_dir
         else:
             assert table["mcmc_rhat_max"].isna().all()
             np.testing.assert_allclose(table["vi_convergence_rate"], 0.5)
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+def test_comparisons_use_the_same_fit_runtime_per_window(result_dirs, method):
+    table = _predictions(method, 3)
+    _, series = runtime_plotting._rolling_window_metric_series(table)
+    sweep = _read(result_dirs)[method.upper()].set_index("observation_count")
+
+    assert "mean_fit_runtime_seconds" in runtime_plotting.OBSERVATION_COUNT_METRICS
+    assert (
+        "mean_window_runtime_seconds" not in runtime_plotting.OBSERVATION_COUNT_METRICS
+    )
+    assert sweep.loc[3, "mean_fit_runtime_seconds"] == pytest.approx(
+        series["fit_runtime_seconds"].mean()
+    )
+    # Unequal horizons must not weight one window's runtime more heavily.
+    assert sweep.loc[3, "mean_fit_runtime_seconds"] == pytest.approx(0.45)
+    assert sweep.loc[3, "mean_window_runtime_seconds"] == pytest.approx(6.0)
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
@@ -572,7 +591,7 @@ def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
         assert cells[count, 0].get_text().get_text() == f"MCMC (n={count + 1})"
         assert cells[1, 1].get_text().get_text() == "5.000"
         assert cells[1, 6].get_text().get_text() == "20.0%"
-        assert cells[1, 8].get_text().get_text() == "4.000"
+        assert cells[1, 8].get_text().get_text() == "0.300"
         assert cells[1, 1].get_text().get_weight() == "bold"
         assert cells[2, 6].get_text().get_weight() == "bold"
         assert cells[2, 7].get_text().get_weight() == "bold"
