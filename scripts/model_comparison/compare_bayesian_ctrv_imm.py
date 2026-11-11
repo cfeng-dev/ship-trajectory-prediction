@@ -14,7 +14,7 @@ IMM_CSV = project_path("results/evaluation/imm.csv")
 BAYESIAN_SMC_CSV = project_path("results/evaluation/bayesian_ctrv_smc.csv")
 BAYESIAN_SEQ_VI_CSV = project_path("results/evaluation/bayesian_ctrv_seq_vi.csv")
 BAYESIAN_VI_CSV = project_path("results/evaluation/bayesian_ctrv_vi_05.csv")
-BAYESIAN_MCMC_CSV = project_path("results/evaluation/bayesian_ctrv_mcmc_03.csv")
+BAYESIAN_MCMC_CSV = project_path("results/evaluation/bayesian_ctrv_mcmc_05.csv")
 
 SHOW_POINTS = False  # Mark forecast origins on metric curves.
 SHOW_MEAN_LINES = False  # Show mean metric values as dashed lines.
