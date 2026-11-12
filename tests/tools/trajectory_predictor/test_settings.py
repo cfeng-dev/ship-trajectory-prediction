@@ -805,6 +805,41 @@ def test_batch_options_are_forwarded_without_hidden_overrides(form):
     assert result.analysis.vi_config["require_converged"] is True
 
 
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+@pytest.mark.parametrize("count", [2, 5, 20])
+def test_batch_window_size_reaches_analysis_without_becoming_a_stan_option(
+    form, method, count
+):
+    form["data"]["inference_method"] = method
+    form["data"]["batch_observation_count"] = str(count)
+    parsed = settings.parse_settings(form)
+    assert parsed.analysis.experiment.batch_observation_count == count
+    assert "batch_observation_count" not in parsed.analysis.vi_config
+    assert "batch_observation_count" not in parsed.analysis.mcmc_config
+    assert (
+        settings.validate_dialog_values(
+            "data", {"batch_observation_count": str(count)}
+        )["batch_observation_count"]
+        == count
+    )
+
+
+@pytest.mark.parametrize("count", ["0", "1", "-2", "2.5", "", "abc"])
+def test_batch_window_size_rejects_invalid_values_before_starting(form, count):
+    form["data"]["inference_method"] = "vi"
+    form["data"]["batch_observation_count"] = count
+    with pytest.raises(ValueError, match="Observation window size"):
+        settings.parse_settings(form)
+    with pytest.raises(ValueError, match="Observation window size"):
+        settings.validate_dialog_values("data", {"batch_observation_count": count})
+
+
+def test_batch_window_size_defaults_to_five(form):
+    assert (
+        settings.parse_settings(form).analysis.experiment.batch_observation_count == 5
+    )
+
+
 @pytest.mark.parametrize("start_index", [0, 1])
 def test_imm_reference_time_display_starts_at_the_selected_input_origin(start_index):
     from types import SimpleNamespace

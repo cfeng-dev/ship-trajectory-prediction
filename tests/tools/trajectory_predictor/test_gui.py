@@ -1690,14 +1690,30 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
         "data_file",
         "inference_method",
     )
-    assert DATA_OPTION_FIELDS[:5] == (
+    assert DATA_OPTION_FIELDS[:6] == (
         "start_index",
         "observation_interval_seconds",
         "maximum_observation_count",
+        "batch_observation_count",
         "position_noise_std_m",
         "position_noise_seed",
     )
     assert "coordinate_display_mode" not in DATA_OPTION_FIELDS
+
+
+@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+def test_batch_window_field_is_only_offered_for_batch_methods(root, method):
+    from trajectory_predictor.dialogs import SettingsDialog
+
+    panel = SettingsPanel(root, lambda: None)
+    panel.variables["data"]["inference_method"].set(method)
+    dialog = SettingsDialog(root, panel, "data")
+    try:
+        assert ("batch_observation_count" in dialog.variables) == (
+            method in {"vi", "mcmc"}
+        )
+    finally:
+        dialog.cancel()
 
 
 def test_start_index_label_and_field_share_vertical_center(root):

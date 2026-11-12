@@ -2,10 +2,6 @@
 
 import tkinter as tk
 
-from bayestraj.inference.configuration import (
-    DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT,
-)
-
 from .controls import ScrollableForm
 from .localization import localize_widgets
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
@@ -66,8 +62,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "VI / MCMC",
-                "Refit the latest "
-                f"{DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT} steps at each update; BR24 windows count radar cycles, including misses",
+                "Refit up to T latest steps at each update; set T in Analysis setup. BR24 windows count radar cycles, including misses",
             ),
             (
                 "Follow ship",

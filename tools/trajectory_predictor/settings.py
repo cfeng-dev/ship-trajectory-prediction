@@ -18,6 +18,7 @@ from .dashboard import (
     COORDINATE_DISPLAY_MODES as _COORDINATE_DISPLAY_MODES,
 )
 from .dashboard import (
+    DEFAULT_BATCH_OBSERVATION_COUNT,
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     PosteriorDashboardConfig,
@@ -59,6 +60,7 @@ DATA_OPTION_FIELDS = (
     "start_index",
     "observation_interval_seconds",
     "maximum_observation_count",
+    "batch_observation_count",
     "position_noise_std_m",
     "position_noise_seed",
     "prediction_count",
@@ -93,6 +95,7 @@ LABELS = {
     "start_index": "Start index (from 0)",
     "observation_interval_seconds": "Observation interval [s] (empty = original)",
     "maximum_observation_count": "Maximum observations (empty = all)",
+    "batch_observation_count": "Observation window size T (MCMC / VI)",
     "position_noise_std_m": "Additional position noise [m]",
     "position_noise_seed": "Position-noise seed",
     "inference_seed": "Inference seed",
@@ -184,6 +187,7 @@ def _defaults():
             "start_index": 0,
             "observation_interval_seconds": None,
             "maximum_observation_count": "",
+            "batch_observation_count": DEFAULT_BATCH_OBSERVATION_COUNT,
             "prediction_count": DEFAULT_PREDICTION_COUNT,
             "prediction_sample_count": DEFAULT_PREDICTION_SAMPLE_COUNT,
             "position_noise_std_m": 0.0,
@@ -296,6 +300,8 @@ def _validate_sequential_vi(fields):
 
 
 def _validate_data_options(fields):
+    if "batch_observation_count" in fields:
+        _minimum(fields, "batch_observation_count", MIN_OBSERVATION_COUNT)
     maximum = fields.get("maximum_observation_count")
     if maximum:
         try:

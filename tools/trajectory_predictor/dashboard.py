@@ -90,6 +90,7 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
+DEFAULT_BATCH_OBSERVATION_COUNT = 5
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 100.0
 COORDINATE_DISPLAY_MODES = ("m", "km")
@@ -175,6 +176,7 @@ class PosteriorDashboardConfig:
     prediction_count: int = DEFAULT_PREDICTION_COUNT
     prediction_sample_count: int = DEFAULT_PREDICTION_SAMPLE_COUNT
     observation_interval_seconds: float | None = None
+    batch_observation_count: int = DEFAULT_BATCH_OBSERVATION_COUNT
 
     def __post_init__(self) -> None:
         """Normalize the selected batch or online inference method."""
@@ -183,6 +185,15 @@ class PosteriorDashboardConfig:
             online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
         )
         object.__setattr__(self, "inference_method", inference_method)
+        batch_observation_count = numeric_validation.validate_non_negative_integer(
+            "batch_observation_count", self.batch_observation_count
+        )
+        if batch_observation_count < bayesian_model.MIN_OBSERVATION_COUNT:
+            raise ValueError(
+                "batch_observation_count must be at least "
+                f"{bayesian_model.MIN_OBSERVATION_COUNT}."
+            )
+        object.__setattr__(self, "batch_observation_count", batch_observation_count)
         for name in ("prediction_count", "prediction_sample_count"):
             object.__setattr__(
                 self,
@@ -2329,7 +2340,7 @@ def create_posterior_dashboard_loader(
             load_online_update,
         )
 
-    batch_observation_count = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
+    batch_observation_count = experiment.batch_observation_count
     minimum_observation_count = 1
     batch_trajectory_data = _select_trajectory_rows_at_interval(
         trajectory_data.iloc[experiment.start_index :],
@@ -2473,7 +2484,9 @@ def create_br24_radar_dashboard_loader(
         config=smc_config,
         seed=experiment.inference_seed,
         inference_method=method,
-        observation_count=inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT,
+        observation_count=experiment.batch_observation_count
+        if method in {"vi", "mcmc"}
+        else inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,

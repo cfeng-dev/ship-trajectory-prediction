@@ -12,6 +12,7 @@ from .settings import (
     PLOT_DISPLAY_FIELDS,
     PREDICTION_REGION_STYLE_DISPLAY_LABELS,
     PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
+    normalize_inference_method,
     validate_dialog_values,
 )
 from .view import CONTROL_BACKGROUND, FONT, TEXT_COLOR, create_styled_button
@@ -269,6 +270,11 @@ class SettingsDialog(tk.Toplevel):
         fields = panel.values()["data"] if group == "plot" else panel.values()[group]
         if group == "data":
             fields = {key: fields[key] for key in DATA_OPTION_FIELDS}
+            method = normalize_inference_method(
+                panel.values()["data"]["inference_method"]
+            )
+            if method not in {"vi", "mcmc"}:
+                fields.pop("batch_observation_count")
         elif group == "plot":
             fields = {key: fields[key] for key in PLOT_DISPLAY_FIELDS}
         self.variables = create_variables(self, fields)

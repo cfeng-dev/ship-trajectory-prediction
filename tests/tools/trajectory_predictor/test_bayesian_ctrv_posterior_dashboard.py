@@ -2822,9 +2822,11 @@ def test_dashboard_loader_propagates_sequential_vi_update_failure():
 
 
 @pytest.mark.parametrize("method", ["vi", "mcmc"])
+@pytest.mark.parametrize("window_size", [2, 5, 10, 20])
 def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_windows(
     monkeypatch,
     method,
+    window_size,
 ):
     dashboard = _load_dashboard_module()
     vi_config = inference.create_default_vi_config()
@@ -2865,6 +2867,7 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
         inference_method=method,
         inference_seed=42,
         prediction_count=1,
+        batch_observation_count=window_size,
     )
     trajectory, maximum_count, minimum_count, load_update = (
         dashboard.create_posterior_dashboard_loader(
@@ -2894,7 +2897,8 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
     assert [call["seed"] for call in prior_calls] == [42]
     assert all(update.is_prior_predictive for update in prior_updates)
     assert not any(update.is_prior_predictive for update in fitted_updates)
-    assert [call[0].observation_count for call in fit_calls] == [2, 3, 9, 10, 10]
+    expected_counts = [min(count, window_size) for count in (2, 3, 9, 10, 11)]
+    assert [call[0].observation_count for call in fit_calls] == expected_counts
     assert [call[0].timestamps[0] for call in fit_calls] == [
         pd.Timestamp("1970-01-01T00:00:00Z"),
         pd.Timestamp("1970-01-01T00:00:00Z"),
@@ -2903,15 +2907,67 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
         pd.Timestamp("1970-01-01T00:00:00Z"),
     ]
     assert [call[0].timestamps[-2] for call in fit_calls] == [
-        pd.Timestamp("1970-01-01T00:00:10Z"),
-        pd.Timestamp("1970-01-01T00:00:20Z"),
-        pd.Timestamp("1970-01-01T00:01:20Z"),
-        pd.Timestamp("1970-01-01T00:01:30Z"),
-        pd.Timestamp("1970-01-01T00:01:30Z"),
+        pd.Timestamp((count - 1) * 10, unit="s", tz="UTC") for count in expected_counts
     ]
+    for (window, options), count in zip(fit_calls, (2, 3, 9, 10, 11), strict=True):
+        start = count - window.observation_count
+        np.testing.assert_array_equal(
+            options["position_observations"].x_meters,
+            trajectory.observed_x[start:count],
+        )
 
 
-def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("window_size", [2, 5])
+def test_br24_dashboard_forwards_window_size_only_to_batch_methods(
+    monkeypatch, method, window_size
+):
+    from types import SimpleNamespace
+
+    from bayestraj.observations.br24 import BR24Detection, BR24RadarCycle
+
+    dashboard = _load_dashboard_module()
+    cycles = tuple(
+        BR24RadarCycle(
+            time_seconds=10.0 + index,
+            cycle_counter=index + 1,
+            sensor_position=np.zeros(2),
+            sensor_yaw_rad=0.0,
+            detections=(BR24Detection(1, 10.0, 0.0, 0.5, 0.01),) if index == 0 else (),
+        )
+        for index in range(3)
+    )
+    captured = {}
+
+    def initialize(cycle, **options):
+        assert cycle is cycles[0]
+        captured.update(options)
+        return SimpleNamespace(estimated_position=np.array([10.0, 0.0]))
+
+    monkeypatch.setattr(dashboard, "read_br24_tracking_input", lambda _: cycles)
+    monkeypatch.setattr(dashboard, "read_br24_tracking_reference", lambda _: None)
+    monkeypatch.setattr(dashboard.BR24BayesianRadarTracker, "initialize", initialize)
+    experiment = dashboard.PosteriorDashboardConfig(
+        start_index=0,
+        maximum_observation_count=None,
+        position_noise_std_m=0.0,
+        position_noise_seed=2026,
+        inference_method=method,
+        inference_seed=42,
+        batch_observation_count=window_size,
+    )
+    dashboard.create_br24_radar_dashboard_loader(
+        "unused.csv",
+        experiment=experiment,
+        priors=bayesian_model.BayesianCTRVPriors(),
+        smc_config=inference.create_default_ctrv_smc_config(),
+    )
+    assert captured["observation_count"] == (
+        window_size if method in {"vi", "mcmc"} else 10
+    )
+
+
+def test_dashboard_loader_runs_mcmc_five_observation_sliding_fit_by_default():
     dashboard = _load_dashboard_module()
     vi_config = inference.create_default_vi_config()
     mcmc_config = inference.create_default_mcmc_config()
@@ -2953,17 +3009,17 @@ def test_dashboard_loader_runs_mcmc_ten_observation_sliding_fit():
     assert trajectory.reference_x.shape == (14,)
     assert len(fit_calls) == 1
     window, options = fit_calls[0]
-    assert window.observation_count == 10
+    assert window.observation_count == 5
     assert window.timestamps[0] == pd.Timestamp("1970-01-01T00:00:00Z")
-    assert window.timestamps[9] == pd.Timestamp("1970-01-01T00:01:30Z")
+    assert window.timestamps[4] == pd.Timestamp("1970-01-01T00:00:40Z")
     assert options["inference_method"] == "mcmc"
     assert options["seed"] == 42
     assert options["priors"] == bayesian_model.BayesianCTRVPriors()
     assert options["position_observations"].x_meters == pytest.approx(
-        trajectory.observed_x[2:12]
+        trajectory.observed_x[7:12]
     )
     assert options["position_observations"].time_seconds == pytest.approx(
-        np.arange(10) * 10.0
+        np.arange(5) * 10.0
     )
     selected_options = {
         name: value
