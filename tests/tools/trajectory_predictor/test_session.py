@@ -64,6 +64,137 @@ def test_processed_csv_reference_motion_preserves_native_values_or_derives(
         assert trajectory.reference_state_at(1)[2:5] == (0.0, 0.0, 0.0)
 
 
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+def test_processed_ground_truth_drives_reference_and_scores_without_replacing_inputs(
+    tmp_path, method
+):
+    path = tmp_path / "tracked_with_reference.csv"
+    pd.DataFrame(
+        {
+            "time": [105.0, 100.0, 109.0, 102.0, 114.0, 120.0],
+            "x": [12.0, 10.0, 13.0, 11.0, 14.0, 15.0],
+            "y": [-2.0, -4.0, -1.0, -3.0, 0.0, 1.0],
+            "ground_truth_x": [110.0, 100.0, 118.0, 104.0, 128.0, 140.0],
+            "ground_truth_y": [0.0] * 6,
+        }
+    ).to_csv(path, index=False)
+    values = default_form_values()
+    values["data"].update(data_file=str(path), inference_method=method)
+    settings = parse_settings(values).analysis
+    settings = replace(
+        settings,
+        experiment=replace(
+            settings.experiment,
+            start_index=1,
+            observation_interval_seconds=5.0,
+            position_noise_std_m=0.0,
+        ),
+    )
+
+    trajectory, _, _, _ = prepare_analysis(settings)
+
+    np.testing.assert_array_equal(trajectory.reference_x, [104.0, 118.0, 128.0, 140.0])
+    np.testing.assert_array_equal(trajectory.reference_y, [0.0] * 4)
+    np.testing.assert_array_equal(trajectory.observed_x, [11.0, 13.0, 14.0, 15.0])
+    np.testing.assert_array_equal(trajectory.observed_y, [-3.0, -1.0, 0.0, 1.0])
+    np.testing.assert_array_equal(
+        trajectory.reference_time_seconds, [0.0, 7.0, 12.0, 18.0]
+    )
+    np.testing.assert_allclose(
+        trajectory.reference_speed_mps, [np.nan, 2.0, 2.0, 2.0], equal_nan=True
+    )
+    np.testing.assert_allclose(
+        trajectory.reference_heading_degrees, [np.nan, 0.0, 0.0, 0.0], equal_nan=True
+    )
+    positions = np.array([[128.0, 0.0], [140.0, 0.0]])
+    update = PosteriorDashboardUpdate(
+        observation_count=2,
+        samples_by_parameter={name: np.array([0.0, 0.0]) for name in PARAMETER_NAMES},
+        forecast=dashboard.PosteriorDashboardForecast(
+            time_offsets_seconds=[5.0, 11.0],
+            median_positions=positions,
+            sample_positions=positions[None, :, :],
+        ),
+    )
+    metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
+    assert metrics.ade_m == pytest.approx(0.0)
+    assert metrics.fde_m == pytest.approx(0.0)
+
+
+def test_processed_ground_truth_changes_do_not_change_smc_posterior(tmp_path):
+    path = tmp_path / "tracked_with_reference.csv"
+    data = pd.DataFrame(
+        {
+            "time": [100.0, 102.0, 105.0, 109.0],
+            "x": [10.0, 11.0, 12.0, 13.0],
+            "y": [-4.0, -3.0, -2.0, -1.0],
+            "ground_truth_x": [100.0, 104.0, 110.0, 118.0],
+            "ground_truth_y": [0.0] * 4,
+        }
+    )
+    values = default_form_values()
+    values["data"].update(data_file=str(path), inference_method="smc")
+    values["smc"].update(particle_count="32", posterior_draw_count="20")
+
+    def prepare():
+        data.to_csv(path, index=False)
+        settings = parse_settings(values).analysis
+        settings = replace(
+            settings,
+            experiment=replace(settings.experiment, position_noise_std_m=2.0),
+        )
+        trajectory, _, _, load = prepare_analysis(settings)
+        return trajectory, load(3)
+
+    before_trajectory, before = prepare()
+    data["ground_truth_x"] += 1000.0
+    data["ground_truth_y"] -= 500.0
+    after_trajectory, after = prepare()
+
+    np.testing.assert_allclose(
+        after_trajectory.reference_x - before_trajectory.reference_x, 1000.0
+    )
+    np.testing.assert_array_equal(
+        before_trajectory.observed_x, after_trajectory.observed_x
+    )
+    np.testing.assert_array_equal(
+        before_trajectory.observed_y, after_trajectory.observed_y
+    )
+    for name in PARAMETER_NAMES:
+        np.testing.assert_array_equal(
+            before.samples_by_parameter[name], after.samples_by_parameter[name]
+        )
+    np.testing.assert_array_equal(
+        before.forecast.posterior_positions, after.forecast.posterior_positions
+    )
+
+
+@pytest.mark.parametrize("invalid", ["missing_x", "missing_y", "nan", "inf"])
+def test_processed_ground_truth_rejects_incomplete_or_nonfinite_positions(
+    tmp_path, invalid
+):
+    path = tmp_path / "tracked_with_reference.csv"
+    data = pd.DataFrame(
+        {
+            "time": [0.0, 1.0, 2.0, 3.0],
+            "x": [0.0, 1.0, 2.0, 3.0],
+            "y": [0.0] * 4,
+            "ground_truth_x": [10.0, 11.0, 12.0, 13.0],
+            "ground_truth_y": [1.0] * 4,
+        }
+    )
+    if invalid.startswith("missing_"):
+        data = data.drop(columns=["ground_truth_" + invalid.removeprefix("missing_")])
+    else:
+        data.loc[1, "ground_truth_x"] = np.nan if invalid == "nan" else np.inf
+    data.to_csv(path, index=False)
+    values = default_form_values()
+    values["data"].update(data_file=str(path), inference_method="mcmc")
+
+    with pytest.raises(ValueError, match="ground_truth"):
+        prepare_analysis(parse_settings(values).analysis)
+
+
 @pytest.fixture
 def analysis(tmp_path):
     values = default_form_values()

@@ -40,6 +40,7 @@ from . import coordinates
 from .localization import localize_figure, normalize_language, translate
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
+REFERENCE_POSITION_COLUMNS = ("ground_truth_x", "ground_truth_y")
 REFERENCE_MOTION_COLUMNS = {
     "speed": ("ground_truth_velocity", "velocity", "speed"),
     "heading": ("ground_truth_yaw", "yaw", "theta"),
@@ -2674,8 +2675,27 @@ def _prepare_posterior_dashboard_trajectory(
         start_index=0,
     )
     time_seconds = np.asarray(complete_window.time_seconds, dtype=float)
-    reference_x = np.asarray(complete_window.x_meters, dtype=float)
-    reference_y = np.asarray(complete_window.y_meters, dtype=float)
+    observed_x = np.asarray(complete_window.x_meters, dtype=float).copy()
+    observed_y = np.asarray(complete_window.y_meters, dtype=float).copy()
+    supplied_reference_columns = set(REFERENCE_POSITION_COLUMNS).intersection(
+        selected_trajectory_data.columns
+    )
+    if supplied_reference_columns:
+        if supplied_reference_columns != set(REFERENCE_POSITION_COLUMNS):
+            raise ValueError(
+                "Reference positions require both ground_truth_x and ground_truth_y."
+            )
+        reference_x, reference_y = (
+            pd.to_numeric(selected_trajectory_data[name], errors="raise").to_numpy(
+                dtype=float
+            )
+            for name in REFERENCE_POSITION_COLUMNS
+        )
+        if not np.all(np.isfinite(reference_x)) or not np.all(np.isfinite(reference_y)):
+            raise ValueError("Reference ground_truth_x/y must contain finite values.")
+    else:
+        reference_x = observed_x.copy()
+        reference_y = observed_y.copy()
     (
         reference_heading_degrees,
         reference_turn_rate_degrees_per_second,
@@ -2692,8 +2712,6 @@ def _prepare_posterior_dashboard_trajectory(
     selected_reference = selected_trajectory_data.iloc[:available_observation_count]
     native_speed = _reference_motion_column(selected_reference, "speed")
     native_heading = _reference_motion_column(selected_reference, "heading")
-    observed_x = reference_x.copy()
-    observed_y = reference_y.copy()
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
         experiment.position_noise_std_m,
@@ -2874,12 +2892,12 @@ def _reference_motion_column(data, quantity):
 
 
 def read_dashboard_trajectory(csv_path):
-    """Keep optional reference motion locally without changing the shared x/y reader."""
+    """Keep optional reference labels separately from the shared x/y inputs."""
     data = observations_io.read_processed_trajectory(csv_path)
     raw = pd.read_csv(csv_path)
     raw["time"] = pd.to_numeric(raw["time"], errors="raise")
     raw = raw.sort_values("time").reset_index(drop=True)
-    for names in REFERENCE_MOTION_COLUMNS.values():
+    for names in (REFERENCE_POSITION_COLUMNS, *REFERENCE_MOTION_COLUMNS.values()):
         for name in names:
             if name in raw.columns:
                 values = pd.to_numeric(raw[name], errors="raise").to_numpy(dtype=float)
