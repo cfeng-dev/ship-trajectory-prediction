@@ -488,6 +488,7 @@ class SettingsPanel(tk.Frame):
         status_labels = {
             "accepted": "Associated",
             "initialization": "Initial measurement",
+            "provided": "Measurement from CSV",
             "prediction_only": "Prediction only",
         }
         self.radar_association_values["status"].set(

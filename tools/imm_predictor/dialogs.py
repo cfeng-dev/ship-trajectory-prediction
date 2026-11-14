@@ -478,7 +478,7 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Status",
-                "Initial measurement, Associated, or Prediction only when no detection passes the association gate",
+                "Initial measurement only for the first processed fix; Measurement from CSV for later supplied associations; Associated for raw-radar selections; Prediction only when no detection is accepted",
             ),
             (
                 "Cycle",
@@ -487,7 +487,7 @@ IMM_HELP_SECTIONS = (
             ("Detection ID", "Detection selected within the current radar cycle"),
             (
                 "NIS",
-                "Normalized innovation squared: discrepancy between predicted and detected position relative to innovation uncertainty",
+                "Normalized innovation squared: position discrepancy relative to predicted measurement uncertainty; not computed for initialization or supplied CSV associations",
             ),
             (
                 "cov_xx / cov_xy / cov_yy",

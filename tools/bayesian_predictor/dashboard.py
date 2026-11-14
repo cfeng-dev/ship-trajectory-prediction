@@ -477,10 +477,13 @@ class PosteriorDashboardUpdate:
     radar_nis: float | None = None
     radar_measurement_covariance: np.ndarray | None = None
     radar_cycle_counter: int | None = None
+    associated_input: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.is_prior_predictive, bool):
             raise TypeError("is_prior_predictive must be a boolean.")
+        if not isinstance(self.associated_input, bool):
+            raise TypeError("associated_input must be a boolean.")
         if self.tracked_positions is not None:
             tracked_positions = np.asarray(self.tracked_positions, dtype=float).copy()
             if tracked_positions.shape != (self.observation_count, 2) or not np.all(
@@ -579,7 +582,7 @@ class RadarAssociationDiagnostics:
 
 
 def radar_association_diagnostics_at(updates_by_count, observation_count):
-    """Return the raw-radar association details for the selected dashboard stage."""
+    """Return initialization, supplied-fix or raw-association display details."""
     update = updates_by_count.get(observation_count)
     if update is None or not update.radar_tracking_active:
         return None
@@ -592,7 +595,13 @@ def radar_association_diagnostics_at(updates_by_count, observation_count):
             cycle_counter=update.radar_cycle_counter,
         )
     return RadarAssociationDiagnostics(
-        status="initialization" if update.radar_nis is None else "accepted",
+        status=(
+            "initialization"
+            if update.observation_count == 1
+            else "provided"
+            if update.associated_input
+            else "accepted"
+        ),
         detection_id=update.radar_detection_id,
         nis=update.radar_nis,
         measurement_covariance=update.radar_measurement_covariance,
@@ -2633,6 +2642,7 @@ def create_br24_radar_dashboard_loader(
             forecast=forecast,
             tracked_positions=np.asarray(tracked_positions),
             radar_tracking_active=True,
+            associated_input=associated_input,
             radar_detection_id=detection_id,
             radar_nis=nis,
             radar_measurement_covariance=measurement_covariance,

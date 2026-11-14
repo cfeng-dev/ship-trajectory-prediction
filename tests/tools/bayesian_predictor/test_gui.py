@@ -432,6 +432,18 @@ def test_settings_panel_displays_reference_csv_state(root):
     assert "Speed-process noise:" in posterior_median_labels
     assert "Turn-rate-process noise:" in posterior_median_labels
 
+    panel.show_radar_association(
+        SimpleNamespace(
+            status="provided",
+            detection_id=2,
+            nis=None,
+            measurement_covariance=np.eye(2),
+            cycle_counter=12,
+        )
+    )
+    assert panel.radar_association_values["status"].get() == "Measurement from CSV"
+    assert panel.radar_association_values["nis"].get() == "-"
+
 
 def test_settings_panel_does_not_create_online_predictive_diagnostics(root):
     panel = SettingsPanel(root, lambda: None)
@@ -1124,6 +1136,8 @@ def test_imm_pure_cv_turn_rate_uses_a_probability_stem_without_invented_density(
 
 @pytest.mark.parametrize("coordinate_mode", ["m", "km"])
 def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_mode):
+    from dataclasses import replace
+
     from imm_predictor.controls import IMMControls
     from imm_predictor.player import IMMForecastMetrics, _posterior_medians
 
@@ -1184,7 +1198,10 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
         else "x = 1.00 km\ny = -2.00 km"
     )
     state.posterior_medians = None
+    state.stage = replace(stage, associated_input=True, nis=None)
     panel.show_display_state(state, coordinate_display_mode=coordinate_mode)
+    assert panel._values["association_status"].get() == "Measurement from CSV"
+    assert panel._values["nis"].get() == "-"
     assert all(
         panel._values[name].get() == "-" for name in ("speed", "heading", "turn_rate")
     )

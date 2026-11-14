@@ -132,6 +132,16 @@ class IMMPlayerStage:
     posterior: IMMStatePosterior | None = None
     posterior_mixture: IMMStateMixture | None = None
     forecast_median_positions: np.ndarray | None = None
+    associated_input: bool = False
+
+    @property
+    def association_status(self) -> str:
+        """Describe the input step independently of whether NIS is available."""
+        if self.detection_id is None:
+            return "prediction_only"
+        if self.observation_count == 1:
+            return "initialization"
+        return "provided" if self.associated_input else "accepted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,6 +396,9 @@ class IMMPlaybackStore:
             posterior=posterior,
             posterior_mixture=posterior_mixture,
             forecast_median_positions=forecast_medians,
+            associated_input=isinstance(
+                self.cycles[observation_count - 1], br24.BR24AssociatedMeasurement
+            ),
         )
 
     def _validate_observation_count(self, observation_count: int) -> int:

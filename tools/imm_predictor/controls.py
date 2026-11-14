@@ -363,11 +363,12 @@ class IMMControls(tk.Frame):
             _format_optional(stage.fit_runtime_seconds, "s", decimals=3)
         )
         self._values["association_status"].set(
-            "Initial measurement"
-            if stage.observation_count == 1
-            else "Associated"
-            if stage.detection_id is not None
-            else "Prediction only"
+            {
+                "initialization": "Initial measurement",
+                "provided": "Measurement from CSV",
+                "accepted": "Associated",
+                "prediction_only": "Prediction only",
+            }[stage.association_status]
         )
         self._values["detection_id"].set(
             "-" if stage.detection_id is None else str(stage.detection_id)

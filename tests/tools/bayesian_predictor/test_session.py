@@ -20,6 +20,55 @@ def _update(observation_count):
     )
 
 
+@pytest.mark.parametrize("tool", ["bayesian", "imm"])
+@pytest.mark.parametrize(
+    ("count", "cycle", "detection_id", "nis", "associated", "expected"),
+    [
+        (1, 12, 2, None, False, "initialization"),
+        (2, 14, 2, 1.25, False, "accepted"),
+        (2, 14, 2, None, False, "accepted"),
+        (1, 12, 2, None, True, "initialization"),
+        (2, 14, 2, None, True, "provided"),
+        (3, 18, None, None, False, "prediction_only"),
+    ],
+)
+def test_measurement_status_uses_step_and_input_source(
+    tool, count, cycle, detection_id, nis, associated, expected
+):
+    if tool == "bayesian":
+        options = {"associated_input": True} if associated else {}
+        update = replace(
+            _update(count),
+            radar_tracking_active=True,
+            radar_cycle_counter=cycle,
+            radar_detection_id=detection_id,
+            radar_nis=nis,
+            **options,
+        )
+        diagnostic = dashboard.radar_association_diagnostics_at({count: update}, count)
+        assert diagnostic.status == expected
+        assert diagnostic.nis == nis
+    else:
+        from imm_predictor.player import IMMPlayerStage
+
+        options = {"associated_input": True} if associated else {}
+        stage = IMMPlayerStage(
+            observation_count=count,
+            cycle_counter=cycle,
+            observation_time_seconds=100.0,
+            detection_id=detection_id,
+            nis=nis,
+            measurement_covariance=None,
+            fit_runtime_seconds=0.0,
+            tracked_times_seconds=np.arange(count),
+            tracked_positions=np.zeros((count, 2)),
+            forecast=None,
+            **options,
+        )
+        assert stage.association_status == expected
+        assert stage.nis == nis
+
+
 @pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
 @pytest.mark.parametrize("prediction_count", [0, 1])
 def test_br24_runtime_counts_update_and_forecast_and_survives_cache(
@@ -184,6 +233,15 @@ def test_associated_br24_preserves_covariances_and_ignores_reference(
                 parse_settings(values).analysis
             )
             first, second = load(1), load(2)
+            assert first.associated_input and second.associated_input
+            assert (
+                dashboard.radar_association_diagnostics_at({1: first}, 1).status
+                == "initialization"
+            )
+            assert (
+                dashboard.radar_association_diagnostics_at({2: second}, 2).status
+                == "provided"
+            )
             assert (maximum, minimum) == (3, 1)
             assert (first.radar_detection_id, second.radar_detection_id) == (17, 22)
             assert second.radar_nis is None
@@ -204,6 +262,9 @@ def test_associated_br24_preserves_covariances_and_ignores_reference(
                 player.IMMPlayerConfig(data_file=path, prediction_count=0)
             )
             first, second = store.stage_for(1), store.stage_for(2)
+            assert first.associated_input and second.associated_input
+            assert first.association_status == "initialization"
+            assert second.association_status == "provided"
             assert (first.detection_id, second.detection_id) == (17, 22)
             assert second.nis is None
             np.testing.assert_array_equal(
