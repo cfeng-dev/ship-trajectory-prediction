@@ -12,8 +12,25 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
     ("method", "diagnostics"),
     [
         ("mcmc", {"mcmc_rhat_max": 1.003, "mcmc_diagnostics_ok": True}),
-        ("vi", {"converged": True}),
-        ("sequential_vi", {"sequential_vi_bootstrap_runtime_seconds": 0.5}),
+        (
+            "vi",
+            {
+                "converged": True,
+                "vi_termination": "elbo_converged",
+                "vi_elbo_delta_mean": 0.08,
+                "vi_elbo_delta_median": 0.009,
+            },
+        ),
+        (
+            "sequential_vi",
+            {
+                "sequential_vi_bootstrap_runtime_seconds": 0.5,
+                "converged": False,
+                "vi_termination": "elbo_converged",
+                "vi_elbo_delta_mean": 0.004,
+                "vi_elbo_delta_median": 0.003,
+            },
+        ),
         ("smc", {"particle_effective_sample_size": 50.0, "particle_count": 64}),
     ],
 )
@@ -34,12 +51,21 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
     assert row["inference_method"] == method
     assert float(row["position_error_m"]) == 2.5
     for name, value in diagnostics.items():
-        if isinstance(value, bool):
+        if isinstance(value, (bool, str)):
             assert row[name] == str(value)
         else:
             assert float(row[name]) == value
     if method != "mcmc":
         assert row["mcmc_rhat_max"] == ""
+    if method not in {"vi", "sequential_vi"}:
+        assert row["vi_termination"] == ""
+        assert row["vi_elbo_delta_mean"] == ""
+        assert row["vi_elbo_delta_median"] == ""
+    assert {name for name in row if name.startswith("vi_")} == {
+        "vi_termination",
+        "vi_elbo_delta_mean",
+        "vi_elbo_delta_median",
+    }
     if method != "smc":
         assert row["particle_effective_sample_size"] == ""
         assert row["particle_count"] == ""

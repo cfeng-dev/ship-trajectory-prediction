@@ -410,6 +410,19 @@ def _run_evaluation(
         diagnostics["mcmc_rhat_max"] = (
             _mcmc_rhat_max(fit) if inference_method == "mcmc" else np.nan
         )
+        vi_fit = (
+            getattr(online_filter, "last_fit", None)
+            if inference_method == "sequential_vi"
+            else fit
+        )
+        diagnostics.update(
+            cmdstan_inference.variational_diagnostics(
+                vi_fit
+                if inference_method in {"vi", "sequential_vi"}
+                and not is_prior_predictive
+                else None
+            )
+        )
         diagnostics["is_prior_predictive"] = is_prior_predictive
         if online_mode and online_filter is not None:
             if inference_method == "smc":
@@ -637,6 +650,11 @@ def _run_br24_radar_evaluation(
         last_fit = getattr(tracker.filter, "last_fit", None)
         diagnostics["mcmc_rhat_max"] = (
             _mcmc_rhat_max(last_fit) if inference_method == "mcmc" else np.nan
+        )
+        diagnostics.update(
+            cmdstan_inference.variational_diagnostics(
+                last_fit if inference_method in {"vi", "sequential_vi"} else None
+            )
         )
         mcmc_diagnostics_ok = (
             _mcmc_diagnostics_ok(last_fit)

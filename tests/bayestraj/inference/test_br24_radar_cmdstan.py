@@ -12,6 +12,7 @@ from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+from bayestraj.validation.bayesian_ctrv_evaluation import export_evaluation_csv
 from bayestraj.validation.bayesian_ctrv_workflow import run_bayesian_ctrv_evaluation
 from bayestraj.validation.cli import BayesianCTRVEvaluationOptions
 
@@ -52,6 +53,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     ] = np.nan
     input_csv = tmp_path / "radar_with_miss.csv"
     data.to_csv(input_csv, index=False)
+    window_count = 4 if method == "sequential_vi" else 3
     options = BayesianCTRVEvaluationOptions(
         observation_count=5,
         prediction_count=2,
@@ -63,7 +65,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         position_noise_std_m=0.0,
         position_noise_seed=2026,
         require_converged=False,
-        max_windows=3,
+        max_windows=window_count,
     )
     vi_config = dict(
         algorithm="fullrank",
@@ -111,10 +113,12 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     )
 
     assert summary.inference_method == method
-    assert summary.window_count == 3
-    assert len(predictions) == 6
+    assert summary.window_count == window_count
+    assert len(predictions) == 2 * window_count
     assert set(predictions["inference_method"]) == {method}
-    assert predictions["radar_processed_cycle_count"].tolist() == [2, 2, 3, 3, 4, 4]
+    assert predictions["radar_processed_cycle_count"].tolist() == [
+        count for count in range(2, window_count + 2) for _ in range(2)
+    ]
     assert observation_scores[0] == (None, None)
     assert all(
         np.isfinite(score)
@@ -134,4 +138,28 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
             ].to_numpy(dtype=float)
         )
     )
-    assert set(tmp_path.iterdir()) == {input_csv}
+    expected_files = {input_csv}
+    if method in {"vi", "sequential_vi"}:
+        prior = predictions.loc[predictions["is_prior_predictive"]]
+        assert prior["vi_termination"].isna().all()
+        assert prior["vi_elbo_delta_mean"].isna().all()
+        fitted = predictions.loc[~predictions["is_prior_predictive"]]
+        assert (
+            fitted["vi_termination"].isin(["elbo_converged", "iteration_limit"]).all()
+        )
+        assert np.isfinite(fitted["vi_elbo_delta_mean"]).all()
+        assert np.isfinite(fitted["vi_elbo_delta_median"]).all()
+        output_csv = tmp_path / f"{method}_evaluation.csv"
+        assert export_evaluation_csv(predictions, output_csv)
+        saved = pd.read_csv(output_csv)
+        pd.testing.assert_series_equal(
+            saved["vi_elbo_delta_mean"],
+            predictions["vi_elbo_delta_mean"],
+            check_names=False,
+        )
+        assert (
+            saved["vi_termination"].fillna("").tolist()
+            == predictions["vi_termination"].fillna("").tolist()
+        )
+        expected_files.add(output_csv)
+    assert set(tmp_path.iterdir()) == expected_files

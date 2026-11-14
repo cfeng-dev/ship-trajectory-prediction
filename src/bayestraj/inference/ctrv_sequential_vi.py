@@ -948,6 +948,7 @@ class SequentialCTRVVI:
     last_log_predictive_density: float | None = None
     predictive_log_density_history: list[float] = field(default_factory=list)
     processed_cycle_count: int = 0
+    last_fit: object | None = field(default=None, repr=False)
 
     @classmethod
     def initialize(
@@ -1080,6 +1081,7 @@ class SequentialCTRVVI:
             _next_seed=seed + 1,
             _update_fitter=update_fitter,
             _model=model,
+            last_fit=bootstrap_fit,
         )
         for index in range(bootstrap_count, time_values.size):
             if mask[index]:
@@ -1305,6 +1307,7 @@ class SequentialCTRVVI:
         self.processed_cycle_count += 1
         self._next_seed += 1
         self._updates.append(record)
+        self.last_fit = fitted
         self.last_log_predictive_density = log_predictive_density
         self.predictive_log_density_history.append(log_predictive_density)
         return record

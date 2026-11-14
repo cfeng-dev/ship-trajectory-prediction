@@ -1,5 +1,7 @@
 """Tests for Bayesian CTRV rolling-evaluation presentation rules."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -344,6 +346,136 @@ def _run_br24_evaluation(
     )
 
 
+@pytest.mark.parametrize("source", ["positions", "raw", "associated"])
+def test_sequential_vi_csv_uses_latest_fit_and_retains_cumulative_convergence(
+    tmp_path, monkeypatch, source
+):
+    from bayestraj.inference.particle_utils import SequentialCTRVFit
+
+    path = tmp_path / "trajectory.csv"
+    if source == "positions":
+        pd.DataFrame({"time": np.arange(8), "x": 10.0 + np.arange(8), "y": 0.0}).to_csv(
+            path, index=False
+        )
+    else:
+        _write_br24_evaluation_input(path, cycle_count=8)
+        data = pd.read_csv(path)
+        if source == "associated":
+            data["x"], data["y"] = data["x_relative"], data["y_relative"]
+            data["cov_xx"], data["cov_xy"], data["cov_yy"] = 0.25, 0.0, 0.25
+            data = data[
+                [
+                    "time",
+                    "cycle_counter",
+                    "detection_id",
+                    "x",
+                    "y",
+                    "cov_xx",
+                    "cov_xy",
+                    "cov_yy",
+                    "ground_truth_x",
+                    "ground_truth_y",
+                ]
+            ]
+        else:
+            missing_columns = [
+                "detection_id",
+                "range",
+                "azimuth",
+                "std_range",
+                "std_azimuth",
+                "x_relative",
+                "y_relative",
+            ]
+            data.loc[5, missing_columns] = np.nan
+        data.to_csv(path, index=False)
+
+    fits = []
+
+    class Fit(SequentialCTRVFit):
+        converged = False
+
+    def fit_at(x, y, *, bootstrap):
+        update_index = len(fits)
+        spread = np.linspace(-0.01, 0.01, 40)
+        fit = Fit(
+            {
+                "x_at_origin": x + spread,
+                "y_at_origin": y + spread,
+                "speed_at_origin": np.full(40, 1.0),
+                "heading_at_origin": spread * 0.01,
+                "turn_rate_at_origin": spread * 0.001,
+                "sigma_position_observation": np.full(40, 0.2),
+                "sigma_speed_process": np.full(40, 0.1),
+                "sigma_turn_rate_process": np.full(40, 0.001),
+            }
+        )
+        fit.converged = not bootstrap
+        mean, median = (
+            (0.2, 0.3) if bootstrap else (update_index * 0.001, update_index * 0.002)
+        )
+        note = (
+            "The maximum number of iterations is reached! The algorithm may not have converged."
+            if bootstrap
+            else "MEAN ELBO CONVERGED"
+        )
+        transcript = tmp_path / f"vi_{len(fits)}.txt"
+        transcript.write_text(
+            "iter ELBO delta_ELBO_mean delta_ELBO_med notes\n"
+            f"100 -100.0 {mean} {median} {note}\nCOMPLETED.\n",
+            encoding="utf-8",
+        )
+        fit.runset = SimpleNamespace(stdout_files=[transcript])
+        fits.append(fit)
+        return fit
+
+    def bootstrap_fit(window, *, position_observations, **options):
+        return fit_at(
+            position_observations.x_meters[-1],
+            position_observations.y_meters[-1],
+            bootstrap=True,
+        )
+
+    def update_fit(carry, *, x_observed, y_observed, **options):
+        return fit_at(x_observed, y_observed, bootstrap=False)
+
+    monkeypatch.setattr(
+        workflow.batch_inference, "fit_bayesian_ctrv_model", bootstrap_fit
+    )
+    monkeypatch.setattr(sequential_vi_model, "fit_sequential_update", update_fit)
+    predictions, _ = _run_br24_evaluation(
+        path,
+        inference_method="sequential_vi",
+        max_windows=6,
+        sequential_vi_config=sequential_vi_model.SequentialVIConfig(
+            n_bootstrap=3, draws=40
+        ),
+    )
+    assert predictions.iloc[0]["is_prior_predictive"]
+    assert pd.isna(predictions.iloc[0]["vi_termination"])
+    expected_updates = [1, 2, 2, 3] if source == "raw" else [1, 2, 3, 4]
+    assert predictions["vi_termination"].iloc[1:].tolist() == [
+        "iteration_limit",
+        *["elbo_converged"] * 4,
+    ]
+    np.testing.assert_allclose(
+        predictions["vi_elbo_delta_mean"].iloc[1:],
+        [0.2, *[i * 0.001 for i in expected_updates]],
+    )
+    np.testing.assert_allclose(
+        predictions["vi_elbo_delta_median"].iloc[1:],
+        [0.3, *[i * 0.002 for i in expected_updates]],
+    )
+    assert not predictions["converged"].iloc[1:].any()
+    assert len(fits) == (4 if source == "raw" else 5)
+    output = tmp_path / "evaluation.csv"
+    assert evaluation.export_evaluation_csv(predictions, output)
+    saved = pd.read_csv(output)
+    pd.testing.assert_series_equal(
+        saved["vi_elbo_delta_mean"], predictions["vi_elbo_delta_mean"]
+    )
+
+
 @pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
 @pytest.mark.parametrize("radar_input", [True, False])
 def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
@@ -400,7 +532,17 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
             "x_observation_prediction",
             "y_observation_prediction",
         )
-        return FittedPosterior({name: fit.stan_variable(name) for name in names})
+        posterior = FittedPosterior({name: fit.stan_variable(name) for name in names})
+        if method == "vi":
+            transcript = tmp_path / "vi.txt"
+            transcript.write_text(
+                "  iter = 10000\n  tol_rel_obj = 0.01\n"
+                "  iter ELBO delta_ELBO_mean delta_ELBO_med notes\n"
+                "200 -1105.0 0.08 0.009 MEDIAN ELBO CONVERGED\nCOMPLETED.\n",
+                encoding="utf-8",
+            )
+            posterior.runset = SimpleNamespace(stdout_files=[transcript])
+        return posterior
 
     monkeypatch.setattr(workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model)
     monkeypatch.setattr(
@@ -452,6 +594,13 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         assert exported["mcmc_rhat_max"].tolist() == [1.023, 1.023]
     else:
         assert exported["mcmc_rhat_max"].isna().all()
+    if method == "vi":
+        assert exported["vi_termination"].tolist() == ["elbo_converged"] * 2
+        assert exported["vi_elbo_delta_mean"].tolist() == [0.08] * 2
+        assert exported["vi_elbo_delta_median"].tolist() == [0.009] * 2
+    else:
+        assert exported["vi_termination"].isna().all()
+        assert exported["vi_elbo_delta_mean"].isna().all()
 
     # Exercise the same CSV reader used by compare_bayesian_ctrv_imm.py.
     imm = exported.assign(model_variant="imm", inference_method="imm")

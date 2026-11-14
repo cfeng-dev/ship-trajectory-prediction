@@ -1,9 +1,4 @@
-"""Evaluate IMM forecasts from raw BR24 cycles or associated Cartesian fixes.
-
-Set DATA_FILE to either BR24Dataset20131107_with_reference.csv or
-BR24_imm_tracked_trajectory_with_reference.csv. Both use ground-truth labels
-only for scoring; associated fixes bypass detection selection.
-"""
+"""Evaluate IMM forecasts across rolling windows."""
 
 import bayestraj.validation.imm_workflow as evaluation
 from bayestraj.paths import project_path

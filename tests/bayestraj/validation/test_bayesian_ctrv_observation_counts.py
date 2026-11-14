@@ -3,6 +3,7 @@
 import json
 import runpy
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -61,7 +62,7 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
     def fit_model(window, *, position_observations, **kwargs):
         fits.append(position_observations)
         spread = np.linspace(-0.1, 0.1, 32)
-        return Fit(
+        posterior = Fit(
             {
                 "x_at_origin": position_observations.x_meters[-1] + spread,
                 "y_at_origin": position_observations.y_meters[-1] + spread,
@@ -73,6 +74,19 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
                 "sigma_turn_rate_process": np.full(32, 0.001),
             }
         )
+        if method == "vi":
+            transcript = tmp_path / "vi.txt"
+            transcript.write_text(
+                "  iter = 100\n  tol_rel_obj = 0.01\n"
+                "  iter ELBO delta_ELBO_mean delta_ELBO_med notes\n"
+                "100 -123.0 0.3 0.2\n"
+                "The maximum number of iterations is reached! "
+                "The algorithm may not have converged.\nCOMPLETED.\n",
+                encoding="utf-8",
+            )
+            posterior.runset = SimpleNamespace(stdout_files=[transcript])
+            posterior.converged = False
+        return posterior
 
     monkeypatch.setattr(
         evaluation.workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model
@@ -105,6 +119,14 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
             count,
         ]
         assert table["configured_observation_count"].eq(count).all()
+        if method == "vi":
+            assert table["vi_termination"].eq("iteration_limit").all()
+            assert table["vi_elbo_delta_mean"].eq(0.3).all()
+            assert table["vi_elbo_delta_median"].eq(0.2).all()
+            assert not table["converged"].any()
+        else:
+            assert table["vi_termination"].isna().all()
+            assert table["vi_elbo_delta_mean"].isna().all()
         np.testing.assert_allclose(
             table.loc[table["window_index"].eq(0), "horizon_seconds"], [2.7, 8.3, 11.1]
         )

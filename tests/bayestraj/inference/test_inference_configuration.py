@@ -1,5 +1,8 @@
 """Tests for method-based batch and online inference configuration."""
 
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
@@ -9,6 +12,101 @@ import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.validation.cli as validation_cli
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
+
+
+@pytest.mark.parametrize(
+    ("note", "messages", "termination"),
+    [
+        ("MEAN ELBO CONVERGED", "", "elbo_converged"),
+        (
+            "MEDIAN ELBO CONVERGED",
+            "This variational approximation may not have converged to a good optimum.",
+            "elbo_converged",
+        ),
+        (
+            "MAY BE DIVERGING... INSPECT ELBO",
+            "Informational Message: The maximum number of iterations is reached! "
+            "The algorithm may not have converged.",
+            "iteration_limit",
+        ),
+        ("", "", "completed"),
+    ],
+)
+def test_vi_diagnostics_keep_last_elbo_changes_and_stopping_reason(
+    tmp_path, note, messages, termination
+):
+    transcript = tmp_path / "vi.txt"
+    transcript.write_text(
+        "method = variational\n  iter = 250\n  adapt\n    iter = 50\n"
+        "  tol_rel_obj = 0.01\n"
+        "Begin stochastic gradient ascent.\n"
+        "  iter             ELBO   delta_ELBO_mean   delta_ELBO_med   notes\n"
+        "   100        -1200.000             1.000            1.000\n"
+        f"   200        -1.105e3             0.080            0.009   {note}\n"
+        f"{messages}\nDrawing a sample of size 32 from the approximate posterior...\n"
+        "COMPLETED.\n",
+        encoding="utf-8",
+    )
+    fit = SimpleNamespace(
+        runset=SimpleNamespace(stdout_files=[str(transcript)]),
+    )
+
+    values = cmdstan_inference.variational_diagnostics(fit)
+
+    assert values == {
+        "vi_termination": termination,
+        "vi_elbo_delta_mean": 0.08,
+        "vi_elbo_delta_median": 0.009,
+    }
+
+
+@pytest.mark.parametrize("problem", ["no_fit", "no_runset", "no_files", "removed_file"])
+def test_vi_diagnostics_leave_missing_evidence_unavailable(tmp_path, problem):
+    fit = None if problem == "no_fit" else SimpleNamespace()
+    if problem in {"no_files", "removed_file"}:
+        fit.runset = SimpleNamespace(
+            stdout_files=[] if problem == "no_files" else [tmp_path / "missing.txt"]
+        )
+
+    values = cmdstan_inference.variational_diagnostics(fit)
+
+    assert np.isnan(values["vi_elbo_delta_mean"])
+    assert np.isnan(values["vi_elbo_delta_median"])
+    assert values["vi_termination"] == (None if fit is None else "unavailable")
+
+
+def test_vi_diagnostics_retain_iteration_limit_without_an_elbo_evaluation(tmp_path):
+    transcript = tmp_path / "vi.txt"
+    transcript.write_text(
+        "method = variational\n  iter = 50\n  tol_rel_obj = 0.01\n"
+        "Begin stochastic gradient ascent.\n"
+        "  iter             ELBO   delta_ELBO_mean   delta_ELBO_med   notes\n"
+        "The maximum number of iterations is reached! "
+        "The algorithm may not have converged.\nCOMPLETED.\n",
+        encoding="utf-8",
+    )
+    fit = SimpleNamespace(
+        runset=SimpleNamespace(stdout_files=[transcript]),
+    )
+    values = cmdstan_inference.variational_diagnostics(fit)
+    assert values["vi_termination"] == "iteration_limit"
+    assert np.isnan(values["vi_elbo_delta_mean"])
+    assert np.isnan(values["vi_elbo_delta_median"])
+
+
+def test_vi_diagnostics_do_not_assume_completion_from_an_elbo_table(tmp_path):
+    transcript = tmp_path / "vi.txt"
+    transcript.write_text(
+        "Begin stochastic gradient ascent.\n"
+        "  iter             ELBO   delta_ELBO_mean   delta_ELBO_med   notes\n"
+        "100 -10.0 0.1 0.2\n",
+        encoding="utf-8",
+    )
+    fit = SimpleNamespace(runset=SimpleNamespace(stdout_files=[transcript]))
+    values = cmdstan_inference.variational_diagnostics(fit)
+    assert values["vi_termination"] == "incomplete"
+    assert values["vi_elbo_delta_mean"] == 0.1
+    assert values["vi_elbo_delta_median"] == 0.2
 
 
 def _ctrv_rolling_config(**overrides):

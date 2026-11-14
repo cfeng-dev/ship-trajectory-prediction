@@ -249,3 +249,54 @@ def variational_converged(fit: Any) -> bool:
         "COMPLETED." in transcript
         and "The algorithm may not have converged." not in transcript
     )
+
+
+def variational_diagnostics(fit: Any) -> dict[str, Any]:
+    """Read ADVI optimization evidence without treating it as posterior accuracy.
+
+    Keep the stopping reason and last printed relative ELBO-change estimates
+    (normally rounded to three decimals). Missing logs or estimates remain
+    unavailable. These values describe optimization, not approximation accuracy.
+    """
+    values = {
+        "vi_termination": None,
+        "vi_elbo_delta_mean": np.nan,
+        "vi_elbo_delta_median": np.nan,
+    }
+    if fit is None:
+        return values
+    values["vi_termination"] = "unavailable"
+    stdout_files = getattr(getattr(fit, "runset", None), "stdout_files", ())
+    if not stdout_files:
+        return values
+    try:
+        transcript = Path(stdout_files[0]).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return values
+
+    in_elbo_table = False
+    for line in transcript.splitlines():
+        if "delta_ELBO_mean" in line and "delta_ELBO_med" in line:
+            in_elbo_table = True
+            continue
+        if "Drawing a sample" in line:
+            break
+        fields = line.split()
+        if not in_elbo_table or len(fields) < 4 or not fields[0].isdecimal():
+            continue
+        try:
+            _, delta_mean, delta_median = map(float, fields[1:4])
+        except ValueError:
+            continue
+        values["vi_elbo_delta_mean"] = delta_mean
+        values["vi_elbo_delta_median"] = delta_median
+
+    if "The maximum number of iterations is reached!" in transcript:
+        values["vi_termination"] = "iteration_limit"
+    elif "COMPLETED." not in transcript:
+        values["vi_termination"] = "incomplete"
+    elif "ELBO CONVERGED" in transcript:
+        values["vi_termination"] = "elbo_converged"
+    else:
+        values["vi_termination"] = "completed"
+    return values

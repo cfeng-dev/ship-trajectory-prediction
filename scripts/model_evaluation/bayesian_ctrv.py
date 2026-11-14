@@ -1,10 +1,4 @@
-"""Evaluate Bayesian CTRV forecasts across rolling windows (SMC by default).
-
-Accept raw BR24 cycles, associated BR24 Cartesian fixes with reference labels,
-or a plain time,x,y trajectory. Associated fixes bypass detection selection.
-BR24 runs also export the selected raw fixes. CSV destinations are managed by
-the shared evaluation module.
-"""
+"""Evaluate Bayesian CTRV forecasts across rolling windows (SMC by default)."""
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.models.bayesian_ctrv as bayesian_model

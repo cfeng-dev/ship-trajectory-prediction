@@ -451,6 +451,34 @@ def _initialized_online_vi(
     )
 
 
+def test_latest_vi_fit_tracks_bootstrap_and_updates_but_not_missing_or_failed_steps():
+    bootstrap = FakeFit(_origin_variables())
+    update = FakeFit(_origin_variables())
+    times, x, y = _online_observations(3)
+    online = sequential_vi.SequentialCTRVVI.initialize(
+        times,
+        x,
+        y,
+        priors=BayesianCTRVPriors(),
+        config=sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=20),
+        batch_fitter=lambda *args, **kwargs: bootstrap,
+        update_fitter=lambda *args, **kwargs: update,
+    )
+    assert online.last_fit is bootstrap
+    online.update(6.0, 18.0, -9.0)
+    assert online.last_fit is update
+    online.advance_without_measurement(8.0)
+    assert online.last_fit is update
+
+    def failed_update(*args, **kwargs):
+        raise RuntimeError("VI update failed")
+
+    online._update_fitter = failed_update
+    with pytest.raises(RuntimeError, match="VI update failed"):
+        online.update(10.0, 30.0, -15.0)
+    assert online.last_fit is update
+
+
 def test_correlated_predictive_density_matches_joint_normal():
     draws = sequential_vi.SequentialVIPredictiveDraws(
         x=np.zeros(2), y=np.zeros(2), sigma_position_observation=np.ones(2)
