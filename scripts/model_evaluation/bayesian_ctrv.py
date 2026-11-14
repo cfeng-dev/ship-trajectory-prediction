@@ -5,7 +5,7 @@ import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
 
-DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
     prediction_count=3,  # Future positions per forecast.

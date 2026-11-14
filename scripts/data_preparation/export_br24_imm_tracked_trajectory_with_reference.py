@@ -1,13 +1,11 @@
-"""Add time-aligned evaluation labels to the IMM-tracked BR24 trajectory."""
+"""Add evaluation-only reference labels to the IMM-associated CSV in place."""
 
 import bayestraj.observations.br24 as br24
 from bayestraj.paths import project_path
 
 RADAR_CSV = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 REFERENCE_CSV = project_path("data/raw/BR24_reference_trajectory.csv")
-OUTPUT_CSV = project_path(
-    "data/processed/BR24_imm_tracked_trajectory_with_reference.csv"
-)
+OUTPUT_CSV = RADAR_CSV
 
 
 def main() -> None:

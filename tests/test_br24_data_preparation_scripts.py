@@ -29,5 +29,6 @@ def test_br24_tracking_input_with_reference_export_writes_to_processed_data():
     assert (
         str(module["OUTPUT_CSV"])
         .replace("\\", "/")
-        .endswith("data/processed/BR24Dataset20131107_with_reference.csv")
+        .endswith("data/processed/BR24Dataset20131107.csv")
     )
+    assert module["OUTPUT_CSV"] == module["TRACKING_CSV"]

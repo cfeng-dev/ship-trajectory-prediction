@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     "relative_path",
     [
-        "data/processed/BR24Dataset20131107_with_reference.csv",
+        "data/processed/BR24Dataset20131107.csv",
         "results/evaluation/bayesian_ctrv_smc.csv",
         "figures/model_comparison/comparison.png",
         "external/IMM/br24_imm.py",
@@ -46,7 +46,7 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
         (
             "scripts/model_evaluation/bayesian_ctrv.py",
             "DATA_FILE",
-            "data/processed/BR24Dataset20131107_with_reference.csv",
+            "data/processed/BR24_imm_tracked_trajectory.csv",
         ),
         (
             "scripts/model_comparison/compare_bayesian_ctrv_imm.py",

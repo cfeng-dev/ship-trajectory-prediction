@@ -20,6 +20,122 @@ def _update(observation_count):
     )
 
 
+@pytest.mark.parametrize("tool", ["bayesian", "imm"])
+def test_associated_br24_preserves_covariances_and_ignores_reference(
+    tmp_path, monkeypatch, tool
+):
+    from imm_predictor import player
+
+    from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Associated fixes must bypass raw detection association.")
+
+    monkeypatch.setattr(BR24BayesianRadarTracker, "initialize", forbidden)
+    monkeypatch.setattr(BR24BayesianRadarTracker, "process_cycle", forbidden)
+    calls = []
+
+    class Tracker:
+        initialize = forbidden
+        process_cycle = forbidden
+
+        @classmethod
+        def initialize_position(cls, time_seconds, position, covariance):
+            tracker = cls()
+            tracker.update_position(time_seconds, position, covariance)
+            return tracker
+
+        def update_position(self, time_seconds, position, covariance):
+            calls.append((time_seconds, position.copy(), covariance.copy()))
+            self.last_observation_time_seconds = time_seconds
+            self.estimated_position = position.copy()
+
+    monkeypatch.setattr(player, "_load_optional_imm_tracker", lambda: Tracker)
+    data = pd.DataFrame(
+        {
+            "time": [100.0, 102.5, 109.0],
+            "cycle_counter": [4, 5, 8],
+            "detection_id": [17, 22, 31],
+            "x": [10.0, 11.0, 12.0],
+            "y": [-4.0, -3.0, -2.0],
+            "cov_xx": [2.0, 3.0, 4.0],
+            "cov_xy": [0.3, 0.4, 0.5],
+            "cov_yy": [1.0, 2.0, 3.0],
+        }
+    )
+    results = []
+    for reference_offset in [0.0, 1000.0]:
+        path = tmp_path / f"associated_{reference_offset}.csv"
+        data.assign(
+            ground_truth_x=data.x + reference_offset,
+            ground_truth_y=data.y - reference_offset,
+        ).to_csv(path, index=False)
+        if tool == "bayesian":
+            values = default_form_values()
+            values["data"].update(
+                data_file=str(path), inference_method="smc", prediction_count="1"
+            )
+            values["smc"].update(particle_count="32", posterior_draw_count="20")
+            trajectory, maximum, minimum, load = prepare_analysis(
+                parse_settings(values).analysis
+            )
+            first, second = load(1), load(2)
+            assert (maximum, minimum) == (3, 1)
+            assert (first.radar_detection_id, second.radar_detection_id) == (17, 22)
+            assert second.radar_nis is None
+            np.testing.assert_array_equal(
+                first.radar_measurement_covariance, [[2.0, 0.3], [0.3, 1.0]]
+            )
+            np.testing.assert_array_equal(
+                second.radar_measurement_covariance, [[3.0, 0.4], [0.4, 2.0]]
+            )
+            np.testing.assert_array_equal(trajectory.reference_time_seconds, data.time)
+            np.testing.assert_array_equal(
+                trajectory.reference_x, data.x + reference_offset
+            )
+            assert second.forecast.time_offsets_seconds.tolist() == [6.5]
+            results.append(second.tracked_positions)
+        else:
+            store = player.IMMPlaybackStore(
+                player.IMMPlayerConfig(data_file=path, prediction_count=0)
+            )
+            first, second = store.stage_for(1), store.stage_for(2)
+            assert (first.detection_id, second.detection_id) == (17, 22)
+            assert second.nis is None
+            np.testing.assert_array_equal(
+                first.measurement_covariance, [[2.0, 0.3], [0.3, 1.0]]
+            )
+            np.testing.assert_array_equal(
+                second.measurement_covariance, [[3.0, 0.4], [0.4, 2.0]]
+            )
+            np.testing.assert_array_equal(store.times, data.time)
+            np.testing.assert_array_equal(
+                store.reference.x_meters, data.x + reference_offset
+            )
+            np.testing.assert_array_equal(calls[-1][1], [11.0, -3.0])
+            assert calls[-1][0] == 102.5
+            results.append(second.tracked_positions)
+    np.testing.assert_array_equal(*results)
+
+
+def test_imm_associated_position_noise_preserves_nominal_covariance():
+    from imm_predictor import player
+
+    measurement = player.br24.BR24AssociatedMeasurement(
+        100.0, 4, 17, np.array([10.0, -4.0]), np.array([[2.0, 0.3], [0.3, 1.0]])
+    )
+    config = player.IMMPlayerConfig(position_noise_std_m=2.0)
+    first = player._add_position_noise((measurement,), config)[0]
+    second = player._add_position_noise((measurement,), config)[0]
+    np.testing.assert_array_equal(first.position, second.position)
+    assert not np.array_equal(first.position, measurement.position)
+    np.testing.assert_array_equal(
+        first.measurement_covariance, measurement.measurement_covariance
+    )
+    assert first.time_seconds == measurement.time_seconds
+    assert first.detection_id == measurement.detection_id
+
+
 @pytest.mark.parametrize("supplied", [False, True])
 def test_processed_csv_reference_motion_preserves_native_values_or_derives(
     tmp_path, supplied
@@ -360,7 +476,7 @@ def test_br24_input_uses_manual_radar_seed_and_never_exposes_reference(tmp_path)
 
 def test_br24_reference_labels_are_dashboard_only_and_do_not_change_tracking(tmp_path):
     raw_file = tmp_path / "BR24Dataset20131107.csv"
-    labelled_file = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    labelled_file = tmp_path / "labelled_radar.csv"
     raw = pd.DataFrame(
         {
             "time": [0.0, 0.0, 1.0, 1.0, 2.0],

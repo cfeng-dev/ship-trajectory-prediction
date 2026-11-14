@@ -17,7 +17,10 @@ from time import perf_counter
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
-from bayestraj.observations.br24 import is_br24_tracking_input
+from bayestraj.observations.br24 import (
+    is_br24_associated_input,
+    is_br24_tracking_input,
+)
 
 from . import dashboard
 
@@ -48,7 +51,9 @@ class AnalysisEvent:
 
 def prepare_analysis(settings: AnalysisSettings):
     """Load the selected route and construct its persistent posterior loader."""
-    if is_br24_tracking_input(settings.data_file):
+    if is_br24_tracking_input(settings.data_file) or is_br24_associated_input(
+        settings.data_file
+    ):
         return dashboard.create_br24_radar_dashboard_loader(
             settings.data_file,
             experiment=settings.experiment,

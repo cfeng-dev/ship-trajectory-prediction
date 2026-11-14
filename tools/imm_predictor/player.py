@@ -1,6 +1,6 @@
 """Presentation-safe online session data for the IMM Predictor.
 
-This module owns the raw BR24 input and optional local IMM tracker lifetime.
+This module owns BR24 measurements and the optional local IMM tracker lifetime.
 Reference labels are read only after a forecast has been produced, solely for
 display and evaluation values.
 """
@@ -25,7 +25,7 @@ from bayestraj.inference.imm_adapter import (
 from bayestraj.paths import project_path
 
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
-DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 
 PREDICTION_COUNT = 3
 PLAYBACK_INTERVAL_MS = 1_000
@@ -192,12 +192,16 @@ class IMMDisplayState:
 
 
 class IMMPlaybackStore:
-    """Advance one local IMM through raw cycles and cache every display stage."""
+    """Advance one IMM through raw cycles or associated fixes and cache stages."""
 
     def __init__(self, config: IMMPlayerConfig) -> None:
         self.config = config
         self.data_file = config.data_file
-        cycles = br24.read_br24_tracking_input(self.data_file)
+        cycles = (
+            br24.read_br24_tracking_input(self.data_file)
+            if br24.is_br24_tracking_input(self.data_file)
+            else br24.read_br24_associated_input(self.data_file)
+        )
         if config.start_index >= len(cycles):
             raise ValueError(
                 f"Start index {config.start_index} must be smaller than {len(cycles)} radar cycles."
@@ -226,31 +230,40 @@ class IMMPlaybackStore:
             raise ValueError(
                 "The BR24 input must leave room for the requested prediction horizon."
             )
-        if not self.cycles[0].detections:
+        initial = self.cycles[0]
+        associated_input = isinstance(initial, br24.BR24AssociatedMeasurement)
+        if not associated_input and not initial.detections:
             raise ValueError(
                 "The selected starting BR24 radar cycle has no detection to initialize."
             )
 
         tracker_type = _load_optional_imm_tracker()
-        initial_detection = self.cycles[0].detections[0]
         initial_update_started = time.perf_counter()
-        self._tracker = tracker_type.initialize(
-            self.cycles[0], initial_detection_id=initial_detection.detection_id
-        )
+        if associated_input:
+            initial_detection_id = initial.detection_id
+            initial_covariance = initial.measurement_covariance
+            self._tracker = tracker_type.initialize_position(
+                initial.time_seconds, initial.position, initial_covariance
+            )
+        else:
+            detection = initial.detections[0]
+            initial_detection_id = detection.detection_id
+            initial_covariance = br24.br24_measurement_covariance(
+                range_m=detection.range_m,
+                azimuth_rad=detection.azimuth_rad,
+                std_range_m=detection.std_range_m,
+                std_azimuth_rad=detection.std_azimuth_rad,
+            )
+            self._tracker = tracker_type.initialize(
+                initial, initial_detection_id=initial_detection_id
+            )
         self._processed_cycle_count = 1
         self._tracked_positions = [
             np.asarray(self._tracker.estimated_position, dtype=float).copy()
         ]
-        self._detection_ids = [initial_detection.detection_id]
+        self._detection_ids = [initial_detection_id]
         self._nis: list[float | None] = [None]
-        self._measurement_covariances: list[np.ndarray | None] = [
-            br24.br24_measurement_covariance(
-                range_m=initial_detection.range_m,
-                azimuth_rad=initial_detection.azimuth_rad,
-                std_range_m=initial_detection.std_range_m,
-                std_azimuth_rad=initial_detection.std_azimuth_rad,
-            )
-        ]
+        self._measurement_covariances: list[np.ndarray | None] = [initial_covariance]
         self._stages: dict[int, IMMPlayerStage] = {}
         self._display_states: dict[int, IMMDisplayState] = {}
         self._capture_stage(
@@ -291,16 +304,32 @@ class IMMPlaybackStore:
             raise RuntimeError("An earlier IMM stage was not cached.")
         while self._processed_cycle_count < observation_count:
             update_started = time.perf_counter()
-            step = self._tracker.process_cycle(self.cycles[self._processed_cycle_count])
+            cycle = self.cycles[self._processed_cycle_count]
+            if isinstance(cycle, br24.BR24AssociatedMeasurement):
+                self._tracker.update_position(
+                    cycle.time_seconds, cycle.position, cycle.measurement_covariance
+                )
+                detection_id, nis, covariance = (
+                    cycle.detection_id,
+                    None,
+                    cycle.measurement_covariance,
+                )
+            else:
+                step = self._tracker.process_cycle(cycle)
+                detection_id, nis, covariance = (
+                    step.detection_id,
+                    step.nis,
+                    step.measurement_covariance,
+                )
             self._tracked_positions.append(
                 np.asarray(self._tracker.estimated_position, dtype=float).copy()
             )
-            self._detection_ids.append(step.detection_id)
-            self._nis.append(step.nis)
+            self._detection_ids.append(detection_id)
+            self._nis.append(nis)
             self._measurement_covariances.append(
                 None
-                if step.measurement_covariance is None
-                else np.asarray(step.measurement_covariance, dtype=float).copy()
+                if covariance is None
+                else np.asarray(covariance, dtype=float).copy()
             )
             self._processed_cycle_count += 1
             self._capture_stage(
@@ -401,6 +430,15 @@ def _add_position_noise(cycles, config: IMMPlayerConfig):
     generator = np.random.default_rng(config.position_noise_seed)
     noisy_cycles = []
     for cycle in cycles:
+        if isinstance(cycle, br24.BR24AssociatedMeasurement):
+            noisy_cycles.append(
+                replace(
+                    cycle,
+                    position=cycle.position
+                    + generator.normal(0.0, config.position_noise_std_m, size=2),
+                )
+            )
+            continue
         detections = []
         for detection in cycle.detections:
             position = br24.polar_to_cartesian(

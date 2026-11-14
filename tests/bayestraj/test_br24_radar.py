@@ -423,12 +423,15 @@ def test_br24_export_uses_radar_and_sensor_csvs_without_target_reference(tmp_pat
     np.testing.assert_allclose(exported[["x", "y"]], [[20.0, 0.0]])
 
 
+@pytest.mark.parametrize("in_place", [False, True])
 def test_br24_radar_export_adds_interpolated_ground_truth_without_changing_radar(
-    tmp_path,
+    tmp_path, in_place
 ):
     radar_csv = tmp_path / "BR24_target_radar_trajectory.csv"
     reference_csv = tmp_path / "BR24_target_reference_trajectory.csv"
     output_csv = tmp_path / "BR24_target_radar_trajectory_with_ground_truth.csv"
+    if in_place:
+        output_csv = radar_csv
     radar = pd.DataFrame(
         {
             "time": [0.5, 1.5],
@@ -473,12 +476,13 @@ def test_br24_radar_export_adds_interpolated_ground_truth_without_changing_radar
     assert exported.loc[0, "ground_truth_yaw"] == pytest.approx(3.041592653589793)
 
 
+@pytest.mark.parametrize("in_place", [False, True])
 def test_br24_tracking_input_export_adds_evaluation_reference_without_changing_radar(
-    tmp_path,
+    tmp_path, in_place
 ):
     tracking_csv = tmp_path / "BR24Dataset20131107.csv"
     reference_csv = tmp_path / "BR24_reference_trajectory.csv"
-    output_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    output_csv = tracking_csv if in_place else tmp_path / "labelled_tracking.csv"
     tracking_input = pd.DataFrame(
         {
             "time": [0.5, 0.5, 1.5],

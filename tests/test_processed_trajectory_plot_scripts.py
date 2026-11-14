@@ -281,7 +281,11 @@ def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
     monkeypatch.setitem(settings, "OUTPUT_CSV", output)
     monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", False)
     monkeypatch.setitem(settings, "MAX_WINDOWS", 2)
-    cycles = imm_workflow.br24.read_br24_tracking_input(settings["DATA_FILE"])
+    cycles = (
+        imm_workflow.br24.read_br24_tracking_input(settings["DATA_FILE"])
+        if imm_workflow.br24.is_br24_tracking_input(settings["DATA_FILE"])
+        else imm_workflow.br24.read_br24_associated_input(settings["DATA_FILE"])
+    )
     bayesian = runpy.run_path(
         PROJECT_ROOT / "scripts/model_evaluation/bayesian_ctrv.py"
     )
@@ -466,8 +470,9 @@ def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monke
         plt.close("all")
 
 
+@pytest.mark.parametrize("associated", [False, True])
 def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, associated
 ):
     """The displayed track is online SMC output, including missed cycles."""
     script = (
@@ -497,6 +502,21 @@ def test_br24_bayesian_plot_tracks_every_cycle_without_reference_input(
             "ground_truth_velocity": [0.0] * 4,
         }
     )
+    if associated:
+        radar = pd.DataFrame(
+            {
+                "time": [10.0, 11.5, 14.0],
+                "cycle_counter": [4, 5, 8],
+                "detection_id": [9, 10, 21],
+                "x": [110.0, 111.0, 113.0],
+                "y": [-20.0] * 3,
+                "cov_xx": [0.25] * 3,
+                "cov_xy": [0.01] * 3,
+                "cov_yy": [0.1] * 3,
+                "ground_truth_x": [9999.0] * 3,
+                "ground_truth_y": [-9999.0] * 3,
+            }
+        )
     radar.to_csv(input_csv, index=False)
     globals_ = module["main"].__globals__
     monkeypatch.setitem(globals_, "INPUT_CSV", input_csv)

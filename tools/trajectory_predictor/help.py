@@ -62,7 +62,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "VI / MCMC",
-                "Refit up to T latest steps at each update; set T in Analysis setup. BR24 windows count radar cycles, including misses",
+                "Refit up to T latest steps at each update; set T in Analysis setup. Raw BR24 counts cycles including misses; associated CSVs count supplied fixes",
             ),
             (
                 "Follow ship",
@@ -121,7 +121,7 @@ POSTERIOR_HELP_SECTIONS = (
         (
             (
                 "CSV input",
-                "Load a processed trajectory with time, x, y in seconds and local meters, or a BR24 radar tracking CSV",
+                "Load a time,x,y trajectory, raw BR24 radar cycles, or associated BR24 Cartesian fixes with cov_xx, cov_xy, cov_yy",
             ),
             (
                 "Reference state",
@@ -228,7 +228,7 @@ POSTERIOR_HELP_SECTIONS = (
         (
             (
                 "Radar input",
-                "Raw BR24 tracking supports SMC, Sequential VI, VI, and MCMC and starts at index 0. Original radar timestamps are retained; set additional position noise to 0",
+                "Raw and associated BR24 inputs support all four methods from index 0 with original timestamps and no added noise. Associated fixes use their CSV covariances and bypass detection selection",
             ),
             (
                 "Status",

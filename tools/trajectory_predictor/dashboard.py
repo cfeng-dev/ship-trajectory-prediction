@@ -28,6 +28,9 @@ import bayestraj.validation.reporting as reporting
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.observations.br24 import (
     br24_measurement_covariance,
+    is_br24_associated_input,
+    is_br24_tracking_input,
+    read_br24_associated_input,
     read_br24_tracking_input,
     read_br24_tracking_reference,
 )
@@ -2421,12 +2424,7 @@ def create_br24_radar_dashboard_loader(
     mcmc_config=None,
     sequential_vi_config=None,
 ):
-    """Create online dashboard updates directly from raw BR24 radar cycles.
-
-    The raw data determine association, measurement covariance, filtering, and
-    forecasting.  Optional ground-truth labels are read separately and retained
-    solely for dashboard reference-state and forecast-evaluation displays.
-    """
+    """Create online updates from raw BR24 cycles or associated Cartesian fixes."""
     if not isinstance(experiment, PosteriorDashboardConfig):
         raise TypeError("experiment must be a PosteriorDashboardConfig instance.")
     if not isinstance(priors, bayesian_model.BayesianCTRVPriors):
@@ -2444,7 +2442,14 @@ def create_br24_radar_dashboard_loader(
         raise ValueError(
             "BR24 radar tracking always starts at the lowest cycle counter."
         )
-    cycles = read_br24_tracking_input(input_csv)
+    associated_input = is_br24_associated_input(
+        input_csv
+    ) and not is_br24_tracking_input(input_csv)
+    cycles = (
+        read_br24_associated_input(input_csv)
+        if associated_input
+        else read_br24_tracking_input(input_csv)
+    )
     reference = read_br24_tracking_reference(input_csv)
     if reference is not None:
         cycle_counters = np.asarray(
@@ -2458,11 +2463,11 @@ def create_br24_radar_dashboard_loader(
                 "BR24 reference labels must align exactly with the radar cycles."
             )
     selected_cycles = cycles
-    if not selected_cycles[0].detections:
+    initial = selected_cycles[0]
+    if not associated_input and not initial.detections:
         raise ValueError(
             "The earliest BR24 radar cycle has no detection to initialize."
         )
-    initial_detection_id = selected_cycles[0].detections[0].detection_id
     maximum_observation_count = len(selected_cycles)
     if experiment.maximum_observation_count is not None:
         if not 1 <= experiment.maximum_observation_count <= maximum_observation_count:
@@ -2471,9 +2476,7 @@ def create_br24_radar_dashboard_loader(
             )
         maximum_observation_count = experiment.maximum_observation_count
         selected_cycles = selected_cycles[:maximum_observation_count]
-    tracker = BR24BayesianRadarTracker.initialize(
-        selected_cycles[0],
-        initial_detection_id=initial_detection_id,
+    tracker_options = dict(
         priors=priors,
         config=smc_config,
         seed=experiment.inference_seed,
@@ -2485,6 +2488,29 @@ def create_br24_radar_dashboard_loader(
         mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,
     )
+    if associated_input:
+        initial_detection_id = initial.detection_id
+        initial_covariance = initial.measurement_covariance
+        tracker = BR24BayesianRadarTracker.initialize_position(
+            initial.time_seconds,
+            initial.position,
+            initial_covariance,
+            **tracker_options,
+        )
+    else:
+        detection = initial.detections[0]
+        initial_detection_id = detection.detection_id
+        initial_covariance = br24_measurement_covariance(
+            range_m=detection.range_m,
+            azimuth_rad=detection.azimuth_rad,
+            std_range_m=detection.std_range_m,
+            std_azimuth_rad=detection.std_azimuth_rad,
+        )
+        tracker = BR24BayesianRadarTracker.initialize(
+            initial,
+            initial_detection_id=initial_detection_id,
+            **tracker_options,
+        )
     time_seconds = np.asarray(
         [cycle.time_seconds for cycle in selected_cycles], dtype=float
     )
@@ -2536,19 +2562,7 @@ def create_br24_radar_dashboard_loader(
         prior_posterior.build_parameter_spec(parameter_name, priors)
         for parameter_name in PARAMETER_NAMES
     )
-    initial_detection = selected_cycles[0].detections[0]
-    steps = [
-        (
-            initial_detection_id,
-            None,
-            br24_measurement_covariance(
-                range_m=initial_detection.range_m,
-                azimuth_rad=initial_detection.azimuth_rad,
-                std_range_m=initial_detection.std_range_m,
-                std_azimuth_rad=initial_detection.std_azimuth_rad,
-            ),
-        ),
-    ]
+    steps = [(initial_detection_id, None, initial_covariance)]
     tracked_positions = [initial_position]
     cached_updates = {}
 
@@ -2563,7 +2577,12 @@ def create_br24_radar_dashboard_loader(
         if observation_count < len(steps):
             raise ValueError("A radar loader cannot refit an uncached past prefix.")
         while len(steps) < observation_count:
-            step = tracker.process_cycle(selected_cycles[len(steps)])
+            cycle = selected_cycles[len(steps)]
+            step = (
+                tracker.process_measurement(cycle)
+                if associated_input
+                else tracker.process_cycle(cycle)
+            )
             steps.append((step.detection_id, step.nis, step.measurement_covariance))
             tracked_positions.append(tracker.estimated_position)
         fit = tracker.filter.sample_current_posterior(seed=experiment.inference_seed)

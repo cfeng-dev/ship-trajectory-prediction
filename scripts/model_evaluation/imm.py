@@ -4,7 +4,7 @@ import bayestraj.validation.imm_workflow as evaluation
 from bayestraj.paths import project_path
 
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
-DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 OUTPUT_CSV = project_path("results/evaluation/imm.csv")
 
 # Match scripts/model_evaluation/bayesian_ctrv.py for a direct comparison.

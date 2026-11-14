@@ -36,7 +36,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         return step
 
     monkeypatch.setattr(BR24BayesianRadarTracker, "process_cycle", process_and_capture)
-    data = pd.read_csv(ROOT / "data/processed/BR24Dataset20131107_with_reference.csv")
+    data = pd.read_csv(ROOT / "data/processed/BR24Dataset20131107.csv")
     cycle_ids = data["cycle_counter"].drop_duplicates().iloc[:7]
     data = data[data["cycle_counter"].isin(cycle_ids)].copy()
     data.loc[

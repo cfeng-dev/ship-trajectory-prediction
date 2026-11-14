@@ -2925,12 +2925,17 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
 
 @pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
 @pytest.mark.parametrize("window_size", [2, 5])
+@pytest.mark.parametrize("associated", [False, True])
 def test_br24_dashboard_forwards_window_size_only_to_batch_methods(
-    monkeypatch, method, window_size
+    monkeypatch, method, window_size, associated
 ):
     from types import SimpleNamespace
 
-    from bayestraj.observations.br24 import BR24Detection, BR24RadarCycle
+    from bayestraj.observations.br24 import (
+        BR24AssociatedMeasurement,
+        BR24Detection,
+        BR24RadarCycle,
+    )
 
     dashboard = _load_dashboard_module()
     cycles = tuple(
@@ -2944,15 +2949,40 @@ def test_br24_dashboard_forwards_window_size_only_to_batch_methods(
         for index in range(3)
     )
     captured = {}
+    measurements = tuple(
+        BR24AssociatedMeasurement(
+            cycle.time_seconds,
+            cycle.cycle_counter,
+            17,
+            np.array([10.0, 0.0]),
+            np.array([[2.0, 0.3], [0.3, 1.0]]),
+        )
+        for cycle in cycles
+    )
 
     def initialize(cycle, **options):
         assert cycle is cycles[0]
         captured.update(options)
         return SimpleNamespace(estimated_position=np.array([10.0, 0.0]))
 
+    def initialize_position(time_seconds, position, covariance, **options):
+        assert time_seconds == measurements[0].time_seconds
+        np.testing.assert_array_equal(position, measurements[0].position)
+        np.testing.assert_array_equal(
+            covariance, measurements[0].measurement_covariance
+        )
+        captured.update(options)
+        return SimpleNamespace(estimated_position=position)
+
     monkeypatch.setattr(dashboard, "read_br24_tracking_input", lambda _: cycles)
+    monkeypatch.setattr(dashboard, "read_br24_associated_input", lambda _: measurements)
+    monkeypatch.setattr(dashboard, "is_br24_associated_input", lambda _: associated)
+    monkeypatch.setattr(dashboard, "is_br24_tracking_input", lambda _: not associated)
     monkeypatch.setattr(dashboard, "read_br24_tracking_reference", lambda _: None)
     monkeypatch.setattr(dashboard.BR24BayesianRadarTracker, "initialize", initialize)
+    monkeypatch.setattr(
+        dashboard.BR24BayesianRadarTracker, "initialize_position", initialize_position
+    )
     experiment = dashboard.PosteriorDashboardConfig(
         start_index=0,
         maximum_observation_count=None,
@@ -2971,6 +3001,7 @@ def test_br24_dashboard_forwards_window_size_only_to_batch_methods(
     assert captured["observation_count"] == (
         window_size if method in {"vi", "mcmc"} else 10
     )
+    assert captured["inference_method"] == method
 
 
 def test_dashboard_loader_runs_mcmc_five_observation_sliding_fit_by_default():

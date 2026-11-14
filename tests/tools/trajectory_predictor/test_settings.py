@@ -649,15 +649,18 @@ def test_settings_do_not_expose_automatic_track_recovery_controls(form):
     assert not hasattr(result.analysis.smc_config, "predictive_log_density_threshold")
 
 
-def test_trajectory_predictor_defaults_to_br24_tracking_input_with_reference():
-    """The GUI starts with BR24 tracking input that includes evaluation labels."""
+def test_predictors_default_to_associated_br24_with_reference():
+    """Both GUIs start with the same associated measurements and reference labels."""
+    from imm_predictor.player import IMMPlayerConfig
+
     data = settings.default_form_values()["data"]
 
     assert (
         data["data_file"]
         .replace("\\", "/")
-        .endswith("data/processed/BR24Dataset20131107_with_reference.csv")
+        .endswith("data/processed/BR24_imm_tracked_trajectory.csv")
     )
+    assert str(IMMPlayerConfig().data_file) == data["data_file"]
     assert "run_id" not in data
 
 

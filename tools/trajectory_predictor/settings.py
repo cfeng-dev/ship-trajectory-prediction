@@ -181,7 +181,7 @@ def _defaults():
     return {
         "data": {
             "data_file": str(
-                project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+                project_path("data/processed/BR24_imm_tracked_trajectory.csv")
             ),
             "inference_method": "smc",
             "start_index": 0,

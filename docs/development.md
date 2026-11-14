@@ -76,12 +76,18 @@ working directory used to launch a script:
 ```python
 from bayestraj.paths import project_path
 
-DATA_FILE = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+DATA_FILE = project_path("data/processed/BR24Dataset20131107.csv")
 RESULTS_DIR = project_path("results/evaluation")
 ```
 
 Include the top-level directory, such as `data/`, `results/`, or `figures/`, in
 the argument. Resolving a path does not create its file or directory.
+
+The processed BR24 files are `BR24Dataset20131107.csv` (raw radar cycles)
+and `BR24_imm_tracked_trajectory.csv` (associated Cartesian fixes). Both include
+evaluation-only reference columns in the prepared dataset. To regenerate them,
+run each base export script first, then its `_with_reference.py` script, which
+adds reference columns to the same CSV in place.
 
 ## Model Evaluation
 

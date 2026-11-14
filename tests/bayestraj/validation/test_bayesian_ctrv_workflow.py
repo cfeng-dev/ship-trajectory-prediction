@@ -850,7 +850,7 @@ def test_processed_sequential_vi_keeps_prior_forecasts_until_its_own_bootstrap(
 def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
     tmp_path,
 ):
-    input_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    input_csv = tmp_path / "BR24Dataset20131107.csv"
     changed_reference_csv = tmp_path / "changed_reference.csv"
     _write_br24_evaluation_input(input_csv)
     _write_br24_evaluation_input(changed_reference_csv, reference_x_offset=100.0)
@@ -926,7 +926,7 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
 
 
 def test_br24_evaluation_requires_unmodified_raw_radar_measurements(tmp_path):
-    input_csv = tmp_path / "BR24Dataset20131107_with_reference.csv"
+    input_csv = tmp_path / "BR24Dataset20131107.csv"
     _write_br24_evaluation_input(input_csv)
 
     with pytest.raises(ValueError, match="artificial position noise"):

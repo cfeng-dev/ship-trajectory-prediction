@@ -302,7 +302,7 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "File \u2192 Open CSV",
-                "Select a BR24 radar CSV before starting analysis",
+                "Select raw BR24 radar cycles or associated Cartesian fixes with cov_xx, cov_xy, cov_yy",
             ),
             ("File \u2192 Exit", "Exit IMM Predictor"),
             (
@@ -333,7 +333,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "N slider",
-                "N counts radar cycles from the selected start; each new cycle refreshes the forecast",
+                "N counts input steps from the selected start: raw radar cycles or supplied associated fixes. Each step refreshes the forecast",
             ),
             (
                 "Display group",
@@ -378,7 +378,7 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Start index",
-                "First radar cycle to include, counting from 0; initializes a new track using its first detection",
+                "First input step, counting from 0; initializes from its associated fix or the first detection of a raw radar cycle",
             ),
             (
                 "Additional position noise",

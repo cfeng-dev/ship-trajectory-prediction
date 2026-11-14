@@ -13,7 +13,7 @@ from bayestraj.observations.br24 import polar_to_cartesian, read_br24_tracking_i
 from bayestraj.paths import project_path
 
 IMM_PYTHON = project_path("external/IMM/br24_imm.py")
-INPUT_CSV = project_path("data/processed/BR24Dataset20131107_with_reference.csv")
+INPUT_CSV = project_path("data/processed/BR24Dataset20131107.csv")
 MATLAB_TRACE = project_path("data/processed/BR24_imm_matlab_trace.mat")
 OUTPUT_CSV = project_path("results/validation/BR24_imm_implementation_comparison.csv")
 ABSOLUTE_TOLERANCE = 1e-6
