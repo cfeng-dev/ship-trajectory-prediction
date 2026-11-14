@@ -6,6 +6,10 @@ from string import Formatter
 from matplotlib.text import Text
 
 TRANSLATIONS = {
+    "Energy Score of the joint 2D Gaussian moment approximation to latent forecast positions; lower is better.": "Energy Score der gemeinsamen 2D-Gauß-Näherung der latenten Positionsprognose; kleiner ist besser.",
+    "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.": "Kumulativer Anteil ausgewerteter zukünftiger Positionen innerhalb zeitschrittweiser 2D-50%-Gauß-Ellipsen, als Prozentwert und Anzahl; keine Abdeckung vollständiger Pfade.",
+    "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.": "Kumulativer Anteil ausgewerteter zukünftiger Positionen innerhalb zeitschrittweiser 2D-90%-Gauß-Ellipsen, als Prozentwert und Anzahl; keine Abdeckung vollständiger Pfade.",
+    "Per-step 2D Gaussian ellipses from the full forecast mean and covariance; the same regions are used for coverage scoring": "Zeitschrittweise 2D-Gauß-Ellipsen aus Mittelwert und vollständiger Kovarianz der Prognose; dieselben Regionen werden für die Abdeckung verwendet",
     "NLPD (Gaussian)": "NLPD (Gauß)",
     "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.": "Mittlere negative logarithmische Dichte zukünftiger Referenzpositionen unter einer gemeinsamen 2D-Gauß-Näherung der latenten Prognose. Verwendet den prädiktiven Mittelwert und die vollständige Kovarianz ohne zusätzliches Sensorrauschen; kleiner ist besser. Ohne Prognose oder zukünftige Referenzpositionen nicht verfügbar.",
     "Bayesian CTRV — Ship Trajectory Predictor": "Bayessches CTRV — Schiffstrajektorienprognose",

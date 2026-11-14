@@ -51,6 +51,7 @@ PREDICTION_CSV_COLUMNS = (
     "position_error_m",
     "negative_log_predictive_density",
     "nlpd_definition",
+    "evaluation_definition",
     "energy_score_m",
     "prediction_radius_m",
     "squared_mahalanobis_distance",
@@ -112,7 +113,6 @@ PREDICTION_CSV_COLUMNS = (
     "x_median_route",
     "y_median_route",
     "fit_runtime_seconds",
-    "window_runtime_seconds",
 )
 ASSOCIATION_CSV_COLUMNS = ("time", "cycle_counter", "detection_id", "x", "y")
 
@@ -374,6 +374,7 @@ def _record_observation_count_metadata(
         "position_noise_std_m": experiment.position_noise_std_m,
         "position_noise_seed": experiment.position_noise_seed,
         "nlpd_definition": metrics.NLPD_DEFINITION,
+        "evaluation_definition": metrics.EVALUATION_DEFINITION,
         "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
     path = destination.parent / "metadata.json"

@@ -114,7 +114,6 @@ def _score_imm_case(case, medians):
         )[0],
         forecast_origin_time=0.0,
         forecast_origin_position=[100.0, 200.0],
-        window_runtime_seconds=0.02,
         forecast_runtime_seconds=0.01,
     )
 

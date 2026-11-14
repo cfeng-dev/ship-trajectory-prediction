@@ -453,7 +453,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Forecast Energy Score",
-                "Probabilistic error of the Gaussian position forecasts, evaluated against reference positions; lower is better",
+                "Energy Score of the joint 2D Gaussian moment approximation to latent forecast positions; lower is better.",
             ),
             (
                 "NLPD",
@@ -461,11 +461,11 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Joint 50% coverage",
-                "Cumulative share of forecast positions inside their 2D 50% covariance ellipses; shown as percentage and count",
+                "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
             ),
             (
                 "Joint 90% coverage",
-                "Cumulative share of forecast positions inside their 2D 90% covariance ellipses; shown as percentage and count",
+                "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
             ),
             (
                 "Update time",

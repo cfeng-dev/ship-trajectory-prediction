@@ -481,6 +481,15 @@ def test_sequential_vi_csv_uses_latest_fit_and_retains_cumulative_convergence(
 def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     tmp_path, monkeypatch, method, radar_input
 ):
+    clock = [0.0]
+    monkeypatch.setattr(workflow.time, "perf_counter", lambda: clock[0])
+    original_metrics = workflow.metrics.gaussian_position_metrics
+
+    def timed_metrics(*args, **kwargs):
+        clock[0] += 10.0
+        return original_metrics(*args, **kwargs)
+
+    monkeypatch.setattr(workflow.metrics, "gaussian_position_metrics", timed_metrics)
     input_csv = tmp_path / "trajectory.csv"
     if radar_input:
         _write_br24_evaluation_input(input_csv)
@@ -494,6 +503,7 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     def fit_model(window, *, position_observations, **kwargs):
         from bayestraj.inference.particle_utils import SequentialCTRVFit
 
+        clock[0] += 3.0
         fit_counts.append(window.observation_count)
         workflow.bayesian_model.build_stan_data(
             window, position_observations=position_observations
@@ -566,6 +576,11 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         assert associations == []
 
     assert summary.window_count == 1
+    expected_fit_runtime = 3.0 if method in {"vi", "mcmc"} else 0.0
+    assert predictions["fit_runtime_seconds"].eq(expected_fit_runtime).all()
+    assert "window_runtime_seconds" not in predictions
+    assert summary.mean_fit_runtime_seconds == expected_fit_runtime
+    assert summary.total_computation_time_seconds == expected_fit_runtime
     assert predictions["observation_count"].tolist() == [2, 2]
     assert predictions["forecast_start_index"].tolist() == [2, 2]
     assert predictions["x_actual"].tolist() == (

@@ -52,7 +52,6 @@ PLOT_DISPLAY_OPTIONS = {
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
 }
-GAUSS_HERMITE_ORDER = 12
 RESIDUAL_POSITION_NOISE_FLOOR_M = 1e-6
 
 
@@ -464,7 +463,7 @@ def _forecast_metrics(
         return IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
     forecast = stage.forecast
     means = np.asarray(forecast.position_means, dtype=float)
-    covariances = _regularize_covariances(forecast.position_covariances)
+    covariances = np.asarray(forecast.position_covariances, dtype=float)
     target_indices = np.arange(
         stage.observation_count,
         stage.observation_count + means.shape[0],
@@ -479,26 +478,7 @@ def _forecast_metrics(
         else np.asarray(stage.forecast_median_positions, dtype=float)
     )
     errors = np.linalg.norm(median_positions - targets, axis=1)
-    log_densities = np.asarray(
-        [
-            _gaussian_log_density(
-                target,
-                mean,
-                covariance,
-            )
-            for target, mean, covariance in zip(
-                targets, means, covariances, strict=True
-            )
-        ]
-    )
-    energy_scores = np.asarray(
-        [
-            _gaussian_energy_score(target, mean, covariance)
-            for target, mean, covariance in zip(
-                targets, means, covariances, strict=True
-            )
-        ]
-    )
+    scores = validation_metrics.gaussian_position_metrics(targets, means, covariances)
     covered_50_count, covered_90_count, total_count = _joint_coverage_counts(
         coverage_stages,
         reference,
@@ -507,8 +487,10 @@ def _forecast_metrics(
         ade_m=float(errors.mean()),
         fde_m=float(errors[-1]),
         rmse_m=float(np.sqrt(np.mean(errors**2))),
-        energy_score_m=float(energy_scores.mean()),
-        negative_log_predictive_density=float(-log_densities.mean()),
+        energy_score_m=float(np.mean(scores["energy_score_m"])),
+        negative_log_predictive_density=float(
+            np.mean(scores["negative_log_predictive_density"])
+        ),
         joint_coverage_50_count=covered_50_count,
         joint_coverage_90_count=covered_90_count,
         joint_coverage_total=total_count,
@@ -518,14 +500,12 @@ def _forecast_metrics(
 def _joint_coverage_counts(stages, reference) -> tuple[int, int, int]:
     """Aggregate 2D 50% and 90% coverage over each forecast through the stage."""
     covered_50_count, covered_90_count, total_count = 0, 0, 0
-    threshold_50 = chi2.ppf(0.5, 2)
-    threshold_90 = chi2.ppf(0.9, 2)
     for stage in stages:
         forecast = stage.forecast
         if forecast is None:
             continue
         means = np.asarray(forecast.position_means, dtype=float)
-        covariances = _regularize_covariances(forecast.position_covariances)
+        covariances = np.asarray(forecast.position_covariances, dtype=float)
         target_indices = np.arange(
             stage.observation_count,
             stage.observation_count + means.shape[0],
@@ -533,17 +513,12 @@ def _joint_coverage_counts(stages, reference) -> tuple[int, int, int]:
         targets = np.column_stack(
             (reference.x_meters[target_indices], reference.y_meters[target_indices])
         )
-        squared_mahalanobis = np.asarray(
-            [
-                _squared_mahalanobis(target - mean, covariance)
-                for target, mean, covariance in zip(
-                    targets, means, covariances, strict=True
-                )
-            ]
+        coverage = validation_metrics.gaussian_position_coverage(
+            targets, means, covariances
         )
-        covered_50_count += int(np.count_nonzero(squared_mahalanobis <= threshold_50))
-        covered_90_count += int(np.count_nonzero(squared_mahalanobis <= threshold_90))
-        total_count += len(squared_mahalanobis)
+        covered_50_count += int(np.count_nonzero(coverage[0.5]))
+        covered_90_count += int(np.count_nonzero(coverage[0.9]))
+        total_count += len(targets)
     return covered_50_count, covered_90_count, total_count
 
 
@@ -563,19 +538,8 @@ def _forecast_uncertainty(stage: IMMPlayerStage) -> IMMForecastUncertainty:
 
 
 def _regularize_covariances(covariances) -> np.ndarray:
-    """Return symmetric positive-definite position covariances."""
-    covariances = np.asarray(covariances, dtype=float)
-    if (
-        covariances.ndim != 3
-        or covariances.shape[1:] != (2, 2)
-        or not np.all(np.isfinite(covariances))
-    ):
-        raise ValueError("IMM forecast covariances must be finite (count, 2, 2).")
-    result = np.empty_like(covariances)
-    for index, covariance in enumerate(covariances):
-        eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.T))
-        result[index] = (eigenvectors * np.maximum(eigenvalues, 1e-12)) @ eigenvectors.T
-    return result
+    """Use the same covariance floors as scoring and Gaussian ellipse plots."""
+    return validation_metrics.regularize_position_covariances(covariances)
 
 
 def _gaussian_log_density(actual, mean, covariance) -> float:
@@ -590,20 +554,13 @@ def _gaussian_log_density(actual, mean, covariance) -> float:
 
 
 def _gaussian_energy_score(actual, mean, covariance) -> float:
-    """Integrate the bivariate Gaussian energy score by Gauss-Hermite nodes."""
-    roots, weights = np.polynomial.hermite.hermgauss(GAUSS_HERMITE_ORDER)
-    standard_points = np.sqrt(2.0) * np.stack(
-        np.meshgrid(roots, roots, indexing="ij"), axis=-1
-    ).reshape(-1, 2)
-    quadrature_weights = np.outer(weights, weights).reshape(-1) / np.pi
-    transform = np.linalg.cholesky(covariance)
-    samples = np.asarray(mean, dtype=float) + standard_points @ transform.T
-    distance_to_actual = np.linalg.norm(samples - actual, axis=1)
-    independent_difference = standard_points @ (np.sqrt(2.0) * transform).T
-    pairwise_distance = np.linalg.norm(independent_difference, axis=1)
+    """Use the common Gaussian Energy Score quadrature."""
     return float(
-        quadrature_weights @ distance_to_actual
-        - 0.5 * quadrature_weights @ pairwise_distance
+        validation_metrics.gaussian_position_metrics(
+            np.asarray(actual)[None, :],
+            np.asarray(mean)[None, :],
+            np.asarray(covariance)[None, :, :],
+        )["energy_score_m"][0]
     )
 
 

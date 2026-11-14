@@ -177,7 +177,7 @@ def test_shared_rolling_summary_accepts_online_predictions():
             "inference_method": ["smc", "smc"],
             "converged": [None, None],
             "mcmc_diagnostics_ok": [None, None],
-            "window_runtime_seconds": [0.1, 0.1],
+            "fit_runtime_seconds": [0.1, 0.1],
         }
     )
 
@@ -195,6 +195,9 @@ def test_shared_rolling_summary_accepts_online_predictions():
     assert summary.mean_energy_score_m == pytest.approx(1.5)
     assert summary.joint_coverage_50 == pytest.approx(0.5)
     assert summary.joint_coverage_90 == pytest.approx(1.0)
+    assert summary.mean_fit_runtime_seconds == pytest.approx(0.1)
+    assert summary.median_fit_runtime_seconds == pytest.approx(0.1)
+    assert summary.total_computation_time_seconds == pytest.approx(0.1)
 
 
 def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
@@ -215,7 +218,7 @@ def test_shared_rolling_summary_accepts_online_smc_for_ctrv():
             "inference_method": ["smc", "smc"],
             "converged": [None, None],
             "mcmc_diagnostics_ok": [None, None],
-            "window_runtime_seconds": [0.1, 0.1],
+            "fit_runtime_seconds": [0.1, 0.1],
         }
     )
 
@@ -238,8 +241,8 @@ def test_ctrv_summary_prints_joint_coverage_immediately_after_fde(capsys):
         forecast_count=357,
         ade_m=20.60,
         fde_m=30.79,
-        mean_window_runtime_seconds=0.079,
-        median_window_runtime_seconds=0.077,
+        mean_fit_runtime_seconds=0.079,
+        median_fit_runtime_seconds=0.077,
         total_computation_time_seconds=9.350,
         radial_coverage=0.955,
         mean_prediction_radius_m=0.0,

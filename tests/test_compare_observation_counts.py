@@ -41,6 +41,7 @@ def _predictions(method, count):
                     energy_score_m=error / 2,
                     negative_log_predictive_density=step - 0.5,
                     nlpd_definition="gaussian_latent_2d_v1",
+                    evaluation_definition="gaussian_latent_2d_gl64_runtime_v1",
                     prediction_radius_m=5.0,
                     radial_covered=True,
                     joint_covered_50=step == 1,
@@ -56,7 +57,6 @@ def _predictions(method, count):
                     if method == "mcmc"
                     else np.nan,
                     fit_runtime_seconds=(window + 1) * count / 10,
-                    window_runtime_seconds=(1 if window == 0 else 3) * float(count),
                 )
             )
     return pd.DataFrame(rows)
@@ -132,10 +132,10 @@ def test_reader_recomputes_metrics_and_counts_runtime_once_per_window(result_dir
         np.testing.assert_allclose(table["rmse_m"], counts * np.sqrt(7.5))
         np.testing.assert_allclose(table["mean_energy_score_m"], counts * 1.25)
         np.testing.assert_allclose(table["mean_negative_log_predictive_density"], 1.25)
-        np.testing.assert_allclose(table["mean_window_runtime_seconds"], counts * 2.0)
+        np.testing.assert_allclose(table["median_fit_runtime_seconds"], counts * 0.15)
         np.testing.assert_allclose(table["mean_fit_runtime_seconds"], counts * 0.15)
         np.testing.assert_allclose(
-            table["total_computation_time_seconds"], counts * 4.0
+            table["total_computation_time_seconds"], counts * 0.3
         )
         np.testing.assert_allclose(table["joint_coverage_50"], 0.5)
         np.testing.assert_allclose(table["joint_coverage_90"], 1.0)
@@ -163,7 +163,8 @@ def test_comparisons_use_the_same_fit_runtime_per_window(result_dirs, method):
     )
     # Unequal horizons must not weight one window's runtime more heavily.
     assert sweep.loc[3, "mean_fit_runtime_seconds"] == pytest.approx(0.45)
-    assert sweep.loc[3, "mean_window_runtime_seconds"] == pytest.approx(6.0)
+    assert "mean_window_runtime_seconds" not in sweep.columns
+    assert "median_window_runtime_seconds" not in sweep.columns
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
@@ -199,7 +200,7 @@ def test_reader_requires_forecast_csvs_even_if_summary_exists(tmp_path):
         ("position_error_m", np.nan),
         ("joint_covered_90", 1.1),
         ("energy_score_m", np.nan),
-        ("window_runtime_seconds", -1.0),
+        ("fit_runtime_seconds", -1.0),
         ("mcmc_rhat_max", np.inf),
         ("is_prior_predictive", "invalid"),
         ("converged", "invalid"),
@@ -249,6 +250,24 @@ def test_reader_rejects_duplicate_sizes(result_dirs):
 def test_sweep_reader_rejects_incompatible_nlpd_definition(result_dirs):
     _edit(result_dirs, "nlpd_definition", "observation_predictive")
     with pytest.raises(ValueError, match="NLPD|nlpd"):
+        _read(result_dirs)
+
+
+def test_sweep_reader_rejects_incompatible_evaluation_definition(result_dirs):
+    _edit(result_dirs, "evaluation_definition", "empirical_regions")
+    with pytest.raises(ValueError, match="evaluation_definition"):
+        _read(result_dirs)
+
+
+def test_sweep_reader_checks_evaluation_definition_in_metadata(result_dirs):
+    _metadata(result_dirs["vi"], "vi")
+    path = result_dirs["vi"] / "metadata.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["evaluations"]["bayesian_ctrv_vi_03.csv"]["evaluation_definition"] = (
+        "empirical_regions"
+    )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="evaluation_definition"):
         _read(result_dirs)
 
 

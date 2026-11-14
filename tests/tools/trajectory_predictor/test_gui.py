@@ -478,10 +478,10 @@ def test_help_explains_analysis_metrics():
         "Forecast ADE (median)": "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
         "Forecast FDE (median)": "Position error of the median at the final forecast step in meters; lower is better.",
         "Forecast RMSE (median)": "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
-        "Forecast Energy Score": "Joint 2D probabilistic forecast error; lower is better.",
+        "Forecast Energy Score": "Energy Score of the joint 2D Gaussian moment approximation to latent forecast positions; lower is better.",
         "NLPD": "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.",
-        "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
-        "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
+        "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
+        "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
         "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",
     }
 

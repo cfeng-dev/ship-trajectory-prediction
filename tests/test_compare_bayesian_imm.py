@@ -100,6 +100,7 @@ def _table(model):
             "log_predictive_density": np.array([-1.0, -3.0, -5.0, -7.0])
             - (model == "imm"),
             "nlpd_definition": "gaussian_latent_2d_v1",
+            "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v1",
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02]
             if model == "bayesian"
             else [0.002, 0.002, 0.004, 0.004],
@@ -823,6 +824,19 @@ def test_comparison_rejects_incompatible_nlpd_definitions(problem):
         comparison.prepare_comparison(bayesian, imm)
 
 
+@pytest.mark.parametrize("problem", ["missing", "different", "mixed"])
+def test_comparison_rejects_incompatible_evaluation_definitions(problem):
+    bayesian, imm = _table("bayesian"), _table("imm")
+    if problem == "missing":
+        imm = imm.drop(columns="evaluation_definition")
+    elif problem == "different":
+        imm["evaluation_definition"] = "empirical_regions"
+    else:
+        imm.loc[0, "evaluation_definition"] = "empirical_regions"
+    with pytest.raises(ValueError, match="evaluation_definition"):
+        comparison.prepare_comparison(bayesian, imm)
+
+
 def test_comparison_uses_only_complete_common_forecast_origins():
     imm = _table("imm").iloc[2:]
     with pytest.warns(UserWarning, match="omitted|unmatched"):
@@ -1127,7 +1141,7 @@ def test_shared_comparison_reads_csvs_and_preserves_reports_and_figure_lifetime(
         assert "Matched forecast origins: 2" in report
         assert "Matched forecast positions: 4" in report
         assert "Metrics for matched forecasts" in report
-        assert "Gaussian" in report and "posterior samples" in report
+        assert "same latent Gaussian moment approximation" in report
     finally:
         for figure_number in set(plt.get_fignums()) - previous_figures:
             plt.close(figure_number)

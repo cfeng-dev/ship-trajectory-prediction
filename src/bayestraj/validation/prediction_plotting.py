@@ -589,7 +589,7 @@ def _draw_prediction_regions(
     group_index=None,
     region_probabilities=PREDICTION_REGION_LEVELS,
 ):
-    """Draw selected empirical covariance regions per future time point."""
+    """Draw the Gaussian moment ellipses used for scored coverage."""
     x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
     horizon_seconds = _prediction_horizon_seconds(
         forecast_time_seconds,
@@ -614,7 +614,7 @@ def _draw_prediction_regions(
         return []
     centers = []
     for time_index in range(x_samples.shape[1]):
-        regions = metrics.empirical_covariance_regions(
+        regions = metrics.gaussian_covariance_regions(
             x_samples[:, time_index],
             y_samples[:, time_index],
             probabilities=selected_probabilities,
@@ -734,8 +734,7 @@ def _draw_prediction_density_contours(
             levels=levels,
             colors=POSTERIOR_COLOR,
             linestyles=[
-                contour_styles[probability][0]
-                for probability in ordered_probabilities
+                contour_styles[probability][0] for probability in ordered_probabilities
             ],
             linewidths=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
             alpha=0.9,
@@ -828,8 +827,7 @@ def _draw_horizon_prediction_density_contours(
         levels=levels,
         colors=POSTERIOR_COLOR,
         linestyles=[
-            contour_styles[probability][0]
-            for probability in ordered_probabilities
+            contour_styles[probability][0] for probability in ordered_probabilities
         ],
         linewidths=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
         alpha=0.9,
@@ -997,8 +995,7 @@ def _draw_horizon_prediction_density_regions(
             zorder=1,
         )
         density_region.set_gid(
-            "posterior-predictive-horizon-density-region-"
-            f"{probability:g}"
+            f"posterior-predictive-horizon-density-region-{probability:g}"
         )
 
     return [

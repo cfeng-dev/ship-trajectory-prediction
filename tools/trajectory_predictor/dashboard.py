@@ -665,23 +665,17 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             fde_m = float(errors_m[-1])
             rmse_m = float(np.sqrt(np.mean(errors_m**2)))
             if forecast.posterior_positions.shape[0]:
-                energy_score_m = _forecast_energy_score(
-                    forecast.posterior_positions[
-                        :, : len(actual_positions), :
-                    ].transpose(
-                        1,
-                        0,
-                        2,
-                    ),
-                    actual_positions,
-                )
-                log_density = validation_metrics.latent_position_log_predictive_density(
-                    actual_positions[:, 0],
-                    actual_positions[:, 1],
+                means, covariances = validation_metrics.latent_position_moments(
                     forecast.posterior_positions[:, : len(actual_positions), 0],
                     forecast.posterior_positions[:, : len(actual_positions), 1],
                 )
-                negative_log_predictive_density = float(np.mean(-log_density))
+                scores = validation_metrics.gaussian_position_metrics(
+                    actual_positions, means, covariances
+                )
+                energy_score_m = float(np.mean(scores["energy_score_m"]))
+                negative_log_predictive_density = float(
+                    np.mean(scores["negative_log_predictive_density"])
+                )
 
     covered_50_count, covered_90_count, total_count = 0, 0, 0
     for count, cached_update in updates_by_count.items():
@@ -697,17 +691,18 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             len(actual_positions),
             forecast.posterior_positions.shape[1],
         )
-        if forecast.posterior_positions.shape[0] < 2:
+        if forecast.posterior_positions.shape[0] == 0 or sample_count == 0:
             continue
-        for index in range(sample_count):
-            region = validation_metrics.empirical_covariance_regions(
-                forecast.posterior_positions[:, index, 0],
-                forecast.posterior_positions[:, index, 1],
-                probabilities=(0.5, 0.9),
-            )
-            covered_50_count += region[0.5].contains(*actual_positions[index])
-            covered_90_count += region[0.9].contains(*actual_positions[index])
-            total_count += 1
+        means, covariances = validation_metrics.latent_position_moments(
+            forecast.posterior_positions[:, :sample_count, 0],
+            forecast.posterior_positions[:, :sample_count, 1],
+        )
+        coverage = validation_metrics.gaussian_position_coverage(
+            actual_positions[:sample_count], means, covariances
+        )
+        covered_50_count += int(np.count_nonzero(coverage[0.5]))
+        covered_90_count += int(np.count_nonzero(coverage[0.9]))
+        total_count += sample_count
     return DashboardAnalysisMetrics(
         ade_m=ade_m,
         fde_m=fde_m,
@@ -724,21 +719,18 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
 
 
 def _forecast_energy_score(sample_positions, actual_positions):
-    """Return the mean joint 2D energy score of one displayed forecast."""
-    energy_scores = []
-    for samples, actual_position in zip(
-        sample_positions, actual_positions, strict=True
-    ):
-        distance_to_actual = np.linalg.norm(samples - actual_position, axis=1)
-        pairwise_distances = np.linalg.norm(
-            samples[:, np.newaxis, :] - samples[np.newaxis, :, :],
-            axis=2,
+    """Return the shared Gaussian moment Energy Score of one forecast."""
+    samples = np.asarray(sample_positions, dtype=float)
+    means, covariances = validation_metrics.latent_position_moments(
+        samples[:, :, 0].T, samples[:, :, 1].T
+    )
+    return float(
+        np.mean(
+            validation_metrics.gaussian_position_metrics(
+                actual_positions, means, covariances
+            )["energy_score_m"]
         )
-        energy_scores.append(
-            float(np.mean(distance_to_actual))
-            - 0.5 * float(np.mean(pairwise_distances))
-        )
-    return float(np.mean(energy_scores))
+    )
 
 
 def _forecast_reference_positions(trajectory, update):

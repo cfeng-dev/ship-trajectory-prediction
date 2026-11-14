@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2, norm
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
@@ -20,7 +19,6 @@ from bayestraj.validation.cli import IMMEvaluationOptions
 # The IMM forecast covariance is the complete predictive position uncertainty.
 # This small numerical floor only makes the Gaussian log density well defined.
 RESIDUAL_POSITION_NOISE_FLOOR_M = 1e-6
-GAUSS_HERMITE_ORDER = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +30,8 @@ class IMMRollingSummary:
     ade_m: float
     fde_m: float
     mean_energy_score_m: float
-    mean_window_runtime_seconds: float
-    median_window_runtime_seconds: float
+    mean_fit_runtime_seconds: float
+    median_fit_runtime_seconds: float
     total_computation_time_seconds: float
     radial_coverage: float
     joint_coverage_50: float
@@ -149,7 +147,7 @@ def run_imm_evaluation(
         associated_input=associated_input,
     )
     for number, specification in enumerate(windows, start=1):
-        runtime_started = time.perf_counter()
+        fit_runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
             cycle = cycles[processed_cycle_count]
             if associated_input:
@@ -172,9 +170,9 @@ def run_imm_evaluation(
             future_times,
             seed=forecast_seed + specification.window_index,
         )
+        forecast_runtime_seconds = time.perf_counter() - fit_runtime_started
         # Share the predictor's exact marginal medians, not a sample median.
         forecast_medians = imm_adapter.forecast_position_medians(tracker, forecast)
-        forecast_runtime_seconds = time.perf_counter() - runtime_started
 
         # Evaluation labels are read only after the raw-radar tracker forecast.
         table, _ = _evaluate_forecast(
@@ -185,7 +183,6 @@ def run_imm_evaluation(
             specification=specification,
             forecast_origin_time=tracker.last_observation_time_seconds,
             forecast_origin_position=tracker.estimated_position,
-            window_runtime_seconds=time.perf_counter() - runtime_started,
             forecast_runtime_seconds=forecast_runtime_seconds,
         )
         prediction_tables.append(table)
@@ -193,7 +190,7 @@ def run_imm_evaluation(
             f"Forecast {number}/{len(windows)}: "
             f"ADE={table['position_error_m'].mean():.2f} m, "
             f"FDE={table['position_error_m'].iloc[-1]:.2f} m, "
-            f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s"
+            f"runtime={forecast_runtime_seconds:.3f} s"
         )
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
@@ -231,7 +228,6 @@ def _evaluate_forecast(
     specification,
     forecast_origin_time,
     forecast_origin_position,
-    window_runtime_seconds,
     forecast_runtime_seconds,
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """Score median positions while retaining Gaussian distribution metrics."""
@@ -239,7 +235,7 @@ def _evaluate_forecast(
     expected_shape = (prediction_count, 2)
     means = np.asarray(forecast.position_means, dtype=float)
     medians = np.asarray(forecast_median_positions, dtype=float)
-    covariances = _regularize_covariances(forecast.position_covariances)
+    covariances = np.asarray(forecast.position_covariances, dtype=float)
     modes = np.asarray(forecast.mode_probabilities, dtype=float)
     if (
         means.shape != expected_shape
@@ -261,53 +257,10 @@ def _evaluate_forecast(
         (reference.x_meters[target_indices], reference.y_meters[target_indices])
     )
     errors = np.linalg.norm(medians - actual_positions, axis=1)
-    log_densities = np.asarray(
-        [
-            _gaussian_log_density(actual, mean, covariance)
-            for actual, mean, covariance in zip(
-                actual_positions,
-                means,
-                covariances,
-                strict=True,
-            )
-        ]
+    scores = metrics.gaussian_position_metrics(
+        actual_positions, means, covariances, credible_interval=credible_interval
     )
-    energy_scores = np.asarray(
-        [
-            _gaussian_energy_score(actual, mean, covariance)
-            for actual, mean, covariance in zip(
-                actual_positions,
-                means,
-                covariances,
-                strict=True,
-            )
-        ]
-    )
-    lower_probability = (1.0 - credible_interval) / 2.0
-    upper_probability = 1.0 - lower_probability
-    marginal_standard_deviations = np.sqrt(np.diagonal(covariances, axis1=1, axis2=2))
-    z_score = float(norm.ppf(upper_probability))
-    x_lower = means[:, 0] - z_score * marginal_standard_deviations[:, 0]
-    x_upper = means[:, 0] + z_score * marginal_standard_deviations[:, 0]
-    y_lower = means[:, 1] - z_score * marginal_standard_deviations[:, 1]
-    y_upper = means[:, 1] + z_score * marginal_standard_deviations[:, 1]
-    squared_mahalanobis = np.asarray(
-        [
-            _squared_mahalanobis(actual - mean, covariance)
-            for actual, mean, covariance in zip(
-                actual_positions,
-                means,
-                covariances,
-                strict=True,
-            )
-        ]
-    )
-    threshold_50 = float(chi2.ppf(0.5, df=2))
-    threshold_90 = float(chi2.ppf(0.9, df=2))
-    threshold_interval = float(chi2.ppf(credible_interval, df=2))
-    prediction_radius = np.sqrt(threshold_interval) * np.sqrt(
-        np.sqrt(np.linalg.det(covariances))
-    )
+    covariances = metrics.regularize_position_covariances(covariances)
     future_times = np.asarray(forecast.time_seconds, dtype=float)
     if future_times.shape != (prediction_count,):
         raise ValueError("IMM forecast times do not match the requested horizon.")
@@ -328,22 +281,8 @@ def _evaluate_forecast(
             "y_actual": actual_positions[:, 1],
             "x_median": medians[:, 0],
             "y_median": medians[:, 1],
-            "x_lower": x_lower,
-            "x_upper": x_upper,
-            "y_lower": y_lower,
-            "y_upper": y_upper,
             "position_error_m": errors,
-            "energy_score_m": energy_scores,
-            "negative_log_predictive_density": -log_densities,
-            "nlpd_definition": metrics.NLPD_DEFINITION,
-            "prediction_radius_m": prediction_radius,
-            "squared_mahalanobis_distance": squared_mahalanobis,
-            "squared_mahalanobis_radius": threshold_interval,
-            "radial_covered": squared_mahalanobis <= threshold_interval,
-            "joint_covered_50": squared_mahalanobis <= threshold_50,
-            "joint_covered_90": squared_mahalanobis <= threshold_90,
-            "mean_marginal_interval_width_m": 0.5
-            * ((x_upper - x_lower) + (y_upper - y_lower)),
+            **scores,
             "observation_count": specification.observation_count,
             "prediction_count": prediction_count,
             "inference_mode": "online",
@@ -369,30 +308,14 @@ def _evaluate_forecast(
             "mode_ctrv": modes[:, 1],
             "mode_ca": modes[:, 2],
             "fit_runtime_seconds": forecast_runtime_seconds,
-            "window_runtime_seconds": window_runtime_seconds,
         }
     )
     return table, covariances
 
 
 def _regularize_covariances(covariances) -> np.ndarray:
-    """Return symmetric positive-definite 2D forecast covariances."""
-    covariances = np.asarray(covariances, dtype=float)
-    if (
-        covariances.ndim != 3
-        or covariances.shape[1:] != (2, 2)
-        or not np.all(np.isfinite(covariances))
-    ):
-        raise ValueError(
-            "IMM position covariances must be finite (count, 2, 2) arrays."
-        )
-    regularized = np.empty_like(covariances)
-    for index, covariance in enumerate(covariances):
-        symmetric_covariance = 0.5 * (covariance + covariance.T)
-        eigenvalues, eigenvectors = np.linalg.eigh(symmetric_covariance)
-        eigenvalues = np.maximum(eigenvalues, 1e-12)
-        regularized[index] = (eigenvectors * eigenvalues) @ eigenvectors.T
-    return regularized
+    """Use the same covariance floors as scoring and Gaussian ellipse plots."""
+    return metrics.regularize_position_covariances(covariances)
 
 
 def _gaussian_log_density(actual, mean, covariance) -> float:
@@ -407,20 +330,13 @@ def _gaussian_log_density(actual, mean, covariance) -> float:
 
 
 def _gaussian_energy_score(actual, mean, covariance) -> float:
-    """Numerically integrate the bivariate-Gaussian energy score."""
-    roots, weights = np.polynomial.hermite.hermgauss(GAUSS_HERMITE_ORDER)
-    standard_points = np.sqrt(2.0) * np.stack(
-        np.meshgrid(roots, roots, indexing="ij"), axis=-1
-    ).reshape(-1, 2)
-    quadrature_weights = np.outer(weights, weights).reshape(-1) / np.pi
-    transform = np.linalg.cholesky(covariance)
-    samples = np.asarray(mean, dtype=float) + standard_points @ transform.T
-    distance_to_actual = np.linalg.norm(samples - actual, axis=1)
-    independent_difference = standard_points @ (np.sqrt(2.0) * transform).T
-    pairwise_distance = np.linalg.norm(independent_difference, axis=1)
+    """Use the common Gaussian Energy Score quadrature."""
     return float(
-        quadrature_weights @ distance_to_actual
-        - 0.5 * quadrature_weights @ pairwise_distance
+        metrics.gaussian_position_metrics(
+            np.asarray(actual)[None, :],
+            np.asarray(mean)[None, :],
+            np.asarray(covariance)[None, :, :],
+        )["energy_score_m"][0]
     )
 
 
@@ -455,18 +371,16 @@ def _summarize_predictions(predictions: pd.DataFrame) -> IMMRollingSummary:
         )
         .reset_index(drop=True)
     )
-    runtimes = predictions.groupby("window_index", sort=True)[
-        "window_runtime_seconds"
-    ].first()
+    runtime_summary = rolling.summarize_window_runtimes(predictions)
     return IMMRollingSummary(
         window_count=int(predictions["window_index"].nunique()),
         forecast_count=len(predictions),
         ade_m=float(predictions["position_error_m"].mean()),
         fde_m=float(per_horizon.iloc[-1]["ade_m"]),
         mean_energy_score_m=float(predictions["energy_score_m"].mean()),
-        mean_window_runtime_seconds=float(runtimes.mean()),
-        median_window_runtime_seconds=float(runtimes.median()),
-        total_computation_time_seconds=float(runtimes.sum()),
+        mean_fit_runtime_seconds=runtime_summary.mean_seconds,
+        median_fit_runtime_seconds=runtime_summary.median_seconds,
+        total_computation_time_seconds=runtime_summary.total_seconds,
         radial_coverage=float(predictions["radial_covered"].mean()),
         joint_coverage_50=float(predictions["joint_covered_50"].mean()),
         joint_coverage_90=float(predictions["joint_covered_90"].mean()),
@@ -541,13 +455,16 @@ def _print_summary(summary: IMMRollingSummary) -> None:
                 ),
                 ("Joint 2D 50% coverage", f"{summary.joint_coverage_50:.1%}"),
                 ("Joint 2D 90% coverage", f"{summary.joint_coverage_90:.1%}"),
-                ("Mean window runtime", f"{summary.mean_window_runtime_seconds:.3f} s"),
                 (
-                    "Median window runtime",
-                    f"{summary.median_window_runtime_seconds:.3f} s",
+                    "Mean fit/forecast runtime",
+                    f"{summary.mean_fit_runtime_seconds:.3f} s",
                 ),
                 (
-                    "Total computation time",
+                    "Median fit/forecast runtime",
+                    f"{summary.median_fit_runtime_seconds:.3f} s",
+                ),
+                (
+                    "Total fit/forecast time",
                     rolling.format_computation_time(
                         summary.total_computation_time_seconds
                     ),

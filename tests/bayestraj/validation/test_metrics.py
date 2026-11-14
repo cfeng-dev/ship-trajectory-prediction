@@ -42,6 +42,65 @@ def test_latent_gaussian_density_uses_mean_full_covariance_and_paired_draws():
     np.testing.assert_allclose(values, [expected, expected])
 
 
+def test_gaussian_evaluation_uses_full_covariance_for_regions_and_intervals():
+    from scipy.stats import chi2, norm
+
+    covariance = np.array([[[4.0, 1.0], [1.0, 9.0]]])
+    target = np.linalg.cholesky(covariance[0]) @ [1.0, 1.0]
+    values = metrics.gaussian_position_metrics([target], [[0.0, 0.0]], covariance)
+    assert values["squared_mahalanobis_distance"][0] == pytest.approx(2.0)
+    assert not values["joint_covered_50"][0]
+    assert values["joint_covered_90"][0]
+    assert values["prediction_radius_m"][0] == pytest.approx(
+        np.sqrt(chi2.ppf(0.9, 2)) * 35.0**0.25
+    )
+    assert values["mean_marginal_interval_width_m"][0] == pytest.approx(
+        norm.ppf(0.95) * 5.0
+    )
+    assert values["x_lower"][0] == pytest.approx(-norm.ppf(0.95) * 2.0)
+    assert values["y_upper"][0] == pytest.approx(norm.ppf(0.95) * 3.0)
+    assert values["evaluation_definition"] == metrics.EVALUATION_DEFINITION
+
+
+def test_gaussian_energy_matches_centered_isotropic_analytic_score():
+    values = metrics.gaussian_position_metrics([[0.0, 0.0]], [[0.0, 0.0]], [np.eye(2)])
+    expected = np.sqrt(np.pi / 2.0) * (1 - 1 / np.sqrt(2.0))
+    assert values["energy_score_m"][0] == pytest.approx(expected, rel=1e-10)
+
+
+def test_gaussian_energy_handles_nearly_one_dimensional_forecasts():
+    values = metrics.gaussian_position_metrics(
+        [[0.0, 0.0]], [[0.0, 0.0]], [np.diag([1.0, 1e-12])]
+    )
+    expected = np.sqrt(2.0 / np.pi) * (1 - 1 / np.sqrt(2.0))
+    assert values["energy_score_m"][0] == pytest.approx(expected, abs=1e-7)
+
+
+def test_gaussian_scores_are_rotation_invariant_and_scale_in_metres():
+    target = np.array([[3.0, -2.0]])
+    mean = np.array([[0.5, 0.3]])
+    covariance = np.array([[[4.0, 1.3], [1.3, 9.0]]])
+    rotation = np.array([[0.6, -0.8], [0.8, 0.6]])
+    baseline = metrics.gaussian_position_metrics(target, mean, covariance)
+    rotated = metrics.gaussian_position_metrics(
+        target @ rotation.T,
+        mean @ rotation.T,
+        rotation[None] @ covariance @ rotation.T[None],
+    )
+    scaled = metrics.gaussian_position_metrics(target * 5, mean * 5, covariance * 25)
+    np.testing.assert_allclose(
+        rotated["energy_score_m"], baseline["energy_score_m"], rtol=1e-12
+    )
+    np.testing.assert_allclose(scaled["energy_score_m"], baseline["energy_score_m"] * 5)
+    np.testing.assert_allclose(
+        scaled["prediction_radius_m"], baseline["prediction_radius_m"] * 5
+    )
+    np.testing.assert_allclose(
+        rotated["squared_mahalanobis_distance"],
+        baseline["squared_mahalanobis_distance"],
+    )
+
+
 @pytest.mark.parametrize("problem", ["shape", "nan", "negative_variance"])
 def test_gaussian_position_density_rejects_invalid_distributions(problem):
     covariance = np.eye(2)[None, :, :]
@@ -73,6 +132,20 @@ def test_gaussian_position_density_regularizes_degenerate_covariance_consistentl
     assert player._gaussian_log_density(
         [0, 0], [0, 0], np.zeros((2, 2))
     ) == pytest.approx(expected)
+
+
+def test_imm_visual_covariances_use_the_shared_relative_floor():
+    from imm_predictor import player
+
+    from bayestraj.validation import imm_workflow
+
+    covariance = np.array([np.diag([1e6, 0.0])])
+    for regularize in (
+        metrics.regularize_position_covariances,
+        imm_workflow._regularize_covariances,
+        player._regularize_covariances,
+    ):
+        assert regularize(covariance)[0, 1, 1] == pytest.approx(1e-6)
 
 
 @pytest.mark.parametrize("noise", [None, 0.1, 100.0])
@@ -138,7 +211,6 @@ def test_evaluators_and_both_predictors_share_latent_gaussian_nlpd(noise):
         ),
         forecast_origin_time=10.0,
         forecast_origin_position=np.zeros(2),
-        window_runtime_seconds=0.0,
         forecast_runtime_seconds=0.0,
     )
     expected = np.log(2 * np.pi) + 0.5 * np.log(32 / 9) + 0.375
@@ -146,6 +218,31 @@ def test_evaluators_and_both_predictors_share_latent_gaussian_nlpd(noise):
     assert gui.negative_log_predictive_density == pytest.approx(expected)
     assert imm_gui.negative_log_predictive_density == pytest.approx(expected)
     assert imm.negative_log_predictive_density.iloc[0] == pytest.approx(expected)
+    assert bayesian.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
+    assert gui.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
+    assert imm_gui.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
+    for name in (
+        "x_lower",
+        "x_upper",
+        "y_lower",
+        "y_upper",
+        "prediction_radius_m",
+        "mean_marginal_interval_width_m",
+        "squared_mahalanobis_distance",
+        "squared_mahalanobis_radius",
+        "joint_covered_50",
+        "joint_covered_90",
+    ):
+        np.testing.assert_allclose(bayesian.prediction_table[name], imm[name])
+    for probability in (50, 90):
+        expected_count = int(imm[f"joint_covered_{probability}"].sum())
+        assert getattr(gui, f"joint_coverage_{probability}_count") == expected_count
+        assert getattr(imm_gui, f"joint_coverage_{probability}_count") == expected_count
+    assert (
+        bayesian.prediction_table.evaluation_definition.iloc[0]
+        == metrics.EVALUATION_DEFINITION
+    )
+    assert imm.evaluation_definition.iloc[0] == metrics.EVALUATION_DEFINITION
     assert bayesian.prediction_table.nlpd_definition.iloc[0] == "gaussian_latent_2d_v1"
     assert imm.nlpd_definition.iloc[0] == "gaussian_latent_2d_v1"
 
@@ -174,7 +271,8 @@ def test_position_evaluation_reports_joint_negative_log_predictive_density(sigma
     expected = np.log(2 * np.pi * 1e-12)
     assert evaluation.total_negative_log_predictive_density == pytest.approx(expected)
     assert evaluation.mean_negative_log_predictive_density == pytest.approx(expected)
-    assert evaluation.energy_score_m == pytest.approx(0.0)
+    expected_energy = np.sqrt(np.pi / 2.0) * (1 - 1 / np.sqrt(2)) * 1e-6
+    assert evaluation.energy_score_m == pytest.approx(expected_energy, abs=2e-9)
     assert evaluation.joint_coverage_50 == pytest.approx(1.0)
     assert evaluation.joint_coverage_90 == pytest.approx(1.0)
     assert evaluation.prediction_table[

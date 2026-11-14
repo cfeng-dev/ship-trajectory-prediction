@@ -81,6 +81,16 @@ def _validate_table(predictions, model_variant):
             f"NLPD requires nlpd_definition={metrics.NLPD_DEFINITION!r}. "
             "Regenerate saved forecasts before comparison."
         )
+    if (
+        "evaluation_definition" not in predictions
+        or not predictions["evaluation_definition"]
+        .eq(metrics.EVALUATION_DEFINITION)
+        .all()
+    ):
+        raise ValueError(
+            f"Comparison requires evaluation_definition={metrics.EVALUATION_DEFINITION!r}. "
+            "Regenerate saved forecasts before comparison."
+        )
     table = predictions.copy().reset_index(drop=True)
     for name in NUMERIC_COLUMNS:
         table[name] = pd.to_numeric(table[name], errors="raise")
@@ -356,13 +366,9 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                 else pd.NA,
                 data_file=record["data_file"] if record is not None else pd.NA,
                 rmse_m=float((table["position_error_m"] ** 2).mean() ** 0.5),
-                # Match the model comparison: count fit/forecast time once per
-                # origin, independently of the number of saved horizon rows.
-                mean_fit_runtime_seconds=float(
-                    table.groupby("window_index")["fit_runtime_seconds"].first().mean()
-                ),
                 mcmc_rhat_max=float(rhat.max()) if method == "mcmc" else np.nan,
                 nlpd_definition=metrics.NLPD_DEFINITION,
+                evaluation_definition=metrics.EVALUATION_DEFINITION,
             )
             rows.append(row)
             cohorts[f"{method.upper()} N={count}"] = table[
@@ -427,6 +433,11 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
 def _validate_observation_count_metadata(record, path, method, count):
     """Reject stale provenance after replacement or manual changes to a CSV."""
     if (
+        "evaluation_definition" in record
+        and record["evaluation_definition"] != metrics.EVALUATION_DEFINITION
+    ):
+        raise ValueError(f"Incompatible evaluation_definition in metadata: {path}.")
+    if (
         "nlpd_definition" in record
         and record["nlpd_definition"] != metrics.NLPD_DEFINITION
     ):
@@ -479,7 +490,6 @@ def _validate_observation_count_scores(table, path):
         "radial_covered",
         "prediction_radius_m",
         "mean_marginal_interval_width_m",
-        "window_runtime_seconds",
         "converged",
         "mcmc_diagnostics_ok",
     }
@@ -508,7 +518,6 @@ def _validate_observation_count_scores(table, path):
     for field in (
         "prediction_radius_m",
         "mean_marginal_interval_width_m",
-        "window_runtime_seconds",
     ):
         table[field] = pd.to_numeric(table[field], errors="raise")
         if not np.isfinite(table[field]).all() or (table[field] < 0).any():
@@ -617,10 +626,11 @@ def run_model_comparison(
     print(display.to_string(index=False))
     if any(table["model_variant"].iloc[0] == "imm" for table in models.values()):
         print(
-            "\nNote: IMM distribution scores use a fused Gaussian; Bayesian CTRV uses posterior samples."
+            "\nNote: All distribution scores use the same latent Gaussian moment approximation. "
+            "Point errors evaluate coordinate-wise median forecasts."
         )
     print(
-        "Runtime measurements may cover different operations across inference methods."
+        "Runtime boundaries are shared; inference work and observation histories can differ."
     )
     print(
         "This descriptive comparison does not establish statistical significance or an overall winner."

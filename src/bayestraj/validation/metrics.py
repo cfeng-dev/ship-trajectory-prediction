@@ -1,9 +1,11 @@
 """Accuracy metrics for posterior ship-trajectory predictions."""
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
+from scipy.stats import chi2, norm
 
 import bayestraj.validation.reporting as reporting
 
@@ -11,9 +13,11 @@ import bayestraj.validation.reporting as reporting
 NLPD_DEFINITION = "gaussian_latent_2d_v1"
 NLPD_MIN_VARIANCE_M2 = 1e-12
 NLPD_RELATIVE_VARIANCE_FLOOR = 1e-12
+EVALUATION_DEFINITION = "gaussian_latent_2d_gl64_runtime_v1"
+GAUSSIAN_ENERGY_QUADRATURE_ORDER = 64
 
 
-def gaussian_position_log_predictive_density(actual_positions, means, covariances):
+def _gaussian_geometry(actual_positions, means, covariances):
     """Score latent 2D positions under a joint Gaussian in metre coordinates.
 
     Only numerical regularization is added: each covariance eigenvalue has an
@@ -44,6 +48,14 @@ def gaussian_position_log_predictive_density(actual_positions, means, covariance
     if np.any(eigenvalues < -floor[:, None]):
         raise ValueError("Gaussian position covariances must be positive semidefinite.")
     eigenvalues = np.maximum(eigenvalues, floor[:, None])
+    return actual, means, eigenvalues, eigenvectors
+
+
+def gaussian_position_log_predictive_density(actual_positions, means, covariances):
+    """Return joint latent Gaussian log densities with common numerical floors."""
+    actual, means, eigenvalues, eigenvectors = _gaussian_geometry(
+        actual_positions, means, covariances
+    )
     projected = np.einsum("nji,nj->ni", eigenvectors, actual - means)
     squared_distance = np.sum(projected**2 / eigenvalues, axis=1)
     return -np.log(2 * np.pi) - 0.5 * (
@@ -51,28 +63,25 @@ def gaussian_position_log_predictive_density(actual_positions, means, covariance
     )
 
 
-def latent_position_log_predictive_density(x_actual, y_actual, x_samples, y_samples):
-    """Score the Gaussian moment approximation of paired latent forecast draws.
+def latent_position_moments(x_samples, y_samples):
+    """Return mean and unbiased covariance of paired latent forecast draws.
 
     Covariance describes forecast-position spread, not uncertainty of the sample
     mean. A single draw has zero empirical covariance and uses the numerical floor.
     """
-    x_actual, y_actual, x_samples, y_samples = (
-        np.asarray(values, dtype=float)
-        for values in (x_actual, y_actual, x_samples, y_samples)
+    x_samples, y_samples = (
+        np.asarray(values, dtype=float) for values in (x_samples, y_samples)
     )
     if (
-        x_actual.ndim != 1
-        or y_actual.shape != x_actual.shape
-        or x_samples.ndim != 2
+        x_samples.ndim != 2
         or y_samples.shape != x_samples.shape
         or x_samples.shape[0] == 0
-        or x_samples.shape[1] != x_actual.size
+        or x_samples.shape[1] == 0
         or not np.isfinite(x_samples).all()
         or not np.isfinite(y_samples).all()
     ):
         raise ValueError(
-            "Latent forecasts need finite paired (draw, horizon) positions and matching targets."
+            "Latent forecasts need finite paired (draw, horizon) positions."
         )
     positions = np.stack((x_samples, y_samples), axis=-1)
     means = positions.mean(axis=0)
@@ -80,9 +89,134 @@ def latent_position_log_predictive_density(x_actual, y_actual, x_samples, y_samp
     covariance = np.einsum("shi,shj->hij", centered, centered) / max(
         len(positions) - 1, 1
     )
+    return means, covariance
+
+
+def latent_position_log_predictive_density(x_actual, y_actual, x_samples, y_samples):
+    """Score Gaussian moments of paired latent draws without sensor noise."""
+    x_actual, y_actual = (
+        np.asarray(x_actual, dtype=float),
+        np.asarray(y_actual, dtype=float),
+    )
+    if x_actual.ndim != 1 or y_actual.shape != x_actual.shape:
+        raise ValueError("Latent targets must be matching finite vectors.")
+    means, covariance = latent_position_moments(x_samples, y_samples)
     return gaussian_position_log_predictive_density(
         np.column_stack((x_actual, y_actual)), means, covariance
     )
+
+
+def regularize_position_covariances(covariances):
+    """Apply the same absolute and relative covariance floors for every method."""
+    covariances = np.asarray(covariances, dtype=float)
+    if covariances.ndim != 3 or covariances.shape[1:] != (2, 2):
+        raise ValueError("Position covariances must be finite (count, 2, 2) arrays.")
+    count = len(covariances)
+    _, _, eigenvalues, eigenvectors = _gaussian_geometry(
+        np.zeros((count, 2)), np.zeros((count, 2)), covariances
+    )
+    return (eigenvectors * eigenvalues[:, None, :]) @ eigenvectors.swapaxes(-1, -2)
+
+
+def _gaussian_squared_distances(actual, means, eigenvalues, eigenvectors):
+    projected = np.einsum("nji,nj->ni", eigenvectors, actual - means)
+    return np.sum(projected**2 / eigenvalues, axis=1)
+
+
+def gaussian_position_coverage(
+    actual_positions, means, covariances, *, probabilities=(0.5, 0.9)
+):
+    """Return per-step Gaussian-ellipse membership without scoring overhead."""
+    actual, means, eigenvalues, eigenvectors = _gaussian_geometry(
+        actual_positions, means, covariances
+    )
+    distances = _gaussian_squared_distances(actual, means, eigenvalues, eigenvectors)
+    return {
+        probability: distances <= chi2.ppf(_validate_credible_interval(probability), 2)
+        for probability in probabilities
+    }
+
+
+@lru_cache(maxsize=1)
+def _gaussian_energy_quadrature():
+    roots, weights = np.polynomial.legendre.leggauss(GAUSSIAN_ENERGY_QUADRATURE_ORDER)
+    return (roots + 1) / 2, weights / 2
+
+
+def _gaussian_expected_norm(projected_mean, variances):
+    """Integrate E||N(mean, diag(variances))|| using its squared-norm Laplace transform.
+
+    sqrt(q) = integral_0^infinity (1-exp(-t*q)) / (2*sqrt(pi)*t**1.5) dt.
+    Substitute t=(u/(1-u))**2 and normalize the RMS length to avoid scale-dependent
+    integration errors. This one-dimensional integral is rotation invariant and
+    remains accurate for nearly rank-one covariances. expm1 preserves small terms.
+    """
+    scale = np.sqrt(np.sum(projected_mean**2 + variances, axis=1))
+    variance = variances / scale[:, None] ** 2
+    mean_squared = (projected_mean / scale[:, None]) ** 2
+    nodes, weights = _gaussian_energy_quadrature()
+    t = (nodes / (1 - nodes)) ** 2
+    scaled_variance = 2 * t[None, :, None] * variance[:, None, :]
+    log_laplace = -0.5 * np.log1p(scaled_variance).sum(axis=2) - (
+        t[None, :, None] * mean_squared[:, None, :] / (1 + scaled_variance)
+    ).sum(axis=2)
+    return (
+        scale
+        / np.sqrt(np.pi)
+        * np.sum(
+            weights[None, :] * -np.expm1(log_laplace) / nodes[None, :] ** 2, axis=1
+        )
+    )
+
+
+def gaussian_position_metrics(
+    actual_positions, means, covariances, *, credible_interval=0.9
+):
+    """Score Gaussian moment forecasts under one common evaluation protocol.
+
+    All probability scores use latent positions in metres, with no extra sensor
+    variance. Energy uses fixed 64-node Gauss-Legendre integration. Coverage uses
+    chi-square ellipses; marginal intervals use Gaussian quantiles. Point-forecast
+    medians are evaluated separately. The protocol tag also versions CSV timing:
+    fit includes inference/update plus forecast, excluding scoring/assembly.
+    """
+    credible_interval = _validate_credible_interval(credible_interval)
+    actual, means, eigenvalues, eigenvectors = _gaussian_geometry(
+        actual_positions, means, covariances
+    )
+    covariance = (eigenvectors * eigenvalues[:, None, :]) @ eigenvectors.swapaxes(
+        -1, -2
+    )
+    squared_distance = _gaussian_squared_distances(
+        actual, means, eigenvalues, eigenvectors
+    )
+    threshold = float(chi2.ppf(credible_interval, 2))
+    deviation = np.sqrt(np.diagonal(covariance, axis1=1, axis2=2))
+    quantile = float(norm.ppf((1 + credible_interval) / 2))
+    lower, upper = means - quantile * deviation, means + quantile * deviation
+    projected = np.einsum("nji,nj->ni", eigenvectors, actual - means)
+    energy = _gaussian_expected_norm(
+        projected, eigenvalues
+    ) - 0.5 * _gaussian_expected_norm(np.zeros_like(projected), 2 * eigenvalues)
+    return {
+        "x_lower": lower[:, 0],
+        "x_upper": upper[:, 0],
+        "y_lower": lower[:, 1],
+        "y_upper": upper[:, 1],
+        "negative_log_predictive_density": np.log(2 * np.pi)
+        + 0.5 * (np.log(eigenvalues).sum(axis=1) + squared_distance),
+        "energy_score_m": np.asarray(energy),
+        "prediction_radius_m": np.sqrt(threshold)
+        * np.prod(eigenvalues, axis=1) ** 0.25,
+        "squared_mahalanobis_distance": squared_distance,
+        "squared_mahalanobis_radius": np.full(len(actual), threshold),
+        "radial_covered": squared_distance <= threshold,
+        "joint_covered_50": squared_distance <= chi2.ppf(0.5, 2),
+        "joint_covered_90": squared_distance <= chi2.ppf(0.9, 2),
+        "mean_marginal_interval_width_m": np.mean(upper - lower, axis=1),
+        "nlpd_definition": NLPD_DEFINITION,
+        "evaluation_definition": EVALUATION_DEFINITION,
+    }
 
 
 @dataclass(frozen=True)
@@ -203,6 +337,38 @@ def empirical_covariance_regions(
     return regions
 
 
+def gaussian_covariance_regions(x_values, y_values, *, probabilities=(0.5, 0.9)):
+    """Construct the same Gaussian moment ellipses used for scored coverage."""
+    x_values, y_values = (
+        np.asarray(x_values, dtype=float),
+        np.asarray(y_values, dtype=float),
+    )
+    if x_values.ndim != 1 or y_values.shape != x_values.shape:
+        raise ValueError("Forecast coordinates must be matching finite vectors.")
+    means, covariances = latent_position_moments(
+        np.asarray(x_values, dtype=float)[:, None],
+        np.asarray(y_values, dtype=float)[:, None],
+    )
+    _, means, variances, directions = _gaussian_geometry(means, means, covariances)
+    precision = (directions[0] * (1 / variances[0])) @ directions[0].T
+    angle = float(np.degrees(np.arctan2(directions[0, 1, 1], directions[0, 0, 1])))
+    regions = {}
+    for probability in probabilities:
+        radius = float(chi2.ppf(_validate_credible_interval(probability), 2))
+        axes = np.sqrt(radius * variances[0])
+        regions[probability] = EmpiricalCovarianceRegion(
+            center=tuple(means[0]),
+            width=2 * float(axes[1]),
+            height=2 * float(axes[0]),
+            angle_degrees=angle,
+            squared_radius=radius,
+            precision_xx=float(precision[0, 0]),
+            precision_xy=float(precision[0, 1]),
+            precision_yy=float(precision[1, 1]),
+        )
+    return regions
+
+
 def evaluate_position_predictions(
     fit,
     window,
@@ -212,12 +378,8 @@ def evaluate_position_predictions(
 ):
     """Evaluate posterior position draws against one held-out trajectory.
 
-    ADE and FDE use the Euclidean distance between the posterior-median
-    position and the held-out position. Coverage uses the same joint empirical
-    covariance ellipse that is drawn around the posterior samples. Its size is
-    the requested empirical Mahalanobis-distance quantile at each horizon.
-    NLPD uses the joint Gaussian moment approximation of the latent positions,
-    independently of observation-noise draws or the displayed median forecast.
+    Point errors evaluate the coordinate-wise posterior median. All probability
+    metrics evaluate the common Gaussian moment approximation of latent positions.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     x_variable_name, y_variable_name = _validate_position_variable_names(
@@ -239,80 +401,16 @@ def evaluate_position_predictions(
     if not np.all(np.isfinite(x_actual)) or not np.all(np.isfinite(y_actual)):
         raise ValueError("Held-out positions must contain only finite values.")
 
-    lower_probability = (1 - credible_interval) / 2
-    upper_probability = 1 - lower_probability
     x_median = np.median(x_samples, axis=0)
     y_median = np.median(y_samples, axis=0)
-    x_lower = np.quantile(x_samples, lower_probability, axis=0)
-    x_upper = np.quantile(x_samples, upper_probability, axis=0)
-    y_lower = np.quantile(y_samples, lower_probability, axis=0)
-    y_upper = np.quantile(y_samples, upper_probability, axis=0)
-
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
-    energy_score_m = _joint_energy_scores(x_actual, y_actual, x_samples, y_samples)
-    negative_log_predictive_density = -latent_position_log_predictive_density(
-        x_actual,
-        y_actual,
-        x_samples,
-        y_samples,
+    means, covariances = latent_position_moments(x_samples, y_samples)
+    scores = gaussian_position_metrics(
+        np.column_stack((x_actual, y_actual)),
+        means,
+        covariances,
+        credible_interval=credible_interval,
     )
-    coverage_probabilities = tuple(sorted({0.5, 0.9, credible_interval}))
-    prediction_region_sets = tuple(
-        empirical_covariance_regions(
-            x_samples[:, time_index],
-            y_samples[:, time_index],
-            probabilities=coverage_probabilities,
-        )
-        for time_index in range(prediction_count)
-    )
-    prediction_regions = tuple(
-        regions[credible_interval] for regions in prediction_region_sets
-    )
-    prediction_radius_m = np.asarray(
-        [region.equivalent_radius for region in prediction_regions],
-        dtype=float,
-    )
-    squared_mahalanobis_distance = np.asarray(
-        [
-            region.squared_distance(actual_x, actual_y)
-            for region, actual_x, actual_y in zip(
-                prediction_regions,
-                x_actual,
-                y_actual,
-                strict=True,
-            )
-        ],
-        dtype=float,
-    )
-    squared_mahalanobis_radius = np.asarray(
-        [region.squared_radius for region in prediction_regions],
-        dtype=float,
-    )
-    covered = np.asarray(
-        [
-            region.contains(actual_x, actual_y)
-            for region, actual_x, actual_y in zip(
-                prediction_regions,
-                x_actual,
-                y_actual,
-                strict=True,
-            )
-        ],
-        dtype=bool,
-    )
-    joint_covered_50 = _joint_region_coverage(
-        prediction_region_sets,
-        probability=0.5,
-        x_actual=x_actual,
-        y_actual=y_actual,
-    )
-    joint_covered_90 = _joint_region_coverage(
-        prediction_region_sets,
-        probability=0.9,
-        x_actual=x_actual,
-        y_actual=y_actual,
-    )
-    mean_marginal_interval_width_m = 0.5 * ((x_upper - x_lower) + (y_upper - y_lower))
 
     prediction_times = np.asarray(window.time_seconds[prediction], dtype=float)
     prediction_start_time = float(window.time_seconds[window.observation_count - 1])
@@ -335,21 +433,8 @@ def evaluate_position_predictions(
             "y_actual": y_actual,
             "x_median": x_median,
             "y_median": y_median,
-            "x_lower": x_lower,
-            "x_upper": x_upper,
-            "y_lower": y_lower,
-            "y_upper": y_upper,
             "position_error_m": errors_m,
-            "negative_log_predictive_density": negative_log_predictive_density,
-            "nlpd_definition": NLPD_DEFINITION,
-            "energy_score_m": energy_score_m,
-            "prediction_radius_m": prediction_radius_m,
-            "squared_mahalanobis_distance": squared_mahalanobis_distance,
-            "squared_mahalanobis_radius": squared_mahalanobis_radius,
-            "radial_covered": covered,
-            "joint_covered_50": joint_covered_50,
-            "joint_covered_90": joint_covered_90,
-            "mean_marginal_interval_width_m": mean_marginal_interval_width_m,
+            **scores,
         }
     )
 
@@ -358,17 +443,19 @@ def evaluate_position_predictions(
         errors_m=errors_m,
         ade_m=float(np.mean(errors_m)),
         fde_m=float(errors_m[-1]),
-        energy_score_m=float(np.mean(energy_score_m)),
-        radial_coverage=float(np.mean(covered)),
-        joint_coverage_50=float(np.mean(joint_covered_50)),
-        joint_coverage_90=float(np.mean(joint_covered_90)),
-        mean_prediction_radius_m=float(np.mean(prediction_radius_m)),
-        mean_marginal_interval_width_m=float(np.mean(mean_marginal_interval_width_m)),
+        energy_score_m=float(np.mean(scores["energy_score_m"])),
+        radial_coverage=float(np.mean(scores["radial_covered"])),
+        joint_coverage_50=float(np.mean(scores["joint_covered_50"])),
+        joint_coverage_90=float(np.mean(scores["joint_covered_90"])),
+        mean_prediction_radius_m=float(np.mean(scores["prediction_radius_m"])),
+        mean_marginal_interval_width_m=float(
+            np.mean(scores["mean_marginal_interval_width_m"])
+        ),
         total_negative_log_predictive_density=float(
-            np.sum(negative_log_predictive_density)
+            np.sum(scores["negative_log_predictive_density"])
         ),
         mean_negative_log_predictive_density=float(
-            np.mean(negative_log_predictive_density)
+            np.mean(scores["negative_log_predictive_density"])
         ),
         credible_interval=credible_interval,
     )

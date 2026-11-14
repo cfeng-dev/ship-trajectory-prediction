@@ -47,6 +47,7 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
     with path.open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream)
         assert reader.fieldnames == list(evaluation.PREDICTION_CSV_COLUMNS)
+        assert "window_runtime_seconds" not in reader.fieldnames
         row = next(reader)
     assert row["inference_method"] == method
     assert float(row["position_error_m"]) == 2.5

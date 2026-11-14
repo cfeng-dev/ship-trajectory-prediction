@@ -203,7 +203,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Forecast Energy Score",
-                "Joint 2D probabilistic forecast error; lower is better.",
+                "Energy Score of the joint 2D Gaussian moment approximation to latent forecast positions; lower is better.",
             ),
             (
                 "NLPD",
@@ -211,11 +211,11 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Joint 50% coverage",
-                "Cumulative share of evaluated future positions inside per-step 2D 50% covariance ellipses, shown as percentage and count; not whole-path coverage.",
+                "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
             ),
             (
                 "Joint 90% coverage",
-                "Cumulative share of evaluated future positions inside per-step 2D 90% covariance ellipses, shown as percentage and count; not whole-path coverage.",
+                "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
             ),
             (
                 "Inference time",
@@ -333,7 +333,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Covariance ellipses",
-                "Per-step 2D regions from empirical means and covariances; an elliptical approximation to the forecast draws",
+                "Per-step 2D Gaussian ellipses from the full forecast mean and covariance; the same regions are used for coverage scoring",
             ),
             (
                 "No uncertainty region",

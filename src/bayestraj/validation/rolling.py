@@ -33,8 +33,8 @@ class RollingPositionSummary:
     ade_m: float
     fde_m: float
     mean_energy_score_m: float
-    mean_window_runtime_seconds: float
-    median_window_runtime_seconds: float
+    mean_fit_runtime_seconds: float
+    median_fit_runtime_seconds: float
     total_computation_time_seconds: float
     radial_coverage: float
     joint_coverage_50: float
@@ -50,7 +50,7 @@ class RollingPositionSummary:
 
 @dataclass(frozen=True, slots=True)
 class WindowRuntimeSummary:
-    """Unweighted computation-time metrics across rolling windows."""
+    """Unweighted fit/forecast-time metrics across rolling windows."""
 
     mean_seconds: float
     median_seconds: float
@@ -58,8 +58,8 @@ class WindowRuntimeSummary:
 
 
 def summarize_window_runtimes(prediction_table: pd.DataFrame) -> WindowRuntimeSummary:
-    """Summarize one consistently repeated runtime value per rolling window."""
-    required_columns = {"window_index", "window_runtime_seconds"}
+    """Summarize fit/forecast runtime once per window, independent of horizon count."""
+    required_columns = {"window_index", "fit_runtime_seconds"}
     missing_columns = sorted(required_columns.difference(prediction_table.columns))
     if missing_columns:
         raise ValueError(f"Missing rolling runtime columns: {missing_columns}")
@@ -67,22 +67,20 @@ def summarize_window_runtimes(prediction_table: pd.DataFrame) -> WindowRuntimeSu
         raise ValueError("prediction_table must contain at least one forecast.")
 
     runtime_counts = prediction_table.groupby("window_index")[
-        "window_runtime_seconds"
+        "fit_runtime_seconds"
     ].nunique(dropna=False)
     if (runtime_counts != 1).any():
         raise ValueError(
-            "window_runtime_seconds must be constant within each rolling window."
+            "fit_runtime_seconds must be constant within each rolling window."
         )
 
     runtimes = (
-        prediction_table.groupby("window_index", sort=True)["window_runtime_seconds"]
+        prediction_table.groupby("window_index", sort=True)["fit_runtime_seconds"]
         .first()
         .to_numpy(dtype=float)
     )
     if not np.all(np.isfinite(runtimes)) or np.any(runtimes < 0):
-        raise ValueError(
-            "window_runtime_seconds must contain finite non-negative values."
-        )
+        raise ValueError("fit_runtime_seconds must contain finite non-negative values.")
     return WindowRuntimeSummary(
         mean_seconds=float(np.mean(runtimes)),
         median_seconds=float(np.median(runtimes)),
@@ -277,7 +275,7 @@ def summarize_rolling_predictions(
         "inference_method",
         "converged",
         "mcmc_diagnostics_ok",
-        "window_runtime_seconds",
+        "fit_runtime_seconds",
     }
     missing_columns = sorted(required_columns.difference(prediction_table.columns))
     if missing_columns:
@@ -389,8 +387,8 @@ def summarize_rolling_predictions(
         ade_m=float(prediction_table["position_error_m"].mean()),
         fde_m=float(per_horizon.iloc[-1]["ade_m"]),
         mean_energy_score_m=float(prediction_table["energy_score_m"].mean()),
-        mean_window_runtime_seconds=runtime_summary.mean_seconds,
-        median_window_runtime_seconds=runtime_summary.median_seconds,
+        mean_fit_runtime_seconds=runtime_summary.mean_seconds,
+        median_fit_runtime_seconds=runtime_summary.median_seconds,
         total_computation_time_seconds=runtime_summary.total_seconds,
         radial_coverage=float(prediction_table["radial_covered"].mean()),
         joint_coverage_50=float(prediction_table["joint_covered_50"].mean()),

@@ -229,6 +229,23 @@ def test_shared_imm_workflow_preserves_scoring_and_seed_without_trajectory_plots
     tmp_path, monkeypatch, use_defaults
 ):
     workflow = importlib.import_module("bayestraj.validation.imm_workflow")
+    clock = [0.0]
+    monkeypatch.setattr(workflow.time, "perf_counter", lambda: clock[0])
+    original_metrics = workflow.metrics.gaussian_position_metrics
+    original_medians = workflow.imm_adapter.forecast_position_medians
+
+    def timed_metrics(*args, **kwargs):
+        clock[0] += 10.0
+        return original_metrics(*args, **kwargs)
+
+    def timed_medians(*args, **kwargs):
+        clock[0] += 1.0
+        return original_medians(*args, **kwargs)
+
+    monkeypatch.setattr(workflow.metrics, "gaussian_position_metrics", timed_metrics)
+    monkeypatch.setattr(
+        workflow.imm_adapter, "forecast_position_medians", timed_medians
+    )
     options = cli.IMMEvaluationOptions(1, 2, 2, 1, True)
     data_file, backend = tmp_path / "radar.csv", tmp_path / "backend.py"
     cycles = tuple(
@@ -255,6 +272,7 @@ def test_shared_imm_workflow_preserves_scoring_and_seed_without_trajectory_plots
             return cls()
 
         def forecast(self, times, *, seed):
+            clock[0] += 3.0
             assert seed == (42 if use_defaults else 137)
             np.testing.assert_array_equal(times, [1, 2])
             return SimpleNamespace(
@@ -291,6 +309,10 @@ def test_shared_imm_workflow_preserves_scoring_and_seed_without_trajectory_plots
         **overrides,
     )
     assert summary.window_count == 1
+    assert table["fit_runtime_seconds"].eq(3.0).all()
+    assert "window_runtime_seconds" not in table
+    assert summary.mean_fit_runtime_seconds == 3.0
+    assert summary.total_computation_time_seconds == 3.0
     # Standard normal central 90% by default, or the explicitly requested 50%.
     quantile = 1.6448536269514722 if use_defaults else 0.6744897501960817
     np.testing.assert_allclose(table["x_lower"], -quantile)

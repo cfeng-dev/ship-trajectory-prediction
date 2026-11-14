@@ -216,6 +216,7 @@ def sweep_run(tmp_path, monkeypatch):
                     "mean_marginal_interval_width_m": 6.0,
                     "negative_log_predictive_density": 2.5,
                     "nlpd_definition": "gaussian_latent_2d_v1",
+                    "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v1",
                     "inference_mode": "batch",
                     "inference_method": options.inference_method,
                     "converged": True if options.inference_method == "vi" else None,
@@ -226,7 +227,6 @@ def sweep_run(tmp_path, monkeypatch):
                         1.005 if options.inference_method == "mcmc" else np.nan
                     ),
                     "fit_runtime_seconds": 0.1,
-                    "window_runtime_seconds": 0.2,
                 }
                 for window in windows
                 for step in range(1, window.prediction_count + 1)
@@ -265,6 +265,10 @@ def test_evaluation_exports_forecasts_and_metadata_without_creating_summary(
     )
     assert all(
         record["nlpd_definition"] == "gaussian_latent_2d_v1"
+        for record in metadata["evaluations"].values()
+    )
+    assert all(
+        record["evaluation_definition"] == "gaussian_latent_2d_gl64_runtime_v1"
         for record in metadata["evaluations"].values()
     )
 

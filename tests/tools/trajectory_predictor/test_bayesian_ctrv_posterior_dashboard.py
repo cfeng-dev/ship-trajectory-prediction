@@ -1588,7 +1588,14 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
     assert metrics.ade_m == pytest.approx(0.5)
     assert metrics.fde_m == pytest.approx(1.0)
     assert metrics.rmse_m == pytest.approx(np.sqrt(0.5))
-    assert metrics.energy_score_m == pytest.approx(0.487874)
+    from scipy.stats import rice
+
+    sigma = np.sqrt(1 / 75)
+    expected_energy = (
+        0.5 * (sigma * np.sqrt(np.pi / 2) + rice.mean(1 / sigma, scale=sigma))
+        - sigma * np.sqrt(np.pi) / 2
+    )
+    assert metrics.energy_score_m == pytest.approx(expected_energy, abs=1e-8)
     expected_nlpd = np.log(2 * np.pi / 75) + 18.75
     assert metrics.negative_log_predictive_density == pytest.approx(expected_nlpd)
     assert metrics.joint_coverage_50_count == 1

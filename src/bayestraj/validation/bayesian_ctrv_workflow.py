@@ -281,6 +281,11 @@ def _run_evaluation(
     noisy_route_y = route_y + route_noise_y
     for number, specification in enumerate(windows, start=1):
         window_seed = experiment.inference_seed
+        print(
+            f"\n{'Forecast' if online_mode else 'Window'} {number}/{len(windows)}: "
+            f"observations={specification.observation_count}, "
+            f"predictions={specification.prediction_count}, seed={window_seed}"
+        )
         window = _prepare_evaluation_window(
             trajectory_data,
             observation_count=specification.observation_count,
@@ -295,12 +300,6 @@ def _run_evaluation(
             position_noise_std_m=experiment.position_noise_std_m,
             noise_seed=experiment.position_noise_seed,
         )
-        print(
-            f"\n{'Forecast' if online_mode else 'Window'} {number}/{len(windows)}: "
-            f"observations={specification.observation_count}, "
-            f"predictions={specification.prediction_count}, seed={window_seed}"
-        )
-        runtime_started = time.perf_counter()
         fit_runtime_started = time.perf_counter()
         minimum_fit_count = (
             sequential_vi_config.n_bootstrap
@@ -452,13 +451,11 @@ def _run_evaluation(
             position_noise_std_m=experiment.position_noise_std_m,
             position_noise_seed=experiment.position_noise_seed,
         )
-        window_runtime_seconds = time.perf_counter() - runtime_started
         table["fit_runtime_seconds"] = fit_runtime_seconds
-        table["window_runtime_seconds"] = window_runtime_seconds
         prediction_tables.append(table)
         print(
             f"{_window_metric_summary(evaluation)}, "
-            f"runtime={window_runtime_seconds:.3f} s, {inference_status}"
+            f"runtime={fit_runtime_seconds:.3f} s, {inference_status}"
         )
 
     predictions = pd.concat(prediction_tables, ignore_index=True)
@@ -601,7 +598,13 @@ def _run_br24_radar_evaluation(
 
     prediction_tables = []
     for number, specification in enumerate(windows, start=1):
-        runtime_started = time.perf_counter()
+        window_seed = experiment.inference_seed
+        print(
+            f"\nForecast {number}/{len(windows)}: "
+            f"observations={specification.observation_count}, "
+            f"predictions={specification.prediction_count}, seed={window_seed}"
+        )
+        fit_runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
             cycle = cycles[processed_cycle_count]
             step = (
@@ -618,17 +621,11 @@ def _run_br24_radar_evaluation(
         future_times = cycle_times[
             specification.forecast_start_index : forecast_stop_index
         ]
-        window_seed = experiment.inference_seed
-        print(
-            f"\nForecast {number}/{len(windows)}: "
-            f"observations={specification.observation_count}, "
-            f"predictions={specification.prediction_count}, seed={window_seed}"
-        )
         fit = tracker.filter.forecast(
             future_times,
             seed=1_000_000 + window_seed,
         )
-        fit_runtime_seconds = time.perf_counter() - runtime_started
+        fit_runtime_seconds = time.perf_counter() - fit_runtime_started
         # Reference labels are deliberately materialized only after the raw-radar
         # tracker has produced its forecast.  They are never passed to the tracker.
         window = _prepare_br24_reference_window(
@@ -678,11 +675,10 @@ def _run_br24_radar_evaluation(
             position_noise_seed=experiment.position_noise_seed,
         )
         table["fit_runtime_seconds"] = fit_runtime_seconds
-        table["window_runtime_seconds"] = time.perf_counter() - runtime_started
         prediction_tables.append(table)
         print(
             f"{_window_metric_summary(evaluation)}, "
-            f"runtime={table['window_runtime_seconds'].iloc[0]:.3f} s, "
+            f"runtime={fit_runtime_seconds:.3f} s, "
             f"{inference_method.upper()} processed="
             f"{tracker.filter.processed_observation_count}, "
             f"status={diagnostics['radar_fit_status']}"
@@ -1192,10 +1188,10 @@ def _print_summary(summary, *, credible_interval):
         ),
         ("Joint 2D 50% coverage", f"{summary.joint_coverage_50:.1%}"),
         ("Joint 2D 90% coverage", f"{summary.joint_coverage_90:.1%}"),
-        ("Mean window runtime", f"{summary.mean_window_runtime_seconds:.3f} s"),
-        ("Median window runtime", f"{summary.median_window_runtime_seconds:.3f} s"),
+        ("Mean fit/forecast runtime", f"{summary.mean_fit_runtime_seconds:.3f} s"),
+        ("Median fit/forecast runtime", f"{summary.median_fit_runtime_seconds:.3f} s"),
         (
-            "Total computation time",
+            "Total fit/forecast time",
             rolling_validation.format_computation_time(
                 summary.total_computation_time_seconds
             ),
