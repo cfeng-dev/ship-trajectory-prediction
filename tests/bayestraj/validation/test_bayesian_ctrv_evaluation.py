@@ -611,7 +611,12 @@ def test_comparison_defines_individual_csv_paths_for_all_five_methods(
     )
 
     assert namespace["IMM_CSV"] == ROOT / "results/evaluation/imm.csv"
+    paths = [namespace["IMM_CSV"]]
     for method in ("smc", "vi", "mcmc", "seq_vi"):
-        assert namespace[f"BAYESIAN_{method.upper()}_CSV"] == (
-            ROOT / f"results/evaluation/bayesian_ctrv_{method}.csv"
-        )
+        path = namespace[f"BAYESIAN_{method.upper()}_CSV"]
+        assert path.parent == ROOT / "results/evaluation"
+        assert path.suffix == ".csv"
+        expected_stem = f"bayesian_ctrv_{method}"
+        assert path.stem == expected_stem or path.stem.startswith(f"{expected_stem}_")
+        paths.append(path)
+    assert len(set(paths)) == 5

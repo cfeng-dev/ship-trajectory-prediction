@@ -1882,6 +1882,7 @@ def test_batch_forecast_extracts_latent_draws_and_limits_horizon(method):
         inference_seed=42,
         prediction_count=3,
         prediction_sample_count=0,
+        batch_observation_count=10,
     )
     trajectory, maximum, _, load = dashboard.create_posterior_dashboard_loader(
         _dashboard_trajectory_data(15),
