@@ -85,9 +85,11 @@ the argument. Resolving a path does not create its file or directory.
 
 The processed BR24 files are `BR24Dataset20131107.csv` (raw radar cycles)
 and `BR24_imm_tracked_trajectory.csv` (associated Cartesian fixes). Both include
-evaluation-only reference columns in the prepared dataset. To regenerate them,
-run each base export script first, then its `_with_reference.py` script, which
-adds reference columns to the same CSV in place.
+evaluation-only reference columns. Regenerate them with
+`scripts/data_preparation/export_br24_dataset20131107.py` and
+`scripts/data_preparation/export_br24_imm_tracked_trajectory.py`, respectively.
+Each script exports measurements and aligned reference labels in one run and
+replaces the destination CSV only after both steps succeed.
 
 ## Model Evaluation
 
