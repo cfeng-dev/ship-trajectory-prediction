@@ -7,6 +7,83 @@ import pandas as pd
 
 import bayestraj.validation.reporting as reporting
 
+# Bump this definition when the target, moment estimator or numerical floors change.
+NLPD_DEFINITION = "gaussian_latent_2d_v1"
+NLPD_MIN_VARIANCE_M2 = 1e-12
+NLPD_RELATIVE_VARIANCE_FLOOR = 1e-12
+
+
+def gaussian_position_log_predictive_density(actual_positions, means, covariances):
+    """Score latent 2D positions under a joint Gaussian in metre coordinates.
+
+    Only numerical regularization is added: each covariance eigenvalue has an
+    absolute floor of 1e-12 m^2 and a relative floor of 1e-12 of its largest
+    eigenvalue. No sensor or observation noise is added to the forecast.
+    """
+    actual = np.asarray(actual_positions, dtype=float)
+    means = np.asarray(means, dtype=float)
+    covariance = np.asarray(covariances, dtype=float)
+    if (
+        actual.ndim != 2
+        or actual.shape[1:] != (2,)
+        or len(actual) == 0
+        or means.shape != actual.shape
+        or covariance.shape != (len(actual), 2, 2)
+        or not np.isfinite(actual).all()
+        or not np.isfinite(means).all()
+        or not np.isfinite(covariance).all()
+    ):
+        raise ValueError(
+            "Gaussian positions need finite matching (n, 2) means/targets and (n, 2, 2) covariances."
+        )
+    symmetric = 0.5 * (covariance + covariance.swapaxes(-1, -2))
+    eigenvalues, eigenvectors = np.linalg.eigh(symmetric)
+    floor = np.maximum(
+        NLPD_MIN_VARIANCE_M2, np.max(eigenvalues, axis=1) * NLPD_RELATIVE_VARIANCE_FLOOR
+    )
+    if np.any(eigenvalues < -floor[:, None]):
+        raise ValueError("Gaussian position covariances must be positive semidefinite.")
+    eigenvalues = np.maximum(eigenvalues, floor[:, None])
+    projected = np.einsum("nji,nj->ni", eigenvectors, actual - means)
+    squared_distance = np.sum(projected**2 / eigenvalues, axis=1)
+    return -np.log(2 * np.pi) - 0.5 * (
+        np.log(eigenvalues).sum(axis=1) + squared_distance
+    )
+
+
+def latent_position_log_predictive_density(x_actual, y_actual, x_samples, y_samples):
+    """Score the Gaussian moment approximation of paired latent forecast draws.
+
+    Covariance describes forecast-position spread, not uncertainty of the sample
+    mean. A single draw has zero empirical covariance and uses the numerical floor.
+    """
+    x_actual, y_actual, x_samples, y_samples = (
+        np.asarray(values, dtype=float)
+        for values in (x_actual, y_actual, x_samples, y_samples)
+    )
+    if (
+        x_actual.ndim != 1
+        or y_actual.shape != x_actual.shape
+        or x_samples.ndim != 2
+        or y_samples.shape != x_samples.shape
+        or x_samples.shape[0] == 0
+        or x_samples.shape[1] != x_actual.size
+        or not np.isfinite(x_samples).all()
+        or not np.isfinite(y_samples).all()
+    ):
+        raise ValueError(
+            "Latent forecasts need finite paired (draw, horizon) positions and matching targets."
+        )
+    positions = np.stack((x_samples, y_samples), axis=-1)
+    means = positions.mean(axis=0)
+    centered = positions - means
+    covariance = np.einsum("shi,shj->hij", centered, centered) / max(
+        len(positions) - 1, 1
+    )
+    return gaussian_position_log_predictive_density(
+        np.column_stack((x_actual, y_actual)), means, covariance
+    )
+
 
 @dataclass(frozen=True)
 class PositionEvaluation:
@@ -139,6 +216,8 @@ def evaluate_position_predictions(
     position and the held-out position. Coverage uses the same joint empirical
     covariance ellipse that is drawn around the posterior samples. Its size is
     the requested empirical Mahalanobis-distance quantile at each horizon.
+    NLPD uses the joint Gaussian moment approximation of the latent positions,
+    independently of observation-noise draws or the displayed median forecast.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     x_variable_name, y_variable_name = _validate_position_variable_names(
@@ -149,11 +228,6 @@ def evaluate_position_predictions(
         raise ValueError("window must contain at least one held-out prediction.")
     x_samples = _prediction_samples(fit, x_variable_name, prediction_count)
     y_samples = _prediction_samples(fit, y_variable_name, prediction_count)
-    position_observation_noise_samples = _posterior_scalar_samples(
-        fit,
-        "sigma_position_observation",
-        draw_count=x_samples.shape[0],
-    )
     if x_samples.shape != y_samples.shape:
         raise ValueError("Position prediction variables must have matching shapes.")
 
@@ -176,12 +250,11 @@ def evaluate_position_predictions(
 
     errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
     energy_score_m = _joint_energy_scores(x_actual, y_actual, x_samples, y_samples)
-    negative_log_predictive_density = -joint_log_predictive_density(
+    negative_log_predictive_density = -latent_position_log_predictive_density(
         x_actual,
         y_actual,
         x_samples,
         y_samples,
-        position_observation_noise_samples,
     )
     coverage_probabilities = tuple(sorted({0.5, 0.9, credible_interval}))
     prediction_region_sets = tuple(
@@ -268,6 +341,7 @@ def evaluate_position_predictions(
             "y_upper": y_upper,
             "position_error_m": errors_m,
             "negative_log_predictive_density": negative_log_predictive_density,
+            "nlpd_definition": NLPD_DEFINITION,
             "energy_score_m": energy_score_m,
             "prediction_radius_m": prediction_radius_m,
             "squared_mahalanobis_distance": squared_mahalanobis_distance,
@@ -415,6 +489,7 @@ def joint_log_predictive_density(
 
     The posterior predictive density is a Monte-Carlo mixture over draws of
     the latent future state and the inferred isotropic observation noise.
+    This observation-target helper is separate from latent-position NLPD.
     """
     x_actual = np.asarray(x_actual, dtype=float)
     y_actual = np.asarray(y_actual, dtype=float)

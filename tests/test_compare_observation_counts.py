@@ -40,6 +40,7 @@ def _predictions(method, count):
                     position_error_m=error,
                     energy_score_m=error / 2,
                     negative_log_predictive_density=step - 0.5,
+                    nlpd_definition="gaussian_latent_2d_v1",
                     prediction_radius_m=5.0,
                     radial_covered=True,
                     joint_covered_50=step == 1,
@@ -242,6 +243,24 @@ def test_reader_rejects_duplicate_sizes(result_dirs):
         (directory / "bayesian_ctrv_mcmc_02.csv").read_bytes()
     )
     with pytest.raises(ValueError, match="Duplicate"):
+        _read(result_dirs)
+
+
+def test_sweep_reader_rejects_incompatible_nlpd_definition(result_dirs):
+    _edit(result_dirs, "nlpd_definition", "observation_predictive")
+    with pytest.raises(ValueError, match="NLPD|nlpd"):
+        _read(result_dirs)
+
+
+def test_sweep_reader_checks_nlpd_definition_against_metadata(result_dirs):
+    _metadata(result_dirs["vi"], "vi")
+    path = result_dirs["vi"] / "metadata.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["evaluations"]["bayesian_ctrv_vi_03.csv"]["nlpd_definition"] = (
+        "observation_predictive"
+    )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="NLPD|nlpd"):
         _read(result_dirs)
 
 

@@ -120,7 +120,7 @@ class IMMControls(tk.Frame):
                 ("Forecast FDE (median)", "fde"),
                 ("Forecast RMSE (median)", "rmse"),
                 ("Forecast Energy Score", "energy_score"),
-                ("NLPD", "negative_log_predictive_density"),
+                ("NLPD (Gaussian)", "negative_log_predictive_density"),
                 ("Joint 50% coverage", "coverage_50"),
                 ("Joint 90% coverage", "coverage_90"),
                 ("Update time", "update_time"),

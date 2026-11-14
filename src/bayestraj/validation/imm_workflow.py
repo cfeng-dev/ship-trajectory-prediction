@@ -11,6 +11,7 @@ from scipy.stats import chi2, norm
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
 import bayestraj.validation.cli as cli
+import bayestraj.validation.metrics as metrics
 import bayestraj.validation.reporting as reporting
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
@@ -259,9 +260,6 @@ def _evaluate_forecast(
     actual_positions = np.column_stack(
         (reference.x_meters[target_indices], reference.y_meters[target_indices])
     )
-    covariance_with_floor = covariances + np.eye(2) * (
-        RESIDUAL_POSITION_NOISE_FLOOR_M**2
-    )
     errors = np.linalg.norm(medians - actual_positions, axis=1)
     log_densities = np.asarray(
         [
@@ -269,7 +267,7 @@ def _evaluate_forecast(
             for actual, mean, covariance in zip(
                 actual_positions,
                 means,
-                covariance_with_floor,
+                covariances,
                 strict=True,
             )
         ]
@@ -337,6 +335,7 @@ def _evaluate_forecast(
             "position_error_m": errors,
             "energy_score_m": energy_scores,
             "negative_log_predictive_density": -log_densities,
+            "nlpd_definition": metrics.NLPD_DEFINITION,
             "prediction_radius_m": prediction_radius,
             "squared_mahalanobis_distance": squared_mahalanobis,
             "squared_mahalanobis_radius": threshold_interval,
@@ -397,11 +396,14 @@ def _regularize_covariances(covariances) -> np.ndarray:
 
 
 def _gaussian_log_density(actual, mean, covariance) -> float:
-    """Return the exact log density of one regularized bivariate Gaussian."""
-    difference = np.asarray(actual, dtype=float) - np.asarray(mean, dtype=float)
-    solved = np.linalg.solve(covariance, difference)
-    _, log_determinant = np.linalg.slogdet(covariance)
-    return float(-np.log(2.0 * np.pi) - 0.5 * (log_determinant + difference @ solved))
+    """Use the shared latent-position Gaussian score and numerical floor."""
+    return float(
+        metrics.gaussian_position_log_predictive_density(
+            np.asarray(actual)[None, :],
+            np.asarray(mean)[None, :],
+            np.asarray(covariance)[None, :, :],
+        )[0]
+    )
 
 
 def _gaussian_energy_score(actual, mean, covariance) -> float:

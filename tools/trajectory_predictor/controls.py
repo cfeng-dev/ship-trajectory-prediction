@@ -328,7 +328,7 @@ class SettingsPanel(tk.Frame):
             "forecast_fde": "Forecast FDE (median)",
             "forecast_rmse": "Forecast RMSE (median)",
             "energy_score": "Forecast Energy Score",
-            "negative_log_predictive_density": "NLPD",
+            "negative_log_predictive_density": "NLPD (Gaussian)",
             "joint_coverage_50": "Joint 50% coverage",
             "joint_coverage_90": "Joint 90% coverage",
             "inference_time": "Inference time",

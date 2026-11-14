@@ -17,6 +17,7 @@ from scipy.stats import chi2
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
+import bayestraj.validation.metrics as validation_metrics
 from bayestraj.inference.imm_adapter import IMMStateMixture, IMMStatePosterior
 from bayestraj.inference.imm_adapter import (
     forecast_position_medians as _forecast_position_medians,
@@ -483,7 +484,7 @@ def _forecast_metrics(
             _gaussian_log_density(
                 target,
                 mean,
-                covariance + np.eye(2) * RESIDUAL_POSITION_NOISE_FLOOR_M**2,
+                covariance,
             )
             for target, mean, covariance in zip(
                 targets, means, covariances, strict=True
@@ -578,11 +579,14 @@ def _regularize_covariances(covariances) -> np.ndarray:
 
 
 def _gaussian_log_density(actual, mean, covariance) -> float:
-    """Return the bivariate Gaussian log density at one reference position."""
-    difference = np.asarray(actual, dtype=float) - np.asarray(mean, dtype=float)
-    solved = np.linalg.solve(covariance, difference)
-    _, log_determinant = np.linalg.slogdet(covariance)
-    return float(-np.log(2.0 * np.pi) - 0.5 * (log_determinant + difference @ solved))
+    """Use the shared latent-position Gaussian score and numerical floor."""
+    return float(
+        validation_metrics.gaussian_position_log_predictive_density(
+            np.asarray(actual)[None, :],
+            np.asarray(mean)[None, :],
+            np.asarray(covariance)[None, :, :],
+        )[0]
+    )
 
 
 def _gaussian_energy_score(actual, mean, covariance) -> float:

@@ -17,6 +17,7 @@ import bayestraj.numeric_validation as numeric_validation
 import bayestraj.paths as paths
 import bayestraj.validation.bayesian_ctrv_workflow as workflow
 import bayestraj.validation.cli as cli
+import bayestraj.validation.metrics as metrics
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
@@ -49,6 +50,7 @@ PREDICTION_CSV_COLUMNS = (
     "y_upper",
     "position_error_m",
     "negative_log_predictive_density",
+    "nlpd_definition",
     "energy_score_m",
     "prediction_radius_m",
     "squared_mahalanobis_distance",
@@ -368,6 +370,7 @@ def _record_observation_count_metadata(
         "credible_interval": credible_interval,
         "position_noise_std_m": experiment.position_noise_std_m,
         "position_noise_seed": experiment.position_noise_seed,
+        "nlpd_definition": metrics.NLPD_DEFINITION,
         "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
     path = destination.parent / "metadata.json"

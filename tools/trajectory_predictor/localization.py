@@ -6,6 +6,8 @@ from string import Formatter
 from matplotlib.text import Text
 
 TRANSLATIONS = {
+    "NLPD (Gaussian)": "NLPD (Gauß)",
+    "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.": "Mittlere negative logarithmische Dichte zukünftiger Referenzpositionen unter einer gemeinsamen 2D-Gauß-Näherung der latenten Prognose. Verwendet den prädiktiven Mittelwert und die vollständige Kovarianz ohne zusätzliches Sensorrauschen; kleiner ist besser. Ohne Prognose oder zukünftige Referenzpositionen nicht verfügbar.",
     "Bayesian CTRV — Ship Trajectory Predictor": "Bayessches CTRV — Schiffstrajektorienprognose",
     "Trajectory Predictor": "Trajektorienprognose",
     "File": "Datei",

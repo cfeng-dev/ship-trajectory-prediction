@@ -357,7 +357,7 @@ class PosteriorDashboardForecast:
     Full paired draws define regions and metrics, while a limited subset is retained
     separately for displaying sample paths. Optional origins belong to that subset
     at the current observation time, not to the future-only metric arrays.
-    Observation-noise draws stay paired with the full posterior for NLPD scoring.
+    Observation-noise draws remain available separately; latent NLPD uses positions.
     """
 
     time_offsets_seconds: np.ndarray
@@ -664,21 +664,22 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             ade_m = float(np.mean(errors_m))
             fde_m = float(errors_m[-1])
             rmse_m = float(np.sqrt(np.mean(errors_m**2)))
-            energy_score_m = _forecast_energy_score(
-                forecast.posterior_positions[:, : len(actual_positions), :].transpose(
-                    1,
-                    0,
-                    2,
-                ),
-                actual_positions,
-            )
-            if forecast.position_observation_noise_samples is not None:
-                log_density = validation_metrics.joint_log_predictive_density(
+            if forecast.posterior_positions.shape[0]:
+                energy_score_m = _forecast_energy_score(
+                    forecast.posterior_positions[
+                        :, : len(actual_positions), :
+                    ].transpose(
+                        1,
+                        0,
+                        2,
+                    ),
+                    actual_positions,
+                )
+                log_density = validation_metrics.latent_position_log_predictive_density(
                     actual_positions[:, 0],
                     actual_positions[:, 1],
                     forecast.posterior_positions[:, : len(actual_positions), 0],
                     forecast.posterior_positions[:, : len(actual_positions), 1],
-                    forecast.position_observation_noise_samples,
                 )
                 negative_log_predictive_density = float(np.mean(-log_density))
 

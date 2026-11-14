@@ -1589,9 +1589,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
     assert metrics.fde_m == pytest.approx(1.0)
     assert metrics.rmse_m == pytest.approx(np.sqrt(0.5))
     assert metrics.energy_score_m == pytest.approx(0.487874)
-    expected_nlpd = (
-        np.log(2 * np.pi) + (0.01 - np.log((np.exp(-0.41) + np.exp(-0.61)) / 2)) / 2
-    )
+    expected_nlpd = np.log(2 * np.pi / 75) + 18.75
     assert metrics.negative_log_predictive_density == pytest.approx(expected_nlpd)
     assert metrics.joint_coverage_50_count == 1
     assert metrics.joint_coverage_90_count == 1
@@ -1636,7 +1634,7 @@ def test_dashboard_metrics_use_full_posterior_draws_not_visible_sample_paths():
     metrics = dashboard.analysis_metrics_at(trajectory, {2: update}, 2)
 
     assert metrics.negative_log_predictive_density == pytest.approx(
-        np.log(2 * np.pi) + 0.01
+        np.log(2 * np.pi / 75)
     )
 
     assert metrics.joint_coverage_50_count == 2
@@ -1692,7 +1690,7 @@ def test_forecast_caches_all_paired_noise_draws_independently_of_visible_paths()
     assert not forecast.position_observation_noise_samples.flags.writeable
 
 
-@pytest.mark.parametrize("missing", ["reference", "forecast", "future", "noise"])
+@pytest.mark.parametrize("missing", ["reference", "forecast", "future", "draws"])
 def test_forecast_nlpd_requires_future_reference_and_paired_forecast_draws(missing):
     dashboard = _load_dashboard_module()
     reference = [0.0, 1.0] if missing == "future" else [0.0, 1.0, 2.0]
@@ -1706,8 +1704,8 @@ def test_forecast_nlpd_requires_future_reference_and_paired_forecast_draws(missi
     forecast = dashboard.PosteriorDashboardForecast(
         [1.0],
         [[2.0, 0.0]],
-        np.zeros((2, 1, 2)),
-        position_observation_noise_samples=None if missing == "noise" else np.ones(2),
+        np.zeros((0 if missing == "draws" else 2, 1, 2)),
+        position_observation_noise_samples=None if missing == "draws" else np.ones(2),
     )
     update = dashboard.PosteriorDashboardUpdate(
         2,

@@ -99,6 +99,7 @@ def _table(model):
             "energy_score_m": np.array([2.0, 4.0, 6.0, 10.0]) + (model == "imm"),
             "log_predictive_density": np.array([-1.0, -3.0, -5.0, -7.0])
             - (model == "imm"),
+            "nlpd_definition": "gaussian_latent_2d_v1",
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02]
             if model == "bayesian"
             else [0.002, 0.002, 0.004, 0.004],
@@ -802,6 +803,24 @@ def test_comparison_checks_duplicated_density_conventions(consistent):
         table.loc[0, "negative_log_predictive_density"] = 100.0
         with pytest.raises(ValueError, match="Conflicting"):
             comparison.prepare_comparison(table, _table("imm"))
+
+
+@pytest.mark.parametrize("problem", ["legacy", "all_legacy", "different", "within_csv"])
+def test_comparison_rejects_incompatible_nlpd_definitions(problem):
+    bayesian, imm = _table("bayesian"), _table("imm")
+    bayesian["nlpd_definition"] = "gaussian_latent_2d_v1"
+    imm["nlpd_definition"] = "gaussian_latent_2d_v1"
+    if problem == "legacy":
+        imm = imm.drop(columns="nlpd_definition")
+    elif problem == "all_legacy":
+        bayesian = bayesian.drop(columns="nlpd_definition")
+        imm = imm.drop(columns="nlpd_definition")
+    elif problem == "different":
+        imm["nlpd_definition"] = "observation_predictive"
+    else:
+        bayesian.loc[0, "nlpd_definition"] = "observation_predictive"
+    with pytest.raises(ValueError, match="NLPD|nlpd"):
+        comparison.prepare_comparison(bayesian, imm)
 
 
 def test_comparison_uses_only_complete_common_forecast_origins():

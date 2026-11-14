@@ -193,6 +193,7 @@ def sweep_run(tmp_path, monkeypatch):
                     "joint_covered_90": True,
                     "mean_marginal_interval_width_m": 6.0,
                     "negative_log_predictive_density": 2.5,
+                    "nlpd_definition": "gaussian_latent_2d_v1",
                     "inference_mode": "batch",
                     "inference_method": options.inference_method,
                     "converged": True if options.inference_method == "vi" else None,
@@ -239,6 +240,10 @@ def test_evaluation_exports_forecasts_and_metadata_without_creating_summary(
     assert set(metadata["evaluations"]) == {path.name for path in outputs}
     assert all(
         record["inference_seed"] == 42 for record in metadata["evaluations"].values()
+    )
+    assert all(
+        record["nlpd_definition"] == "gaussian_latent_2d_v1"
+        for record in metadata["evaluations"].values()
     )
 
 

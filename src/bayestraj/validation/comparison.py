@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
+import bayestraj.validation.metrics as metrics
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
@@ -72,6 +73,14 @@ def _validate_table(predictions, model_variant):
         raise ValueError(f"Missing {model_variant} CSV columns: {missing}")
     if predictions.empty:
         raise ValueError(f"The {model_variant} evaluation table is empty.")
+    if (
+        "nlpd_definition" not in predictions
+        or not predictions["nlpd_definition"].eq(metrics.NLPD_DEFINITION).all()
+    ):
+        raise ValueError(
+            f"NLPD requires nlpd_definition={metrics.NLPD_DEFINITION!r}. "
+            "Regenerate saved forecasts before comparison."
+        )
     table = predictions.copy().reset_index(drop=True)
     for name in NUMERIC_COLUMNS:
         table[name] = pd.to_numeric(table[name], errors="raise")
@@ -353,6 +362,7 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                     table.groupby("window_index")["fit_runtime_seconds"].first().mean()
                 ),
                 mcmc_rhat_max=float(rhat.max()) if method == "mcmc" else np.nan,
+                nlpd_definition=metrics.NLPD_DEFINITION,
             )
             rows.append(row)
             cohorts[f"{method.upper()} N={count}"] = table[
@@ -416,6 +426,11 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
 
 def _validate_observation_count_metadata(record, path, method, count):
     """Reject stale provenance after replacement or manual changes to a CSV."""
+    if (
+        "nlpd_definition" in record
+        and record["nlpd_definition"] != metrics.NLPD_DEFINITION
+    ):
+        raise ValueError(f"Incompatible NLPD definition in metadata: {path}.")
     required = {
         "sha256",
         "data_file",

@@ -457,7 +457,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "NLPD",
-                "Negative log predictive density, averaged over future reference positions under the Gaussian forecasts",
+                "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.",
             ),
             (
                 "Joint 50% coverage",
