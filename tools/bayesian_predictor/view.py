@@ -148,7 +148,7 @@ def centered_window_position(
 
 def configure_window(root):
     """Keep the window inside the screen and apply the simulator's light palette."""
-    root.title("Bayesian CTRV — Ship Trajectory Predictor")
+    root.title("Bayesian Predictor")
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     left, top = centered_window_position(

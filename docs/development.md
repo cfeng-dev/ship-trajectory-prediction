@@ -38,13 +38,13 @@ when recorded trajectory data are unavailable. Run it from the project root:
 uv run ship-simulator
 ```
 
-### 2. Trajectory Predictor
+### 2. Bayesian Predictor
 
 Inspect the ship's trajectory and Bayesian CTRV posterior updates in one desktop
 window. Run from the project root after synchronizing the environment:
 
 ```bash
-uv run trajectory-predictor
+uv run bayesian-predictor
 ```
 
 Use **Language → English / Deutsch** to switch the interface and plot

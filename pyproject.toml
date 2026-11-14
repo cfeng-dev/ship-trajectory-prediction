@@ -20,7 +20,7 @@ dependencies = [
 
 [project.scripts]
 ship-simulator = "ship_simulator.cli:main"
-trajectory-predictor = "trajectory_predictor.cli:main"
+bayesian-predictor = "bayesian_predictor.cli:main"
 imm-predictor = "imm_predictor.cli:main"
 
 [tool.setuptools.packages.find]
@@ -29,7 +29,7 @@ include = [
     "bayestraj*",
     "imm_predictor*",
     "ship_simulator*",
-    "trajectory_predictor*",
+    "bayesian_predictor*",
 ]
 
 [tool.ruff]

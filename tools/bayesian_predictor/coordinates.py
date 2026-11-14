@@ -1,4 +1,4 @@
-"""Coordinate conversion owned by the Trajectory Predictor display."""
+"""Coordinate conversion owned by the Bayesian Predictor display."""
 
 import numpy as np
 

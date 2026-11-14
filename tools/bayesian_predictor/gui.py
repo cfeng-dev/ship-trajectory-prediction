@@ -24,7 +24,7 @@ WINDOW_RESIZE_DELAY_MS = 200
 SIDEBAR_SCROLL_DELAY_MS = 150
 
 
-class TrajectoryPredictor:
+class BayesianPredictor:
     """One Tk window, with all widget and Matplotlib access on its main thread."""
 
     def __init__(self, root, *, worker=None):

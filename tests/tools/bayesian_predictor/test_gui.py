@@ -1,4 +1,4 @@
-"""Non-visible Tk integration checks for the embedded trajectory predictor."""
+"""Non-visible Tk integration checks for the embedded Bayesian Predictor."""
 
 from threading import Event
 from time import monotonic
@@ -10,9 +10,8 @@ import pytest
 tk = pytest.importorskip("tkinter")
 ttk = pytest.importorskip("tkinter.ttk")
 
-from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
-from trajectory_predictor import controls as predictor_controls  # noqa: E402
-from trajectory_predictor.controls import (  # noqa: E402
+from bayesian_predictor import controls as predictor_controls  # noqa: E402
+from bayesian_predictor.controls import (  # noqa: E402
     CSV_BROWSE_BUTTON_WIDTH,
     CSV_STATE_ROW_KEYS,
     ScrollableForm,
@@ -21,24 +20,25 @@ from trajectory_predictor.controls import (  # noqa: E402
     format_reference_position,
     split_analysis_data_fields,
 )
-from trajectory_predictor.dashboard import (  # noqa: E402
+from bayesian_predictor.dashboard import (  # noqa: E402
     PARAMETER_NAMES,
     PosteriorDashboardTrajectory,
     PosteriorDashboardUpdate,
 )
-from trajectory_predictor.gui import TrajectoryPredictor  # noqa: E402
-from trajectory_predictor.session import PosteriorAnalysisWorker  # noqa: E402
-from trajectory_predictor.settings import (  # noqa: E402
+from bayesian_predictor.gui import BayesianPredictor  # noqa: E402
+from bayesian_predictor.session import PosteriorAnalysisWorker  # noqa: E402
+from bayesian_predictor.settings import (  # noqa: E402
     DATA_OPTION_FIELDS,
     MAIN_DATA_FIELDS,
 )
-from trajectory_predictor.view import (  # noqa: E402
+from bayesian_predictor.view import (  # noqa: E402
     DISABLED_INPUT_BACKGROUND,
     INPUT_BACKGROUND,
     TEXT_COLOR,
     centered_window_position,
     input_style_settings,
 )
+from ship_simulator.controls import STATUS_ROW_LABELS  # noqa: E402
 
 
 def pump_until(root, predicate):
@@ -80,7 +80,7 @@ def test_main_window_position_supports_small_upward_offset():
 
 def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
     """The predictor sidebar follows the Ship Simulator scrollbar implementation."""
-    from trajectory_predictor import controls
+    from bayesian_predictor import controls
 
     calls = []
 
@@ -97,7 +97,7 @@ def test_form_scrollbar_uses_the_native_tk_widget(monkeypatch):
 
 
 def test_scrollbar_prioritizes_interaction_before_moving_the_canvas(monkeypatch):
-    from trajectory_predictor import controls
+    from bayesian_predictor import controls
 
     events, options = [], {}
     canvas = SimpleNamespace(yview=lambda *args: events.append(args))
@@ -209,7 +209,7 @@ def test_input_styles_use_clam_only_to_override_macos_aqua(
     monkeypatch, windowing_system, uses_clam
 ):
     """Only Aqua needs a non-native theme to keep fields light."""
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
     calls = []
 
@@ -237,7 +237,7 @@ def test_input_styles_use_clam_only_to_override_macos_aqua(
 
 def test_plot_toolbar_uses_the_application_light_palette():
     """The embedded Matplotlib controls must not inherit system dark colours."""
-    from trajectory_predictor.view import (
+    from bayesian_predictor.view import (
         PLOT_BACKGROUND,
         configure_plot_toolbar,
     )
@@ -311,11 +311,11 @@ def test_status_panels_share_motion_state_row_order():
 
 def test_analysis_controls_lock_until_the_active_analysis_is_cancelled(monkeypatch):
     """A running analysis keeps its settings immutable until cancellation."""
-    from trajectory_predictor import gui
+    from bayesian_predictor import gui
 
     settings = SimpleNamespace(analysis=object())
     worker_starts, worker_requests, locked_states = [], [], []
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app._closing = False
     app._analysis_active = False
     app._settings = None
@@ -452,7 +452,7 @@ def test_posterior_median_process_noise_labels_are_compact():
 
 
 def test_help_documents_analysis_setup_options():
-    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
+    from bayesian_predictor.help import POSTERIOR_HELP_SECTIONS
 
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
@@ -470,7 +470,7 @@ def test_help_documents_analysis_setup_options():
 
 
 def test_help_explains_analysis_metrics():
-    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
+    from bayesian_predictor.help import POSTERIOR_HELP_SECTIONS
 
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
@@ -488,8 +488,8 @@ def test_help_explains_analysis_metrics():
 
 @pytest.mark.parametrize("tool", ["bayesian", "imm"])
 def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
+    from bayesian_predictor.help import POSTERIOR_HELP_SECTIONS
     from imm_predictor.dialogs import IMM_HELP_SECTIONS
-    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
 
     sections = dict(
         POSTERIOR_HELP_SECTIONS if tool == "bayesian" else IMM_HELP_SECTIONS
@@ -507,13 +507,11 @@ def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
 @pytest.mark.parametrize(
     ("package", "title"),
     [
-        ("trajectory_predictor", "Bayesian CTRV — Ship Trajectory Predictor"),
+        ("bayesian_predictor", "Bayesian Predictor"),
         ("imm_predictor", "IMM — Ship Trajectory Predictor"),
     ],
 )
-def test_main_window_title_identifies_the_ship_trajectory_predictor(
-    monkeypatch, package, title
-):
+def test_main_window_titles_identify_each_predictor(monkeypatch, package, title):
     import importlib
 
     view = importlib.import_module(f"{package}.view")
@@ -560,7 +558,7 @@ def test_main_window_title_identifies_the_ship_trajectory_predictor(
 
 
 @pytest.mark.parametrize("platform", ["win32", "linux"])
-@pytest.mark.parametrize("package", ["trajectory_predictor", "imm_predictor"])
+@pytest.mark.parametrize("package", ["bayesian_predictor", "imm_predictor"])
 def test_window_keeps_maximize_and_locks_only_its_own_windows_frame(
     monkeypatch, platform, package
 ):
@@ -630,7 +628,7 @@ def test_windows_frame_lock_preserves_titlebar_buttons_and_window_position(
 ):
     from unittest.mock import Mock
 
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
     native, get_style, set_style = native_window_api
     root = SimpleNamespace(winfo_id=Mock(return_value=42))
@@ -650,7 +648,7 @@ def test_windows_frame_lock_preserves_titlebar_buttons_and_window_position(
 
 @pytest.mark.parametrize("failure", ["read", "write", "refresh"])
 def test_windows_frame_lock_reports_native_failures(native_window_api, failure):
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
     native, get_style, set_style = native_window_api
     {"read": get_style, "write": set_style, "refresh": native.SetWindowPos}[
@@ -665,7 +663,7 @@ def test_windows_frame_lock_with_hidden_native_window():
     import sys
     from ctypes import wintypes
 
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
     if sys.platform != "win32":
         pytest.skip("Requires native Windows window styles.")
@@ -1422,7 +1420,7 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
     expected_height,
 ):
     """Short editors stay compact while longer forms remain scrollable."""
-    from trajectory_predictor.dialogs import dialog_height_for_content
+    from bayesian_predictor.dialogs import dialog_height_for_content
 
     assert dialog_height_for_content(content_height, screen_height) == expected_height
 
@@ -1439,14 +1437,14 @@ def test_compact_dialog_height_tracks_content_and_screen_limit(
 )
 def test_settings_dialog_width_matches_the_edited_group(group, expected_width):
     """Small inference forms do not use the wider data-editor layout."""
-    from trajectory_predictor.dialogs import dialog_width_for_group
+    from bayesian_predictor.dialogs import dialog_width_for_group
 
     assert dialog_width_for_group(group, screen_width=1920) == expected_width
 
 
 def test_settings_dialog_focuses_without_grabbing_the_main_window():
     """The main window close control remains available while a dialog is open."""
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     calls = []
     dialog = SimpleNamespace(
@@ -1461,7 +1459,7 @@ def test_settings_dialog_focuses_without_grabbing_the_main_window():
 
 def test_settings_dialog_is_positioned_before_it_is_shown(root):
     """A settings dialog must not visibly move from Tk's default position."""
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     calls = []
 
@@ -1494,7 +1492,7 @@ def test_settings_dialog_is_positioned_before_it_is_shown(root):
 
 def test_plot_display_window_is_positioned_before_it_is_shown(root):
     """The plot-display window must not visibly move from Tk's default position."""
-    from trajectory_predictor.dialogs import PlotDisplayWindow
+    from bayesian_predictor.dialogs import PlotDisplayWindow
 
     calls = []
 
@@ -1544,11 +1542,11 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
         return trajectory, 4, 1, load
 
     worker = PosteriorAnalysisWorker(prepare)
-    app = TrajectoryPredictor(root, worker=worker)
+    app = BayesianPredictor(root, worker=worker)
     assert not hasattr(app, "status_label")
     messages = []
     monkeypatch.setattr(
-        "trajectory_predictor.gui.messagebox.showerror",
+        "bayesian_predictor.gui.messagebox.showerror",
         lambda *args, **kwargs: messages.append(args),
     )
     data_file = tmp_path / "route.csv"
@@ -1616,10 +1614,10 @@ def test_gui_remains_responsive_and_replaces_analysis(root, tmp_path, monkeypatc
 
 
 def test_worker_error_is_shown_in_an_analysis_failed_dialog(root, monkeypatch):
-    app = TrajectoryPredictor(root)
+    app = BayesianPredictor(root)
     messages = []
     monkeypatch.setattr(
-        "trajectory_predictor.gui.messagebox.showerror",
+        "bayesian_predictor.gui.messagebox.showerror",
         lambda *args, **kwargs: messages.append((args, kwargs)),
     )
     try:
@@ -1703,7 +1701,7 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
 
 @pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
 def test_batch_window_field_is_only_offered_for_batch_methods(root, method):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     panel.variables["data"]["inference_method"].set(method)
@@ -1717,7 +1715,7 @@ def test_batch_window_field_is_only_offered_for_batch_methods(root, method):
 
 
 def test_start_index_label_and_field_share_vertical_center(root):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
@@ -1751,7 +1749,7 @@ def test_start_index_label_and_field_share_vertical_center(root):
 
 def test_data_file_browse_button_matches_windows_width_and_entry_height(root):
     """The file chooser remains a regular small button across platforms."""
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
@@ -1782,7 +1780,7 @@ def test_data_file_browse_button_matches_windows_width_and_entry_height(root):
 
 
 def test_data_dialog_contains_only_data_and_replay_options(root):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "data")
@@ -1798,7 +1796,7 @@ def test_data_dialog_contains_only_data_and_replay_options(root):
 
 
 def test_priors_dialog_explains_the_configured_distribution_families(root):
-    from trajectory_predictor.dialogs import SettingsDialog, prior_label_width
+    from bayesian_predictor.dialogs import SettingsDialog, prior_label_width
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "priors")
@@ -1856,7 +1854,7 @@ def test_priors_dialog_explains_the_configured_distribution_families(root):
 
 
 def test_plot_dialog_contains_display_options(root):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: None)
     dialog = SettingsDialog(root, panel, "plot")
@@ -1885,7 +1883,7 @@ def test_plot_dialog_contains_display_options(root):
 
 
 def test_plot_display_initial_values_translate_prediction_style():
-    from trajectory_predictor.dialogs import _plot_display_initial_values
+    from bayesian_predictor.dialogs import _plot_display_initial_values
 
     values = _plot_display_initial_values(
         {
@@ -1901,8 +1899,8 @@ def test_plot_display_initial_values_translate_prediction_style():
 
 
 def test_plot_display_window_closes_from_its_cancel_button(root):
-    from trajectory_predictor.dialogs import PlotDisplayWindow
-    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+    from bayesian_predictor.dialogs import PlotDisplayWindow
+    from bayesian_predictor.settings import DISPLAY_OPTION_FIELDS
 
     panel = SimpleNamespace(
         variables={
@@ -1952,15 +1950,15 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
 
 
 def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeypatch):
-    from trajectory_predictor.gui import TrajectoryPredictor
-    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+    from bayesian_predictor.gui import BayesianPredictor
+    from bayesian_predictor.settings import DISPLAY_OPTION_FIELDS
 
     def reject_display_options(_options):
         raise ValueError("follow_ship_view_span_m must be a finite positive number.")
 
     errors = []
     plot_view = SimpleNamespace(set_display_options=reject_display_options)
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.root = object()
     app._closing = False
     app.plot_view = plot_view
@@ -1978,7 +1976,7 @@ def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeyp
         }
     )
     monkeypatch.setattr(
-        "trajectory_predictor.gui.messagebox.showerror",
+        "bayesian_predictor.gui.messagebox.showerror",
         lambda *args, **_kwargs: errors.append(args),
     )
 
@@ -1990,8 +1988,8 @@ def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeyp
 
 
 def test_plot_display_apply_commits_the_local_draft_and_closes():
-    from trajectory_predictor.dialogs import PlotDisplayWindow
-    from trajectory_predictor.settings import DISPLAY_OPTION_FIELDS
+    from bayesian_predictor.dialogs import PlotDisplayWindow
+    from bayesian_predictor.settings import DISPLAY_OPTION_FIELDS
 
     draft_variables = {
         key: _Value(key != "show_legend") for key in DISPLAY_OPTION_FIELDS
@@ -2024,7 +2022,7 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
 
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     # Keep the parent withdrawn: no visible test window or actual inference.
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     panel = SettingsPanel(root, lambda: pytest.fail("Unexpected analysis start"))
     original = panel.values()
@@ -2035,7 +2033,7 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     dialog = SettingsDialog(root, panel, "smc")
     errors = []
     monkeypatch.setattr(
-        "trajectory_predictor.dialogs.messagebox.showerror",
+        "bayesian_predictor.dialogs.messagebox.showerror",
         lambda *args, **kwargs: errors.append(args),
     )
     dialog.variables["particle_count"].set("0")
@@ -2053,7 +2051,7 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
 def test_data_settings_dialog_keeps_an_empty_observation_interval_after_apply(
     monkeypatch,
 ):
-    from trajectory_predictor.dialogs import SettingsDialog
+    from bayesian_predictor.dialogs import SettingsDialog
 
     dialog = SettingsDialog.__new__(SettingsDialog)
     dialog.group = "data"
@@ -2065,7 +2063,7 @@ def test_data_settings_dialog_keeps_an_empty_observation_interval_after_apply(
     closed = []
     dialog.cancel = lambda: closed.append(True)
     monkeypatch.setattr(
-        "trajectory_predictor.dialogs.validate_dialog_values",
+        "bayesian_predictor.dialogs.validate_dialog_values",
         lambda _group, _values: {"observation_interval_seconds": None},
     )
 
@@ -2427,10 +2425,10 @@ def test_imm_scrollbar_uses_the_shared_interaction_callback(monkeypatch):
 def test_failure_disables_real_matplotlib_widgets_without_changing_selection():
     from unittest.mock import Mock
 
+    from bayesian_predictor.plot_view import PosteriorPlotView
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
-    from trajectory_predictor.plot_view import PosteriorPlotView
 
     figure = Figure()
     FigureCanvasAgg(figure)
@@ -2477,7 +2475,7 @@ def resizing_app():
         cancelled.append(token)
         callbacks.pop(token, None)
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.root = SimpleNamespace(after=schedule, after_cancel=cancel)
     app.root.callbacks, app.root.cancelled = callbacks, cancelled
     app._closing = app._closed = app._resizing = False
@@ -2531,10 +2529,10 @@ def test_resize_defers_updates_and_pauses_playback_until_manual_start(resizing_a
 
 
 def test_resize_does_not_advance_cached_results_until_playback_is_started(resizing_app):
-    from matplotlib.figure import Figure
-    from trajectory_predictor.dashboard import (
+    from bayesian_predictor.dashboard import (
         create_sequential_posterior_dashboard_figure,
     )
+    from matplotlib.figure import Figure
 
     from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 
@@ -2679,7 +2677,7 @@ def test_close_cancels_pending_scroll_resume_without_restarting_worker(resizing_
 def test_poll_reports_callback_errors_and_keeps_scheduling():
     from unittest.mock import Mock
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app._closing = app._closed = False
     app._error = None
     app.root = Mock()
@@ -2697,7 +2695,7 @@ def test_poll_reports_callback_errors_and_keeps_scheduling():
 def test_predictor_close_still_closes_worker_after_view_cleanup_fails(failure_stage):
     from unittest.mock import Mock
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app._closing = False
     app.controls = Mock()
     app.worker = Mock()
@@ -2735,7 +2733,7 @@ def test_reference_turn_rate_display_marks_only_derived_values():
 
 
 def test_toggle_settings_switches_posterior_display_mode():
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.settings_visible = True
     app.settings_visible_var = _Value(True)
     app.controls = SimpleNamespace(
@@ -2755,7 +2753,7 @@ def test_toggle_settings_switches_posterior_display_mode():
 
 
 def test_set_settings_visible_synchronizes_sidebar_menu_and_dashboard():
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.settings_visible = True
     app.settings_visible_var = _Value(True)
     sidebar_changes = []
@@ -2781,9 +2779,9 @@ def test_set_settings_visible_synchronizes_sidebar_menu_and_dashboard():
 def playback_menu_app(monkeypatch):
     from unittest.mock import Mock
 
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.root = Mock()
     app.language, app.language_var = "en", _Value("en")
     app.settings_visible_var = _Value(True)
@@ -2801,17 +2799,17 @@ def playback_menu_app(monkeypatch):
     )
     app.plot_view = None
     monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
-    monkeypatch.setattr("trajectory_predictor.gui.localize_widgets", Mock())
-    monkeypatch.setattr("trajectory_predictor.gui.messagebox.showerror", Mock())
+    monkeypatch.setattr("bayesian_predictor.gui.localize_widgets", Mock())
+    monkeypatch.setattr("bayesian_predictor.gui.messagebox.showerror", Mock())
     view.create_menu_bar(app)
     return app
 
 
 def _attach_menu_test_navigator(app, *, maximum=2):
-    from matplotlib.figure import Figure
-    from trajectory_predictor.dashboard import (
+    from bayesian_predictor.dashboard import (
         create_sequential_posterior_dashboard_figure,
     )
+    from matplotlib.figure import Figure
 
     from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 
@@ -2891,8 +2889,8 @@ def test_header_menus_follow_loading_playback_pause_completion_and_cancel(
 def test_header_menus_wait_for_manual_step_and_unlock_after_its_result(
     playback_menu_app, result
 ):
+    from bayesian_predictor.session import AnalysisEvent
     from matplotlib.backend_bases import KeyEvent
-    from trajectory_predictor.session import AnalysisEvent
 
     app = playback_menu_app
     navigator = _attach_menu_test_navigator(app)
@@ -2921,7 +2919,7 @@ def test_header_menus_wait_for_manual_step_and_unlock_after_its_result(
 def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     # Only native window creation is replaced. Real controller methods handle
     # visibility, method selection, and closing with an open settings editor.
-    from trajectory_predictor import view
+    from bayesian_predictor import view
 
     root_options, button_options, closed = {}, {}, []
     dialogs = []
@@ -2939,7 +2937,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
         def cancel(self):
             self.exists = False
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.root = SimpleNamespace(configure=lambda **options: root_options.update(options))
     app.worker = SimpleNamespace(close=lambda: closed.append(True))
     app.controls = SimpleNamespace(
@@ -2977,10 +2975,10 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
     app.show_plot_display = lambda: plot_windows.append(True)
     app.plot_view = None
     monkeypatch.setattr(view.tk, "Menu", _MenuRecorder)
-    monkeypatch.setattr("trajectory_predictor.gui.SettingsDialog", Dialog)
+    monkeypatch.setattr("bayesian_predictor.gui.SettingsDialog", Dialog)
     translated = []
     monkeypatch.setattr(
-        "trajectory_predictor.gui.localize_widgets",
+        "bayesian_predictor.gui.localize_widgets",
         lambda _root, language: translated.append(language),
     )
     view.create_menu_bar(app)
@@ -3069,7 +3067,7 @@ def test_menu_routes_settings_and_uses_graceful_close(monkeypatch):
 def test_language_switch_retains_native_tk_window_and_menu(root):
     """Exercise Tcl menu callbacks as well as the display-independent contract."""
     worker = SimpleNamespace(close=lambda: None)
-    app = TrajectoryPredictor(root, worker=worker)
+    app = BayesianPredictor(root, worker=worker)
     errors = []
     root.report_callback_exception = lambda *error: errors.append(error)
     menu = app._menu_bar
@@ -3119,11 +3117,11 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
         def focus_set(self):
             self.focused = True
 
-    app = TrajectoryPredictor.__new__(TrajectoryPredictor)
+    app = BayesianPredictor.__new__(BayesianPredictor)
     app.root = object()
     app._closing = False
     app._help_window = None
-    monkeypatch.setattr("trajectory_predictor.gui.PosteriorHelpWindow", HelpWindow)
+    monkeypatch.setattr("bayesian_predictor.gui.PosteriorHelpWindow", HelpWindow)
 
     app.show_help()
     app.show_help()
@@ -3137,7 +3135,7 @@ def test_help_window_is_reused_without_blocking_the_main_window(monkeypatch):
 
 def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
     """Every help section starts descriptions at the same horizontal position."""
-    from trajectory_predictor import help as predictor_help
+    from bayesian_predictor import help as predictor_help
 
     options = []
 
@@ -3159,7 +3157,7 @@ def test_help_descriptions_use_one_shared_left_column_width(monkeypatch):
 
 def test_help_window_uses_ship_simulator_content_height_and_top_left_position():
     """Help stays tall enough for reading and opens at the top-left screen corner."""
-    from trajectory_predictor.help import (
+    from bayesian_predictor.help import (
         help_content_height_for_screen,
         help_window_position,
     )

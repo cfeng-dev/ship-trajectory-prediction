@@ -6,9 +6,9 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from trajectory_predictor import localization
-from trajectory_predictor.dashboard import normalize_prediction_region_style
-from trajectory_predictor.settings import (
+from bayesian_predictor import localization
+from bayesian_predictor.dashboard import normalize_prediction_region_style
+from bayesian_predictor.settings import (
     METHOD_DISPLAY_LABELS,
     default_form_values,
     normalize_inference_method,
@@ -113,7 +113,7 @@ def test_figure_translation_preserves_data_limits_and_reverses():
 
 def test_help_has_german_translations_for_every_description():
     pytest.importorskip("tkinter")
-    from trajectory_predictor.help import POSTERIOR_HELP_SECTIONS
+    from bayesian_predictor.help import POSTERIOR_HELP_SECTIONS
 
     for title, rows in POSTERIOR_HELP_SECTIONS:
         assert localization.translate(title, "de") != title
@@ -142,7 +142,7 @@ def test_all_catalog_labels_round_trip():
 
 def test_sidebar_and_dialog_labels_are_covered_by_the_catalog():
     pytest.importorskip("tkinter")
-    from trajectory_predictor import dashboard, dialogs, settings
+    from bayesian_predictor import dashboard, dialogs, settings
 
     labels = [
         *settings.LABELS.values(),
@@ -161,7 +161,7 @@ def test_localized_widget_labels_leave_entry_values_untouched():
             self.kind, self.master, self.options = kind, master, options
             self.children = []
             self.variables = master.variables if master else {}
-            self.caption = "Bayesian CTRV — Ship Trajectory Predictor"
+            self.caption = "Bayesian Predictor"
             self.selected = options.pop("selected", "")
             if master:
                 master.children.append(self)
@@ -233,7 +233,7 @@ def test_translated_validation_messages_keep_field_and_numeric_meaning():
 
 
 def test_navigator_language_switch_keeps_cache_playback_and_zoom():
-    from trajectory_predictor.dashboard import (
+    from bayesian_predictor.dashboard import (
         PosteriorDashboardTrajectory,
         create_sequential_posterior_dashboard_figure,
     )

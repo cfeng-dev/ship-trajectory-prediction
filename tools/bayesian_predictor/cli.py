@@ -1,28 +1,28 @@
-"""Launch the Bayesian CTRV trajectory predictor."""
+"""Launch the Bayesian Predictor."""
 
 import argparse
 import logging
 
 
-def _import_trajectory_predictor():
+def _import_bayesian_predictor():
     """Import the GUI only after command-line help and Tk checks complete."""
-    from .gui import TrajectoryPredictor
+    from .gui import BayesianPredictor
 
-    return TrajectoryPredictor
+    return BayesianPredictor
 
 
-def _load_trajectory_predictor(parser):
+def _load_bayesian_predictor(parser):
     """Explain the shared-package requirement without masking other imports."""
     try:
-        return _import_trajectory_predictor()
+        return _import_bayesian_predictor()
     except ModuleNotFoundError as error:
         if error.name != "bayestraj" and not error.name.startswith("bayestraj."):
             raise
         parser.exit(
             2,
-            "Trajectory Predictor requires the shared bayestraj package. "
+            "Bayesian Predictor requires the shared bayestraj package. "
             "Run it from the complete project environment with "
-            "`uv run trajectory-predictor`.\n",
+            "`uv run bayesian-predictor`.\n",
         )
 
 
@@ -37,7 +37,7 @@ def main(argv=None):
             2, f"Tkinter is not available in this Python installation: {error}\n"
         )
 
-    TrajectoryPredictor = _load_trajectory_predictor(parser)
+    BayesianPredictor = _load_bayesian_predictor(parser)
 
     try:
         root = tk.Tk()
@@ -45,12 +45,10 @@ def main(argv=None):
         parser.exit(2, f"Das Tk-Fenster konnte nicht gestartet werden: {error}\n")
     app = None
     try:
-        app = TrajectoryPredictor(root)
+        app = BayesianPredictor(root)
         root.mainloop()
     except Exception:
-        logging.getLogger("trajectory_predictor").exception(
-            "Desktop application failed"
-        )
+        logging.getLogger("bayesian_predictor").exception("Desktop application failed")
         raise
     finally:
         if app is not None:

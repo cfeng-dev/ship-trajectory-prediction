@@ -7,10 +7,10 @@ from time import monotonic
 import numpy as np
 import pandas as pd
 import pytest
-from trajectory_predictor import dashboard
-from trajectory_predictor.dashboard import PARAMETER_NAMES, PosteriorDashboardUpdate
-from trajectory_predictor.session import PosteriorAnalysisWorker, prepare_analysis
-from trajectory_predictor.settings import default_form_values, parse_settings
+from bayesian_predictor import dashboard
+from bayesian_predictor.dashboard import PARAMETER_NAMES, PosteriorDashboardUpdate
+from bayesian_predictor.session import PosteriorAnalysisWorker, prepare_analysis
+from bayesian_predictor.settings import default_form_values, parse_settings
 
 
 def _update(observation_count):
@@ -452,7 +452,7 @@ def test_br24_session_forwards_each_method_and_its_configs(
         return sentinel
 
     monkeypatch.setattr(
-        "trajectory_predictor.session.is_br24_tracking_input", lambda _path: True
+        "bayesian_predictor.session.is_br24_tracking_input", lambda _path: True
     )
     monkeypatch.setattr(dashboard, "create_br24_radar_dashboard_loader", create_loader)
 

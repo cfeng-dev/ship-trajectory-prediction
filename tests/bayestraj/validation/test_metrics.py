@@ -150,8 +150,8 @@ def test_imm_visual_covariances_use_the_shared_relative_floor():
 
 @pytest.mark.parametrize("noise", [None, 0.1, 100.0])
 def test_evaluators_and_both_predictors_share_latent_gaussian_nlpd(noise):
+    from bayesian_predictor import dashboard
     from imm_predictor import player
-    from trajectory_predictor import dashboard
 
     from bayestraj.validation import imm_workflow
 

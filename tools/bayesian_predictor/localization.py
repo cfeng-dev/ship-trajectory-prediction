@@ -1,4 +1,4 @@
-"""Presentation-only English/German translations owned by Trajectory Predictor."""
+"""Presentation-only English/German translations owned by Bayesian Predictor."""
 
 import re
 from string import Formatter
@@ -12,8 +12,7 @@ TRANSLATIONS = {
     "Per-step 2D Gaussian ellipses from the full forecast mean and covariance; the same regions are used for coverage scoring": "Zeitschrittweise 2D-Gauß-Ellipsen aus Mittelwert und vollständiger Kovarianz der Prognose; dieselben Regionen werden für die Abdeckung verwendet",
     "NLPD (Gaussian)": "NLPD (Gauß)",
     "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.": "Mittlere negative logarithmische Dichte zukünftiger Referenzpositionen unter einer gemeinsamen 2D-Gauß-Näherung der latenten Prognose. Verwendet den prädiktiven Mittelwert und die vollständige Kovarianz ohne zusätzliches Sensorrauschen; kleiner ist besser. Ohne Prognose oder zukünftige Referenzpositionen nicht verfügbar.",
-    "Bayesian CTRV — Ship Trajectory Predictor": "Bayessches CTRV — Schiffstrajektorienprognose",
-    "Trajectory Predictor": "Trajektorienprognose",
+    "Bayesian Predictor": "Bayesian Predictor",
     "File": "Datei",
     "Open CSV…": "CSV öffnen…",
     "Exit": "Beenden",
@@ -275,7 +274,7 @@ TRANSLATIONS.update(
         "Move one observation backward or forward and pause playback": "Eine Beobachtung zurück- oder vorgehen und die Wiedergabe pausieren",
         "Pan, zoom, or reset the plot view": "Die Plot-Ansicht verschieben, vergrößern oder zurücksetzen",
         "Select the CSV file for analysis": "CSV-Datei für die Analyse auswählen",
-        "Exit Trajectory Predictor": "Trajektorienprognose beenden",
+        "Exit Bayesian Predictor": "Bayesian Predictor beenden",
         "Show or hide settings; select meters or kilometers; open plot display options": "Einstellungen ein- oder ausblenden, Meter oder Kilometer wählen und die Plot-Darstellung öffnen",
         "Configure priors, inference, and analysis setup; locked during analysis": "Prior-Verteilungen, Inferenz und Analyse konfigurieren; während der Analyse gesperrt",
         "Configure priors, inference and analysis setup": "Prior-Verteilungen, Inferenz und Analyse konfigurieren",

@@ -6,7 +6,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from trajectory_predictor.view import _remove_windows_resize_frame
+from bayesian_predictor.view import _remove_windows_resize_frame
 
 WINDOW_TITLE = "IMM — Ship Trajectory Predictor"
 WINDOW_BACKGROUND = "#F3F7FA"

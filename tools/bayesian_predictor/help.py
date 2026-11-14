@@ -1,4 +1,4 @@
-"""Non-modal help window and documentation content for Trajectory Predictor."""
+"""Non-modal help window and documentation content for Bayesian Predictor."""
 
 import tkinter as tk
 
@@ -28,7 +28,7 @@ POSTERIOR_HELP_SECTIONS = (
         "Menu",
         (
             ("File → Open CSV", "Select the CSV file for analysis"),
-            ("File → Exit", "Exit Trajectory Predictor"),
+            ("File → Exit", "Exit Bayesian Predictor"),
             (
                 "View",
                 "Show or hide settings; select meters or kilometers; open plot display options",
@@ -390,7 +390,7 @@ def help_window_height(content_height, screen_height):
 
 
 class PosteriorHelpWindow(tk.Toplevel):
-    """Non-modal, scrollable instructions for the trajectory predictor."""
+    """Non-modal, scrollable instructions for the Bayesian Predictor."""
 
     def __init__(self, parent, *, on_close=None):
         super().__init__(parent)
@@ -406,7 +406,7 @@ class PosteriorHelpWindow(tk.Toplevel):
         main.pack(fill="both", expand=True)
         tk.Label(
             main,
-            text="Trajectory Predictor",
+            text="Bayesian Predictor",
             font=("Arial", 13, "bold"),
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,

@@ -1,7 +1,7 @@
-"""Trajectory Predictor owns the coordinate conversion used by its display."""
+"""Bayesian Predictor owns the coordinate conversion used by its display."""
 
 import numpy as np
-from trajectory_predictor.coordinates import local_to_gps_coordinates
+from bayesian_predictor.coordinates import local_to_gps_coordinates
 
 
 def test_local_origin_maps_to_its_gps_reference():

@@ -2,10 +2,10 @@
 
 from types import SimpleNamespace
 
+import bayesian_predictor.dashboard as dashboard
 import numpy as np
 import pandas as pd
 import pytest
-import trajectory_predictor.dashboard as dashboard
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
 import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model

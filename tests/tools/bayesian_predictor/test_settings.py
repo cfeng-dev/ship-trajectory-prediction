@@ -5,14 +5,14 @@ import importlib
 
 import numpy as np
 import pytest
-from trajectory_predictor import cli, settings
+from bayesian_predictor import cli, settings
 
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 
 
 @pytest.mark.parametrize(
     ("package", "description"),
-    [("trajectory_predictor", "trajectory predictor"), ("imm_predictor", "IMM")],
+    [("bayesian_predictor", "Bayesian Predictor"), ("imm_predictor", "IMM")],
 )
 def test_command_help_does_not_open_a_window(capsys, package, description):
     main = importlib.import_module(f"{package}.cli").main
@@ -22,7 +22,7 @@ def test_command_help_does_not_open_a_window(capsys, package, description):
     assert description in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("package", ["trajectory_predictor", "imm_predictor"])
+@pytest.mark.parametrize("package", ["bayesian_predictor", "imm_predictor"])
 @pytest.mark.parametrize("fail", [False, True])
 def test_desktop_startup_and_errors_do_not_create_logs(
     tmp_path, monkeypatch, caplog, package, fail
@@ -41,8 +41,8 @@ def test_desktop_startup_and_errors_do_not_create_logs(
         root.mainloop.side_effect = ValueError("desktop error sentinel")
     app = Mock()
     importer = (
-        "_import_trajectory_predictor"
-        if package == "trajectory_predictor"
+        "_import_bayesian_predictor"
+        if package == "bayesian_predictor"
         else "_import_predictor_app"
     )
     monkeypatch.setattr(
@@ -75,10 +75,10 @@ def test_missing_shared_bayestraj_package_has_a_clear_startup_error(
     def missing_predictor_gui():
         raise ModuleNotFoundError("No module named 'bayestraj'", name="bayestraj")
 
-    monkeypatch.setattr(cli, "_import_trajectory_predictor", missing_predictor_gui)
+    monkeypatch.setattr(cli, "_import_bayesian_predictor", missing_predictor_gui)
 
     with pytest.raises(SystemExit) as result:
-        cli._load_trajectory_predictor(argparse.ArgumentParser())
+        cli._load_bayesian_predictor(argparse.ArgumentParser())
 
     assert result.value.code == 2
     assert "requires the shared bayestraj package" in capsys.readouterr().err
@@ -685,11 +685,11 @@ def test_removed_rbpf_method_is_rejected(form):
         settings.parse_settings(form)
 
 
-def test_trajectory_predictor_defaults_to_smc():
+def test_bayesian_predictor_defaults_to_smc():
     assert settings.default_form_values()["data"]["inference_method"] == "smc"
 
 
-def test_trajectory_predictor_defaults_to_prediction_funnel():
+def test_bayesian_predictor_defaults_to_prediction_funnel():
     assert settings.default_form_values()["data"]["prediction_region_style"] == "funnel"
 
 
@@ -704,7 +704,7 @@ def test_prediction_region_style_options_prioritize_prediction_funnel():
     )
 
 
-def test_trajectory_predictor_defaults_to_no_added_position_noise():
+def test_bayesian_predictor_defaults_to_no_added_position_noise():
     assert settings.default_form_values()["data"]["position_noise_std_m"] == "0.0"
 
 
@@ -782,7 +782,7 @@ def test_sequential_vi_settings_report_clear_invalid_fields(
         settings.parse_settings(form)
 
 
-def test_trajectory_predictor_defaults_to_three_forecast_steps():
+def test_bayesian_predictor_defaults_to_three_forecast_steps():
     assert settings.default_form_values()["data"]["prediction_count"] == "3"
 
 

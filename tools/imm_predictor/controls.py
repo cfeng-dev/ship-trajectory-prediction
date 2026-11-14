@@ -7,7 +7,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 import numpy as np
-from trajectory_predictor.controls import create_form_scrollbar
+from bayesian_predictor.controls import create_form_scrollbar
 
 from .player import IMMDisplayState
 from .view import (
@@ -416,7 +416,7 @@ def _format_optional(
 
 
 def _format_elapsed_time(seconds: float) -> str:
-    """Match the Trajectory Predictor's concise elapsed-time display."""
+    """Match the Bayesian Predictor's concise elapsed-time display."""
     if seconds < 60:
         return f"{seconds:.1f} s"
     whole_seconds = round(seconds)
