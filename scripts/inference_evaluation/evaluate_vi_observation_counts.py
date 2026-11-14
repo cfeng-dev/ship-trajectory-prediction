@@ -3,6 +3,8 @@
 Run directly with the header settings, or limit a run with
 --min-observations 2 --max-observations 20 --max-windows 1.
 All sizes are evaluated from N=2 while each training window grows to its limit.
+DATA_FILE accepts raw BR24 cycles or an already associated trajectory with
+ground-truth labels. Window sizes count cycles or selected fixes, respectively.
 """
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config

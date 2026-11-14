@@ -235,7 +235,8 @@ def run_observation_count_evaluation(
 
     Score identical forecast origins from N=2, including the startup phase.
     Each training window grows until it reaches its configured maximum size.
-    BR24 window sizes count cycles, not necessarily accepted measurements.
+    Raw BR24 window sizes count cycles, including missed detections. Associated
+    Cartesian input counts selected fixes and retains their original timestamps.
     Each CSV retains the existing actual-count columns and adds the configured
     window size. Save provenance in metadata.json without changing the forecast
     CSV schema. Return the exported paths; summaries are computed by comparison.
@@ -268,7 +269,14 @@ def run_observation_count_evaluation(
     except ValueError as error:
         parser.error(str(error))
 
-    cycles = workflow.br24_observations.read_br24_tracking_input(data_file)
+    associated_input = workflow.br24_observations.is_br24_associated_input(
+        data_file
+    ) and not workflow.br24_observations.is_br24_tracking_input(data_file)
+    cycles = (
+        workflow.br24_observations.read_br24_associated_input(data_file)
+        if associated_input
+        else workflow.br24_observations.read_br24_tracking_input(data_file)
+    )
     windows = rolling.build_online_forecast_specs(
         len(cycles),
         initial_observation_count=workflow.EVALUATION_START_OBSERVATION_COUNT,

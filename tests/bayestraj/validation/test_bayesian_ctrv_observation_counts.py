@@ -11,13 +11,129 @@ import pytest
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 import bayestraj.validation.comparison as comparison
 import bayestraj.validation.rolling as rolling
+from bayestraj.inference.particle_utils import SequentialCTRVFit
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
+@pytest.mark.parametrize("source", ["associated", "raw"])
+def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
+    tmp_path, monkeypatch, method, source
+):
+    times = np.array([49073.2, 49075.8, 49078.5, 49084.1, 49086.9, 49089.8])
+    positions = np.array([10.0, 12.0, 14.0, 18.0, 20.0, 22.0])
+    data = pd.DataFrame(
+        {
+            "time": times,
+            "cycle_counter": [2, 3, 4, 6, 7, 8],
+            "detection_id": 1,
+            "ground_truth_x": positions + 5.0,
+            "ground_truth_y": 0.0,
+        }
+    )
+    if source == "associated":
+        data["x"], data["y"] = positions, -4.0
+        data["cov_xx"], data["cov_xy"], data["cov_yy"] = 2.0, 0.25, 1.0
+    else:
+        data["sensor_x"], data["sensor_y"], data["sensor_yaw"] = 0.0, 0.0, 0.0
+        data["range"], data["azimuth"] = (
+            np.hypot(positions, 4.0),
+            np.arctan2(-4.0, positions),
+        )
+        data["std_range"], data["std_azimuth"] = 0.5, 0.02
+        data["x_relative"], data["y_relative"] = positions, -4.0
+    path = tmp_path / "trajectory.csv"
+    data.to_csv(path, index=False)
+    namespace = _script(method)
+    monkeypatch.setitem(namespace["main"].__globals__, "DATA_FILE", path)
+    fits = []
+
+    class Fit(SequentialCTRVFit):
+        converged = True
+
+        def diagnose(self):
+            return "No problems detected"
+
+        def summary(self):
+            return pd.DataFrame({"R_hat": [1.005]}, index=["speed_state[1]"])
+
+    def fit_model(window, *, position_observations, **kwargs):
+        fits.append(position_observations)
+        spread = np.linspace(-0.1, 0.1, 32)
+        return Fit(
+            {
+                "x_at_origin": position_observations.x_meters[-1] + spread,
+                "y_at_origin": position_observations.y_meters[-1] + spread,
+                "speed_at_origin": np.full(32, 1.0),
+                "heading_at_origin": spread,
+                "turn_rate_at_origin": spread * 0.01,
+                "sigma_position_observation": np.full(32, 0.1),
+                "sigma_speed_process": np.full(32, 0.1),
+                "sigma_turn_rate_process": np.full(32, 0.001),
+            }
+        )
+
+    monkeypatch.setattr(
+        evaluation.workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model
+    )
+    output = tmp_path / "sweep"
+    outputs = namespace["main"](
+        [
+            "--min-observations",
+            "2",
+            "--max-observations",
+            "3",
+            "--max-windows",
+            "3",
+            "--output-dir",
+            str(output),
+        ]
+    )
+    assert len(outputs) == 2
+    for count, destination in zip([2, 3], outputs, strict=True):
+        table = pd.read_csv(destination)
+        np.testing.assert_array_equal(
+            table["forecast_origin_seconds"].unique(), times[1:4]
+        )
+        np.testing.assert_allclose(
+            table["x_actual"], [19.0, 23.0, 25.0, 23.0, 25.0, 27.0, 25.0, 27.0]
+        )
+        assert table.groupby("window_index")["window_cycle_count"].first().tolist() == [
+            2,
+            min(3, count),
+            count,
+        ]
+        assert table["configured_observation_count"].eq(count).all()
+        np.testing.assert_allclose(
+            table.loc[table["window_index"].eq(0), "horizon_seconds"], [2.7, 8.3, 11.1]
+        )
+    np.testing.assert_allclose(fits[0].x_meters, [10.0, 12.0])
+    if source == "associated":
+        np.testing.assert_array_equal(
+            fits[0].measurement_covariances, [[[2.0, 0.25], [0.25, 1.0]]] * 2
+        )
+    metadata = evaluation.read_observation_count_metadata(output)
+    assert all(
+        record["data_file"] == str(path.resolve()) for record in metadata.values()
+    )
+    assert not (output / "summary.csv").exists()
+    summary = comparison.read_observation_count_evaluations(
+        **{f"{method}_dir": output}
+    )[method.upper()]
+    assert summary["observation_count"].tolist() == [2, 3]
+    assert summary["window_count"].tolist() == [3, 3]
+    assert summary["forecast_count"].tolist() == [8, 8]
 
 
 @pytest.fixture
 def sweep_run(tmp_path, monkeypatch):
     monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
+    monkeypatch.setattr(
+        evaluation.workflow.br24_observations,
+        "is_br24_associated_input",
+        lambda path: False,
+    )
     calls = []
     monkeypatch.setattr(
         evaluation.workflow.br24_observations,
