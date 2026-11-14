@@ -84,7 +84,7 @@ def run_imm_evaluation(
     credible_interval: float = 0.9,
     forecast_seed: int = 42,
 ) -> tuple[pd.DataFrame, IMMRollingSummary]:
-    """Track raw cycles and score forecasts without preparing trajectory plots.
+    """Evaluate raw-radar tracking or known Cartesian associations.
 
     Scoring uses 90-percent intervals by default. Keep the historical forecast
     seed sequence independently of visualization in the predictor tools.
@@ -92,12 +92,21 @@ def run_imm_evaluation(
     data_file = Path(data_file)
     imm_python = Path(imm_python)
     tracker_type = _load_optional_imm_tracker(imm_python)
-    cycles = br24.read_br24_tracking_input(data_file)
+    associated_input = (
+        data_file.is_file()
+        and not br24.is_br24_tracking_input(data_file)
+        and br24.is_br24_associated_input(data_file)
+    )
+    cycles = (
+        br24.read_br24_associated_input(data_file)
+        if associated_input
+        else br24.read_br24_tracking_input(data_file)
+    )
     reference = br24.read_br24_tracking_reference(data_file)
     if reference is None:
         raise ValueError("IMM evaluation requires ground_truth_* columns.")
     _validate_reference_alignment(cycles, reference)
-    if not cycles[0].detections:
+    if not associated_input and not cycles[0].detections:
         raise ValueError(
             "The earliest BR24 radar cycle has no detection to initialize."
         )
@@ -113,10 +122,20 @@ def run_imm_evaluation(
     if not windows:
         raise ValueError("No IMM forecast windows remain after the configured limit.")
 
-    initial_detection = cycles[0].detections[0]
-    tracker = tracker_type.initialize(
-        cycles[0], initial_detection_id=initial_detection.detection_id
-    )
+    if associated_input:
+        first = cycles[0]
+        initial_detection_id = first.detection_id
+        tracker = tracker_type.initialize_position(
+            first.time_seconds,
+            first.position,
+            first.measurement_covariance,
+        )
+    else:
+        initial_detection_id = cycles[0].detections[0].detection_id
+        tracker = tracker_type.initialize(
+            cycles[0],
+            initial_detection_id=initial_detection_id,
+        )
     cycle_times = np.asarray([cycle.time_seconds for cycle in cycles], dtype=float)
     processed_cycle_count = 1
     prediction_tables = []
@@ -125,12 +144,21 @@ def run_imm_evaluation(
         options,
         data_file=data_file,
         window_count=len(windows),
-        initial_detection_id=initial_detection.detection_id,
+        initial_detection_id=initial_detection_id,
+        associated_input=associated_input,
     )
     for number, specification in enumerate(windows, start=1):
         runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
-            tracker.process_cycle(cycles[processed_cycle_count])
+            cycle = cycles[processed_cycle_count]
+            if associated_input:
+                tracker.update_position(
+                    cycle.time_seconds,
+                    cycle.position,
+                    cycle.measurement_covariance,
+                )
+            else:
+                tracker.process_cycle(cycle)
             processed_cycle_count += 1
 
         forecast_stop_index = (
@@ -455,7 +483,7 @@ def _summarize_predictions(predictions: pd.DataFrame) -> IMMRollingSummary:
 
 
 def _print_configuration(
-    options, *, data_file, window_count, initial_detection_id
+    options, *, data_file, window_count, initial_detection_id, associated_input=False
 ) -> None:
     """Print data and model choices before starting the online tracker."""
     print("=" * 72)
@@ -465,7 +493,12 @@ def _print_configuration(
         reporting.format_aligned_rows(
             (
                 ("Data file", str(data_file)),
-                ("Trajectory schema", "raw BR24 radar cycles with evaluation labels"),
+                (
+                    "Trajectory schema",
+                    "associated BR24 Cartesian fixes with evaluation labels"
+                    if associated_input
+                    else "raw BR24 radar cycles with evaluation labels",
+                ),
                 ("Model", "local Python CV/CTRV/CA IMM tracker"),
                 ("Inference mode", "ONLINE"),
                 ("Initial observations", str(options.observation_count)),

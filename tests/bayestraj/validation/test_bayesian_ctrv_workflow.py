@@ -89,6 +89,136 @@ def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_p
     np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
 
 
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+def test_associated_evaluation_scores_reference_without_association_or_label_leakage(
+    tmp_path, monkeypatch, method
+):
+    from bayestraj.inference import br24_radar_tracker
+    from bayestraj.inference.particle_utils import SequentialCTRVFit
+
+    path = tmp_path / "associated.csv"
+    data = pd.DataFrame(
+        {
+            "time": [49073.2, 49075.8, 49081.0, 49084.1],
+            "cycle_counter": [2, 3, 5, 6],
+            "detection_id": [1, 1, 2, 2],
+            "x": [10.0, 12.0, 16.0, 18.0],
+            "y": [-4.0] * 4,
+            "cov_xx": [2.0] * 4,
+            "cov_xy": [0.25] * 4,
+            "cov_yy": [1.0] * 4,
+            "ground_truth_x": [20.0, 22.0, 26.0, 28.0],
+            "ground_truth_y": [0.0] * 4,
+        }
+    )
+    fits = []
+
+    class Fit(SequentialCTRVFit):
+        converged = True
+
+        def diagnose(self):
+            return "No problems detected"
+
+        def summary(self):
+            return pd.DataFrame({"R_hat": [1.001]}, index=["speed_state[1]"])
+
+    def fit_model(window, *, position_observations, **kwargs):
+        fits.append(position_observations)
+        spread = np.linspace(-0.1, 0.1, 32)
+        return Fit(
+            {
+                "x_at_origin": position_observations.x_meters[-1] + spread,
+                "y_at_origin": position_observations.y_meters[-1] + spread,
+                "speed_at_origin": np.full(32, 1.0),
+                "heading_at_origin": spread,
+                "turn_rate_at_origin": spread * 0.01,
+                "sigma_position_observation": np.full(32, 0.1),
+                "sigma_speed_process": np.full(32, 0.1),
+                "sigma_turn_rate_process": np.full(32, 0.001),
+            }
+        )
+
+    def unexpected_association(**kwargs):
+        pytest.fail("Already associated positions must bypass detection selection")
+
+    monkeypatch.setattr(workflow.batch_inference, "fit_bayesian_ctrv_model", fit_model)
+    monkeypatch.setattr(
+        br24_radar_tracker, "_nearest_gated_detection", unexpected_association
+    )
+
+    def evaluate():
+        data.to_csv(path, index=False)
+        return _run_br24_evaluation(
+            path,
+            inference_method=method,
+            prediction_count=2,
+            max_windows=2,
+            sequential_vi_config=sequential_vi_model.SequentialVIConfig(
+                n_bootstrap=10, draws=32
+            ),
+        )[0]
+
+    before = evaluate()
+    data["ground_truth_x"] += 1000.0
+    after = evaluate()
+    np.testing.assert_array_equal(before["x_actual"], [26.0, 28.0, 28.0])
+    np.testing.assert_array_equal(
+        before["forecast_origin_seconds"], [49075.8, 49075.8, 49081.0]
+    )
+    np.testing.assert_allclose(before["horizon_seconds"], [5.2, 8.3, 3.1])
+    np.testing.assert_array_equal(
+        before[["x_median", "y_median"]], after[["x_median", "y_median"]]
+    )
+    np.testing.assert_allclose(after["x_actual"] - before["x_actual"], 1000.0)
+    if method in {"vi", "mcmc"}:
+        np.testing.assert_array_equal(fits[0].x_meters, [10.0, 12.0])
+        np.testing.assert_array_equal(
+            fits[0].measurement_covariances, [[[2.0, 0.25], [0.25, 1.0]]] * 2
+        )
+
+
+@pytest.mark.skipif(
+    not workflow.br24_observations._IMM_IMPLEMENTATION_PATH.is_file(),
+    reason="Optional IMM backend is unavailable",
+)
+@pytest.mark.parametrize("source", ["raw", "associated"])
+def test_bayesian_and_imm_evaluations_share_reference_times_and_csv_contract(
+    tmp_path, source
+):
+    from bayestraj.validation import imm_workflow
+
+    path = tmp_path / "trajectory.csv"
+    _write_br24_evaluation_input(path, cycle_count=4, reference_x_offset=3.0)
+    data = pd.read_csv(path)
+    data["time"] = [49073.2, 49075.8, 49081.0, 49084.1]
+    if source == "associated":
+        data = data[
+            [
+                "time",
+                "cycle_counter",
+                "detection_id",
+                "ground_truth_x",
+                "ground_truth_y",
+            ]
+        ].copy()
+        data["x"] = [10.0, 11.0, 12.0, 13.0]
+        data["y"] = 0.0
+        data["cov_xx"] = 2.0
+        data["cov_xy"] = 0.25
+        data["cov_yy"] = 1.0
+    data.to_csv(path, index=False)
+    bayesian, _ = _run_br24_evaluation(path, prediction_count=2, max_windows=2)
+    imm, _ = imm_workflow.run_imm_evaluation(
+        data_file=path,
+        imm_python=workflow.br24_observations._IMM_IMPLEMENTATION_PATH,
+        options=validation_cli.IMMEvaluationOptions(2, 2, 1, 2, False),
+    )
+    aligned = comparison._align_forecasts({"Bayesian": bayesian, "IMM": imm})
+    np.testing.assert_array_equal(aligned["Bayesian"]["x_actual"], [15.0, 16.0, 16.0])
+    np.testing.assert_array_equal(aligned["IMM"]["x_actual"], [15.0, 16.0, 16.0])
+    np.testing.assert_allclose(aligned["IMM"]["horizon_seconds"], [5.2, 8.3, 3.1])
+
+
 def test_window_metric_summary_includes_rmse_and_mean_negative_log_predictive_density():
     evaluation = type(
         "Evaluation",

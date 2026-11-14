@@ -22,6 +22,7 @@ from bayestraj.inference.ctrv_smc import (
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import (
     ASSOCIATION_GATE_NIS,
+    BR24AssociatedMeasurement,
     BR24Detection,
     BR24RadarCycle,
     br24_measurement_covariance,
@@ -87,6 +88,40 @@ class BR24BayesianRadarTracker:
         detection = _detection_by_id(cycle.detections, initial_detection_id)
         position = _measurement_position(cycle, detection)
         covariance = _measurement_covariance(detection)
+        return cls.initialize_position(
+            cycle.time_seconds,
+            position,
+            covariance,
+            priors=priors,
+            config=config,
+            seed=seed,
+            residual_observation_noise_floor_m=residual_observation_noise_floor_m,
+            inference_method=inference_method,
+            observation_count=observation_count,
+            vi_config=vi_config,
+            mcmc_config=mcmc_config,
+            sequential_vi_config=sequential_vi_config,
+        )
+
+    @classmethod
+    def initialize_position(
+        cls,
+        time_seconds,
+        position,
+        measurement_covariance,
+        *,
+        priors,
+        config=None,
+        seed=42,
+        residual_observation_noise_floor_m=1e-6,
+        inference_method="smc",
+        observation_count=10,
+        vi_config=None,
+        mcmc_config=None,
+        sequential_vi_config=None,
+    ) -> BR24BayesianRadarTracker:
+        """Initialize from an already associated Cartesian fix and its covariance."""
+        covariance = measurement_covariance
         inference_method = normalize_radar_inference_method(inference_method)
         radar_priors = replace(
             priors,
@@ -94,7 +129,7 @@ class BR24BayesianRadarTracker:
         )
         if inference_method == "smc":
             radar_filter = BR24SMCAdapter.initialize(
-                cycle.time_seconds,
+                time_seconds,
                 position,
                 covariance,
                 priors=radar_priors,
@@ -103,7 +138,7 @@ class BR24BayesianRadarTracker:
             )
         elif inference_method == "sequential_vi":
             radar_filter = BR24SequentialVIAdapter.initialize(
-                cycle.time_seconds,
+                time_seconds,
                 position,
                 covariance,
                 priors=radar_priors,
@@ -113,7 +148,7 @@ class BR24BayesianRadarTracker:
             )
         else:
             radar_filter = BR24BatchAdapter.initialize(
-                cycle.time_seconds,
+                time_seconds,
                 position,
                 covariance,
                 inference_method=inference_method,
@@ -124,6 +159,25 @@ class BR24BayesianRadarTracker:
                 seed=seed,
             )
         return cls(filter=radar_filter, inference_method=inference_method)
+
+    def process_measurement(
+        self, measurement: BR24AssociatedMeasurement
+    ) -> BR24TrackerStep:
+        """Assimilate the supplied association directly, without a detection gate."""
+        self.filter.update(
+            measurement.time_seconds,
+            measurement.position[0],
+            measurement.position[1],
+            measurement_covariance=measurement.measurement_covariance,
+        )
+        self._accepted_measurement_count += 1
+        return BR24TrackerStep(
+            measurement.time_seconds,
+            measurement.cycle_counter,
+            measurement.detection_id,
+            None,
+            measurement.measurement_covariance,
+        )
 
     def process_cycle(self, cycle: BR24RadarCycle) -> BR24TrackerStep:
         """Associate and assimilate one later cycle, or propagate on a miss."""

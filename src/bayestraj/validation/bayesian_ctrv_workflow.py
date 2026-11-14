@@ -88,7 +88,9 @@ def run_bayesian_ctrv_evaluation(
         priors,
         turn_rate_prior_abs_rate_deg_s=options.turn_rate_prior_abs_rate_deg_s,
     )
-    if br24_observations.is_br24_tracking_input(data_file):
+    if br24_observations.is_br24_tracking_input(
+        data_file
+    ) or br24_observations.is_br24_associated_input(data_file):
         _, radar_vi_config = inference.select_inference_config(
             "batch",
             "vi",
@@ -470,7 +472,7 @@ def _run_br24_radar_evaluation(
     selected_window_indices,
     association_records=None,
 ):
-    """Evaluate leakage-free rolling forecasts from raw BR24 radar cycles."""
+    """Evaluate raw-radar tracking or a fixed sequence of associated BR24 fixes."""
     inference_mode, inference_method, _ = (
         inference.normalize_ctrv_rolling_inference_method(experiment.inference_method)
     )
@@ -483,7 +485,12 @@ def _run_br24_radar_evaluation(
     ):
         raise TypeError("smc_config must be a SequentialMonteCarloCTRVConfig instance.")
 
-    cycles = br24_observations.read_br24_tracking_input(data_file)
+    associated_input = not br24_observations.is_br24_tracking_input(data_file)
+    cycles = (
+        br24_observations.read_br24_associated_input(data_file)
+        if associated_input
+        else br24_observations.read_br24_tracking_input(data_file)
+    )
     reference = br24_observations.read_br24_tracking_reference(data_file)
     if reference is None:
         raise ValueError(
@@ -495,7 +502,7 @@ def _run_br24_radar_evaluation(
         reference.cycle_counters, cycle_counters
     ) or not np.array_equal(reference.time_seconds, cycle_times):
         raise ValueError("BR24 reference labels must align exactly with radar cycles.")
-    if not cycles[0].detections:
+    if not associated_input and not cycles[0].detections:
         raise ValueError(
             "The earliest BR24 radar cycle has no detection to initialize."
         )
@@ -512,10 +519,7 @@ def _run_br24_radar_evaluation(
             raise ValueError("max_windows must be a positive integer or None.")
         windows = windows[:max_windows]
 
-    initial_detection = cycles[0].detections[0]
-    tracker = br24_radar_tracker.BR24BayesianRadarTracker.initialize(
-        cycles[0],
-        initial_detection_id=initial_detection.detection_id,
+    tracker_options = dict(
         priors=priors,
         config=smc_config,
         seed=experiment.inference_seed,
@@ -529,9 +533,23 @@ def _run_br24_radar_evaluation(
         mcmc_config=mcmc_config,
         sequential_vi_config=sequential_vi_config,
     )
-    _record_br24_association(
-        association_records, cycles[0], initial_detection.detection_id
-    )
+    if associated_input:
+        first = cycles[0]
+        initial_detection_id = first.detection_id
+        tracker = br24_radar_tracker.BR24BayesianRadarTracker.initialize_position(
+            first.time_seconds,
+            first.position,
+            first.measurement_covariance,
+            **tracker_options,
+        )
+    else:
+        initial_detection_id = cycles[0].detections[0].detection_id
+        tracker = br24_radar_tracker.BR24BayesianRadarTracker.initialize(
+            cycles[0],
+            initial_detection_id=initial_detection_id,
+            **tracker_options,
+        )
+    _record_br24_association(association_records, cycles[0], initial_detection_id)
     processed_cycle_count = 1
     route_x = reference.x_meters
     route_y = reference.y_meters
@@ -542,7 +560,14 @@ def _run_br24_radar_evaluation(
     print("Bayesian CTRV BR24 Radar Rolling Evaluation")
     print("=" * 72)
     print(f"Data file             : {data_file}")
-    print("Trajectory schema     : raw BR24 radar cycles with evaluation labels")
+    print(
+        "Trajectory schema     : "
+        + (
+            "associated BR24 Cartesian fixes with evaluation labels"
+            if associated_input
+            else "raw BR24 radar cycles with evaluation labels"
+        )
+    )
     print("Model                 : Bayesian CTRV radar tracker")
     print(f"Inference mode        : {inference_mode.upper()}")
     print(f"Inference method      : {inference_method.upper()}")
@@ -566,7 +591,11 @@ def _run_br24_radar_evaluation(
         runtime_started = time.perf_counter()
         while processed_cycle_count < specification.forecast_start_index:
             cycle = cycles[processed_cycle_count]
-            step = tracker.process_cycle(cycle)
+            step = (
+                tracker.process_measurement(cycle)
+                if associated_input
+                else tracker.process_cycle(cycle)
+            )
             _record_br24_association(association_records, cycle, step.detection_id)
             processed_cycle_count += 1
 
@@ -656,7 +685,9 @@ def _record_br24_association(records, cycle, detection_id):
     if records is None:
         return
     position = np.full(2, np.nan)
-    if detection_id is not None:
+    if isinstance(cycle, br24_observations.BR24AssociatedMeasurement):
+        position = cycle.position
+    elif detection_id is not None:
         detection = next(d for d in cycle.detections if d.detection_id == detection_id)
         position = br24_observations.br24_measurement_position(
             sensor_position=cycle.sensor_position,

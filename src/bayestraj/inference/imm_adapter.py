@@ -1,7 +1,7 @@
-"""Read-only IMM posterior adapters shared by evaluation and desktop tools.
+"""IMM position-input and posterior adapters shared by evaluation and desktop tools.
 
 The optional local tracker keeps its filter equations and state ownership. This
-module only exposes model moments and coordinatewise mixture medians; it has no
+module exposes direct Cartesian updates, model moments and mixture medians; it has no
 application imports, GUI dependencies, or application-specific file defaults.
 """
 
@@ -15,6 +15,28 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import brentq
 from scipy.special import log_ndtr
+from scipy.stats import multivariate_normal
+
+from bayestraj.observations.position import validate_measurement_covariances
+
+
+def _position_measurement(time_seconds, position, measurement_covariance):
+    """Validate a known association independently of sensor or reference labels."""
+    time_seconds = float(time_seconds)
+    position = np.asarray(position, dtype=float).copy()
+    if (
+        not np.isfinite(time_seconds)
+        or position.shape != (2,)
+        or not np.isfinite(position).all()
+    ):
+        raise ValueError(
+            "A position measurement needs a finite time and two coordinates."
+        )
+    covariance = validate_measurement_covariances(
+        np.asarray(measurement_covariance, dtype=float)[None, :, :],
+        count=1,
+    )[0]
+    return time_seconds, position, covariance
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +221,76 @@ def load_imm_tracker(imm_python: str | Path):
 
     class DisplayTracker(tracker_type):
         """Expose output moments without modifying the optional filter implementation."""
+
+        @classmethod
+        def initialize_position(cls, time_seconds, position, measurement_covariance):
+            """Condition the initial position on a known fix in a fixed local frame."""
+            time_seconds, position, covariance = _position_measurement(
+                time_seconds,
+                position,
+                measurement_covariance,
+            )
+            state = module["_initialize_imm_state"](position)
+            for name, observation in (
+                ("cv_covariance", module["_H_CV"]),
+                ("ctrv_covariance", module["_H_CTRV"]),
+                ("ca_covariance", module["_H_CA"]),
+            ):
+                indices = np.flatnonzero(observation.sum(axis=0))
+                getattr(state, name)[np.ix_(indices, indices)] = covariance
+            return cls(
+                _state=state,
+                _last_observation_time_seconds=time_seconds,
+                _sensor_position=np.zeros(2),
+            )
+
+        def update_position(self, time_seconds, position, measurement_covariance):
+            """Use the backend's CV/CTRV/CA updates without selecting or gating a fix."""
+            time_seconds, position, covariance = _position_measurement(
+                time_seconds,
+                position,
+                measurement_covariance,
+            )
+            interval = time_seconds - self._last_observation_time_seconds
+            if interval <= 0:
+                raise ValueError("Position measurement times must increase strictly.")
+            predictions, _, probabilities = module["_predict_imm"](
+                self._state,
+                interval,
+                np.zeros(2),
+            )
+            updated = []
+            log_likelihoods = []
+            for prediction, observation in zip(
+                predictions,
+                (module["_H_CV"], module["_H_CTRV"], module["_H_CA"]),
+                strict=True,
+            ):
+                updated_state, innovation_covariance = module["_update"](
+                    *prediction,
+                    position,
+                    observation,
+                    covariance,
+                )
+                updated.append(updated_state)
+                log_likelihoods.append(
+                    multivariate_normal.logpdf(
+                        position,
+                        mean=observation @ prediction[0],
+                        cov=innovation_covariance,
+                    )
+                )
+            # A supplied association can be outside the radar gate; scale all
+            # densities together so their ratios survive very small likelihoods.
+            likelihoods = np.exp(np.asarray(log_likelihoods) - np.max(log_likelihoods))
+            probabilities = module["_update_mode_probabilities"](
+                likelihoods,
+                probabilities,
+            )
+            cv, ctrv, ca = updated
+            ctrv = module["_normalize_ctrv"](*ctrv)
+            self._state = module["_IMMState"](*cv, *ctrv, *ca, probabilities)
+            self._last_observation_time_seconds = time_seconds
 
         def posterior_state(self) -> IMMStatePosterior:
             mean, covariance = fuse(self._state, self._state.mode_probabilities)

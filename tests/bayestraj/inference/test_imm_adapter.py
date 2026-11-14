@@ -81,3 +81,30 @@ def test_predictor_uses_the_shared_snapshot_types_and_median_function():
     assert player.IMMStatePosterior is adapter.IMMStatePosterior
     assert player.IMMStateMixture is adapter.IMMStateMixture
     assert player._forecast_position_medians is adapter.forecast_position_medians
+
+
+@pytest.mark.skipif(
+    not (ROOT / "external/IMM/br24_imm.py").is_file(),
+    reason="Optional IMM backend is unavailable",
+)
+def test_associated_imm_consumes_known_positions_without_gating_and_uses_covariance():
+    adapter = importlib.import_module("bayestraj.inference.imm_adapter")
+    tracker_type = adapter.load_imm_tracker(ROOT / "external/IMM/br24_imm.py")
+    initial = np.array([100.0, -20.0])
+    covariance = np.array([[2.0, 0.25], [0.25, 1.0]])
+    tracker = tracker_type.initialize_position(49073.2, initial, covariance)
+    np.testing.assert_array_equal(tracker.estimated_position, initial)
+    np.testing.assert_allclose(tracker.estimated_position_covariance, covariance)
+    # A supplied association is assimilated even far outside the raw-radar gate.
+    tracker.update_position(49075.8, np.array([1100.0, -20.0]), covariance)
+    assert tracker.estimated_position[0] > 500.0
+    uncertain = tracker_type.initialize_position(49073.2, initial, covariance)
+    uncertain.update_position(49075.8, np.array([1100.0, -20.0]), covariance * 1e8)
+    assert uncertain.estimated_position[0] < tracker.estimated_position[0]
+    before = tracker.estimated_position.copy()
+    forecast = tracker.forecast([49081.0, 49084.1], seed=42)
+    assert forecast.position_means.shape == (2, 2)
+    assert np.isfinite(adapter.forecast_position_medians(tracker, forecast)).all()
+    np.testing.assert_array_equal(tracker.estimated_position, before)
+    with pytest.raises(ValueError):
+        tracker.update_position(49075.8, initial, covariance)

@@ -16,6 +16,7 @@ from .coordinates import (
     calculate_motion_from_positions,
     calculate_signed_turn_rate_from_yaw,
 )
+from .position import validate_measurement_covariances
 
 ASSOCIATION_GATE_NIS = float(chi2.ppf(0.99, df=2))
 _AZIMUTH_STANDARD_DEVIATION_INFLATION_RAD = np.deg2rad(0.5)
@@ -59,6 +60,60 @@ def is_br24_tracking_input(csv_path: str | Path) -> bool:
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
     columns = pd.read_csv(csv_path, nrows=0).columns
     return set(_TRACKING_INPUT_COLUMNS).issubset(columns)
+
+
+def is_br24_associated_input(csv_path: str | Path) -> bool:
+    """Recognize selected Cartesian fixes, including malformed covariance inputs."""
+    columns = pd.read_csv(csv_path, nrows=0).columns
+    return {"time", "cycle_counter", "detection_id", "x", "y"}.issubset(columns)
+
+
+@dataclass(frozen=True, slots=True)
+class BR24AssociatedMeasurement:
+    """One already selected world-frame fix, without evaluation labels."""
+
+    time_seconds: float
+    cycle_counter: int
+    detection_id: int
+    position: np.ndarray
+    measurement_covariance: np.ndarray
+
+
+def read_br24_associated_input(
+    csv_path: str | Path,
+) -> tuple[BR24AssociatedMeasurement, ...]:
+    """Read selected fixes without interpolation, time normalization or association."""
+    data = _read_csv_with_columns(csv_path, required=_OUTPUT_COLUMNS)
+    _validate_finite_columns(data, _OUTPUT_COLUMNS, source="BR24 associated input")
+    for name in ("cycle_counter", "detection_id"):
+        _validate_integral_column(data, name, source="BR24 associated input")
+    data = data.sort_values("cycle_counter").reset_index(drop=True)
+    _validate_strictly_increasing_time(
+        data,
+        source="BR24 associated input",
+        minimum_sample_count=1,
+    )
+    if np.any(np.diff(data["cycle_counter"]) <= 0):
+        raise ValueError("BR24 associated input must have one fix per cycle.")
+    covariances = np.empty((len(data), 2, 2))
+    covariances[:, 0, 0] = data["cov_xx"]
+    covariances[:, 0, 1] = covariances[:, 1, 0] = data["cov_xy"]
+    covariances[:, 1, 1] = data["cov_yy"]
+    covariances = validate_measurement_covariances(covariances, count=len(data))
+    fixes = []
+    for index, row in data.iterrows():
+        position = np.array([row["x"], row["y"]], dtype=float)
+        position.setflags(write=False)
+        fixes.append(
+            BR24AssociatedMeasurement(
+                float(row["time"]),
+                int(row["cycle_counter"]),
+                int(row["detection_id"]),
+                position,
+                covariances[index],
+            )
+        )
+    return tuple(fixes)
 
 
 @dataclass(frozen=True, slots=True)

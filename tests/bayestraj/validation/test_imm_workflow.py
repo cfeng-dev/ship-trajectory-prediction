@@ -97,6 +97,81 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     pd.testing.assert_frame_equal(pd.read_csv(tmp_path / "imm.csv"), table)
 
 
+def test_imm_associated_evaluation_uses_covariances_and_evaluation_only_reference(
+    tmp_path, monkeypatch
+):
+    workflow = importlib.import_module("bayestraj.validation.imm_workflow")
+    path = tmp_path / "associated.csv"
+    data = pd.DataFrame(
+        {
+            "time": [49073.2, 49075.8, 49081.0, 49084.1],
+            "cycle_counter": [2, 3, 5, 6],
+            "detection_id": [1, 1, 2, 2],
+            "x": [10.0, 12.0, 16.0, 18.0],
+            "y": [-4.0] * 4,
+            "cov_xx": [2.0] * 4,
+            "cov_xy": [0.25] * 4,
+            "cov_yy": [1.0] * 4,
+            "ground_truth_x": [20.0, 22.0, 26.0, 28.0],
+            "ground_truth_y": [0.0] * 4,
+        }
+    )
+    measurements = []
+
+    class Tracker:
+        @classmethod
+        def initialize_position(cls, time_seconds, position, measurement_covariance):
+            instance = cls()
+            instance.update_position(time_seconds, position, measurement_covariance)
+            return instance
+
+        def update_position(self, time_seconds, position, measurement_covariance):
+            measurements.append(
+                (
+                    time_seconds,
+                    np.asarray(position).copy(),
+                    measurement_covariance.copy(),
+                )
+            )
+            self.last_observation_time_seconds = time_seconds
+            self.estimated_position = np.asarray(position)
+
+        def process_cycle(self, cycle):
+            pytest.fail("Associated inputs must not run radar association")
+
+        def forecast(self, times, *, seed):
+            return SimpleNamespace(
+                time_seconds=np.asarray(times),
+                position_means=np.tile(self.estimated_position, (len(times), 1)),
+                position_covariances=np.tile(np.eye(2), (len(times), 1, 1)),
+                mode_probabilities=np.tile([1.0, 0.0, 0.0], (len(times), 1)),
+            )
+
+    monkeypatch.setattr(workflow, "_load_optional_imm_tracker", lambda _: Tracker)
+    options = cli.IMMEvaluationOptions(2, 2, 1, 2, False)
+
+    def evaluate():
+        data.to_csv(path, index=False)
+        return workflow.run_imm_evaluation(
+            data_file=path, imm_python=tmp_path / "backend.py", options=options
+        )[0]
+
+    before = evaluate()
+    data["ground_truth_x"] += 1000.0
+    after = evaluate()
+    assert [item[0] for item in measurements[:3]] == [49073.2, 49075.8, 49081.0]
+    np.testing.assert_array_equal(
+        [item[1] for item in measurements[:3]],
+        [[10.0, -4.0], [12.0, -4.0], [16.0, -4.0]],
+    )
+    np.testing.assert_array_equal(measurements[0][2], [[2.0, 0.25], [0.25, 1.0]])
+    np.testing.assert_array_equal(before["x_actual"], [26.0, 28.0, 28.0])
+    np.testing.assert_array_equal(
+        before[["x_median", "y_median"]], after[["x_median", "y_median"]]
+    )
+    np.testing.assert_allclose(after["x_actual"] - before["x_actual"], 1000.0)
+
+
 def _parse(arguments):
     return cli.parse_imm_evaluation_arguments(
         description="IMM evaluation test",

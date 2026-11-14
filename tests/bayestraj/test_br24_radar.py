@@ -24,6 +24,54 @@ from bayestraj.observations.br24 import (
 )
 
 
+@pytest.mark.parametrize(
+    "problem",
+    [None, "missing_covariance", "negative_covariance", "duplicate_time", "empty"],
+)
+def test_associated_input_preserves_source_time_positions_and_covariance(
+    tmp_path, problem
+):
+    path = tmp_path / "associated.csv"
+    data = pd.DataFrame(
+        {
+            "time": [49078.5, 49073.2],
+            "cycle_counter": [4, 2],
+            "detection_id": [3, 2],
+            "x": [12.0, 10.0],
+            "y": [-3.0, -4.0],
+            "cov_xx": [4.0, 2.0],
+            "cov_xy": [0.5, 0.25],
+            "cov_yy": [3.0, 1.0],
+            "ground_truth_x": [999.0, 999.0],
+            "ground_truth_y": [999.0, 999.0],
+        }
+    )
+    if problem == "missing_covariance":
+        data = data.drop(columns="cov_xy")
+    elif problem == "negative_covariance":
+        data.loc[0, "cov_xx"] = -1.0
+    elif problem == "duplicate_time":
+        data["time"] = 49073.2
+    elif problem == "empty":
+        data = data.iloc[:0]
+    data.to_csv(path, index=False)
+    assert br24.is_br24_associated_input(path)
+    assert not br24.is_br24_tracking_input(path)
+    if problem is not None:
+        with pytest.raises(ValueError):
+            br24.read_br24_associated_input(path)
+        return
+    fixes = br24.read_br24_associated_input(path)
+    assert [fix.time_seconds for fix in fixes] == [49073.2, 49078.5]
+    assert [fix.cycle_counter for fix in fixes] == [2, 4]
+    np.testing.assert_array_equal(fixes[0].position, [10.0, -4.0])
+    np.testing.assert_array_equal(
+        fixes[0].measurement_covariance, [[2.0, 0.25], [0.25, 1.0]]
+    )
+    assert not fixes[0].position.flags.writeable
+    assert not hasattr(fixes[0], "ground_truth_x")
+
+
 def test_reference_yaw_rate_uses_wrapped_backward_differences_and_real_intervals():
     rate = coordinates.calculate_signed_turn_rate_from_yaw(
         np.deg2rad([179.0, -179.0, 178.0, 178.0]),
