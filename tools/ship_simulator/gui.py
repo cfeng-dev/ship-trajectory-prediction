@@ -47,7 +47,7 @@ class ShipTrajectoryGUI:
         self.simulation_start_time = None
 
         # Remember how much of the current simulation session was saved to
-        # each CSV file. Reset starts a new session and clears this mapping.
+        # each CSV file. Reset clears this mapping and requires a new filename.
         self.saved_run_states = {}
 
         # Initialize camera at the ship start position.

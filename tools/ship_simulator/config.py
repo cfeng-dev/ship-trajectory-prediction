@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+DEFAULT_CSV_EXPORT_INTERVAL_SECONDS = 2.0
+
 
 @dataclass
 class GUIConfig:
@@ -28,31 +30,34 @@ class GUIConfig:
     # CSV export settings
     # ==================================================
     default_csv_filename: str = "simulated_ship_trajectory.csv"
+    csv_export_interval_seconds: float = DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 
     # ==================================================
     # Initial simulation values
     # ==================================================
-    initial_speed: float = 5.0
+    # BR24 reference motion starts near 2.21 m/s.
+    initial_speed: float = 2.2
 
     # ==================================================
     # Steering slider settings in degrees per second [°/s]
     # ==================================================
-    min_steering_deg_per_second: int = -45
-    max_steering_deg_per_second: int = 45
-    steering_resolution: int = 1
+    # Reference heading changes reach about 7.6 deg/s in the BR24 recording.
+    min_steering_deg_per_second: float = -8.0
+    max_steering_deg_per_second: float = 8.0
+    steering_resolution: float = 0.1
 
     # ==================================================
     # Speed slider settings in meters per second [m/s]
     # ==================================================
-    min_speed: float = 1.0
-    max_speed: float = 10.0
-    speed_resolution: float = 0.1
+    min_speed: float = 0.5
+    max_speed: float = 3.2
+    speed_resolution: float = 0.05
 
     # ==================================================
     # Keyboard control step sizes
     # ==================================================
-    keyboard_speed_step: float = 0.1
-    keyboard_steering_step: int = 1
+    keyboard_speed_step: float = 0.05
+    keyboard_steering_step: float = 0.1
 
     # ==================================================
     # Ship visualization size in meters [m]

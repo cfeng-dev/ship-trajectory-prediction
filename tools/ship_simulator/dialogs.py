@@ -197,7 +197,7 @@ def save_csv(gui):
 
     simulation_io.DATA_DIR.mkdir(parents=True, exist_ok=True)
     output_path = filedialog.asksaveasfilename(
-        title="Save or append trajectory data",
+        title="Save trajectory as time,x,y CSV",
         initialdir=simulation_io.DATA_DIR,
         initialfile=gui.default_csv_filename,
         defaultextension=".csv",
@@ -211,38 +211,27 @@ def save_csv(gui):
     if not output_path:
         return
 
-    trajectory_df = simulation_io.create_simulation_dataframe(
-        simulator=gui.simulator,
-        start_time=gui.simulation_start_time,
-        reference_longitude=gui.reference_longitude,
-        reference_latitude=gui.reference_latitude,
-    )
-
     resolved_output_path = Path(output_path).resolve()
-    saved_run_state = gui.saved_run_states.get(resolved_output_path)
+    first_unsaved_sample = gui.saved_run_states.get(resolved_output_path, 0)
     if not resolved_output_path.is_file() or resolved_output_path.stat().st_size == 0:
-        saved_run_state = None
-
-    if saved_run_state is None:
-        existing_run_id = None
         first_unsaved_sample = 0
-    else:
-        existing_run_id, first_unsaved_sample = saved_run_state
-
-    if first_unsaved_sample >= len(trajectory_df):
-        messagebox.showinfo(
-            "No New Data",
-            "No new trajectory samples are available.\n\n"
-            f"Run ID: {existing_run_id}\n"
-            f"File:\n{resolved_output_path}",
-        )
-        return
 
     try:
+        trajectory_df = simulation_io.create_simulation_dataframe(
+            gui.simulator, interval_seconds=gui.csv_export_interval_seconds
+        )
+        if first_unsaved_sample >= len(trajectory_df):
+            messagebox.showinfo(
+                "No New Data",
+                "No new CSV sample is available yet.\n"
+                f"Export interval: {gui.csv_export_interval_seconds:g} simulated seconds.\n\n"
+                f"File:\n{resolved_output_path}",
+            )
+            return
         save_result = simulation_io.save_trajectory_data(
             df=trajectory_df.iloc[first_unsaved_sample:],
             filename=output_path,
-            existing_run_id=existing_run_id,
+            append=first_unsaved_sample > 0,
         )
     except (OSError, ValueError) as error:
         messagebox.showerror(
@@ -251,30 +240,18 @@ def save_csv(gui):
         )
         return
 
-    gui.saved_run_states[save_result.output_path.resolve()] = (
-        save_result.run_id,
-        len(trajectory_df),
-    )
+    gui.saved_run_states[save_result.output_path.resolve()] = len(trajectory_df)
 
-    if save_result.continued:
+    if save_result.appended:
         message_title = "Trajectory Updated"
         message_text = (
-            "New samples appended to the current trajectory run.\n\n"
-            f"Run ID: {save_result.run_id}\n"
-            f"File:\n{save_result.output_path}"
-        )
-    elif save_result.appended:
-        message_title = "Trajectory Appended"
-        message_text = (
-            "New trajectory run appended to the existing CSV file.\n\n"
-            f"Run ID: {save_result.run_id}\n"
+            "New samples appended to the current time,x,y trajectory.\n\n"
             f"File:\n{save_result.output_path}"
         )
     else:
         message_title = "Trajectory Saved"
         message_text = (
-            "New CSV file created.\n\n"
-            f"Run ID: {save_result.run_id}\n"
+            "New time,x,y CSV created for the Bayesian Predictor.\n\n"
             f"File:\n{save_result.output_path}"
         )
 

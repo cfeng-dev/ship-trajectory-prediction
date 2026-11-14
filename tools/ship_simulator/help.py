@@ -260,19 +260,23 @@ def show_help_window(
     simulation_info_descriptions = [
         (
             "While paused",
-            "Simulation time stops; exported timestamps contain no pause gap",
+            "Simulation time stops; exported seconds contain no pause gap",
         ),
         (
-            "CSV timestamps",
-            "UTC start time plus elapsed simulation time",
+            "CSV format",
+            "time,x,y: elapsed seconds and local positions in meters; load directly in Bayesian Predictor",
         ),
         (
             "Repeated save",
-            "Append only new samples to the current run ID",
+            "Append only new samples to the same trajectory file, without duplicate timestamps",
+        ),
+        (
+            "CSV interval",
+            "Every 2 simulated seconds by default, using original positions without interpolation; the simulation still advances in 0.05 s steps",
         ),
         (
             "After Reset",
-            "Next save to the same file starts a new run ID",
+            "Choose a new CSV filename for the new simulation run",
         ),
         (
             "Turn Radius",

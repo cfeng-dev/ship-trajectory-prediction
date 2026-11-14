@@ -1,4 +1,4 @@
-"""DataFrame creation and CSV export for the standalone simulator tool."""
+"""Export one simulated trajectory as numeric time,x,y for the predictor."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,240 +6,107 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import coordinates, paths
+from . import paths
+from .config import DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 
-METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR = 3.6
 DATA_DIR = paths.default_simulation_data_directory()
+TRAJECTORY_COLUMNS = ["time", "x", "y"]
 
 
 @dataclass(frozen=True)
 class TrajectorySaveResult:
-    """Result details for a saved simulation run."""
+    """Destination and continuation status of a saved simulation."""
 
     output_path: Path
-    run_id: int
     appended: bool
-    continued: bool
 
 
-def _format_utc_timestamp(timestamp):
-    """Format a timestamp in UTC with fixed hundredths of a second."""
-    timestamp = pd.Timestamp(timestamp)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.tz_localize("UTC")
-    else:
-        timestamp = timestamp.tz_convert("UTC")
-
-    timestamp = timestamp.round("10ms")
-    hundredths = timestamp.microsecond // 10_000
-    return f"{timestamp:%Y-%m-%d %H:%M:%S}.{hundredths:02d}+00:00"
-
-
-def _prepare_export_data(df, run_id):
-    """Add a run ID and apply stable CSV formatting."""
-    export_data = df.copy()
-
-    if "run_id" in export_data.columns:
-        export_data["run_id"] = run_id
-    else:
-        column_position = 1 if "time" in export_data.columns else 0
-        export_data.insert(column_position, "run_id", run_id)
-
-    if "time" in export_data.columns:
-        export_data["time"] = export_data["time"].map(_format_utc_timestamp)
-
-    for coordinate_column in ("gps_latitude", "gps_longitude"):
-        if coordinate_column in export_data.columns:
-            export_data[coordinate_column] = export_data[coordinate_column].map(
-                lambda value: f"{value:.8f}"
-            )
-
-    return export_data
-
-
-def _get_next_run_id(output_path, expected_columns):
-    """Validate an existing CSV and return its next run ID."""
-    if not output_path.exists() or output_path.stat().st_size == 0:
-        return 0, False
-
-    try:
-        existing_columns = pd.read_csv(output_path, nrows=0).columns.tolist()
-    except pd.errors.EmptyDataError:
-        return 0, False
-
-    if existing_columns == expected_columns:
-        existing_run_ids = pd.read_csv(output_path, usecols=["run_id"])["run_id"]
-        if existing_run_ids.empty:
-            return 0, True
-
-        numeric_run_ids = pd.to_numeric(existing_run_ids, errors="coerce")
-        if (
-            numeric_run_ids.isna().any()
-            or (numeric_run_ids < 0).any()
-            or (numeric_run_ids % 1 != 0).any()
-        ):
-            raise ValueError("Existing CSV contains invalid run_id values.")
-
-        return int(numeric_run_ids.max()) + 1, True
-
-    legacy_columns = [column for column in expected_columns if column != "run_id"]
-    if existing_columns == legacy_columns:
-        legacy_data = pd.read_csv(output_path)
-        migrated_data = _prepare_export_data(legacy_data, run_id=0)
-        migrated_data.to_csv(output_path, index=False, float_format="%.3f")
-        next_run_id = 1 if not legacy_data.empty else 0
-        return next_run_id, True
-
-    raise ValueError(
-        "Existing CSV columns do not match the current simulation export schema. "
-        "Choose a new filename to avoid mixing incompatible data."
-    )
+def _validate_trajectory(data):
+    """Validate one ordered trajectory or a continuation without resetting time."""
+    if data.columns.tolist() != TRAJECTORY_COLUMNS:
+        raise ValueError("Trajectory CSV must contain exactly time,x,y columns.")
+    trajectory = data.apply(pd.to_numeric, errors="raise").astype(float)
+    if trajectory.empty or not np.isfinite(trajectory.to_numpy()).all():
+        raise ValueError("Trajectory time,x,y values must be finite and non-empty.")
+    if np.any(np.diff(trajectory["time"].to_numpy()) <= 0.0):
+        raise ValueError("Trajectory times must be strictly increasing.")
+    return trajectory
 
 
 def create_simulation_dataframe(
-    simulator,
-    start_time=None,
-    *,
-    reference_longitude,
-    reference_latitude,
+    simulator, *, interval_seconds=DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 ):
-    """
-    Create a DataFrame from a completed ship simulation.
-
-    Parameters
-    ----------
-    simulator : ShipSimulator
-        Simulator instance containing stored trajectory data.
-    start_time : datetime-like or None, optional
-        UTC time corresponding to ``t = 0``. The current UTC time is used if
-        no start time is provided.
-    reference_longitude, reference_latitude : float
-        GPS coordinates represented by the local simulation origin ``(0, 0)``.
-
-    Returns
-    -------
-    trajectory_df : pd.DataFrame
-        Simulated trajectory data including GPS positions, GPS speed in km/h,
-        and simulated motion values.
-    """
-    x_positions = np.asarray(simulator.x_all, dtype=float)
-    y_positions = np.asarray(simulator.y_all, dtype=float)
-    elapsed_time = np.asarray(simulator.t_all, dtype=float)
-    speed_mps = np.asarray(simulator.v_all, dtype=float)
-
-    if start_time is None:
-        start_timestamp = pd.Timestamp.now(tz="UTC").floor("s")
-    else:
-        start_timestamp = pd.Timestamp(start_time)
-        if start_timestamp.tzinfo is None:
-            start_timestamp = start_timestamp.tz_localize("UTC")
-        else:
-            start_timestamp = start_timestamp.tz_convert("UTC")
-
-    timestamps = start_timestamp + pd.to_timedelta(elapsed_time, unit="s")
-
-    if len(x_positions) == 0:
-        gps_longitude = np.asarray([])
-        gps_latitude = np.asarray([])
-    else:
-        gps_longitude, gps_latitude = coordinates.local_to_gps_coordinates(
-            x_positions,
-            y_positions,
-            reference_longitude=reference_longitude,
-            reference_latitude=reference_latitude,
+    """Select original samples on a fixed time grid without interpolating positions."""
+    if isinstance(interval_seconds, bool):
+        raise ValueError("CSV export interval must be positive and finite.")
+    interval = float(interval_seconds)
+    if not np.isfinite(interval) or interval <= 0.0:
+        raise ValueError("CSV export interval must be positive and finite.")
+    trajectory = _validate_trajectory(
+        pd.DataFrame(
+            {
+                "time": np.asarray(simulator.t_all, dtype=float),
+                "x": np.asarray(simulator.x_all, dtype=float),
+                "y": np.asarray(simulator.y_all, dtype=float),
+            }
         )
-
-    trajectory_df = pd.DataFrame(
-        {
-            "time": timestamps,
-            "gps_latitude": gps_latitude,
-            "gps_longitude": gps_longitude,
-            "gps_speed": (speed_mps * METERS_PER_SECOND_TO_KILOMETERS_PER_HOUR),
-            "t": elapsed_time,
-            "theta": np.asarray(simulator.theta_all, dtype=float),
-            "omega": np.asarray(simulator.omega_all, dtype=float),
-            "v": speed_mps,
-            "simulation_running": np.asarray(simulator.motor_state_all, dtype=bool),
-        }
     )
+    times = trajectory["time"].to_numpy()
+    last_grid_index = (times[-1] - times[0]) / interval
+    tolerance = 1e-9 * max(1.0, abs(last_grid_index))
+    sample_count = int(np.floor(last_grid_index + tolerance)) + 1
+    targets = times[0] + np.arange(sample_count) * interval
+    right = np.minimum(np.searchsorted(times, targets), len(times) - 1)
+    left = np.maximum(right - 1, 0)
+    indices = np.where(
+        np.abs(times[left] - targets) <= np.abs(times[right] - targets), left, right
+    )
+    if not np.allclose(times[indices], targets, rtol=1e-9, atol=1e-9) or np.any(
+        np.diff(indices) <= 0
+    ):
+        raise ValueError(
+            "CSV export interval must align with the recorded simulation steps."
+        )
+    return trajectory.iloc[indices].reset_index(drop=True)
 
-    return trajectory_df
 
-
-def save_trajectory_data(df, filename, existing_run_id=None):
-    """
-    Save or append simulated trajectory data as a CSV file.
-
-    If only a filename is given, the file is saved in data/simulated.
-    A new file starts with ``run_id = 0``. If a compatible file already
-    exists, the trajectory is appended using the next available run ID.
-    New samples from an already saved simulation session can be appended to
-    their existing run by passing ``existing_run_id``.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Simulated trajectory data.
-    filename : str or pathlib.Path
-        Output CSV filename or full output path.
-    existing_run_id : int or None, optional
-        Existing run to continue. The DataFrame must contain only samples that
-        have not been saved previously.
-
-    Returns
-    -------
-    result : TrajectorySaveResult
-        Saved path, assigned run ID, and how data was appended.
-    """
-    output_path = Path(filename)
-
-    # If only a filename is given, save it in the default data directory.
+def save_trajectory_data(df, filename, *, append=False):
+    """Save one run or append new samples from the same active simulation."""
+    trajectory = _validate_trajectory(df)
+    output_path = Path(filename).expanduser()
     if not output_path.is_absolute():
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         output_path = DATA_DIR / output_path
-    else:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    expected_columns = _prepare_export_data(df, run_id=0).columns.tolist()
-    next_run_id, append_to_existing_file = _get_next_run_id(
-        output_path,
-        expected_columns,
-    )
-
-    continued_run = existing_run_id is not None
-    if continued_run:
-        if not append_to_existing_file:
+    has_existing_data = output_path.is_file() and output_path.stat().st_size > 0
+    if append:
+        if not has_existing_data:
             raise ValueError(
-                "Cannot continue a run because the existing CSV file is missing "
-                "or empty."
+                "Cannot continue a trajectory because its CSV is missing or empty."
             )
-
-        existing_run_ids = pd.read_csv(output_path, usecols=["run_id"])["run_id"]
-        numeric_run_ids = pd.to_numeric(existing_run_ids, errors="coerce")
-        if existing_run_id not in numeric_run_ids.to_numpy():
+        existing = _validate_trajectory(
+            pd.read_csv(output_path, float_precision="round_trip")
+        )
+        if trajectory["time"].iloc[0] <= existing["time"].iloc[-1]:
             raise ValueError(
-                f"Run ID {existing_run_id} does not exist in the selected CSV file."
+                "New trajectory samples must follow the previously saved times."
             )
-        run_id = existing_run_id
+        mode = "a"
     else:
-        run_id = next_run_id
+        if has_existing_data:
+            raise FileExistsError(
+                "This file already contains a trajectory. Choose a new filename for a new simulation run."
+            )
+        mode = "w" if output_path.is_file() else "x"
 
-    export_data = _prepare_export_data(df, run_id=run_id)
-
-    # Keep fixed timestamp and GPS precision while rounding other floats.
-    export_data.to_csv(
-        output_path,
-        mode="a" if append_to_existing_file else "w",
-        header=not append_to_existing_file,
-        index=False,
-        float_format="%.3f",
-    )
-
-    print(f"Saved simulated run {run_id} to: {output_path}")
-
-    return TrajectorySaveResult(
-        output_path=output_path,
-        run_id=run_id,
-        appended=append_to_existing_file,
-        continued=continued_run,
-    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    needs_newline = False
+    if append:
+        with output_path.open("rb") as existing_file:
+            existing_file.seek(-1, 2)
+            needs_newline = existing_file.read(1) not in {b"\n", b"\r"}
+    with output_path.open(mode, encoding="utf-8", newline="") as output_file:
+        if needs_newline:
+            output_file.write("\n")
+        trajectory.to_csv(output_file, header=not append, index=False)
+    print(f"Saved simulated trajectory to: {output_path}")
+    return TrajectorySaveResult(output_path=output_path, appended=append)

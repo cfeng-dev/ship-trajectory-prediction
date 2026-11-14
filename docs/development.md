@@ -31,8 +31,11 @@ uv sync --locked
 
 ### 1. Ship Simulator
 
-Use the interactive simulator to generate synthetic ship-trajectory CSV files
-when recorded trajectory data are unavailable. Run it from the project root:
+Use the interactive simulator to export one `time,x,y` CSV per simulation run,
+with samples every 2 simulated seconds and local positions in meters, ready for
+Bayesian Predictor. The simulation itself advances in 0.05-second steps.
+Repeated saves continue the current file; after Reset, choose a new filename.
+Run it from the project root:
 
 ```bash
 uv run ship-simulator
