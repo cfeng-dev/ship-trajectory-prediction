@@ -634,6 +634,36 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     assert all(len(table) == 2 for table in compared.values())
 
 
+def test_processed_smc_runtime_excludes_initial_tracker_setup(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(workflow.time, "perf_counter", lambda: clock[0])
+    tracker_type = smc_model.SequentialMonteCarloCTRVFilter
+    initialize = tracker_type.initialize
+    forecast = tracker_type.forecast
+    initialization_counts = []
+
+    def timed_initialize(times, *args, **kwargs):
+        initialization_counts.append(len(times))
+        clock[0] += 101.0
+        return initialize(times, *args, **kwargs)
+
+    def timed_forecast(self, *args, **kwargs):
+        clock[0] += 3.0
+        return forecast(self, *args, **kwargs)
+
+    monkeypatch.setattr(tracker_type, "initialize", timed_initialize)
+    monkeypatch.setattr(tracker_type, "forecast", timed_forecast)
+    path = tmp_path / "trajectory.csv"
+    pd.DataFrame(
+        {"time": [10.0, 12.0, 15.0, 19.0], "x": [0.0, 1.0, 2.0, 3.0], "y": 0.0}
+    ).to_csv(path, index=False)
+    predictions, _ = _run_br24_evaluation(
+        path, inference_method="smc", max_windows=1, prediction_count=2
+    )
+    assert predictions["fit_runtime_seconds"].eq(3.0).all()
+    assert initialization_counts == [1]
+
+
 @pytest.mark.parametrize(
     ("rhat_values", "expected"),
     [([1.001, 1.05, np.nan], 1.05), ([1.001, np.inf, np.nan], np.inf)],

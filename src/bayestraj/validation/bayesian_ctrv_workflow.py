@@ -279,6 +279,15 @@ def _run_evaluation(
     online_filter = None
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
+    if online_mode and inference_method == "smc" and windows:
+        online_filter = smc_model.SequentialMonteCarloCTRVFilter.initialize(
+            route_time_seconds[:1],
+            noisy_route_x[:1],
+            noisy_route_y[:1],
+            priors=priors,
+            config=smc_config,
+            seed=experiment.inference_seed,
+        )
     for number, specification in enumerate(windows, start=1):
         window_seed = experiment.inference_seed
         print(

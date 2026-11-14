@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
+from time import perf_counter
 from types import MappingProxyType
 
 import matplotlib.pyplot as plt
@@ -454,7 +455,7 @@ class DashboardAnalysisMetrics:
     joint_coverage_50_count: int
     joint_coverage_90_count: int
     joint_coverage_total: int
-    inference_time_seconds: float | None
+    fit_runtime_seconds: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,7 +469,7 @@ class PosteriorDashboardUpdate:
     resample_count: int | None = None
     predictive_log_density: float | None = None
     forecast: PosteriorDashboardForecast | None = None
-    inference_time_seconds: float | None = None
+    fit_runtime_seconds: float | None = None
     is_prior_predictive: bool = False
     tracked_positions: np.ndarray | None = None
     radar_tracking_active: bool = False
@@ -528,11 +529,10 @@ class PosteriorDashboardUpdate:
             self.forecast, PosteriorDashboardForecast
         ):
             raise TypeError("forecast must be a PosteriorDashboardForecast or None.")
-        if self.inference_time_seconds is not None and (
-            not np.isfinite(self.inference_time_seconds)
-            or self.inference_time_seconds < 0
+        if self.fit_runtime_seconds is not None and (
+            not np.isfinite(self.fit_runtime_seconds) or self.fit_runtime_seconds < 0
         ):
-            raise ValueError("inference_time_seconds must be finite and non-negative.")
+            raise ValueError("fit_runtime_seconds must be finite and non-negative.")
         if self.predictive_log_density is not None and not np.isfinite(
             self.predictive_log_density
         ):
@@ -637,7 +637,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             joint_coverage_50_count=0,
             joint_coverage_90_count=0,
             joint_coverage_total=0,
-            inference_time_seconds=None,
+            fit_runtime_seconds=None,
         )
     update = updates_by_count.get(observation_count)
     if not trajectory.has_reference:
@@ -650,8 +650,8 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
             joint_coverage_50_count=0,
             joint_coverage_90_count=0,
             joint_coverage_total=0,
-            inference_time_seconds=(
-                None if update is None else update.inference_time_seconds
+            fit_runtime_seconds=(
+                None if update is None else update.fit_runtime_seconds
             ),
         )
     forecast = None if update is None else update.forecast
@@ -715,9 +715,7 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
         joint_coverage_50_count=covered_50_count,
         joint_coverage_90_count=covered_90_count,
         joint_coverage_total=total_count,
-        inference_time_seconds=(
-            None if update is None else update.inference_time_seconds
-        ),
+        fit_runtime_seconds=(None if update is None else update.fit_runtime_seconds),
     )
 
 
@@ -2193,6 +2191,7 @@ def create_posterior_dashboard_loader(
             if fallback_interval_seconds is None:
                 fallback_interval_seconds = time_seconds[-1] - time_seconds[-2]
             sampling_times = np.asarray([origin_time + fallback_interval_seconds])
+        fit_runtime_started = perf_counter()
         fit = sequential_vi.forecast_ctrv_prior_predictive(
             x_at_origin=trajectory.observed_x[observation_count - 1],
             y_at_origin=trajectory.observed_y[observation_count - 1],
@@ -2202,8 +2201,10 @@ def create_posterior_dashboard_loader(
             draw_count=draw_count,
             seed=experiment.inference_seed,
         )
+        fit_runtime_seconds = perf_counter() - fit_runtime_started
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
+            fit_runtime_seconds=fit_runtime_seconds if future_times.size else 0.0,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
             forecast=(
                 _extract_dashboard_forecast(
@@ -2272,6 +2273,7 @@ def create_posterior_dashboard_loader(
                 and observation_count < online_filter.processed_observation_count
             ):
                 raise ValueError("The online update loader cannot move backward.")
+            fit_runtime_started = perf_counter()
             if online_filter is None:
                 bootstrap_count = particle_filter_config.n_bootstrap
                 online_filter = initialize_online_filter(
@@ -2291,16 +2293,19 @@ def create_posterior_dashboard_loader(
                     trajectory.observed_x[index],
                     trajectory.observed_y[index],
                 )
+            fit_runtime_seconds = perf_counter() - fit_runtime_started
             fit = online_filter.sample_current_posterior(seed=experiment.inference_seed)
             future_times = time_seconds[
                 observation_count : observation_count + experiment.prediction_count
             ]
             forecast = None
             if future_times.size:
+                forecast_runtime_started = perf_counter()
                 forecast_fit = online_filter.forecast(
                     future_times,
                     seed=1_000_000 + experiment.inference_seed,
                 )
+                fit_runtime_seconds += perf_counter() - forecast_runtime_started
                 forecast = _extract_dashboard_forecast(
                     forecast_fit,
                     future_times - time_seconds[observation_count - 1],
@@ -2308,6 +2313,7 @@ def create_posterior_dashboard_loader(
                 )
             return PosteriorDashboardUpdate(
                 observation_count=observation_count,
+                fit_runtime_seconds=fit_runtime_seconds,
                 samples_by_parameter=_extract_dashboard_samples(fit, specs),
                 effective_sample_size=(
                     None
@@ -2383,6 +2389,7 @@ def create_posterior_dashboard_loader(
             position_noise_std_m=experiment.position_noise_std_m,
             noise_seed=experiment.position_noise_seed,
         )
+        fit_runtime_started = perf_counter()
         fit = fit_batch_model(
             window,
             priors=priors,
@@ -2391,8 +2398,10 @@ def create_posterior_dashboard_loader(
             seed=experiment.inference_seed,
             **selected_config,
         )
+        fit_runtime_seconds = perf_counter() - fit_runtime_started
         return PosteriorDashboardUpdate(
             observation_count=observation_count,
+            fit_runtime_seconds=fit_runtime_seconds,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
             forecast=(
                 _extract_dashboard_forecast(
@@ -2576,13 +2585,16 @@ def create_br24_radar_dashboard_loader(
             return cached_updates[observation_count]
         if observation_count < len(steps):
             raise ValueError("A radar loader cannot refit an uncached past prefix.")
+        fit_runtime_seconds = 0.0
         while len(steps) < observation_count:
             cycle = selected_cycles[len(steps)]
+            fit_runtime_started = perf_counter()
             step = (
                 tracker.process_measurement(cycle)
                 if associated_input
                 else tracker.process_cycle(cycle)
             )
+            fit_runtime_seconds += perf_counter() - fit_runtime_started
             steps.append((step.detection_id, step.nis, step.measurement_covariance))
             tracked_positions.append(tracker.estimated_position)
         fit = tracker.filter.sample_current_posterior(seed=experiment.inference_seed)
@@ -2591,10 +2603,12 @@ def create_br24_radar_dashboard_loader(
         ]
         forecast = None
         if future_times.size:
+            forecast_runtime_started = perf_counter()
             forecast_fit = tracker.filter.forecast(
                 future_times,
                 seed=1_000_000 + experiment.inference_seed,
             )
+            fit_runtime_seconds += perf_counter() - forecast_runtime_started
             forecast = _extract_dashboard_forecast(
                 forecast_fit,
                 future_times - time_seconds[observation_count - 1],
@@ -2603,6 +2617,7 @@ def create_br24_radar_dashboard_loader(
         detection_id, nis, measurement_covariance = steps[observation_count - 1]
         update = PosteriorDashboardUpdate(
             observation_count=observation_count,
+            fit_runtime_seconds=fit_runtime_seconds,
             samples_by_parameter=_extract_dashboard_samples(fit, specs),
             effective_sample_size=(
                 tracker.filter.effective_sample_size if method == "smc" else None

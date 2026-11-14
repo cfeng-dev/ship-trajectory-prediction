@@ -33,7 +33,7 @@ ANALYSIS_METRIC_ROW_KEYS = (
     "negative_log_predictive_density",
     "joint_coverage_50",
     "joint_coverage_90",
-    "inference_time",
+    "fit_runtime",
 )
 POSTERIOR_MEDIAN_ROW_KEYS = (
     "current_speed",
@@ -331,7 +331,7 @@ class SettingsPanel(tk.Frame):
             "negative_log_predictive_density": "NLPD (Gaussian)",
             "joint_coverage_50": "Joint 50% coverage",
             "joint_coverage_90": "Joint 90% coverage",
-            "inference_time": "Inference time",
+            "fit_runtime": "Fit + forecast time",
         }
         for row, key in enumerate(ANALYSIS_METRIC_ROW_KEYS):
             tk.Label(
@@ -473,9 +473,9 @@ class SettingsPanel(tk.Frame):
             if metrics.joint_coverage_total
             else "—"
         )
-        self.analysis_metric_values["inference_time"].set(
-            f"{metrics.inference_time_seconds:.3f} s"
-            if metrics.inference_time_seconds is not None
+        self.analysis_metric_values["fit_runtime"].set(
+            f"{metrics.fit_runtime_seconds:.3f} s"
+            if metrics.fit_runtime_seconds is not None
             else "—"
         )
 

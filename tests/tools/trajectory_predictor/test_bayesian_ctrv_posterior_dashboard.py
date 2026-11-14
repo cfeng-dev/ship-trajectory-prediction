@@ -1497,7 +1497,7 @@ def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable()
     update = dashboard.PosteriorDashboardUpdate(
         1,
         _dashboard_samples(),
-        inference_time_seconds=0.25,
+        fit_runtime_seconds=0.25,
         forecast=forecast,
     )
 
@@ -1509,7 +1509,7 @@ def test_dashboard_analysis_metrics_remain_hidden_until_motion_is_identifiable()
     assert metrics.joint_coverage_50_count == 0
     assert metrics.joint_coverage_90_count == 0
     assert metrics.joint_coverage_total == 0
-    assert metrics.inference_time_seconds is None
+    assert metrics.fit_runtime_seconds is None
 
 
 def test_dashboard_title_distinguishes_prior_predictive_updates() -> None:
@@ -1570,7 +1570,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
         2,
         _dashboard_samples(),
         predictive_log_density=log_density,
-        inference_time_seconds=0.25,
+        fit_runtime_seconds=0.25,
         forecast=forecast,
     )
     prior_update = dashboard.PosteriorDashboardUpdate(
@@ -1601,7 +1601,7 @@ def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_den
     assert metrics.joint_coverage_50_count == 1
     assert metrics.joint_coverage_90_count == 1
     assert metrics.joint_coverage_total == 2
-    assert metrics.inference_time_seconds == pytest.approx(0.25)
+    assert metrics.fit_runtime_seconds == pytest.approx(0.25)
 
 
 def test_dashboard_metrics_use_full_posterior_draws_not_visible_sample_paths():
@@ -1737,6 +1737,91 @@ def _dashboard_fit_variables():
         "x_prediction": np.asarray([[10.0], [20.0]]),
         "y_prediction": np.asarray([[15.0], [25.0]]),
     }
+
+
+@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("prediction_count", [0, 1])
+def test_processed_loader_times_model_work_without_dashboard_extraction(
+    monkeypatch, method, prediction_count
+):
+    from types import SimpleNamespace
+
+    dashboard = _load_dashboard_module()
+    clock = SimpleNamespace(value=0.0)
+    fit = _FakeFit(_dashboard_fit_variables())
+    monkeypatch.setattr(dashboard, "perf_counter", lambda: clock.value)
+
+    class Filter:
+        effective_sample_size = 10.0
+        resample_count = 0
+
+        def __init__(self, count):
+            self.processed_observation_count = count
+
+        def update(self, *args):
+            clock.value += 2.0
+            self.processed_observation_count += 1
+
+        def sample_current_posterior(self, **kwargs):
+            clock.value += 7.0
+            return fit
+
+        def forecast(self, *args, **kwargs):
+            clock.value += 3.0
+            return fit
+
+    def initialize(times, *args, **kwargs):
+        clock.value += 101.0
+        return Filter(len(times))
+
+    def batch_fit(*args, **kwargs):
+        clock.value += 5.0
+        return fit
+
+    original_samples = dashboard._extract_dashboard_samples
+    original_forecast = dashboard._extract_dashboard_forecast
+
+    def samples(*args):
+        clock.value += 11.0
+        return original_samples(*args)
+
+    def forecast(*args):
+        clock.value += 13.0
+        return original_forecast(*args)
+
+    monkeypatch.setattr(dashboard, "_extract_dashboard_samples", samples)
+    monkeypatch.setattr(dashboard, "_extract_dashboard_forecast", forecast)
+    monkeypatch.setattr(
+        dashboard.sequential_vi, "forecast_ctrv_prior_predictive", batch_fit
+    )
+    _, _, _, load = dashboard.create_posterior_dashboard_loader(
+        _dashboard_trajectory_data(6),
+        experiment=dashboard.PosteriorDashboardConfig(
+            start_index=0,
+            maximum_observation_count=None,
+            position_noise_std_m=0.0,
+            position_noise_seed=2026,
+            inference_method=method,
+            inference_seed=42,
+            prediction_count=prediction_count,
+        ),
+        priors=bayesian_model.BayesianCTRVPriors(),
+        smc_config=inference.create_default_ctrv_smc_config(),
+        vi_config=inference.create_default_vi_config(),
+        mcmc_config=inference.create_default_mcmc_config(),
+        sequential_vi_config=inference.create_default_sequential_vi_config(),
+        initialize_online_filter=initialize,
+        fit_batch_model=batch_fit,
+    )
+    prior_runtime = (3.0 if method == "smc" else 5.0) * prediction_count
+    assert load(1).fit_runtime_seconds == pytest.approx(prior_runtime)
+    third = load(3)
+    if method == "sequential_vi":
+        assert third.fit_runtime_seconds == pytest.approx(
+            101.0 + 3.0 * prediction_count
+        )
+    expected_runtime = 5.0 if method in {"mcmc", "vi"} else 2.0 + 3.0 * prediction_count
+    assert load(4).fit_runtime_seconds == pytest.approx(expected_runtime)
 
 
 def _dashboard_trajectory_data(count=4):

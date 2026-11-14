@@ -51,7 +51,7 @@ class IMMControls(tk.Frame):
                 "negative_log_predictive_density",
                 "coverage_50",
                 "coverage_90",
-                "update_time",
+                "fit_runtime",
                 "association_status",
                 "detection_id",
                 "nis",
@@ -123,7 +123,7 @@ class IMMControls(tk.Frame):
                 ("NLPD (Gaussian)", "negative_log_predictive_density"),
                 ("Joint 50% coverage", "coverage_50"),
                 ("Joint 90% coverage", "coverage_90"),
-                ("Update time", "update_time"),
+                ("Fit + forecast time", "fit_runtime"),
             ),
         ).grid(row=5, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
@@ -359,8 +359,8 @@ class IMMControls(tk.Frame):
                 metrics.joint_coverage_total,
             )
         )
-        self._values["update_time"].set(
-            _format_optional(stage.update_time_seconds, "s", decimals=3)
+        self._values["fit_runtime"].set(
+            _format_optional(stage.fit_runtime_seconds, "s", decimals=3)
         )
         self._values["association_status"].set(
             "Initial measurement"

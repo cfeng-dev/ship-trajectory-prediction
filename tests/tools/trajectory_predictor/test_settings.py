@@ -246,13 +246,13 @@ def test_imm_cached_posterior_is_not_replaced_by_later_cycles():
     store._stages = {}
     store._display_states = {}
     store.reference = None
-    store._capture_stage(update_time_seconds=0.01)
+    store._capture_stage(fit_runtime_seconds=0.01)
 
     mean[4] = 9.0
     weights[:] = [0.2, 0.7, 0.1]
     store._processed_cycle_count = 2
     store._tracked_positions.append([11.0, 21.0])
-    store._capture_stage(update_time_seconds=0.01)
+    store._capture_stage(fit_runtime_seconds=0.01)
 
     assert store.stage_for(1).posterior.mean[4] == 4.0
     assert store.stage_for(2).posterior.mean[4] == 9.0
@@ -268,6 +268,82 @@ def test_imm_cached_posterior_is_not_replaced_by_later_cycles():
     assert first_display.posterior_medians.speed_mps == 4.0
     assert store.display_state_for(2).posterior_medians.speed_mps == 9.0
     assert store.display_state_for(1) is first_display
+
+
+@pytest.mark.parametrize("prediction_count", [0, 1])
+def test_imm_runtime_includes_forecast_but_excludes_display_work(
+    tmp_path, monkeypatch, prediction_count
+):
+    from types import SimpleNamespace
+
+    import pandas as pd
+    from imm_predictor import player
+
+    clock = SimpleNamespace(value=0.0)
+    monkeypatch.setattr(
+        player, "time", SimpleNamespace(perf_counter=lambda: clock.value)
+    )
+
+    class Tracker:
+        @classmethod
+        def initialize_position(cls, time_seconds, position, covariance):
+            clock.value += 7.0
+            tracker = cls()
+            tracker.last_observation_time_seconds = time_seconds
+            tracker.estimated_position = position
+            return tracker
+
+        def update_position(self, time_seconds, position, covariance):
+            clock.value += 2.0
+            self.last_observation_time_seconds = time_seconds
+            self.estimated_position = position
+
+        def forecast(self, times):
+            clock.value += 3.0
+            return SimpleNamespace(
+                time_seconds=times, position_means=np.zeros((len(times), 2))
+            )
+
+        def posterior_state(self):
+            clock.value += 11.0
+
+        def sample_forecast(self, times, **kwargs):
+            clock.value += 13.0
+            return np.zeros((2, len(times), 2))
+
+    def medians(tracker, forecast):
+        clock.value += 17.0
+        return None if forecast is None else forecast.position_means
+
+    monkeypatch.setattr(player, "_load_optional_imm_tracker", lambda: Tracker)
+    monkeypatch.setattr(player, "_forecast_position_medians", medians)
+    path = tmp_path / "associated.csv"
+    pd.DataFrame(
+        {
+            "time": [10.0, 12.0, 17.0],
+            "cycle_counter": [1, 2, 4],
+            "detection_id": 1,
+            "x": 10.0,
+            "y": 0.0,
+            "cov_xx": 2.0,
+            "cov_xy": 0.0,
+            "cov_yy": 1.0,
+        }
+    ).to_csv(path, index=False)
+    store = player.IMMPlaybackStore(
+        player.IMMPlayerConfig(data_file=path, prediction_count=prediction_count)
+    )
+    assert store.stage_for(1).fit_runtime_seconds == pytest.approx(
+        3.0 * prediction_count
+    )
+    second = store.stage_for(2)
+    assert second.fit_runtime_seconds == pytest.approx(2.0 + 3.0 * prediction_count)
+    completed_at = clock.value
+    assert store.stage_for(1).fit_runtime_seconds == pytest.approx(
+        3.0 * prediction_count
+    )
+    assert store.stage_for(2) is second
+    assert clock.value == completed_at
 
 
 @pytest.mark.parametrize(
@@ -333,7 +409,7 @@ def test_imm_forecast_medians_are_cached_without_visualization_samples(
     store._measurement_covariances = [None]
     store._nis = [None]
     store._stages = {}
-    store._capture_stage(update_time_seconds=0.01)
+    store._capture_stage(fit_runtime_seconds=0.01)
     stage = store.stage_for(1)
     assert stage.sample_positions is None
     if forecast_enabled:
@@ -362,7 +438,7 @@ def imm_forecast_case():
         detection_id=1,
         nis=None,
         measurement_covariance=np.eye(2),
-        update_time_seconds=0.01,
+        fit_runtime_seconds=0.01,
         tracked_times_seconds=np.array([0.0]),
         tracked_positions=np.array([[999.0, 999.0]]),
         forecast=SimpleNamespace(
@@ -870,7 +946,7 @@ def test_imm_reference_time_display_starts_at_the_selected_input_origin(start_in
             detection_id=None,
             nis=None,
             measurement_covariance=None,
-            update_time_seconds=0.0,
+            fit_runtime_seconds=0.0,
             tracked_times_seconds=times[: index + 1].copy(),
             tracked_positions=positions[: index + 1].copy(),
             forecast=None,

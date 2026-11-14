@@ -124,7 +124,7 @@ class IMMPlayerStage:
     detection_id: int | None
     nis: float | None
     measurement_covariance: np.ndarray | None
-    update_time_seconds: float
+    fit_runtime_seconds: float
     tracked_times_seconds: np.ndarray
     tracked_positions: np.ndarray
     forecast: Any
@@ -238,7 +238,6 @@ class IMMPlaybackStore:
             )
 
         tracker_type = _load_optional_imm_tracker()
-        initial_update_started = time.perf_counter()
         if associated_input:
             initial_detection_id = initial.detection_id
             initial_covariance = initial.measurement_covariance
@@ -266,9 +265,7 @@ class IMMPlaybackStore:
         self._measurement_covariances: list[np.ndarray | None] = [initial_covariance]
         self._stages: dict[int, IMMPlayerStage] = {}
         self._display_states: dict[int, IMMDisplayState] = {}
-        self._capture_stage(
-            update_time_seconds=time.perf_counter() - initial_update_started
-        )
+        self._capture_stage(fit_runtime_seconds=0.0)
 
     def stage_for(self, observation_count: int) -> IMMPlayerStage:
         """Return the forecast refreshed after exactly ``observation_count`` cycles."""
@@ -321,6 +318,7 @@ class IMMPlaybackStore:
                     step.nis,
                     step.measurement_covariance,
                 )
+            fit_runtime_seconds = time.perf_counter() - update_started
             self._tracked_positions.append(
                 np.asarray(self._tracker.estimated_position, dtype=float).copy()
             )
@@ -332,11 +330,9 @@ class IMMPlaybackStore:
                 else np.asarray(covariance, dtype=float).copy()
             )
             self._processed_cycle_count += 1
-            self._capture_stage(
-                update_time_seconds=time.perf_counter() - update_started
-            )
+            self._capture_stage(fit_runtime_seconds=fit_runtime_seconds)
 
-    def _capture_stage(self, *, update_time_seconds: float) -> None:
+    def _capture_stage(self, *, fit_runtime_seconds: float) -> None:
         observation_count = self._processed_cycle_count
         posterior_reader = getattr(self._tracker, "posterior_state", None)
         posterior = posterior_reader() if callable(posterior_reader) else None
@@ -349,11 +345,11 @@ class IMMPlaybackStore:
             raise RuntimeError(
                 "IMM stage does not leave the configured forecast horizon."
             )
-        forecast = (
-            self._tracker.forecast(future_times)
-            if self.config.prediction_count
-            else None
-        )
+        forecast = None
+        if self.config.prediction_count:
+            forecast_runtime_started = time.perf_counter()
+            forecast = self._tracker.forecast(future_times)
+            fit_runtime_seconds += time.perf_counter() - forecast_runtime_started
         forecast_medians = _forecast_position_medians(self._tracker, forecast)
         sample_positions = None
         if forecast is not None and self.config.prediction_sample_count:
@@ -382,7 +378,7 @@ class IMMPlaybackStore:
                 if self._measurement_covariances[-1] is None
                 else self._measurement_covariances[-1].copy()
             ),
-            update_time_seconds=float(update_time_seconds),
+            fit_runtime_seconds=float(fit_runtime_seconds),
             tracked_times_seconds=self.times[:observation_count].copy(),
             tracked_positions=np.asarray(self._tracked_positions, dtype=float).copy(),
             forecast=forecast,

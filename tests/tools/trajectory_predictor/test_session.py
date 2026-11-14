@@ -20,6 +20,110 @@ def _update(observation_count):
     )
 
 
+@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("prediction_count", [0, 1])
+def test_br24_runtime_counts_update_and_forecast_and_survives_cache(
+    tmp_path, monkeypatch, method, prediction_count
+):
+    from types import SimpleNamespace
+
+    clock = SimpleNamespace(value=0.0)
+    monkeypatch.setattr(dashboard, "perf_counter", lambda: clock.value, raising=False)
+
+    class Filter:
+        effective_sample_size = 10.0
+        resample_count = 0
+
+        def sample_current_posterior(self, **kwargs):
+            clock.value += 11.0
+            return object()
+
+        def forecast(self, *args, **kwargs):
+            clock.value += 3.0
+            return object()
+
+    class Tracker:
+        filter = Filter()
+        is_prior_predictive = False
+
+        @property
+        def estimated_position(self):
+            clock.value += 19.0
+            return np.array([10.0, 0.0])
+
+        def process_measurement(self, measurement):
+            clock.value += 2.0
+            return SimpleNamespace(
+                detection_id=measurement.detection_id,
+                nis=None,
+                measurement_covariance=measurement.measurement_covariance,
+            )
+
+    def initialize(*args, **kwargs):
+        clock.value += 7.0
+        return Tracker()
+
+    def samples(*args):
+        clock.value += 13.0
+        return _update(1).samples_by_parameter
+
+    def forecast(fit, offsets, sample_count):
+        clock.value += 17.0
+        return dashboard.PosteriorDashboardForecast(
+            time_offsets_seconds=offsets,
+            median_positions=np.zeros((len(offsets), 2)),
+            sample_positions=np.zeros((0, len(offsets), 2)),
+        )
+
+    monkeypatch.setattr(
+        dashboard.BR24BayesianRadarTracker, "initialize_position", initialize
+    )
+    monkeypatch.setattr(dashboard, "_extract_dashboard_samples", samples)
+    monkeypatch.setattr(dashboard, "_extract_dashboard_forecast", forecast)
+    path = tmp_path / "associated.csv"
+    pd.DataFrame(
+        {
+            "time": [10.0, 12.0, 17.0],
+            "cycle_counter": [1, 2, 4],
+            "detection_id": 1,
+            "x": 10.0,
+            "y": 0.0,
+            "cov_xx": 2.0,
+            "cov_xy": 0.0,
+            "cov_yy": 1.0,
+        }
+    ).to_csv(path, index=False)
+    values = default_form_values()
+    values["data"].update(
+        data_file=str(path),
+        inference_method=method,
+        prediction_count=str(prediction_count),
+    )
+    _, _, _, load = prepare_analysis(parse_settings(values).analysis)
+    update = load(2)
+    assert update.fit_runtime_seconds == pytest.approx(2.0 + 3.0 * prediction_count)
+    completed_at = clock.value
+    assert load(2) is update
+    assert clock.value == completed_at
+    assert load(2).fit_runtime_seconds == pytest.approx(2.0 + 3.0 * prediction_count)
+
+
+def test_worker_preserves_runtime_supplied_by_loader():
+    expected = replace(_update(1), fit_runtime_seconds=3.25)
+    worker = PosteriorAnalysisWorker(prepare=lambda _: (None, 1, 1, lambda _: expected))
+    try:
+        worker.start(None)
+        worker.request(1)
+        events = wait_for_event(worker, "update")
+        assert (
+            next(event.payload for event in events if event.kind == "update")
+            is expected
+        )
+    finally:
+        worker.close()
+        worker.join(5)
+
+
 @pytest.mark.parametrize("tool", ["bayesian", "imm"])
 def test_associated_br24_preserves_covariances_and_ignores_reference(
     tmp_path, monkeypatch, tool

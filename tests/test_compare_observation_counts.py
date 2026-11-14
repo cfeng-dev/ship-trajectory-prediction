@@ -41,7 +41,7 @@ def _predictions(method, count):
                     energy_score_m=error / 2,
                     negative_log_predictive_density=step - 0.5,
                     nlpd_definition="gaussian_latent_2d_v1",
-                    evaluation_definition="gaussian_latent_2d_gl64_runtime_v1",
+                    evaluation_definition="gaussian_latent_2d_gl64_runtime_v2",
                     prediction_radius_m=5.0,
                     radial_covered=True,
                     joint_covered_50=step == 1,

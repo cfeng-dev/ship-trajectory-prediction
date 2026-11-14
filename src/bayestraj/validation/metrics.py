@@ -13,7 +13,7 @@ import bayestraj.validation.reporting as reporting
 NLPD_DEFINITION = "gaussian_latent_2d_v1"
 NLPD_MIN_VARIANCE_M2 = 1e-12
 NLPD_RELATIVE_VARIANCE_FLOOR = 1e-12
-EVALUATION_DEFINITION = "gaussian_latent_2d_gl64_runtime_v1"
+EVALUATION_DEFINITION = "gaussian_latent_2d_gl64_runtime_v2"
 GAUSSIAN_ENERGY_QUADRATURE_ORDER = 64
 
 
@@ -178,7 +178,8 @@ def gaussian_position_metrics(
     variance. Energy uses fixed 64-node Gauss-Legendre integration. Coverage uses
     chi-square ellipses; marginal intervals use Gaussian quantiles. Point-forecast
     medians are evaluated separately. The protocol tag also versions CSV timing:
-    fit includes inference/update plus forecast, excluding scoring/assembly.
+    fit includes inference/update plus forecast, excluding scoring/assembly and
+    initial tracker setup. Sequential VI bootstrap inference remains included.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     actual, means, eigenvalues, eigenvectors = _gaussian_geometry(

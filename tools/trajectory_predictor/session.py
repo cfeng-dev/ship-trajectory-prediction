@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Condition, Thread
-from time import perf_counter
 
 from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
@@ -187,15 +186,10 @@ class PosteriorAnalysisWorker:
                     self._emit(generation, "ready", (trajectory, maximum, next_count))
                     continue
                 self._emit(generation, "computing", next_count)
-                started_at = perf_counter()
                 update = loader(next_count)
                 if update.observation_count != next_count:
                     raise ValueError("The loader returned the wrong observation count.")
-                self._emit(
-                    generation,
-                    "update",
-                    replace(update, inference_time_seconds=perf_counter() - started_at),
-                )
+                self._emit(generation, "update", update)
                 next_count += 1
             except Exception as error:
                 LOGGER.exception(

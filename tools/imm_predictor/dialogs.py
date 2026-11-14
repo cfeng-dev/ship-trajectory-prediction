@@ -468,8 +468,8 @@ IMM_HELP_SECTIONS = (
                 "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
             ),
             (
-                "Update time",
-                "Time spent on the IMM initialization or filter update, excluding forecast generation, sampling and plotting",
+                "Fit + forecast time",
+                "Wall-clock time for inference or filter updates plus forecast generation, matching fit_runtime_seconds in evaluation CSVs. Excludes display-only sampling, summaries, metrics, dataset loading, result export and drawing. Cached results retain their original time.",
             ),
         ),
     ),

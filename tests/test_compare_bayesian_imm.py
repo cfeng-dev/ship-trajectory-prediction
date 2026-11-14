@@ -100,7 +100,7 @@ def _table(model):
             "log_predictive_density": np.array([-1.0, -3.0, -5.0, -7.0])
             - (model == "imm"),
             "nlpd_definition": "gaussian_latent_2d_v1",
-            "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v1",
+            "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v2",
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02]
             if model == "bayesian"
             else [0.002, 0.002, 0.004, 0.004],
@@ -824,13 +824,15 @@ def test_comparison_rejects_incompatible_nlpd_definitions(problem):
         comparison.prepare_comparison(bayesian, imm)
 
 
-@pytest.mark.parametrize("problem", ["missing", "different", "mixed"])
+@pytest.mark.parametrize("problem", ["missing", "different", "mixed", "old_runtime"])
 def test_comparison_rejects_incompatible_evaluation_definitions(problem):
     bayesian, imm = _table("bayesian"), _table("imm")
     if problem == "missing":
         imm = imm.drop(columns="evaluation_definition")
     elif problem == "different":
         imm["evaluation_definition"] = "empirical_regions"
+    elif problem == "old_runtime":
+        imm["evaluation_definition"] = "gaussian_latent_2d_gl64_runtime_v1"
     else:
         imm.loc[0, "evaluation_definition"] = "empirical_regions"
     with pytest.raises(ValueError, match="evaluation_definition"):

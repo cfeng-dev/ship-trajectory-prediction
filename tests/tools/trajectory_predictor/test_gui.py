@@ -373,7 +373,7 @@ def test_settings_panel_displays_reference_csv_state(root):
             joint_coverage_50_count=3,
             joint_coverage_90_count=7,
             joint_coverage_total=8,
-            inference_time_seconds=0.125,
+            fit_runtime_seconds=0.125,
         )
     )
     panel.show_posterior_medians(
@@ -415,7 +415,7 @@ def test_settings_panel_displays_reference_csv_state(root):
     )
     assert panel.analysis_metric_values["joint_coverage_50"].get() == "37.5% (3/8)"
     assert panel.analysis_metric_values["joint_coverage_90"].get() == "87.5% (7/8)"
-    assert panel.analysis_metric_values["inference_time"].get() == "0.125 s"
+    assert panel.analysis_metric_values["fit_runtime"].get() == "0.125 s"
     assert panel.posterior_median_values["current_speed"].get() == "2.00 m/s"
     assert panel.posterior_median_values["current_heading"].get() == "3.00°"
     assert panel.posterior_median_values["current_turn_rate"].get() == "—"
@@ -482,7 +482,7 @@ def test_help_explains_analysis_metrics():
         "NLPD": "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.",
         "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
         "Joint 90% coverage": "Cumulative share of evaluated future positions inside per-step 2D 90% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
-        "Inference time": "Wall-clock time for the current update, including forecast generation but excluding GUI drawing; not forecast accuracy.",
+        "Fit + forecast time": "Wall-clock time for inference or filter updates plus forecast generation, matching fit_runtime_seconds in evaluation CSVs. Excludes display-only sampling, summaries, metrics, dataset loading, result export and drawing. Cached results retain their original time.",
     }
 
 
@@ -737,7 +737,7 @@ def test_imm_route_legend_identifies_the_filtered_track():
         detection_id=1,
         nis=0.5,
         measurement_covariance=np.eye(2),
-        update_time_seconds=0.01,
+        fit_runtime_seconds=0.01,
         tracked_times_seconds=np.array([0.0, 1.0]),
         tracked_positions=np.array([[10.0, 20.0], [11.0, 22.0]]),
         forecast=None,
@@ -774,7 +774,7 @@ def _imm_motion_stage(*, zero_variance=False):
         detection_id=1,
         nis=0.5,
         measurement_covariance=np.eye(2),
-        update_time_seconds=0.01,
+        fit_runtime_seconds=0.01,
         tracked_times_seconds=np.array([0.0, 1.0]),
         tracked_positions=np.array([[10.0, 20.0], [11.0, 22.0]]),
         forecast=None,
@@ -1148,7 +1148,7 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
             "negative_log_predictive_density",
             "coverage_50",
             "coverage_90",
-            "update_time",
+            "fit_runtime",
             "association_status",
             "detection_id",
             "nis",
