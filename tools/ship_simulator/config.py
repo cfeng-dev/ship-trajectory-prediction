@@ -1,8 +1,56 @@
 """Configuration values for the standalone ship trajectory GUI."""
 
 from dataclasses import dataclass, field
+from math import isclose, isfinite
 
 DEFAULT_CSV_EXPORT_INTERVAL_SECONDS = 2.0
+MOTION_PARAMETER_FIELDS = (
+    ("initial_speed", "Initial speed [m/s]"),
+    ("min_speed", "Minimum speed [m/s]"),
+    ("max_speed", "Maximum speed [m/s]"),
+    ("speed_resolution", "Speed step [m/s]"),
+    ("max_steering_deg_per_second", "Maximum turn rate [+/- deg/s]"),
+    ("steering_resolution", "Turn-rate step [deg/s]"),
+)
+
+
+def parse_motion_parameters(values):
+    """Validate editable motion values before changing any simulation state."""
+    parsed = {}
+    for name, label in MOTION_PARAMETER_FIELDS:
+        try:
+            value = float(values[name])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"{label} must be a finite number.") from error
+        if not isfinite(value):
+            raise ValueError(f"{label} must be a finite number.")
+        parsed[name] = value
+    if parsed["min_speed"] < 0 or parsed["max_speed"] <= parsed["min_speed"]:
+        raise ValueError("Speed limits must satisfy 0 <= minimum < maximum.")
+    if not parsed["min_speed"] <= parsed["initial_speed"] <= parsed["max_speed"]:
+        raise ValueError("Initial speed must lie within the speed limits.")
+    if parsed["speed_resolution"] <= 0 or parsed["steering_resolution"] <= 0:
+        raise ValueError("Speed and turn-rate steps must be positive.")
+    if parsed["max_steering_deg_per_second"] <= 0:
+        raise ValueError("Maximum turn rate must be positive.")
+    for names, step_name in (
+        (("initial_speed", "min_speed", "max_speed"), "speed_resolution"),
+        (("max_steering_deg_per_second",), "steering_resolution"),
+    ):
+        for name in names:
+            ratio = parsed[name] / parsed[step_name]
+            if not isfinite(ratio) or not isclose(
+                ratio, round(ratio), rel_tol=1e-9, abs_tol=1e-9
+            ):
+                raise ValueError(
+                    "Speed values and turn limits must be multiples of their step sizes."
+                )
+    if parsed["speed_resolution"] > parsed["max_speed"] - parsed["min_speed"]:
+        raise ValueError("Speed step must not exceed the speed range.")
+    parsed["min_steering_deg_per_second"] = -parsed["max_steering_deg_per_second"]
+    parsed["keyboard_speed_step"] = parsed["speed_resolution"]
+    parsed["keyboard_steering_step"] = parsed["steering_resolution"]
+    return parsed
 
 
 @dataclass
@@ -108,13 +156,9 @@ class GUIConfig:
     axis_mode: str = "auto"
 
     # Coordinate representation shown in the plot and status panel:
-    # "local" = meters, "km" = kilometers, "gps" = longitude/latitude.
+    # "local" = meters, "km" = kilometers.
     # The simulation itself always uses local coordinates in meters.
     coordinate_display_mode: str = "local"
-
-    # GPS position represented by the local simulation origin (0, 0).
-    reference_longitude: float = 8.312259928385417
-    reference_latitude: float = 47.05150553385417
 
     auto_axis_margin: int = 15
     view_width: int = 100

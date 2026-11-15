@@ -4,7 +4,6 @@ import tkinter as tk
 
 import numpy as np
 
-from . import coordinates
 from .time_format import format_elapsed_time
 
 
@@ -30,7 +29,6 @@ def create_menu_bar(gui):
     coordinate_display_modes = (
         ("Local [m]", "local"),
         ("Local [km]", "km"),
-        ("GPS [°]", "gps"),
     )
     for label, mode in coordinate_display_modes:
         gui.view_menu.add_radiobutton(
@@ -52,10 +50,10 @@ def create_menu_bar(gui):
 
     gui.settings_menu = tk.Menu(menu_bar, tearoff=0)
     gui.settings_menu.add_command(
-        label="GPS Start Position...",
-        command=gui.show_gps_start_position_dialog,
+        label="Movement Parameters...",
+        command=gui.show_motion_parameters_dialog,
     )
-    gui.gps_position_menu_index = gui.settings_menu.index("end")
+    gui.motion_parameters_menu_index = gui.settings_menu.index("end")
     menu_bar.add_cascade(label="Settings", menu=gui.settings_menu)
 
     help_menu = tk.Menu(menu_bar, tearoff=0)
@@ -91,18 +89,10 @@ def update_status_display(gui):
         fg=simulation_color,
     )
 
-    if gui.coordinate_display_mode == "gps":
-        longitude, latitude = coordinates.local_to_gps_coordinates(
-            [gui.simulator.x_current],
-            [gui.simulator.y_current],
-            reference_longitude=gui.reference_longitude,
-            reference_latitude=gui.reference_latitude,
-        )
-        position_text = f"lon = {longitude[0]:.4f}°\nlat = {latitude[0]:.4f}°"
-    elif gui.coordinate_display_mode == "km":
+    if gui.coordinate_display_mode == "km":
         position_text = (
-            f"x = {gui.simulator.x_current / coordinates.METERS_PER_KILOMETER:.3f} km\n"
-            f"y = {gui.simulator.y_current / coordinates.METERS_PER_KILOMETER:.3f} km"
+            f"x = {gui.simulator.x_current / 1000:.3f} km\n"
+            f"y = {gui.simulator.y_current / 1000:.3f} km"
         )
     else:
         position_text = (

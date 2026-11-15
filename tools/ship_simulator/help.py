@@ -6,6 +6,8 @@ from collections.abc import Callable
 from . import controls
 
 HELP_CONTENT_MAX_SCREEN_RATIO = 0.65
+HELP_WINDOW_WIDTH = 660
+HELP_DESCRIPTION_WRAP_LENGTH = 300
 
 
 def _add_description_rows(parent, rows, left_column_width, background_color):
@@ -28,19 +30,21 @@ def _add_description_rows(parent, rows, left_column_width, background_color):
             parent,
             text=left_text,
             width=left_column_width,
-            anchor="w",
+            anchor="nw",
             font=("Arial", 10, "bold"),
             bg=background_color,
             fg="black",
-        ).grid(row=row, column=0, sticky="w", pady=2)
+        ).grid(row=row, column=0, sticky="nw", pady=2)
 
         tk.Label(
             parent,
             text=description,
-            anchor="w",
+            anchor="nw",
+            justify="left",
+            wraplength=HELP_DESCRIPTION_WRAP_LENGTH,
             bg=background_color,
             fg="black",
-        ).grid(row=row, column=1, sticky="w", pady=2)
+        ).grid(row=row, column=1, sticky="nw", pady=2)
 
 
 def _create_scrollable_content(parent, background_color):
@@ -98,7 +102,7 @@ def _fit_scrollable_content_to_screen(help_window, canvas, content, scrollbar):
     )
 
     canvas.configure(
-        width=content.winfo_reqwidth(),
+        width=HELP_WINDOW_WIDTH - scrollbar.winfo_reqwidth(),
         height=min(content_height, maximum_height),
     )
 
@@ -198,8 +202,11 @@ def show_help_window(
     menu_descriptions = [
         ("File → Save CSV", "Pause simulation and save trajectory data"),
         ("File → Exit", "Close the application"),
-        ("View", "Choose local meters, local kilometers, or GPS display"),
-        ("Settings", "Configure the GPS start position before a run"),
+        ("View", "Choose local meters or local kilometers"),
+        (
+            "Settings",
+            "Movement Parameters configures initial speed, speed limits, turn limits and step sizes before a run or after Reset",
+        ),
         ("Help → Show Help", "Open this help window"),
     ]
     if root.tk.call("tk", "windowingsystem") != "aqua":
@@ -233,7 +240,7 @@ def show_help_window(
         ("Pause Simulation", "Pause the simulation without clearing data"),
         ("Continue Simulation", "Continue a paused simulation"),
         ("Save CSV", "Pause simulation and save trajectory data"),
-        ("Reset", "Clear trajectory and unlock the GPS start position"),
+        ("Reset", "Clear trajectory and unlock movement parameters"),
         ("Center Steering", "Reset steering to 0 °/s"),
     ]
 
@@ -258,6 +265,10 @@ def show_help_window(
     simulation_info_frame.pack(fill=tk.X, pady=(0, 16))
 
     simulation_info_descriptions = [
+        (
+            "Movement Parameters",
+            "Apply validates and saves the draft; Cancel or closing the window discards edits. Turn limits are symmetric and arrow keys use the selected step sizes",
+        ),
         (
             "While paused",
             "Simulation time stops; exported seconds contain no pause gap",
@@ -319,5 +330,6 @@ def show_help_window(
     # Show the window only after its final layout has been calculated to avoid
     # a visible resize immediately after opening.
     help_window.update_idletasks()
+    help_window.geometry(f"{HELP_WINDOW_WIDTH}x{help_window.winfo_reqheight()}+0+0")
     help_window.deiconify()
     help_window.focus_set()

@@ -299,7 +299,7 @@ def create_speed_section(gui, parent):
         orient=tk.HORIZONTAL,
         length=180,
         resolution=gui.speed_resolution,
-        digits=3,
+        digits=0,
         bg=gui.control_panel_color,
         fg="black",
         highlightbackground=gui.control_panel_color,

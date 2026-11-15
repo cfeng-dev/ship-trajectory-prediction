@@ -8,9 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from matplotlib.path import Path
-from matplotlib.ticker import FuncFormatter, MaxNLocator
-
-from . import coordinates
+from matplotlib.ticker import FuncFormatter, ScalarFormatter
 
 
 def create_plot_panel(gui, parent):
@@ -344,36 +342,11 @@ def update_axis_limits(gui):
 
 
 def configure_coordinate_display(gui):
-    """Format plot coordinates as meters, kilometers, or GPS positions."""
-    if gui.coordinate_display_mode == "gps":
-
-        def format_longitude(x_coordinate, _position):
-            longitude, _ = coordinates.local_to_gps_coordinates(
-                [x_coordinate],
-                [0.0],
-                reference_longitude=gui.reference_longitude,
-                reference_latitude=gui.reference_latitude,
-            )
-            return f"{longitude[0]:.4f}"
-
-        def format_latitude(y_coordinate, _position):
-            _, latitude = coordinates.local_to_gps_coordinates(
-                [0.0],
-                [y_coordinate],
-                reference_longitude=gui.reference_longitude,
-                reference_latitude=gui.reference_latitude,
-            )
-            return f"{latitude[0]:.4f}"
-
-        gui.ax.xaxis.set_major_locator(MaxNLocator(nbins=8))
-        gui.ax.xaxis.set_major_formatter(FuncFormatter(format_longitude))
-        gui.ax.yaxis.set_major_formatter(FuncFormatter(format_latitude))
-        gui.ax.set_xlabel("Longitude [°]")
-        gui.ax.set_ylabel("Latitude [°]")
-    elif gui.coordinate_display_mode == "km":
+    """Format local plot coordinates as meters or kilometers."""
+    if gui.coordinate_display_mode == "km":
 
         def format_kilometers(coordinate_meters, _position):
-            return f"{coordinate_meters / coordinates.METERS_PER_KILOMETER:g}"
+            return f"{coordinate_meters / 1000:g}"
 
         kilometer_formatter = FuncFormatter(format_kilometers)
         gui.ax.xaxis.set_major_formatter(kilometer_formatter)
@@ -381,6 +354,8 @@ def configure_coordinate_display(gui):
         gui.ax.set_xlabel("x [km]")
         gui.ax.set_ylabel("y [km]", rotation=0, labelpad=15, va="center")
     else:
+        gui.ax.xaxis.set_major_formatter(ScalarFormatter())
+        gui.ax.yaxis.set_major_formatter(ScalarFormatter())
         gui.ax.set_xlabel("x [m]")
         gui.ax.set_ylabel("y [m]", rotation=0, labelpad=15, va="center")
 

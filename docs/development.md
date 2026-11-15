@@ -35,6 +35,8 @@ Use the interactive simulator to export one `time,x,y` CSV per simulation run,
 with samples every 2 simulated seconds and local positions in meters, ready for
 Bayesian Predictor. The simulation itself advances in 0.05-second steps.
 Repeated saves continue the current file; after Reset, choose a new filename.
+Use **Settings → Movement Parameters...** before starting or after Reset to
+adjust speed and turn limits. The display uses local meters or kilometers.
 Run it from the project root:
 
 ```bash

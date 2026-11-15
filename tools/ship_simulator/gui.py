@@ -300,6 +300,10 @@ class ShipTrajectoryGUI:
             self.simulation_button.config(text="Continue Simulation")
         else:
             self.simulation_button.config(text="Start Simulation")
+        self.settings_menu.entryconfigure(
+            self.motion_parameters_menu_index,
+            state="disabled" if self.simulation_started else "normal",
+        )
 
     def toggle_simulation(self):
         """
@@ -344,31 +348,22 @@ class ShipTrajectoryGUI:
         self.steering_slider.set(0)
 
     def change_coordinate_display(self):
-        """Switch the position display between meters, kilometers, and GPS."""
+        """Switch the local position display between meters and kilometers."""
         self.coordinate_display_mode = self.coordinate_display_var.get()
         self.update_status()
         self.update_plot()
 
-    def show_gps_start_position_dialog(self):
-        """Open a dialog for configuring the GPS position of the local origin."""
-        from .dialogs import (
-            show_gps_start_position_dialog,
-        )
+    def show_motion_parameters_dialog(self):
+        """Configure motion before starting a simulation run."""
+        from .dialogs import show_motion_parameters_dialog
 
-        show_gps_start_position_dialog(self)
+        return show_motion_parameters_dialog(self)
 
-    def apply_gps_start_position(self, latitude_text, longitude_text, parent=None):
-        """Validate and apply the GPS position of the local simulation origin."""
-        from .dialogs import (
-            apply_gps_start_position,
-        )
+    def apply_motion_parameters(self, values, parent=None):
+        """Apply validated motion settings to the sliders and reset defaults."""
+        from .dialogs import apply_motion_parameters
 
-        return apply_gps_start_position(
-            self,
-            latitude_text,
-            longitude_text,
-            parent=parent,
-        )
+        return apply_motion_parameters(self, values, parent)
 
     def save_csv(self):
         """Save the simulated trajectory as CSV."""

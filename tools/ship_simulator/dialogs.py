@@ -4,182 +4,105 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-import numpy as np
-
 from . import controls
 from . import io as simulation_io
+from .config import MOTION_PARAMETER_FIELDS, parse_motion_parameters
 
 
-def _parse_gps_start_position(latitude_text, longitude_text):
-    """Parse and validate a user-provided GPS start position."""
-    try:
-        latitude = float(latitude_text)
-        longitude = float(longitude_text)
-    except ValueError as error:
-        raise ValueError("Latitude and longitude must be numeric values.") from error
-
-    if not np.isfinite(latitude) or not np.isfinite(longitude):
-        raise ValueError("Latitude and longitude must be finite values.")
-    if not -90 < latitude < 90:
-        raise ValueError("Latitude must be greater than -90° and less than 90°.")
-    if not -180 <= longitude <= 180:
-        raise ValueError("Longitude must be between -180° and 180°.")
-
-    return latitude, longitude
-
-
-def show_gps_start_position_dialog(gui):
-    """Open a dialog for configuring the GPS position of the local origin."""
+def show_motion_parameters_dialog(gui):
+    """Edit a local draft; only Apply changes the next simulation run."""
     if gui.simulation_started:
         messagebox.showwarning(
-            "GPS Position Locked",
-            "Reset the simulation before changing the GPS start position.",
+            "Movement Parameters Locked",
+            "Reset the simulation before changing movement parameters.",
             parent=gui.root,
         )
-        return
+        return None
 
     dialog = tk.Toplevel(gui.root)
-    dialog.title("GPS Start Position")
+    dialog.withdraw()
+    dialog.title("Movement Parameters")
     dialog.resizable(False, False)
     dialog.configure(bg=gui.app_background_color)
     dialog.transient(gui.root)
-    dialog.grab_set()
-
-    form_frame = tk.Frame(
-        dialog,
-        bg=gui.app_background_color,
-        padx=18,
-        pady=16,
-    )
-    form_frame.pack(fill=tk.BOTH, expand=True)
-    form_frame.columnconfigure(1, weight=1)
-
-    latitude_var = tk.StringVar(value=f"{gui.reference_latitude:.8f}")
-    longitude_var = tk.StringVar(value=f"{gui.reference_longitude:.8f}")
-
+    form = tk.Frame(dialog, bg=gui.app_background_color, padx=18, pady=16)
+    form.pack(fill=tk.BOTH, expand=True)
+    form.columnconfigure(1, weight=1)
+    variables = {}
+    for row, (name, label) in enumerate(MOTION_PARAMETER_FIELDS):
+        variable = tk.StringVar(master=dialog, value=str(getattr(gui, name)))
+        variables[name] = variable
+        tk.Label(form, text=label, anchor="w", bg=gui.app_background_color).grid(
+            row=row, column=0, sticky="w", padx=(0, 10), pady=4
+        )
+        tk.Entry(form, textvariable=variable, width=16, justify=tk.RIGHT).grid(
+            row=row, column=1, sticky="ew", pady=4
+        )
     tk.Label(
-        form_frame,
-        text="Latitude [°]:",
-        anchor="w",
+        form,
+        text="Turn limits are symmetric. Arrow keys use the same step sizes.",
         bg=gui.app_background_color,
-        fg="black",
-    ).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
-    latitude_entry = tk.Entry(
-        form_frame,
-        textvariable=latitude_var,
-        width=20,
-        justify=tk.RIGHT,
-        bg="white",
-        fg="black",
-        insertbackground="black",
-        selectbackground="#007aff",
-        selectforeground="white",
-        relief=tk.SOLID,
-        borderwidth=1,
-        highlightthickness=0,
-    )
-    latitude_entry.grid(row=0, column=1, sticky="ew", pady=4)
-
-    tk.Label(
-        form_frame,
-        text="Longitude [°]:",
-        anchor="w",
-        bg=gui.app_background_color,
-        fg="black",
-    ).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=4)
-    longitude_entry = tk.Entry(
-        form_frame,
-        textvariable=longitude_var,
-        width=20,
-        justify=tk.RIGHT,
-        bg="white",
-        fg="black",
-        insertbackground="black",
-        selectbackground="#007aff",
-        selectforeground="white",
-        relief=tk.SOLID,
-        borderwidth=1,
-        highlightthickness=0,
-    )
-    longitude_entry.grid(row=1, column=1, sticky="ew", pady=4)
-
-    button_frame = tk.Frame(form_frame, bg=gui.app_background_color)
-    button_frame.grid(
-        row=2,
-        column=0,
-        columnspan=2,
-        sticky="e",
-        pady=(14, 0),
+    ).grid(row=len(variables), column=0, columnspan=2, sticky="w", pady=(8, 0))
+    buttons = tk.Frame(form, bg=gui.app_background_color)
+    buttons.grid(
+        row=len(variables) + 1, column=0, columnspan=2, sticky="e", pady=(14, 0)
     )
 
-    def apply_position():
-        if gui.apply_gps_start_position(
-            latitude_var.get(),
-            longitude_var.get(),
-            parent=dialog,
-        ):
+    def apply():
+        values = {name: variable.get() for name, variable in variables.items()}
+        if gui.apply_motion_parameters(values, parent=dialog):
             dialog.destroy()
 
+    controls.create_styled_button(buttons, text="Apply", command=apply, width=10).pack(
+        side=tk.LEFT, padx=(0, 8)
+    )
     controls.create_styled_button(
-        button_frame,
-        text="Apply",
-        width=10,
-        command=apply_position,
-    ).pack(side=tk.LEFT, padx=(0, 8))
-    controls.create_styled_button(
-        button_frame,
-        text="Cancel",
-        width=10,
-        command=dialog.destroy,
+        buttons, text="Cancel", command=dialog.destroy, width=10
     ).pack(side=tk.LEFT)
-
-    dialog.bind("<Return>", lambda _event: apply_position())
+    dialog.bind("<Return>", lambda _event: apply())
     dialog.bind("<Escape>", lambda _event: dialog.destroy())
-
+    dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
     dialog.update_idletasks()
-    x = gui.root.winfo_rootx() + (gui.root.winfo_width() - dialog.winfo_width()) // 2
-    y = gui.root.winfo_rooty() + (gui.root.winfo_height() - dialog.winfo_height()) // 2
-    dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+    width, height = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
+    x = gui.root.winfo_rootx() + (gui.root.winfo_width() - width) // 2
+    y = gui.root.winfo_rooty() + (gui.root.winfo_height() - height) // 2
+    dialog.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+    dialog.deiconify()
+    dialog.grab_set()
     dialog.focus_set()
+    return dialog
 
 
-def apply_gps_start_position(gui, latitude_text, longitude_text, parent=None):
-    """Validate and apply the GPS position of the local simulation origin."""
+def apply_motion_parameters(gui, values, parent=None):
+    """Validate all settings before changing sliders, configuration or motion."""
     if gui.simulation_started:
         messagebox.showwarning(
-            "GPS Position Locked",
-            "Reset the simulation before changing the GPS start position.",
+            "Movement Parameters Locked",
+            "Reset the simulation before changing movement parameters.",
             parent=parent,
         )
         return False
-
     try:
-        latitude, longitude = _parse_gps_start_position(
-            latitude_text,
-            longitude_text,
-        )
+        parameters = parse_motion_parameters(values)
     except ValueError as error:
-        messagebox.showerror(
-            "Invalid GPS Position",
-            str(error),
-            parent=parent,
-        )
+        messagebox.showerror("Invalid Movement Parameters", str(error), parent=parent)
         return False
-
-    gui.reference_latitude = latitude
-    gui.reference_longitude = longitude
-
+    for name, value in parameters.items():
+        setattr(gui, name, value)
+        setattr(gui.config, name, value)
+    gui.speed_slider.configure(
+        from_=gui.min_speed, to=gui.max_speed, resolution=gui.speed_resolution
+    )
+    gui.steering_slider.configure(
+        from_=gui.max_steering_deg_per_second,
+        to=gui.min_steering_deg_per_second,
+        resolution=gui.steering_resolution,
+    )
+    gui.speed_slider.set(gui.initial_speed)
+    gui.steering_slider.set(0.0)
+    gui.simulator.v = gui.initial_speed
     gui.update_status()
     gui.update_plot()
-
-    messagebox.showinfo(
-        "GPS Position Updated",
-        "GPS start position updated successfully.\n\n"
-        f"Latitude: {latitude:.8f}°\n"
-        f"Longitude: {longitude:.8f}°",
-        parent=parent,
-    )
-
     return True
 
 
