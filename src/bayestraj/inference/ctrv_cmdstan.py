@@ -53,7 +53,7 @@ def fit_bayesian_ctrv_model(
     variational_options: Mapping[str, Any] | None = None,
     mcmc_options: Mapping[str, Any] | None = None,
 ) -> CmdStanVB | CmdStanMCMC:
-    """Fit the latent-state CTRV model with VI or MCMC."""
+    """Fit the noncentered latent-state CTRV model with VI or MCMC."""
     inference_method = cmdstan_inference.normalize_inference_method(inference_method)
     stan_data = bayesian_model.build_stan_data(
         window,
@@ -111,7 +111,7 @@ def fit_bayesian_ctrv_model(
 
 
 def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
-    """Create seeded latent-state initials from the position history."""
+    """Express seeded motion-state initials as standardized innovations."""
     generator = np.random.default_rng(seed)
     observed_mask = np.asarray(
         stan_data.get("observed_mask", np.ones(stan_data["N_history"])), dtype=bool
@@ -156,28 +156,38 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     turn_jitter = 0.02 * float(stan_data["turn_rate_prior_scale"])
     angle_limit = np.pi - 1e-6
     transition_count = x_true.size - 1
+    speed_state = np.maximum(
+        speed + generator.normal(0.0, speed_jitter, transition_count),
+        # Stan maps a start on the lower bound to -inf when unconstraining.
+        1e-6,
+    )
+    heading_initial = float(
+        np.clip(
+            heading_initial + generator.normal(0.0, 0.01),
+            -angle_limit,
+            angle_limit,
+        )
+    )
+    turn_rate_state = turn_rate + generator.normal(0.0, turn_jitter, transition_count)
+    sigma_speed_process = float(0.5 / stan_data["sigma_speed_process_prior_rate"])
+    sigma_turn_rate_process = float(
+        0.5 / stan_data["sigma_turn_rate_process_prior_rate"]
+    )
+    time_scale = np.sqrt(
+        np.diff(time[:-1]) / stan_data["process_reference_interval_seconds"]
+    )
     return {
         "x_initial": float(x_true[0]),
         "y_initial": float(y_true[0]),
-        "speed_state": np.maximum(
-            speed + generator.normal(0.0, speed_jitter, transition_count),
-            # Stan maps a start on the lower bound to -inf when unconstraining.
-            1e-6,
-        ),
-        "heading_initial": float(
-            np.clip(
-                heading_initial + generator.normal(0.0, 0.01),
-                -angle_limit,
-                angle_limit,
-            )
-        ),
-        "turn_rate_state": turn_rate
-        + generator.normal(0.0, turn_jitter, transition_count),
+        "speed_initial": float(speed_state[0]),
+        "speed_innovation": np.diff(speed_state) / (sigma_speed_process * time_scale),
+        "heading_initial": heading_initial,
+        "turn_rate_initial": float(turn_rate_state[0]),
+        "turn_rate_innovation": np.diff(turn_rate_state)
+        / (sigma_turn_rate_process * time_scale),
         "sigma_position_observation_excess": float(observation_noise_excess_initial),
-        "sigma_speed_process": float(0.5 / stan_data["sigma_speed_process_prior_rate"]),
-        "sigma_turn_rate_process": float(
-            0.5 / stan_data["sigma_turn_rate_process_prior_rate"]
-        ),
+        "sigma_speed_process": sigma_speed_process,
+        "sigma_turn_rate_process": sigma_turn_rate_process,
     }
 
 

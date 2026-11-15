@@ -7,6 +7,8 @@ from dataclasses import fields, replace
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import logsumexp
+from scipy.stats import expon, norm
 
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
@@ -147,8 +149,10 @@ def test_batch_accepts_two_positions_and_builds_one_transition_initials(stationa
     assert data["N_history"] == 2
     np.testing.assert_array_equal(data["x_observed"], window.x_meters[:2])
     np.testing.assert_array_equal(data["time_prediction"], window.time_seconds[2:])
-    assert initial["speed_state"].shape == (1,)
-    assert initial["turn_rate_state"].shape == (1,)
+    assert initial["speed_initial"] > 0.0
+    assert np.isfinite(initial["turn_rate_initial"])
+    assert initial["speed_innovation"].shape == (0,)
+    assert initial["turn_rate_innovation"].shape == (0,)
     assert all(np.all(np.isfinite(value)) for value in initial.values())
 
 
@@ -198,8 +202,8 @@ def test_low_speed_br24_initials_stay_strictly_inside_speed_constraint(seed):
     initial = batch_inference._default_initial_values(data, seed=seed)
     repeated = batch_inference._default_initial_values(data, seed=seed)
 
-    assert np.all(initial["speed_state"] > 0.0)
-    assert np.all(np.isfinite(np.log(initial["speed_state"])))
+    assert initial["speed_initial"] > 0.0
+    assert np.isfinite(np.log(initial["speed_initial"]))
     for name in initial:
         np.testing.assert_array_equal(initial[name], repeated[name])
 
@@ -436,15 +440,120 @@ def test_ctrv_step_uses_current_motion_in_straight_line_limit():
     assert transitioned.heading == state.heading
 
 
-def test_stan_uses_folded_normal_speed_transition_and_reflected_forecast():
-    stan_source = ctrv_model.STAN_FILE.read_text(encoding="utf-8")
+@pytest.mark.skipif(
+    not RUN_CMDSTAN_INTEGRATION,
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to execute the Stan state reconstruction.",
+)
+def test_stan_reconstructs_folded_speed_and_time_scaled_turn_innovations():
+    window = replace(
+        _dynamic_ctrv_window(),
+        time_seconds=np.array([0.0, 1.0, 5.0, 7.0, 8.0, 9.0, 10.0, 11.0]),
+        observation_count=4,
+    )
+    model = batch_inference.compile_bayesian_ctrv_model()
+    fit = model.sample(
+        data=ctrv_model.build_stan_data(window),
+        inits={
+            "x_initial": 0.0,
+            "y_initial": 0.0,
+            "speed_initial": 0.1,
+            "speed_innovation": [-2.0, 1.0],
+            "heading_initial": 0.3,
+            "turn_rate_initial": 0.02,
+            "turn_rate_innovation": [-0.2, 0.3],
+            "sigma_speed_process": 0.2,
+            "sigma_turn_rate_process": 0.01,
+            "sigma_position_observation_excess": 1.0,
+        },
+        fixed_param=True,
+        adapt_engaged=False,
+        chains=1,
+        iter_warmup=0,
+        iter_sampling=1,
+        seed=42,
+        show_progress=False,
+    )
+    np.testing.assert_allclose(fit.stan_variable("speed_state")[0], [0.1, 0.3, 0.7])
+    np.testing.assert_allclose(
+        fit.stan_variable("turn_rate_state")[0], [0.02, 0.018, 0.024]
+    )
+    np.testing.assert_allclose(
+        fit.stan_variable("heading_state")[0], [0.3, 0.32, 0.392, 0.44]
+    )
 
-    assert "target += log_sum_exp(" in stan_source
-    assert "-speed_state[n] | speed_state[n - 1]" in stan_source
-    assert "normal_lccdf" not in stan_source
-    assert "speed_previous = abs(speed_proposal)" in stan_source
-    assert "heading_previous + pi()" not in stan_source
-    assert "heading_for_transition" not in stan_source
+
+@pytest.mark.skipif(
+    not RUN_CMDSTAN_INTEGRATION,
+    reason="Set RUN_CMDSTAN_INTEGRATION=1 to verify the physical posterior density.",
+)
+def test_noncentered_stan_preserves_physical_density_including_both_speed_branches():
+    window = replace(
+        _dynamic_ctrv_window(),
+        time_seconds=np.array([0.0, 1.0, 5.0, 7.0, 8.0, 9.0, 10.0, 11.0]),
+        observation_count=3,
+    )
+    data = ctrv_model.build_stan_data(window)
+    data["process_reference_interval_seconds"] = 1.0
+    model = batch_inference.compile_bayesian_ctrv_model()
+    actual, expected = [], []
+    for speeds, turns, sigma_speed, sigma_turn, sigma_observation in (
+        ([0.1, 0.3], [0.02, 0.018], 0.2, 0.01, 1.0),
+        ([0.5, 0.7], [-0.04, -0.02], 0.4, 0.02, 0.8),
+    ):
+        parameters = dict(
+            x_initial=0.0,
+            y_initial=0.0,
+            speed_initial=speeds[0],
+            heading_initial=0.3,
+            turn_rate_initial=turns[0],
+            turn_rate_innovation=[(turns[1] - turns[0]) / sigma_turn],
+            sigma_speed_process=sigma_speed,
+            sigma_turn_rate_process=sigma_turn,
+            sigma_position_observation_excess=sigma_observation,
+        )
+        # Both preimages contribute to the folded physical speed density.
+        branches = []
+        for signed_speed in (speeds[1], -speeds[1]):
+            parameters["speed_innovation"] = [(signed_speed - speeds[0]) / sigma_speed]
+            branches.append(
+                model.log_prob(parameters, data=data, jacobian=False, sig_figs=18)[
+                    "lp__"
+                ].iloc[0]
+            )
+        actual.append(logsumexp(branches) - np.log(sigma_speed) - np.log(sigma_turn))
+
+        # Independently evaluate the original physical-state model.
+        state = np.array([[0.0, 0.0, speeds[0], 0.3, turns[0]]])
+        positions = [state[0, :2].copy()]
+        for index, dt in enumerate((1.0, 4.0)):
+            state[0, 2], state[0, 4] = speeds[index], turns[index]
+            state = ctrv_dynamics.transition_states(state, dt)
+            positions.append(state[0, :2].copy())
+        positions = np.asarray(positions)
+        observation_scale = np.hypot(
+            data["sigma_position_observation_floor_m"], sigma_observation
+        )
+        density = norm.logpdf(speeds[0], scale=data["speed_prior_scale"])
+        density += norm.logpdf(turns[0], scale=data["turn_rate_prior_scale"])
+        density += logsumexp(
+            norm.logpdf([speeds[1], -speeds[1]], loc=speeds[0], scale=sigma_speed)
+        )
+        density += norm.logpdf(turns[1], loc=turns[0], scale=sigma_turn)
+        for name, value in (
+            ("sigma_speed_process", sigma_speed),
+            ("sigma_turn_rate_process", sigma_turn),
+            ("sigma_position_observation", sigma_observation),
+        ):
+            density += expon.logpdf(value, scale=1 / data[f"{name}_prior_rate"])
+        density += norm.logpdf(
+            data["x_observed"], loc=positions[:, 0], scale=observation_scale
+        ).sum()
+        density += norm.logpdf(
+            data["y_observed"], loc=positions[:, 1], scale=observation_scale
+        ).sum()
+        expected.append(density)
+    # Density differences cancel parameter-independent Stan normalization constants.
+    assert actual[1] - actual[0] == pytest.approx(expected[1] - expected[0], abs=1e-8)
 
 
 @pytest.mark.parametrize(
@@ -505,16 +614,55 @@ def test_batch_initialization_covers_dynamic_state_vectors_and_process_scales():
     initial_values = batch_inference._default_initial_values(stan_data, seed=42)
 
     transition_count = window.observation_count - 1
-    assert initial_values["speed_state"].shape == (transition_count,)
-    assert initial_values["turn_rate_state"].shape == (transition_count,)
+    assert initial_values["speed_innovation"].shape == (transition_count - 1,)
+    assert initial_values["turn_rate_innovation"].shape == (transition_count - 1,)
     assert np.isfinite(initial_values["x_initial"])
     assert np.isfinite(initial_values["y_initial"])
     assert "x_true" not in initial_values
     assert "y_true" not in initial_values
     assert "sigma_motion_process" not in initial_values
-    assert np.all(initial_values["speed_state"] >= ctrv_dynamics.SPEED_STATE_LOWER_MPS)
+    assert initial_values["speed_initial"] >= ctrv_dynamics.SPEED_STATE_LOWER_MPS
     assert initial_values["sigma_speed_process"] > 0
     assert initial_values["sigma_turn_rate_process"] > 0
+
+
+def test_noncentered_initials_preserve_physical_states_with_irregular_time_gaps():
+    window = replace(
+        _dynamic_ctrv_window(),
+        time_seconds=np.array([0.0, 1.0, 5.0, 14.0, 30.0, 31.0, 32.0, 33.0]),
+    )
+    data = ctrv_model.build_stan_data(window)
+    data["process_reference_interval_seconds"] = 2.0
+    initial = batch_inference._default_initial_values(data, seed=42)
+    scales = np.sqrt(np.array([1.0, 4.0, 9.0]) / 2.0)
+    speeds = [initial["speed_initial"]]
+    turns = [initial["turn_rate_initial"]]
+    for scale, speed_change, turn_change in zip(
+        scales,
+        initial["speed_innovation"],
+        initial["turn_rate_innovation"],
+        strict=True,
+    ):
+        speeds.append(
+            abs(speeds[-1] + initial["sigma_speed_process"] * scale * speed_change)
+        )
+        turns.append(
+            turns[-1] + initial["sigma_turn_rate_process"] * scale * turn_change
+        )
+    # Physical initials from the original seeded initializer, before changing coordinates.
+    np.testing.assert_allclose(
+        speeds,
+        [7.323519892626921, 7.313151738902125, 7.240521706566631, 7.3488104830724765],
+    )
+    np.testing.assert_allclose(
+        turns,
+        [
+            0.0094173762719781,
+            0.01160449789109946,
+            0.009240008134259308,
+            0.012512263017557687,
+        ],
+    )
 
 
 def test_zero_motion_state_innovations_recover_constant_ctrv_transition():

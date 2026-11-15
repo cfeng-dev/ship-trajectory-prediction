@@ -1260,8 +1260,12 @@ def _mcmc_rhat_max(fit):
     parameter_names = (
         "x_initial",
         "y_initial",
+        "speed_initial",
+        "speed_innovation",
         "speed_state",
         "heading_initial",
+        "turn_rate_initial",
+        "turn_rate_innovation",
         "turn_rate_state",
         "sigma_position_observation_excess",
         "sigma_speed_process",

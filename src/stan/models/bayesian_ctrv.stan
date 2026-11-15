@@ -86,10 +86,12 @@ parameters {
   real x_initial;
   real y_initial;
 
-  // Motion states at the start of every observed position transition.
-  vector<lower=0>[N_history - 1] speed_state;
+  // Initial motion and standardized changes between observed transitions.
+  real<lower=0> speed_initial;
+  vector[N_history - 2] speed_innovation;
   real<lower=-pi(), upper=pi()> heading_initial;
-  vector[N_history - 1] turn_rate_state;
+  real turn_rate_initial;
+  vector[N_history - 2] turn_rate_innovation;
 
   // Inferred excess observation noise and dynamic process-noise scales.
   real<lower=0> sigma_position_observation_excess;
@@ -99,6 +101,8 @@ parameters {
 
 // Deterministically reconstruct the latent CTRV trajectory.
 transformed parameters {
+  vector<lower=0>[N_history - 1] speed_state;
+  vector[N_history - 1] turn_rate_state;
   // Position and heading are deterministic consequences of the latent dynamics.
   vector[N_history] x_state;
   vector[N_history] y_state;
@@ -108,6 +112,20 @@ transformed parameters {
   sigma_position_observation = sqrt(
       square(sigma_position_observation_floor_m)
       + square(sigma_position_observation_excess));
+
+  // Reconstruct the same folded-speed and Gaussian turn-rate dynamics.
+  speed_state[1] = speed_initial;
+  turn_rate_state[1] = turn_rate_initial;
+  if (N_history > 2) {
+    for (n in 2:(N_history - 1)) {
+      real dt = time_observed[n] - time_observed[n - 1];
+      real process_time_scale = sqrt(dt / process_reference_interval_seconds);
+      speed_state[n] = abs(speed_state[n - 1]
+          + sigma_speed_process * process_time_scale * speed_innovation[n - 1]);
+      turn_rate_state[n] = turn_rate_state[n - 1]
+          + sigma_turn_rate_process * process_time_scale * turn_rate_innovation[n - 1];
+    }
+  }
 
   // Initialize the trajectory at the first observed state.
   x_state[1] = x_initial;
@@ -135,9 +153,11 @@ transformed parameters {
 // Combine priors, motion dynamics, and position-observation likelihood.
 model {
   // Priors for the initial motion state and uncertainty scales.
-  speed_state[1] ~ normal(0, speed_prior_scale);
+  speed_initial ~ normal(0, speed_prior_scale);
+  speed_innovation ~ std_normal();
   heading_initial ~ uniform(-pi(), pi());
-  turn_rate_state[1] ~ normal(0, turn_rate_prior_scale);
+  turn_rate_initial ~ normal(0, turn_rate_prior_scale);
+  turn_rate_innovation ~ std_normal();
   sigma_position_observation_excess ~ exponential(sigma_position_observation_prior_rate);
   sigma_speed_process ~ exponential(sigma_speed_process_prior_rate);
   sigma_turn_rate_process ~ exponential(sigma_turn_rate_process_prior_rate);
@@ -161,23 +181,6 @@ model {
     }
   }
 
-  // Scale process noise from the reference interval to each observed time gap.
-  if (N_history > 2) {
-    for (n in 2:(N_history - 1)) {
-      real dt = time_observed[n] - time_observed[n - 1];
-      real process_time_scale = sqrt(dt / process_reference_interval_seconds);
-      real speed_process_scale = sigma_speed_process * process_time_scale;
-      real turn_rate_process_scale = sigma_turn_rate_process * process_time_scale;
-
-      // Fold negative Gaussian speed proposals at zero.
-      target += log_sum_exp(
-          normal_lpdf(speed_state[n] | speed_state[n - 1], speed_process_scale),
-          normal_lpdf(-speed_state[n] | speed_state[n - 1], speed_process_scale));
-
-      // Allow turn-rate changes in either direction.
-      turn_rate_state[n] ~ normal(turn_rate_state[n - 1], turn_rate_process_scale);
-    }
-  }
 }
 
 // Generate diagnostics and posterior predictive future trajectories.

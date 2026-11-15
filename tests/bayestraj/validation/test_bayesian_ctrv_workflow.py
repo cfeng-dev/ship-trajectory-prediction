@@ -686,6 +686,26 @@ def test_mcmc_rhat_max_uses_model_parameters_and_states_only(rhat_values, expect
     assert workflow._mcmc_rhat_max(Fit()) == expected
 
 
+@pytest.mark.parametrize(
+    "parameter",
+    [
+        "speed_initial",
+        "turn_rate_initial",
+        "speed_innovation[1]",
+        "turn_rate_innovation[2]",
+    ],
+)
+def test_mcmc_rhat_max_includes_noncentered_parameters(parameter):
+    class Fit:
+        def summary(self):
+            return pd.DataFrame(
+                {"R_hat": [1.001, 1.2, 9.0]},
+                index=["speed_state[1]", parameter, "x_prediction[1]"],
+            )
+
+    assert workflow._mcmc_rhat_max(Fit()) == 1.2
+
+
 def test_mcmc_rhat_max_is_missing_before_first_fit_or_without_defined_values():
     class Fit:
         def summary(self):
