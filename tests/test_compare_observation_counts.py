@@ -15,7 +15,21 @@ from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
 METRICS = tuple(runtime_plotting.OBSERVATION_COUNT_METRICS)
-MCMC_METRICS = (*METRICS, "mcmc_rhat_max")
+MCMC_METRICS = (*METRICS, "mcmc_rhat_max", "mcmc_diagnostics_pass_rate")
+VI_METRICS = (*METRICS, "vi_convergence_rate")
+COMBINED_METRICS = (*MCMC_METRICS, "vi_convergence_rate")
+DIAGNOSTICS = {
+    "mcmc_rhat_max": "MCMC",
+    "mcmc_divergences": "MCMC",
+    "mcmc_ess_bulk_min": "MCMC",
+    "mcmc_ess_tail_min": "MCMC",
+    "mcmc_treedepth_hits": "MCMC",
+    "mcmc_diagnostics_pass_rate": "MCMC",
+    "vi_convergence_rate": "VI",
+    "vi_iteration_limit_rate": "VI",
+    "vi_elbo_delta_mean_max": "VI",
+    "vi_elbo_delta_median_max": "VI",
+}
 
 
 def _predictions(method, count):
@@ -90,6 +104,105 @@ def _read(directories):
     return comparison.read_observation_count_evaluations(
         directories["mcmc"], directories["vi"]
     )
+
+
+@pytest.fixture
+def diagnostic_result_dirs(result_dirs):
+    for method, directory in result_dirs.items():
+        for count in [2, 3, 4]:
+            table = _predictions(method, count)
+            first = table["window_index"].eq(0)
+            values = (
+                {
+                    "mcmc_divergences": (2, 6),
+                    "mcmc_ess_bulk_min": (800.0, 400.0),
+                    "mcmc_ess_tail_min": (700.0, 250.0),
+                    "mcmc_treedepth_hits": (1, 3),
+                }
+                if method == "mcmc"
+                else {
+                    "vi_termination": ("elbo_converged", "iteration_limit"),
+                    "vi_elbo_delta_mean": (0.02, 0.20),
+                    "vi_elbo_delta_median": (0.01, 0.10),
+                }
+            )
+            for name, (left, right) in values.items():
+                table[name] = np.where(first, left, right)
+            assert evaluation.export_evaluation_csv(
+                table, directory / f"bayesian_ctrv_{method}_{count:02d}.csv"
+            )
+    return result_dirs
+
+
+def test_reader_aggregates_fit_diagnostics_once_despite_unequal_horizons(
+    diagnostic_result_dirs,
+):
+    models = _read(diagnostic_result_dirs)
+    expected = {
+        "MCMC": {
+            "mcmc_divergences": 8,
+            "mcmc_ess_bulk_min": 400.0,
+            "mcmc_ess_tail_min": 250.0,
+            "mcmc_treedepth_hits": 4,
+        },
+        "VI": {
+            "vi_iteration_limit_rate": 0.5,
+            "vi_elbo_delta_mean_max": 0.20,
+            "vi_elbo_delta_median_max": 0.10,
+        },
+    }
+    for method, diagnostics in expected.items():
+        for name, value in diagnostics.items():
+            np.testing.assert_allclose(models[method][name], value)
+
+
+@pytest.mark.parametrize(
+    "method, column, value",
+    [
+        ("mcmc", "mcmc_divergences", -1.0),
+        ("mcmc", "mcmc_treedepth_hits", 1.5),
+        ("mcmc", "mcmc_ess_bulk_min", np.inf),
+        ("mcmc", "mcmc_ess_tail_min", -1.0),
+        ("vi", "vi_elbo_delta_mean", np.inf),
+        ("vi", "vi_elbo_delta_median", -0.1),
+        ("vi", "vi_termination", "unknown_reason"),
+    ],
+)
+def test_reader_rejects_invalid_fit_diagnostics(
+    diagnostic_result_dirs, method, column, value
+):
+    _edit(diagnostic_result_dirs, column, value, method=method)
+    with pytest.raises(ValueError, match=column):
+        _read(diagnostic_result_dirs)
+
+
+@pytest.mark.parametrize(
+    "method, column",
+    [("mcmc", "mcmc_divergences"), ("vi", "vi_termination")],
+)
+def test_reader_rejects_diagnostics_that_vary_across_one_fits_horizons(
+    diagnostic_result_dirs, method, column
+):
+    path = diagnostic_result_dirs[method] / f"bayesian_ctrv_{method}_03.csv"
+    table = pd.read_csv(path)
+    table.loc[0, column] = 5 if method == "mcmc" else "iteration_limit"
+    table.to_csv(path, index=False)
+    with pytest.raises(ValueError, match=column):
+        _read(diagnostic_result_dirs)
+
+
+def test_reader_keeps_incomplete_fit_diagnostics_missing(diagnostic_result_dirs):
+    for method, column, metric in [
+        ("mcmc", "mcmc_divergences", "mcmc_divergences"),
+        ("vi", "vi_elbo_delta_mean", "vi_elbo_delta_mean_max"),
+        ("vi", "vi_termination", "vi_iteration_limit_rate"),
+    ]:
+        path = diagnostic_result_dirs[method] / f"bayesian_ctrv_{method}_03.csv"
+        table = pd.read_csv(path)
+        table.loc[table["window_index"].eq(1), column] = np.nan
+        table.to_csv(path, index=False)
+        summary = _read(diagnostic_result_dirs)[method.upper()]
+        assert summary.loc[summary["observation_count"].eq(3), metric].isna().all()
 
 
 def _edit(directories, column, value, method="vi", count=3):
@@ -377,17 +490,25 @@ def test_plot_uses_recomputed_metrics_and_integer_ticks(
         plot_language=plot_language,
     )
     try:
-        assert len(figures) == len(MCMC_METRICS)
-        for metric, (figure, axis) in zip(MCMC_METRICS, figures, strict=True):
+        assert len(figures) == len(COMBINED_METRICS)
+        for metric, (figure, axis) in zip(COMBINED_METRICS, figures, strict=True):
             assert axis.get_xlabel() == (
                 "Beobachtungsfenstergröße T [Zeitschritte]"
                 if plot_language == "de"
                 else "Observation window size T [time steps]"
             )
-            selected = {"MCMC": models["MCMC"]} if metric == "mcmc_rhat_max" else models
+            selected = (
+                {DIAGNOSTICS[metric]: models[DIAGNOSTICS[metric]]}
+                if metric in DIAGNOSTICS
+                else models
+            )
             curves = axis.lines[: len(selected)]
             assert [line.get_label() for line in curves] == list(selected)
-            scale = 100 if metric.startswith("joint_coverage_") else 1
+            scale = (
+                100
+                if metric.startswith("joint_coverage_") or metric.endswith("_rate")
+                else 1
+            )
             for line, table in zip(curves, selected.values(), strict=True):
                 np.testing.assert_array_equal(line.get_xdata(), [2, 3, 4])
                 np.testing.assert_allclose(line.get_ydata(), table[metric] * scale)
@@ -505,7 +626,7 @@ def test_plot_skips_rhat_without_defined_mcmc_diagnostics(result_dirs, missing):
         models["MCMC"]["mcmc_rhat_max"] = np.nan
     figures = runtime_plotting.plot_observation_count_comparison(models, show=False)
     try:
-        assert len(figures) == len(METRICS)
+        assert len(figures) == len(COMBINED_METRICS) - 1
     finally:
         for figure, _ in figures:
             plt.close(figure)
@@ -518,7 +639,7 @@ def test_rhat_plot_preserves_missing_values_and_highlights_nearest_one(result_di
         models, show=False, show_summary_table=True, metric_y_scale="symlog"
     )
     try:
-        _, axis = figures[-2]
+        _, axis = figures[COMBINED_METRICS.index("mcmc_rhat_max")]
         assert "R-hat" in axis.get_ylabel()
         assert [line.get_label() for line in axis.lines] == ["MCMC"]
         np.testing.assert_allclose(axis.lines[0].get_ydata(), [0.98, np.nan, 1.005])
@@ -541,6 +662,57 @@ def test_singleton_comparison_keeps_integer_observation_count_ticks(result_dirs)
         for _, axis in figures:
             ticks = axis.get_xticks()
             np.testing.assert_array_equal(ticks, np.floor(ticks))
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_all_fit_diagnostics_are_plotted_and_ess_prefers_higher_values(
+    diagnostic_result_dirs, tmp_path
+):
+    models = _read(diagnostic_result_dirs)
+    models["MCMC"]["mcmc_ess_bulk_min"] = [800.0, 500.0, 200.0]
+    models["VI"]["vi_convergence_rate"] = [0.25, 0.5, 0.75]
+    metrics = (*METRICS, *DIAGNOSTICS)
+    figures = runtime_plotting.plot_observation_count_comparison(
+        models,
+        show=False,
+        show_summary_table=True,
+        metric_y_scale="symlog",
+        output_dir=tmp_path,
+        plot_language="en",
+    )
+    try:
+        assert len(figures) == len(metrics) + 1
+        for metric, (_, axis) in zip(metrics, figures[:-1], strict=True):
+            assert (tmp_path / f"{metric}.png").is_file()
+            if metric not in DIAGNOSTICS:
+                continue
+            method = DIAGNOSTICS[metric]
+            assert [line.get_label() for line in axis.lines] == [method]
+            scale = 100 if metric.endswith("_rate") else 1
+            np.testing.assert_allclose(
+                axis.lines[0].get_ydata(), models[method][metric] * scale
+            )
+            if scale == 100:
+                assert axis.get_ylim() == (0.0, 100.0)
+                assert axis.get_yscale() == "linear"
+        cells = figures[-1][1].tables[0].get_celld()
+        ess_column = metrics.index("mcmc_ess_bulk_min") + 1
+        convergence_column = metrics.index("vi_convergence_rate") + 1
+        assert cells[1, ess_column].get_text().get_weight() == "bold"
+        assert cells[3, ess_column].get_text().get_weight() != "bold"
+        assert cells[6, convergence_column].get_text().get_text() == "75.0%"
+        assert cells[6, convergence_column].get_text().get_weight() == "bold"
+        assert cells[4, convergence_column].get_text().get_weight() != "bold"
+        assert cells[4, ess_column].get_text().get_text() == "—"
+        figures[-1][0].canvas.draw()
+        renderer = figures[-1][0].canvas.get_renderer()
+        for cell in cells.values():
+            cell_box = cell.get_window_extent(renderer)
+            text_box = cell.get_text().get_window_extent(renderer)
+            assert cell_box.contains(text_box.x0, text_box.y0)
+            assert cell_box.contains(text_box.x1, text_box.y1)
     finally:
         for figure, _ in figures:
             plt.close(figure)
@@ -579,7 +751,7 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         )
         pd.testing.assert_frame_equal(saved, expected, check_dtype=False)
         assert saved["observation_count"].tolist() == [2, 3, 4]
-        metrics = MCMC_METRICS if method == "mcmc" else METRICS
+        metrics = MCMC_METRICS if method == "mcmc" else VI_METRICS
         assert len(shown) == len(metrics) + int(show_summary_table)
         metric_figures = shown[: len(metrics)]
         assert all(
@@ -588,7 +760,9 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         )
         for metric, figure in zip(metrics, metric_figures, strict=True):
             expected_scale = (
-                "linear" if metric.startswith("joint_coverage_") else metric_y_scale
+                "linear"
+                if metric.startswith("joint_coverage_") or metric.endswith("_rate")
+                else metric_y_scale
             )
             assert figure.axes[0].get_yscale() == expected_scale
             if metric_y_scale == "symlog":
@@ -629,7 +803,7 @@ def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
         figure, axis = figures[-1]
         assert not axis.axison
         cells = axis.tables[0].get_celld()
-        assert len(cells) == (count + 1) * 10
+        assert len(cells) == (count + 1) * (len(MCMC_METRICS) + 1)
         assert cells[1, 0].get_text().get_text() == "MCMC (T=2)"
         assert cells[count, 0].get_text().get_text() == f"MCMC (T={count + 1})"
         assert cells[1, 1].get_text().get_text() == "5.000"

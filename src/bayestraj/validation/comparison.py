@@ -370,6 +370,7 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                 nlpd_definition=metrics.NLPD_DEFINITION,
                 evaluation_definition=metrics.EVALUATION_DEFINITION,
             )
+            row.update(_summarize_observation_count_diagnostics(table, method, path))
             rows.append(row)
             cohorts[f"{method.upper()} N={count}"] = table[
                 [
@@ -428,6 +429,61 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
         label: table[table["observation_count"].isin(common)].reset_index(drop=True)
         for label, table in models.items()
     }
+
+
+def _summarize_observation_count_diagnostics(table, method, path):
+    """Aggregate fit diagnostics once per window; incomplete evidence stays missing."""
+    fields = (
+        {
+            "mcmc_divergences": ("mcmc_divergences", "sum"),
+            "mcmc_ess_bulk_min": ("mcmc_ess_bulk_min", "min"),
+            "mcmc_ess_tail_min": ("mcmc_ess_tail_min", "min"),
+            "mcmc_treedepth_hits": ("mcmc_treedepth_hits", "sum"),
+        }
+        if method == "mcmc"
+        else {
+            "vi_elbo_delta_mean": ("vi_elbo_delta_mean_max", "max"),
+            "vi_elbo_delta_median": ("vi_elbo_delta_median_max", "max"),
+            "vi_termination": ("vi_iteration_limit_rate", None),
+        }
+    )
+    result = {}
+    for field, (metric, aggregation) in fields.items():
+        result[metric] = np.nan
+        if field not in table:
+            continue
+        values = table[field]
+        if field == "vi_termination":
+            known = {
+                "elbo_converged",
+                "iteration_limit",
+                "incomplete",
+                "completed",
+                "unavailable",
+            }
+            if not values.dropna().isin(known).all():
+                raise ValueError(f"Invalid {field}: {path}")
+        else:
+            values = pd.to_numeric(values, errors="raise")
+            defined = values.dropna()
+            if not np.isfinite(defined).all() or (defined < 0).any():
+                raise ValueError(f"{field} must be finite and non-negative: {path}")
+            if aggregation == "sum" and not defined.eq(np.floor(defined)).all():
+                raise ValueError(f"{field} must contain integer counts: {path}")
+        if (values.groupby(table["window_index"]).nunique(dropna=False) > 1).any():
+            raise ValueError(f"{field} must be constant within each window: {path}")
+        selected = ~table["window_index"].duplicated()
+        if "is_prior_predictive" in table:
+            selected &= ~table["is_prior_predictive"]
+        fits = values.loc[selected]
+        if fits.empty or fits.isna().any():
+            continue
+        if field == "vi_termination":
+            if not fits.eq("unavailable").any():
+                result[metric] = float(fits.eq("iteration_limit").mean())
+        else:
+            result[metric] = float(fits.agg(aggregation))
+    return result
 
 
 def _validate_observation_count_metadata(record, path, method, count):

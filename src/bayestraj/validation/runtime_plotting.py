@@ -1,6 +1,7 @@
 """Plot rolling-evaluation diagnostics for trajectory forecasts."""
 
 from pathlib import Path
+from textwrap import fill
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,6 +41,48 @@ OBSERVATION_COUNT_METRICS = {
     "joint_coverage_50": COMPARISON_METRIC_LABELS["joint_coverage_50"],
     "joint_coverage_90": COMPARISON_METRIC_LABELS["joint_coverage_90"],
     "mean_fit_runtime_seconds": ("Runtime [s]", "Runtime"),
+}
+OBSERVATION_COUNT_DIAGNOSTICS = {
+    "mcmc_rhat_max": ("mcmc", "Max. R-hat", "Max. R-hat", "near 1"),
+    "mcmc_divergences": ("mcmc", "Divergenzen gesamt", "Total divergences", "lower"),
+    "mcmc_ess_bulk_min": ("mcmc", "Min. Bulk-ESS", "Min. Bulk ESS", "higher"),
+    "mcmc_ess_tail_min": ("mcmc", "Min. Tail-ESS", "Min. Tail ESS", "higher"),
+    "mcmc_treedepth_hits": (
+        "mcmc",
+        "Baumtiefentreffer gesamt",
+        "Total maximum-treedepth hits",
+        "lower",
+    ),
+    "mcmc_diagnostics_pass_rate": (
+        "mcmc",
+        "Diagnose-Erfolgsquote [%]",
+        "Diagnostics pass rate [%]",
+        "higher",
+    ),
+    "vi_convergence_rate": (
+        "vi",
+        "VI-Konvergenzquote [%]",
+        "VI convergence rate [%]",
+        "higher",
+    ),
+    "vi_iteration_limit_rate": (
+        "vi",
+        "Fits am Iterationslimit [%]",
+        "Fits at iteration limit [%]",
+        "lower",
+    ),
+    "vi_elbo_delta_mean_max": (
+        "vi",
+        "Max. letzte relative ELBO-Änderung (Mittel)",
+        "Max. final relative ELBO change (mean)",
+        "lower",
+    ),
+    "vi_elbo_delta_median_max": (
+        "vi",
+        "Max. letzte relative ELBO-Änderung (Median)",
+        "Max. final relative ELBO change (median)",
+        "lower",
+    ),
 }
 COMPARISON_PLOT_TEXT = {
     "de": {
@@ -421,28 +464,35 @@ def plot_observation_count_comparison(
     style = RUNTIME_PLOT_STYLE
     figures = []
     metrics = dict(OBSERVATION_COUNT_METRICS)
-    if any(
-        table["inference_method"].iloc[0] == "mcmc"
-        and "mcmc_rhat_max" in table
-        and table["mcmc_rhat_max"].notna().any()
-        for table in models.values()
-    ):
-        metrics["mcmc_rhat_max"] = (
-            "Max. R-hat",
-            "Maximaler R-hat" if plot_language == "de" else "Maximum R-hat",
-        )
+    for metric, (
+        method,
+        label_de,
+        label_en,
+        _,
+    ) in OBSERVATION_COUNT_DIAGNOSTICS.items():
+        if any(
+            table["inference_method"].iloc[0] == method
+            and metric in table
+            and table[metric].notna().any()
+            for table in models.values()
+        ):
+            label = label_de if plot_language == "de" else label_en
+            metrics[metric] = (label, label)
     for metric, (ylabel, metric_name) in metrics.items():
         figure, axis = _comparison_subplots(figsize=style.speed_figure_size)
         coverage = metric.startswith("joint_coverage_")
+        percentage = coverage or metric.endswith("_rate")
         metric_models = {
             label: table
             for label, table in models.items()
-            if metric != "mcmc_rhat_max"
+            if metric not in OBSERVATION_COUNT_DIAGNOSTICS
             or (
-                table["inference_method"].iloc[0] == "mcmc" and "mcmc_rhat_max" in table
+                table["inference_method"].iloc[0]
+                == OBSERVATION_COUNT_DIAGNOSTICS[metric][0]
+                and metric in table
             )
         }
-        if not coverage and metric_y_scale == "symlog":
+        if not percentage and metric_y_scale == "symlog":
             # Use the same adaptive linear range as the forecast metric curves.
             magnitudes = np.abs(
                 np.concatenate(
@@ -460,7 +510,7 @@ def plot_observation_count_comparison(
             values = table[metric].to_numpy(dtype=float)
             axis.plot(
                 table["observation_count"],
-                values * 100 if coverage else values,
+                values * 100 if percentage else values,
                 label=label,
                 color=COMPARISON_INFERENCE_COLORS[method],
                 marker="o" if show_points else "None",
@@ -474,6 +524,8 @@ def plot_observation_count_comparison(
                 linestyle=":",
                 label=text["nominal"].format(percent=nominal),
             )
+            axis.set_ylim(0, 100)
+        elif percentage:
             axis.set_ylim(0, 100)
         elif metric_y_scale == "symlog":
             lower, upper = axis.get_ylim()
@@ -494,7 +546,7 @@ def plot_observation_count_comparison(
             fontweight=style.title_font_weight,
         )
         figure.tight_layout()
-        if not coverage:
+        if not percentage:
             _reserve_legend_headroom(figure, axis, legend)
         if output_dir is not None:
             figure.savefig(output_dir / f"{metric}.png", dpi=150, bbox_inches="tight")
@@ -516,8 +568,8 @@ def plot_observation_count_comparison(
                 "preferred": [
                     f"near {metric.rsplit('_', 1)[1]}%"
                     if metric.startswith("joint_coverage_")
-                    else "near 1"
-                    if metric == "mcmc_rhat_max"
+                    else OBSERVATION_COUNT_DIAGNOSTICS[metric][3]
+                    if metric in OBSERVATION_COUNT_DIAGNOSTICS
                     else "lower"
                     for metric in metrics
                 ],
@@ -542,8 +594,23 @@ def plot_observation_count_comparison(
                 if plot_language == "de"
                 else "\nR-hat: maximum over parameters and windows; bold: closest to 1."
             )
+        if any(metric in OBSERVATION_COUNT_DIAGNOSTICS for metric in metrics):
+            summary_text["summary_note"] = (
+                "T: maximale Fenstergröße. Vorhersagemetriken wie in den Einzelplots.\n"
+                "Diagnosen je Fit: Ereignisse summiert; ESS minimal; R-hat/ELBO-Änderungen maximal.\n"
+                "Quoten je Fit; fett: günstigerer Wert (ESS/Erfolgsquoten höher, R-hat nahe 1)."
+                if plot_language == "de"
+                else "T: maximum window size. Forecast metrics follow the individual plots.\n"
+                "Per-fit diagnostics: event totals; minimum ESS; maximum R-hat/ELBO changes.\n"
+                "Rates per fit; bold: preferred value (higher ESS/pass rates, R-hat near 1)."
+            )
         metric_labels = {metric: labels[0] for metric, labels in metrics.items()}
         metric_labels["mean_fit_runtime_seconds"] = f"{text['runtime']} [s]"
+        for suffix, label in (
+            ("mean", "Mittel" if plot_language == "de" else "mean"),
+            ("median", "Median" if plot_language == "de" else "median"),
+        ):
+            metric_labels[f"vi_elbo_delta_{suffix}_max"] = f"Max. rel. ΔELBO\n({label})"
         figure, axis = _plot_comparison_summary_table(
             summary,
             list(configurations),
@@ -587,6 +654,7 @@ def _plot_comparison_summary_table(
     for row_number, (_, row) in enumerate(summary.iterrows(), start=1):
         name = row["metric"]
         coverage = name.startswith("joint_coverage_")
+        percentage = coverage or name.endswith("_rate")
         values = row.iloc[1:-1].to_numpy(dtype=float)
         scores = values
         if coverage:
@@ -601,6 +669,8 @@ def _plot_comparison_summary_table(
                 if metric_labels is not None
                 else COMPARISON_METRIC_LABELS[name][0]
             )
+        if row.get("preferred") == "higher":
+            scores = -values
         finite = np.isfinite(scores)
         if name == "mcmc_rhat_max":
             scores = np.abs(values - 1.0)
@@ -616,9 +686,9 @@ def _plot_comparison_summary_table(
             [label]
             + [
                 "—"
-                if name == "mcmc_rhat_max" and not np.isfinite(value)
+                if not np.isfinite(value)
                 else f"{value:.1%}"
-                if coverage
+                if percentage
                 else f"{value:.3f}"
                 for value in values
             ]
@@ -631,6 +701,10 @@ def _plot_comparison_summary_table(
             if "\n" in label
             else label.replace(" Coverage", "\nCoverage").replace(" [", "\n[")
             for label in transposed[0]
+        ]
+        column_labels = [
+            "\n".join(fill(line, width=16) for line in label.splitlines())
+            for label in column_labels
         ]
         rows = transposed[1:]
         best_cells = {(column, row) for row, column in best_cells}
