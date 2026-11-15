@@ -415,8 +415,8 @@ def _run_evaluation(
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
-        diagnostics["mcmc_rhat_max"] = (
-            _mcmc_rhat_max(fit) if inference_method == "mcmc" else np.nan
+        diagnostics.update(
+            _mcmc_diagnostics(fit if inference_method == "mcmc" else None)
         )
         vi_fit = (
             getattr(online_filter, "last_fit", None)
@@ -654,8 +654,8 @@ def _run_br24_radar_evaluation(
         )
         converged = getattr(tracker.filter, "converged", None)
         last_fit = getattr(tracker.filter, "last_fit", None)
-        diagnostics["mcmc_rhat_max"] = (
-            _mcmc_rhat_max(last_fit) if inference_method == "mcmc" else np.nan
+        diagnostics.update(
+            _mcmc_diagnostics(last_fit if inference_method == "mcmc" else None)
         )
         diagnostics.update(
             cmdstan_inference.variational_diagnostics(
@@ -1257,6 +1257,42 @@ def _mcmc_rhat_max(fit):
     """
     if fit is None:
         return np.nan
+    return float(_mcmc_parameter_summary(fit)["R_hat"].max())
+
+
+def _mcmc_diagnostics(fit):
+    """Summarize parameter mixing and post-warmup sampler problems per fit."""
+    values = dict.fromkeys(
+        (
+            "mcmc_rhat_max",
+            "mcmc_divergences",
+            "mcmc_ess_bulk_min",
+            "mcmc_ess_tail_min",
+            "mcmc_treedepth_hits",
+        ),
+        np.nan,
+    )
+    if fit is None:
+        return values
+    summary = _mcmc_parameter_summary(fit)
+    # method_variables() includes saved warmup; retain every sampling draw only.
+    sampler = fit.method_variables()
+    sampling_count = fit.num_draws_sampling
+    divergences = sampler["divergent__"][-sampling_count:]
+    treedepths = sampler["treedepth__"][-sampling_count:]
+    max_depth = fit.metadata.cmdstan_config["max_depth"]
+    values.update(
+        mcmc_rhat_max=float(summary["R_hat"].max()),
+        mcmc_divergences=int(np.sum(divergences)),
+        mcmc_ess_bulk_min=float(summary["ESS_bulk"].min()),
+        mcmc_ess_tail_min=float(summary["ESS_tail"].min()),
+        mcmc_treedepth_hits=int(np.sum(treedepths >= max_depth)),
+    )
+    return values
+
+
+def _mcmc_parameter_summary(fit):
+    """Select model parameters and latent states, excluding generated quantities."""
     parameter_names = (
         "x_initial",
         "y_initial",
@@ -1277,7 +1313,7 @@ def _mcmc_rhat_max(fit):
     )
     summary = fit.summary()
     base_names = summary.index.str.split("[", regex=False).str[0]
-    return float(summary.loc[base_names.isin(parameter_names), "R_hat"].max())
+    return summary.loc[base_names.isin(parameter_names)]
 
 
 def _mcmc_diagnostics_ok(fit):

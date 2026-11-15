@@ -11,7 +11,17 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 @pytest.mark.parametrize(
     ("method", "diagnostics"),
     [
-        ("mcmc", {"mcmc_rhat_max": 1.003, "mcmc_diagnostics_ok": True}),
+        (
+            "mcmc",
+            {
+                "mcmc_rhat_max": 1.003,
+                "mcmc_diagnostics_ok": True,
+                "mcmc_divergences": 2,
+                "mcmc_ess_bulk_min": 500.0,
+                "mcmc_ess_tail_min": 300.0,
+                "mcmc_treedepth_hits": 4,
+            },
+        ),
         (
             "vi",
             {
@@ -58,6 +68,13 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
             assert float(row[name]) == value
     if method != "mcmc":
         assert row["mcmc_rhat_max"] == ""
+        for name in (
+            "mcmc_divergences",
+            "mcmc_ess_bulk_min",
+            "mcmc_ess_tail_min",
+            "mcmc_treedepth_hits",
+        ):
+            assert row[name] == ""
     if method not in {"vi", "sequential_vi"}:
         assert row["vi_termination"] == ""
         assert row["vi_elbo_delta_mean"] == ""

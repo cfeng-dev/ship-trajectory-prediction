@@ -19,6 +19,17 @@ import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
 
+class _MCMCSamplerDiagnostics:
+    metadata = SimpleNamespace(cmdstan_config={"max_depth": 4})
+    num_draws_sampling = 2
+
+    def method_variables(self):
+        return {
+            "divergent__": np.array([[0, 1], [0, 0]]),
+            "treedepth__": np.array([[3, 4], [4, 3]]),
+        }
+
+
 @pytest.mark.parametrize("batch_observation_count", [3, 10, 50])
 def test_online_window_specs_start_at_two_independently_of_batch_window_size(
     batch_observation_count,
@@ -115,14 +126,17 @@ def test_associated_evaluation_scores_reference_without_association_or_label_lea
     )
     fits = []
 
-    class Fit(SequentialCTRVFit):
+    class Fit(_MCMCSamplerDiagnostics, SequentialCTRVFit):
         converged = True
 
         def diagnose(self):
             return "No problems detected"
 
         def summary(self):
-            return pd.DataFrame({"R_hat": [1.001]}, index=["speed_state[1]"])
+            return pd.DataFrame(
+                {"R_hat": [1.001], "ESS_bulk": [500.0], "ESS_tail": [300.0]},
+                index=["speed_state[1]"],
+            )
 
     def fit_model(window, *, position_observations, **kwargs):
         fits.append(position_observations)
@@ -520,7 +534,7 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
             seed=42,
         )
 
-        class FittedPosterior(SequentialCTRVFit):
+        class FittedPosterior(_MCMCSamplerDiagnostics, SequentialCTRVFit):
             converged = True
 
             def diagnose(self):
@@ -529,7 +543,11 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
             def summary(self):
                 assert method == "mcmc"
                 return pd.DataFrame(
-                    {"R_hat": [1.002, 1.023, 1.5]},
+                    {
+                        "R_hat": [1.002, 1.023, 1.5],
+                        "ESS_bulk": [800.0, 500.0, 1.0],
+                        "ESS_tail": [600.0, 300.0, 2.0],
+                    },
                     index=["sigma_speed_process", "speed_state[1]", "x_prediction[1]"],
                 )
 
@@ -607,8 +625,25 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         assert exported["configured_observation_count"].isna().all()
     if method == "mcmc":
         assert exported["mcmc_rhat_max"].tolist() == [1.023, 1.023]
+        assert exported["mcmc_divergences"].tolist() == [1, 1]
+        assert exported["mcmc_ess_bulk_min"].tolist() == [500.0, 500.0]
+        assert exported["mcmc_ess_tail_min"].tolist() == [300.0, 300.0]
+        assert exported["mcmc_treedepth_hits"].tolist() == [2, 2]
     else:
         assert exported["mcmc_rhat_max"].isna().all()
+        assert (
+            exported[
+                [
+                    "mcmc_divergences",
+                    "mcmc_ess_bulk_min",
+                    "mcmc_ess_tail_min",
+                    "mcmc_treedepth_hits",
+                ]
+            ]
+            .isna()
+            .all()
+            .all()
+        )
     if method == "vi":
         assert exported["vi_termination"].tolist() == ["elbo_converged"] * 2
         assert exported["vi_elbo_delta_mean"].tolist() == [0.08] * 2
@@ -715,6 +750,89 @@ def test_mcmc_rhat_max_is_missing_before_first_fit_or_without_defined_values():
     assert np.isnan(workflow._mcmc_rhat_max(Fit()))
 
 
+@pytest.mark.parametrize("max_depth, expected_hits", [(4, 3), (5, 1)])
+@pytest.mark.parametrize("save_warmup", [True, False])
+def test_mcmc_diagnostics_use_parameter_ess_and_all_postwarmup_draws(
+    max_depth, expected_hits, save_warmup
+):
+    summary = pd.DataFrame(
+        {
+            "R_hat": [1.002, 1.015, np.nan, 9.0, 8.0, 7.0],
+            "ESS_bulk": [900.0, 450.0, np.nan, 1.0, 2.0, 3.0],
+            "ESS_tail": [800.0, 350.0, np.nan, 2.0, 1.0, 3.0],
+        },
+        index=[
+            "sigma_speed_process",
+            "speed_innovation[1]",
+            "x_state[1]",
+            "x_prediction[1]",
+            "log_likelihood[1]",
+            "lp__",
+        ],
+    )
+    sampler = {
+        "divergent__": np.array([[1, 1], [0, 0], [0, 0]]),
+        "treedepth__": np.array([[2, 4], [4, 3], [5, 1]]),
+    }
+    if save_warmup:
+        sampler["divergent__"] = np.vstack([np.ones((1, 2)), sampler["divergent__"]])
+        sampler["treedepth__"] = np.vstack(
+            [np.full((1, 2), max_depth), sampler["treedepth__"]]
+        )
+    fit = SimpleNamespace(
+        summary=lambda: summary,
+        method_variables=lambda: sampler,
+        num_draws_sampling=3,
+        metadata=SimpleNamespace(cmdstan_config={"max_depth": max_depth}),
+    )
+
+    assert workflow._mcmc_diagnostics(fit) == {
+        "mcmc_rhat_max": 1.015,
+        "mcmc_divergences": 2,
+        "mcmc_ess_bulk_min": 450.0,
+        "mcmc_ess_tail_min": 350.0,
+        "mcmc_treedepth_hits": expected_hits,
+    }
+
+
+def test_mcmc_diagnostics_are_missing_before_first_fit():
+    diagnostics = workflow._mcmc_diagnostics(None)
+    assert set(diagnostics) == {
+        "mcmc_rhat_max",
+        "mcmc_divergences",
+        "mcmc_ess_bulk_min",
+        "mcmc_ess_tail_min",
+        "mcmc_treedepth_hits",
+    }
+    assert all(np.isnan(value) for value in diagnostics.values())
+
+
+def test_mcmc_diagnostics_keep_undefined_mixing_statistics_missing():
+    fit = SimpleNamespace(
+        summary=lambda: pd.DataFrame(
+            {
+                "R_hat": [np.nan, 1.002],
+                "ESS_bulk": [np.nan, 500.0],
+                "ESS_tail": [np.nan, 400.0],
+            },
+            index=["x_state[1]", "x_prediction[1]"],
+        ),
+        method_variables=lambda: {
+            "divergent__": np.zeros((2, 4)),
+            "treedepth__": np.ones((2, 4)),
+        },
+        num_draws_sampling=2,
+        metadata=SimpleNamespace(cmdstan_config={"max_depth": 10}),
+    )
+
+    diagnostics = workflow._mcmc_diagnostics(fit)
+
+    for name in ("mcmc_rhat_max", "mcmc_ess_bulk_min", "mcmc_ess_tail_min"):
+        assert np.isnan(diagnostics[name])
+    assert diagnostics["mcmc_divergences"] == 0
+    assert diagnostics["mcmc_treedepth_hits"] == 0
+
+
 @pytest.mark.parametrize("method", ["vi", "mcmc"])
 def test_radar_batch_evaluation_starts_early_and_keeps_the_configured_window(
     tmp_path, monkeypatch, method
@@ -725,14 +843,17 @@ def test_radar_batch_evaluation_starts_early_and_keeps_the_configured_window(
     _write_br24_evaluation_input(input_csv, cycle_count=14)
     fit_positions = []
 
-    class FittedPosterior(SequentialCTRVFit):
+    class FittedPosterior(_MCMCSamplerDiagnostics, SequentialCTRVFit):
         converged = True
 
         def diagnose(self):
             return "No problems detected"
 
         def summary(self):
-            return pd.DataFrame({"R_hat": [1.005]}, index=["speed_state[1]"])
+            return pd.DataFrame(
+                {"R_hat": [1.005], "ESS_bulk": [500.0], "ESS_tail": [300.0]},
+                index=["speed_state[1]"],
+            )
 
     def fit_model(window, *, position_observations, **kwargs):
         fit_positions.append(position_observations.x_meters.copy())
@@ -793,7 +914,11 @@ def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_poi
         workflow.cmdstan_inference, "variational_converged", lambda fit: True
     )
     monkeypatch.setattr(workflow, "_mcmc_diagnostics_ok", lambda fit: True)
-    monkeypatch.setattr(workflow, "_mcmc_rhat_max", lambda fit: 1.005)
+    monkeypatch.setattr(
+        workflow,
+        "_mcmc_diagnostics",
+        lambda fit: {"mcmc_rhat_max": 1.005 if fit is not None else np.nan},
+    )
 
     predictions, _ = _run_br24_evaluation(input_csv, inference_method=method)
 
@@ -939,11 +1064,16 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
             self.wrapped = wrapped
             self.last_fit = type(
                 "SamplerDiagnostics",
-                (),
+                (_MCMCSamplerDiagnostics,),
                 {
                     "diagnose": lambda self: "No problems detected",
                     "summary": lambda self: pd.DataFrame(
-                        {"R_hat": [1.005]}, index=["speed_state[1]"]
+                        {
+                            "R_hat": [1.005],
+                            "ESS_bulk": [500.0],
+                            "ESS_tail": [300.0],
+                        },
+                        index=["speed_state[1]"],
                     ),
                 },
             )()

@@ -52,12 +52,23 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
 
     class Fit(SequentialCTRVFit):
         converged = True
+        metadata = SimpleNamespace(cmdstan_config={"max_depth": 5})
+        num_draws_sampling = 2
 
         def diagnose(self):
             return "No problems detected"
 
         def summary(self):
-            return pd.DataFrame({"R_hat": [1.005]}, index=["speed_state[1]"])
+            return pd.DataFrame(
+                {"R_hat": [1.005], "ESS_bulk": [700.0], "ESS_tail": [400.0]},
+                index=["speed_state[1]"],
+            )
+
+        def method_variables(self):
+            return {
+                "divergent__": np.array([[0, 1], [0, 0]]),
+                "treedepth__": np.array([[4, 5], [5, 4]]),
+            }
 
     def fit_model(window, *, position_observations, **kwargs):
         fits.append(position_observations)
@@ -127,6 +138,17 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
         else:
             assert table["vi_termination"].isna().all()
             assert table["vi_elbo_delta_mean"].isna().all()
+        expected_mcmc = {
+            "mcmc_divergences": 1,
+            "mcmc_ess_bulk_min": 700.0,
+            "mcmc_ess_tail_min": 400.0,
+            "mcmc_treedepth_hits": 2,
+        }
+        for name, value in expected_mcmc.items():
+            if method == "mcmc":
+                assert table[name].eq(value).all()
+            else:
+                assert table[name].isna().all()
         np.testing.assert_allclose(
             table.loc[table["window_index"].eq(0), "horizon_seconds"], [2.7, 8.3, 11.1]
         )
