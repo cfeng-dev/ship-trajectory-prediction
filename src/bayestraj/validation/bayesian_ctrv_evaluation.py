@@ -228,7 +228,7 @@ def run_observation_count_evaluation(
     experiment: ctrv_config.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
     min_observation_count=2,
-    max_observation_count=20,
+    max_observation_count=15,
     max_windows=None,
     vi_config=None,
     mcmc_config=None,

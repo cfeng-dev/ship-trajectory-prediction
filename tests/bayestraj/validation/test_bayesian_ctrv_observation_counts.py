@@ -274,7 +274,7 @@ def test_evaluation_exports_forecasts_and_metadata_without_creating_summary(
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
-def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
+def test_scripts_sweep_two_to_fifteen_with_common_origins_and_method_csvs(
     tmp_path, monkeypatch, sweep_run, method
 ):
     namespace = _script(method)
@@ -285,7 +285,7 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     outputs = namespace["main"]([])
 
     assert [call["options"].observation_count for call in sweep_run] == list(
-        range(2, 21)
+        range(2, 16)
     )
     assert {call["options"].inference_method for call in sweep_run} == {method}
     selected = sweep_run[0]["selected_window_indices"]
@@ -304,10 +304,10 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     output = tmp_path / f"results/inference_evaluation/bayesian_ctrv_{method}"
     assert not (tmp_path / "results/associations").exists()
     assert sorted(path.name for path in output.iterdir()) == [
-        *(f"bayesian_ctrv_{method}_{count:02d}.csv" for count in range(2, 21)),
+        *(f"bayesian_ctrv_{method}_{count:02d}.csv" for count in range(2, 16)),
         "metadata.json",
     ]
-    for count in range(2, 21):
+    for count in range(2, 16):
         table = pd.read_csv(output / f"bayesian_ctrv_{method}_{count:02d}.csv")
         assert table.columns.tolist() == list(evaluation.PREDICTION_CSV_COLUMNS)
         assert table["configured_observation_count"].tolist() == [count] * 6
@@ -320,15 +320,15 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
             == [1] * 3 + [min(3, count) - 1] * 3
         )
 
-    assert len(outputs) == 19
+    assert len(outputs) == 14
     assert not (output / "summary.csv").exists()
     saved = comparison.read_observation_count_evaluations(**{f"{method}_dir": output})[
         method.upper()
     ]
-    assert saved["observation_count"].tolist() == list(range(2, 21))
+    assert saved["observation_count"].tolist() == list(range(2, 16))
     assert "evaluation_start_observation_count" not in saved
-    assert saved["window_count"].tolist() == [2] * 19
-    assert saved["forecast_count"].tolist() == [6] * 19
+    assert saved["window_count"].tolist() == [2] * 14
+    assert saved["forecast_count"].tolist() == [6] * 14
     np.testing.assert_allclose(saved["ade_m"], 2.0)
     np.testing.assert_allclose(saved["fde_m"], 3.0)
     np.testing.assert_allclose(saved["rmse_m"], np.sqrt(14 / 3))
@@ -339,8 +339,8 @@ def test_scripts_sweep_two_to_twenty_with_common_origins_and_method_csvs(
     else:
         assert saved["mcmc_rhat_max"].isna().all()
     assert "per_horizon_table" not in saved
-    assert saved["inference_seed"].tolist() == [42] * 19
-    assert saved["data_file"].tolist() == [str(namespace["DATA_FILE"].resolve())] * 19
+    assert saved["inference_seed"].tolist() == [42] * 14
+    assert saved["data_file"].tolist() == [str(namespace["DATA_FILE"].resolve())] * 14
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])

@@ -8,7 +8,7 @@ from bayestraj.paths import project_path
 DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 OUTPUT_DIR = project_path("results/inference_evaluation/bayesian_ctrv_vi")
 MIN_OBSERVATION_COUNT = 2
-MAX_OBSERVATION_COUNT = 20
+MAX_OBSERVATION_COUNT = 15
 MAX_WINDOWS = None  # Optional limit on evaluated origins after initialization.
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
