@@ -118,11 +118,26 @@ def save_csv(gui):
     # Keep the trajectory unchanged while the file dialog is open.
     gui.pause_simulation()
 
-    simulation_io.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        simulation_io.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        previous_path = getattr(gui, "last_saved_csv_path", None)
+        if previous_path is not None and previous_path in gui.saved_run_states:
+            initial_directory = previous_path.parent
+            initial_filename = previous_path.name
+        else:
+            initial_directory = simulation_io.DATA_DIR
+            initial_filename = simulation_io.next_trajectory_filename(
+                initial_directory, default_filename=gui.default_csv_filename
+            )
+    except (OSError, ValueError) as error:
+        messagebox.showerror(
+            "Save Failed", f"Could not select a CSV filename:\n\n{error}"
+        )
+        return
     output_path = filedialog.asksaveasfilename(
         title="Save trajectory as time,x,y CSV",
-        initialdir=simulation_io.DATA_DIR,
-        initialfile=gui.default_csv_filename,
+        initialdir=initial_directory,
+        initialfile=initial_filename,
         defaultextension=".csv",
         confirmoverwrite=False,
         filetypes=[
@@ -164,6 +179,7 @@ def save_csv(gui):
         return
 
     gui.saved_run_states[save_result.output_path.resolve()] = len(trajectory_df)
+    gui.last_saved_csv_path = save_result.output_path.resolve()
 
     if save_result.appended:
         message_title = "Trajectory Updated"

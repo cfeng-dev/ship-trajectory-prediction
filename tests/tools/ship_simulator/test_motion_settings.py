@@ -277,6 +277,7 @@ def test_reset_unlocks_motion_settings_and_keeps_applied_initial_speed():
         gui
     )
     gui.saved_run_states = {"run.csv": 1}
+    gui.last_saved_csv_path = "run.csv"
     gui.update_simulation_button()
     assert gui.settings_menu.entryconfigure.call_args.kwargs["state"] == "disabled"
     ShipTrajectoryGUI.reset(gui)
@@ -284,6 +285,7 @@ def test_reset_unlocks_motion_settings_and_keeps_applied_initial_speed():
     assert gui.simulator.v == gui.speed_slider.get() == gui.initial_speed == 2.4
     assert not gui.simulation_started
     assert not gui.saved_run_states
+    assert gui.last_saved_csv_path is None
 
 
 def test_speed_slider_preserves_configured_precision_and_keyboard_steps():

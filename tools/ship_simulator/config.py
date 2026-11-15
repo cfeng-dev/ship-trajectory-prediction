@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from math import isclose, isfinite
 
 DEFAULT_CSV_EXPORT_INTERVAL_SECONDS = 2.0
+DEFAULT_CSV_FILENAME = "example_trajectory_01.csv"
 SIMULATION_TIME_FACTORS = (1, 5, 10, 20)
 MOTION_PARAMETER_FIELDS = (
     ("initial_speed", "Initial speed [m/s]"),
@@ -81,7 +82,7 @@ class GUIConfig:
     # ==================================================
     # CSV export settings
     # ==================================================
-    default_csv_filename: str = "simulated_ship_trajectory.csv"
+    default_csv_filename: str = DEFAULT_CSV_FILENAME
     csv_export_interval_seconds: float = DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 
     # ==================================================

@@ -1,5 +1,6 @@
 """Export simulated positions and aligned evaluation-only reference states."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from . import paths
-from .config import DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
+from .config import DEFAULT_CSV_EXPORT_INTERVAL_SECONDS, DEFAULT_CSV_FILENAME
 
 DATA_DIR = paths.default_simulation_data_directory()
 TRAJECTORY_COLUMNS = ["time", "x", "y"]
@@ -19,6 +20,7 @@ GROUND_TRUTH_COLUMNS = [
     "ground_truth_turn_rate",
 ]
 SIMULATION_COLUMNS = [*TRAJECTORY_COLUMNS, *GROUND_TRUTH_COLUMNS]
+_TIME_ROUNDOFF_TOLERANCE_SECONDS = 1e-6
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,25 @@ class TrajectorySaveResult:
 
     output_path: Path
     appended: bool
+
+
+def next_trajectory_filename(directory=None, *, default_filename=DEFAULT_CSV_FILENAME):
+    """Suggest the next two-digit run number without creating or reserving a file."""
+    directory = DATA_DIR if directory is None else Path(directory)
+    prefix = re.sub(r"_[0-9]{2}$", "", Path(default_filename).stem)
+    pattern = re.compile(rf"{re.escape(prefix)}_([0-9]{{2}})\.csv", re.IGNORECASE)
+    highest = 0
+    entries = directory.iterdir() if directory.exists() else ()
+    for entry in entries:
+        match = pattern.fullmatch(entry.name)
+        if match is not None:
+            highest = max(highest, int(match[1]))
+    number = highest + 1
+    if number > 99:
+        raise ValueError(
+            "The two-digit trajectory numbers 01–99 are exhausted in this directory."
+        )
+    return f"{prefix}_{number:02d}.csv"
 
 
 def _validate_trajectory(data):
@@ -90,6 +111,16 @@ def create_simulation_dataframe(
 def save_trajectory_data(df, filename, *, append=False):
     """Save one run or append new samples from the same active simulation."""
     trajectory = _validate_trajectory(df)
+    rounded_time = trajectory["time"].round(1)
+    # Shorten floating-point drift, retaining precision for finer input intervals.
+    short_time = np.allclose(
+        trajectory["time"],
+        rounded_time,
+        rtol=0.0,
+        atol=_TIME_ROUNDOFF_TOLERANCE_SECONDS,
+    ) and np.all(np.diff(rounded_time) > 0.0)
+    if short_time:
+        trajectory["time"] = rounded_time
     output_path = Path(filename).expanduser()
     if not output_path.is_absolute():
         output_path = DATA_DIR / output_path
@@ -108,7 +139,15 @@ def save_trajectory_data(df, filename, *, append=False):
                 "Cannot append trajectory data with different CSV columns. "
                 "Choose a new filename for the ground-truth export."
             )
-        if trajectory["time"].iloc[0] <= existing["time"].iloc[-1]:
+        previous_time = existing["time"].iloc[-1]
+        if short_time and np.isclose(
+            previous_time,
+            round(previous_time, 1),
+            rtol=0.0,
+            atol=_TIME_ROUNDOFF_TOLERANCE_SECONDS,
+        ):
+            previous_time = round(previous_time, 1)
+        if trajectory["time"].iloc[0] <= previous_time:
             raise ValueError(
                 "New trajectory samples must follow the previously saved times."
             )
@@ -120,6 +159,8 @@ def save_trajectory_data(df, filename, *, append=False):
             )
         mode = "w" if output_path.is_file() else "x"
 
+    if short_time:
+        trajectory["time"] = trajectory["time"].map("{:.1f}".format)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     needs_newline = False
     if append:

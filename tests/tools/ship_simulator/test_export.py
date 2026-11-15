@@ -1,6 +1,7 @@
 """Simulator exports retain observed positions and evaluation-only truth."""
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,39 @@ from ship_simulator.time_format import format_elapsed_time
 )
 def test_status_time_uses_adaptive_elapsed_format(seconds, expected):
     assert format_elapsed_time(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [
+        ([], "example_trajectory_01.csv"),
+        (["example_trajectory_01.csv"], "example_trajectory_02.csv"),
+        (
+            ["example_trajectory_01.csv", "example_trajectory_03.csv"],
+            "example_trajectory_04.csv",
+        ),
+        (
+            ["example_trajectory_notes.csv", "simulated_ship_trajectory.csv"],
+            "example_trajectory_01.csv",
+        ),
+        (["EXAMPLE_TRAJECTORY_09.CSV"], "example_trajectory_10.csv"),
+    ],
+)
+def test_numbered_filename_uses_highest_existing_number(tmp_path, existing, expected):
+    for name in existing:
+        (tmp_path / name).write_text("existing data", encoding="utf-8")
+    assert simulation_io.next_trajectory_filename(tmp_path) == expected
+    assert simulation_io.next_trajectory_filename(tmp_path) == expected
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(existing)
+
+
+def test_numbered_filename_preserves_two_digit_tracking_pattern(tmp_path):
+    (tmp_path / "example_trajectory_99.csv").write_text(
+        "existing data", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="99"):
+        simulation_io.next_trajectory_filename(tmp_path)
+    assert not (tmp_path / "example_trajectory_100.csv").exists()
 
 
 def test_csv_export_preserves_numeric_source_time_and_local_positions(tmp_path):
@@ -46,6 +80,40 @@ def test_csv_export_preserves_numeric_source_time_and_local_positions(tmp_path):
     saved = pd.read_csv(result.output_path, float_precision="round_trip")
     pd.testing.assert_frame_equal(saved, data)
     assert result.appended is False
+
+
+def test_csv_time_uses_one_decimal_without_rounding_positions(tmp_path):
+    data = pd.DataFrame(
+        {
+            "time": [0.0, 2.000000000000001, 3.999999999999994],
+            "x": [0.1234567890123456, 4.3999999999999995, 8.798587660653839],
+            "y": [-0.1234567890123456, 0.0, -0.08945838974112037],
+        }
+    )
+    original = data.copy()
+    path = tmp_path / "run.csv"
+    simulation_io.save_trajectory_data(data.iloc[:2], path)
+    simulation_io.save_trajectory_data(data.iloc[2:], path, append=True)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert [line.split(",", 1)[0] for line in lines[1:]] == ["0.0", "2.0", "4.0"]
+    saved = pd.read_csv(path, float_precision="round_trip")
+    np.testing.assert_array_equal(saved[["x", "y"]], original[["x", "y"]])
+    pd.testing.assert_frame_equal(data, original)
+
+
+@pytest.mark.parametrize("existing_time", [2.0, 1.999999999999994])
+def test_time_formatting_cannot_append_a_duplicate_rounded_timestamp(
+    tmp_path, existing_time
+):
+    path = tmp_path / "run.csv"
+    pd.DataFrame({"time": [existing_time], "x": [1.0], "y": [2.0]}).to_csv(
+        path, index=False
+    )
+    previous = path.read_bytes()
+    data = pd.DataFrame({"time": [2.000000000000001], "x": [3.0], "y": [4.0]})
+    with pytest.raises(ValueError, match="follow"):
+        simulation_io.save_trajectory_data(data, path, append=True)
+    assert path.read_bytes() == previous
 
 
 def test_default_export_selects_original_two_second_samples_without_partial_tail():
@@ -227,6 +295,64 @@ def test_simulator_csv_loads_directly_into_bayesian_predictor(tmp_path):
     before = dashboard.analysis_metrics_at(trajectory, {3: update}, 3)
     after = dashboard.analysis_metrics_at(changed_trajectory, {3: changed_update}, 3)
     assert after.ade_m > before.ade_m + 100.0
+
+
+def test_save_dialog_numbers_new_runs_and_reuses_saved_filename(tmp_path, monkeypatch):
+    pytest.importorskip("tkinter")
+    from ship_simulator import dialogs
+    from ship_simulator.config import GUIConfig
+    from ship_simulator.core import ShipSimulator
+
+    for number in (1, 2):
+        (tmp_path / f"example_trajectory_{number:02d}.csv").write_bytes(
+            b"existing data"
+        )
+    simulator = ShipSimulator(v=2.2)
+    simulator.step(0.0, True)
+    gui = SimpleNamespace(
+        simulator=simulator,
+        pause_simulation=lambda: None,
+        default_csv_filename=GUIConfig().default_csv_filename,
+        saved_run_states={},
+        csv_export_interval_seconds=2.0,
+    )
+    choices = []
+    cancel = [True]
+
+    def choose(**options):
+        choices.append(options)
+        return "" if cancel[0] else str(options["initialdir"] / options["initialfile"])
+
+    monkeypatch.setattr(simulation_io, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(dialogs.filedialog, "asksaveasfilename", choose)
+    for name in ("showinfo", "showwarning", "showerror"):
+        monkeypatch.setattr(dialogs.messagebox, name, Mock())
+    dialogs.save_csv(gui)
+    assert choices[-1]["initialfile"] == "example_trajectory_03.csv"
+    assert not gui.saved_run_states
+    assert not (tmp_path / "example_trajectory_03.csv").exists()
+
+    cancel[0] = False
+    dialogs.save_csv(gui)
+    path = tmp_path / "example_trajectory_03.csv"
+    assert path.is_file()
+    assert gui.last_saved_csv_path == path.resolve()
+    for _ in range(40):
+        simulator.step(0.0, True)
+    dialogs.save_csv(gui)
+    assert choices[-1]["initialfile"] == path.name
+    np.testing.assert_allclose(pd.read_csv(path)["time"], [0.0, 2.0])
+    assert not (tmp_path / "example_trajectory_04.csv").exists()
+
+    simulator.reset()
+    gui.saved_run_states.clear()
+    gui.last_saved_csv_path = None
+    simulator.step(0.0, True)
+    dialogs.save_csv(gui)
+    assert choices[-1]["initialfile"] == "example_trajectory_04.csv"
+    assert (tmp_path / "example_trajectory_04.csv").is_file()
+    assert (tmp_path / "example_trajectory_01.csv").read_bytes() == b"existing data"
+    assert (tmp_path / "example_trajectory_02.csv").read_bytes() == b"existing data"
 
 
 def test_save_dialog_continues_current_run_and_requires_new_file_after_reset(

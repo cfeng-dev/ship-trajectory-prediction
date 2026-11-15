@@ -52,6 +52,7 @@ class ShipTrajectoryGUI:
         # Remember how much of the current simulation session was saved to
         # each CSV file. Reset clears this mapping and requires a new filename.
         self.saved_run_states = {}
+        self.last_saved_csv_path = None
 
         # Initialize camera at the ship start position.
         # This is only used when axis_mode = "follow".
@@ -407,6 +408,7 @@ class ShipTrajectoryGUI:
         self.last_simulation_tick = None
         self.simulation_time_accumulator = 0.0
         self.saved_run_states.clear()
+        self.last_saved_csv_path = None
 
         self.steering_slider.set(0)
         self.speed_slider.set(self.initial_speed)

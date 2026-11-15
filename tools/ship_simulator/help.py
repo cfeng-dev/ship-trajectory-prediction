@@ -282,8 +282,12 @@ def show_help_window(
             "time,x,y plus ground_truth_x/y [m], ground_truth_velocity [m/s], ground_truth_yaw [rad] and ground_truth_turn_rate [rad/s]. Bayesian Predictor uses truth only for display and evaluation. Without measurement noise, x/y equal ground_truth_x/y",
         ),
         (
+            "CSV filename",
+            "New runs suggest example_trajectory_01.csv, then the highest existing two-digit number plus one. Cancel does not reserve a number",
+        ),
+        (
             "Repeated save",
-            "Append only new samples to the same trajectory file, without duplicate timestamps",
+            "Suggest the last saved file for this run and append only new samples, without duplicate timestamps",
         ),
         (
             "CSV interval",
@@ -291,7 +295,7 @@ def show_help_window(
         ),
         (
             "After Reset",
-            "Choose a new CSV filename for the new simulation run",
+            "Suggest the next numbered CSV filename for the new simulation run",
         ),
         (
             "Turn Radius",
