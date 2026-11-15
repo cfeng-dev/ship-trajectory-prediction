@@ -805,7 +805,6 @@ def test_gui_prior_defaults_match_shared_bayesian_ctrv_configuration():
         "turn_rate_prior_tail_probability": "0.05",
         "sigma_position_observation_prior_upper_m": "20.0",
         "sigma_position_observation_prior_tail_probability": "0.05",
-        "sigma_position_observation_floor_m": "5.0",
         "sigma_speed_process_prior_upper_mps": "2.0",
         "sigma_speed_process_prior_tail_probability": "0.05",
         "sigma_turn_rate_process_prior_upper_deg_s": "2.0",
@@ -911,6 +910,17 @@ def test_batch_window_size_rejects_invalid_values_before_starting(form, count):
         settings.parse_settings(form)
     with pytest.raises(ValueError, match="Observation window size"):
         settings.validate_dialog_values("data", {"batch_observation_count": count})
+
+
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+def test_observation_noise_floor_is_absent_from_form_and_dialog(form, method):
+    form["data"]["inference_method"] = method
+    assert "sigma_position_observation_floor_m" not in form["priors"]
+    parsed = settings.parse_settings(form)
+    assert not hasattr(parsed.analysis.priors, "sigma_position_observation_floor_m")
+    dialog = settings.validate_dialog_values("priors", form["priors"])
+    assert "sigma_position_observation_floor_m" not in dialog
+    assert "sigma_position_observation_floor_m" not in settings.LABELS
 
 
 def test_batch_window_size_defaults_to_five(form):

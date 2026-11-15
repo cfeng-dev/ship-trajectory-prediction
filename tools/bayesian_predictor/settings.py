@@ -120,7 +120,6 @@ LABELS = {
     "turn_rate_prior_tail_probability": "Turn rate: tail probability",
     "sigma_position_observation_prior_upper_m": "Additional noise: threshold [m]",
     "sigma_position_observation_prior_tail_probability": "Additional noise: tail probability",
-    "sigma_position_observation_floor_m": "Effective observation-noise floor [m]",
     "sigma_speed_process_prior_upper_mps": "Speed process: threshold [m/s]",
     "sigma_speed_process_prior_tail_probability": "Speed process: tail probability",
     "sigma_turn_rate_process_prior_upper_deg_s": "Turn-rate process: threshold [°/s]",

@@ -463,10 +463,11 @@ def test_posterior_median_process_noise_labels_are_compact():
     )
 
 
-def test_help_documents_analysis_setup_options():
+def test_help_documents_current_analysis_and_prior_options():
     from bayesian_predictor.help import POSTERIOR_HELP_SECTIONS
 
     sections = dict(POSTERIOR_HELP_SECTIONS)
+    assert "Observation-noise floor" not in dict(sections["Priors and inference"])
 
     assert [control for control, _description in sections["Analysis setup"]] == [
         "Start index",

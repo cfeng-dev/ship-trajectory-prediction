@@ -59,8 +59,6 @@ class BayesianCTRVPriors:
 
         sigma_position_observation_prior_tail_probability: P(additional position-observation noise > sigma_position_observation_prior_upper_m).
 
-        sigma_position_observation_floor_m: Irreducible per-axis position-observation uncertainty in m.
-
         sigma_speed_process_prior_upper_mps: Speed process-noise threshold in m/s.
 
         sigma_speed_process_prior_tail_probability: P(speed process noise > sigma_speed_process_prior_upper_mps).
@@ -76,7 +74,6 @@ class BayesianCTRVPriors:
     turn_rate_prior_tail_probability: float = 0.05
     sigma_position_observation_prior_upper_m: float = 20.0
     sigma_position_observation_prior_tail_probability: float = 0.05
-    sigma_position_observation_floor_m: float = 5.0
     sigma_speed_process_prior_upper_mps: float = 2.0
     sigma_speed_process_prior_tail_probability: float = 0.05
     sigma_turn_rate_process_prior_upper_deg_s: float = 2.0
@@ -201,9 +198,6 @@ def build_stan_data(
         "turn_rate_prior_scale": priors.turn_rate_prior_scale,
         "sigma_position_observation_prior_rate": (
             priors.sigma_position_observation_prior_rate
-        ),
-        "sigma_position_observation_floor_m": (
-            priors.sigma_position_observation_floor_m
         ),
         "sigma_speed_process_prior_rate": priors.sigma_speed_process_prior_rate,
         "sigma_turn_rate_process_prior_rate": (

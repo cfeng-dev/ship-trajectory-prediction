@@ -165,10 +165,6 @@ POSTERIOR_HELP_SECTIONS = (
                 "Set plausible thresholds and tail probabilities for speed, turn rate and noise; thresholds are not hard limits",
             ),
             (
-                "Observation-noise floor",
-                "Minimum effective position uncertainty; distinct from additional simulated position noise in Analysis setup",
-            ),
-            (
                 "SMC",
                 "Sequential Monte Carlo updates a weighted particle approximation as observations arrive",
             ),

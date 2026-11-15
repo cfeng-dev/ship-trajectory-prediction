@@ -136,13 +136,7 @@ def _default_initial_values(stan_data: Mapping[str, Any], *, seed: int):
     observation_noise_excess_initial = 1.0 / float(
         stan_data["sigma_position_observation_prior_rate"]
     )
-    observation_noise_initial = float(
-        np.hypot(
-            observation_noise_excess_initial,
-            stan_data["sigma_position_observation_floor_m"],
-        )
-    )
-    latent_jitter_scale = 0.02 * observation_noise_initial
+    latent_jitter_scale = 0.02 * observation_noise_excess_initial
     x_true += generator.normal(0.0, latent_jitter_scale, x_true.size)
     y_true += generator.normal(0.0, latent_jitter_scale, y_true.size)
     speed, heading_initial, turn_rate = (

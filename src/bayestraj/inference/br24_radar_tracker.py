@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +77,6 @@ class BR24BayesianRadarTracker:
         priors: BayesianCTRVPriors,
         config: SequentialMonteCarloCTRVConfig | None = None,
         seed: int = 42,
-        residual_observation_noise_floor_m: float = 1e-6,
         inference_method: str = "smc",
         observation_count: int = 10,
         vi_config: Mapping[str, Any] | None = None,
@@ -95,7 +94,6 @@ class BR24BayesianRadarTracker:
             priors=priors,
             config=config,
             seed=seed,
-            residual_observation_noise_floor_m=residual_observation_noise_floor_m,
             inference_method=inference_method,
             observation_count=observation_count,
             vi_config=vi_config,
@@ -113,7 +111,6 @@ class BR24BayesianRadarTracker:
         priors,
         config=None,
         seed=42,
-        residual_observation_noise_floor_m=1e-6,
         inference_method="smc",
         observation_count=10,
         vi_config=None,
@@ -123,16 +120,12 @@ class BR24BayesianRadarTracker:
         """Initialize from an already associated Cartesian fix and its covariance."""
         covariance = measurement_covariance
         inference_method = normalize_radar_inference_method(inference_method)
-        radar_priors = replace(
-            priors,
-            sigma_position_observation_floor_m=residual_observation_noise_floor_m,
-        )
         if inference_method == "smc":
             radar_filter = BR24SMCAdapter.initialize(
                 time_seconds,
                 position,
                 covariance,
-                priors=radar_priors,
+                priors=priors,
                 config=config,
                 seed=seed,
             )
@@ -141,7 +134,7 @@ class BR24BayesianRadarTracker:
                 time_seconds,
                 position,
                 covariance,
-                priors=radar_priors,
+                priors=priors,
                 observation_count=observation_count,
                 config=sequential_vi_config,
                 seed=seed,
@@ -152,7 +145,7 @@ class BR24BayesianRadarTracker:
                 position,
                 covariance,
                 inference_method=inference_method,
-                priors=radar_priors,
+                priors=priors,
                 observation_count=observation_count,
                 vi_config=vi_config,
                 mcmc_config=mcmc_config,
@@ -245,7 +238,6 @@ def track_br24_csv(
     priors: BayesianCTRVPriors,
     config: SequentialMonteCarloCTRVConfig | None = None,
     seed: int = 42,
-    residual_observation_noise_floor_m: float = 1e-6,
     inference_method: str = "smc",
     observation_count: int = 10,
     vi_config: Mapping[str, Any] | None = None,
@@ -271,7 +263,6 @@ def track_br24_csv(
         priors=priors,
         config=config,
         seed=seed,
-        residual_observation_noise_floor_m=residual_observation_noise_floor_m,
         inference_method=inference_method,
         observation_count=observation_count,
         vi_config=vi_config,

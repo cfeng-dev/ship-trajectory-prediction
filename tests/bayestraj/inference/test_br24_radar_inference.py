@@ -1,7 +1,5 @@
 """Contracts for causal method-specific raw BR24 inference."""
 
-from dataclasses import replace
-
 import numpy as np
 import pytest
 
@@ -111,7 +109,7 @@ def test_smc_adapter_preserves_native_filter_state_draws_and_diagnostics():
         np.array([0.0]),
         np.array([110.0]),
         np.array([-20.0]),
-        priors=replace(BayesianCTRVPriors(), sigma_position_observation_floor_m=1e-6),
+        priors=BayesianCTRVPriors(),
         config=SequentialMonteCarloCTRVConfig(
             particle_count=128, posterior_draw_count=32
         ),
@@ -135,7 +133,6 @@ def test_smc_adapter_preserves_native_filter_state_draws_and_diagnostics():
         "resample_count",
         "last_log_predictive_density",
         "predictive_log_density_history",
-        "position_observation_noise_floor_m",
         "expected_position_observation_variance",
     ):
         assert getattr(adapter, name) == getattr(native, name)

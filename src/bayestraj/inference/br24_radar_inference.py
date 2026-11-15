@@ -162,11 +162,8 @@ def _seed_population(
     seed: int,
 ) -> _PredictivePopulation:
     generator = np.random.default_rng(_stream_seed(seed, 1))
-    residual = np.hypot(
-        generator.exponential(
-            1.0 / priors.sigma_position_observation_prior_rate, draw_count
-        ),
-        priors.sigma_position_observation_floor_m,
+    residual = generator.exponential(
+        1.0 / priors.sigma_position_observation_prior_rate, draw_count
     )
     sensor_innovation = generator.multivariate_normal(
         np.zeros(2), covariance, size=draw_count
@@ -721,10 +718,6 @@ class BR24SMCAdapter:
     @property
     def expected_position_observation_variance(self):
         return self.backend.expected_position_observation_variance
-
-    @property
-    def position_observation_noise_floor_m(self):
-        return self.backend.position_observation_noise_floor_m
 
     @property
     def effective_sample_size(self):

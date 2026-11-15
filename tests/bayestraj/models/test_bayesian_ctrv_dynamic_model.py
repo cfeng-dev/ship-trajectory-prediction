@@ -117,13 +117,34 @@ def _ten_point_vi_regression_window():
     )
 
 
+def test_observation_noise_is_inferred_without_a_fixed_floor():
+    priors = ctrv_model.BayesianCTRVPriors()
+    window = _dynamic_ctrv_window()
+    stan_data = ctrv_model.build_stan_data(window, priors=priors)
+    assert "sigma_position_observation_floor_m" not in stan_data
+    assert not hasattr(priors, "sigma_position_observation_floor_m")
+    particle_filter = smc.SequentialMonteCarloCTRVFilter.initialize(
+        window.time_seconds[:1],
+        window.x_meters[:1],
+        window.y_meters[:1],
+        priors=priors,
+        config=smc.SequentialMonteCarloCTRVConfig(
+            particle_count=128, posterior_draw_count=64
+        ),
+        seed=42,
+    )
+    fit = particle_filter.sample_current_posterior(seed=42)
+    noise = fit.stan_variable("sigma_position_observation")
+    assert np.all(noise > 0.0)
+    assert np.any(noise < 5.0)
+    assert not hasattr(particle_filter, "position_observation_noise_floor_m")
+
+
 def test_batch_stan_data_contains_shared_dynamic_process_inputs():
     priors = ctrv_model.BayesianCTRVPriors()
     stan_data = ctrv_model.build_stan_data(_dynamic_ctrv_window(), priors=priors)
 
-    assert stan_data["sigma_position_observation_floor_m"] == pytest.approx(
-        priors.sigma_position_observation_floor_m
-    )
+    assert "sigma_position_observation_floor_m" not in stan_data
     assert stan_data["sigma_speed_process_prior_rate"] == pytest.approx(
         priors.sigma_speed_process_prior_rate
     )
@@ -188,7 +209,7 @@ def _low_speed_br24_regression_case():
             ]
         ),
     )
-    priors = ctrv_model.BayesianCTRVPriors(sigma_position_observation_floor_m=1e-6)
+    priors = ctrv_model.BayesianCTRVPriors()
     return window, observations, priors
 
 
@@ -530,9 +551,7 @@ def test_noncentered_stan_preserves_physical_density_including_both_speed_branch
             state = ctrv_dynamics.transition_states(state, dt)
             positions.append(state[0, :2].copy())
         positions = np.asarray(positions)
-        observation_scale = np.hypot(
-            data["sigma_position_observation_floor_m"], sigma_observation
-        )
+        observation_scale = sigma_observation
         density = norm.logpdf(speeds[0], scale=data["speed_prior_scale"])
         density += norm.logpdf(turns[0], scale=data["turn_rate_prior_scale"])
         density += logsumexp(
@@ -649,18 +668,18 @@ def test_noncentered_initials_preserve_physical_states_with_irregular_time_gaps(
         turns.append(
             turns[-1] + initial["sigma_turn_rate_process"] * scale * turn_change
         )
-    # Physical initials from the original seeded initializer, before changing coordinates.
+    # Seeded physical initials without a fixed observation-noise floor.
     np.testing.assert_allclose(
         speeds,
-        [7.323519892626921, 7.313151738902125, 7.240521706566631, 7.3488104830724765],
+        [7.317002917277321, 7.306634763552525, 7.2340047312170315, 7.342293507722877],
     )
     np.testing.assert_allclose(
         turns,
         [
-            0.0094173762719781,
-            0.01160449789109946,
-            0.009240008134259308,
-            0.012512263017557687,
+            0.009401044223760728,
+            0.011588165842882088,
+            0.009223676086041936,
+            0.012495930969340315,
         ],
     )
 

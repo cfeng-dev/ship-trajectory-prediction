@@ -76,7 +76,6 @@ class SequentialMonteCarloCTRVFilter:
     resample_count: int = 0
     last_effective_sample_size: float | None = None
     forecast_origin_particles: np.ndarray | None = None
-    position_observation_noise_floor_m: float = 0.0
     last_log_predictive_density: float | None = None
     predictive_log_density_history: list[float] = field(default_factory=list)
 
@@ -114,16 +113,12 @@ class SequentialMonteCarloCTRVFilter:
             )
         generator = np.random.default_rng(seed)
         particle_count = config.particle_count
-        observation_noise_excess = np.maximum(
+        observation_noise = np.maximum(
             generator.exponential(
                 1.0 / priors.sigma_position_observation_prior_rate,
                 particle_count,
             ),
             _MINIMUM_SCALE,
-        )
-        observation_noise = np.hypot(
-            observation_noise_excess,
-            priors.sigma_position_observation_floor_m,
         )
         speed_process = np.maximum(
             generator.exponential(
@@ -140,9 +135,7 @@ class SequentialMonteCarloCTRVFilter:
             _MINIMUM_SCALE,
         )
         parameter_particles = np.log(
-            np.column_stack(
-                (observation_noise_excess, speed_process, turn_rate_process)
-            )
+            np.column_stack((observation_noise, speed_process, turn_rate_process))
         )
         state_particles = np.empty((particle_count, _STATE_COUNT), dtype=float)
         if initial_measurement_covariance is None:
@@ -179,9 +172,6 @@ class SequentialMonteCarloCTRVFilter:
             last_observation_time_seconds=float(time_seconds[0]),
             processed_observation_count=1,
             forecast_origin_particles=state_particles.copy(),
-            position_observation_noise_floor_m=(
-                priors.sigma_position_observation_floor_m
-            ),
         )
         online_filter.update_many(
             time_seconds[1:],
@@ -200,9 +190,6 @@ class SequentialMonteCarloCTRVFilter:
         """Return the posterior mean per-axis residual observation variance."""
         observation_noise, _, _ = _parameter_values(
             self.parameter_particles,
-            position_observation_noise_floor_m=(
-                self.position_observation_noise_floor_m
-            ),
         )
         return float(np.sum(self.weights * observation_noise**2))
 
@@ -277,9 +264,6 @@ class SequentialMonteCarloCTRVFilter:
             )
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles,
-            position_observation_noise_floor_m=(
-                self.position_observation_noise_floor_m
-            ),
         )
         dt = time_seconds - self.last_observation_time_seconds
         process_time_scale = ctrv_dynamics.process_time_scale(dt)
@@ -314,9 +298,6 @@ class SequentialMonteCarloCTRVFilter:
             )
             observation_noise, _, _ = _parameter_values(
                 parameter_particles,
-                position_observation_noise_floor_m=(
-                    self.position_observation_noise_floor_m
-                ),
             )
             auxiliary_resampled = True
         if measurement_covariance is None:
@@ -350,7 +331,6 @@ class SequentialMonteCarloCTRVFilter:
 
         _, speed_process, turn_rate_process = _parameter_values(
             parameter_particles,
-            position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
         next_states = proposed_origins.copy()
         next_states[:, _STATE_SPEED_INDEX] += self.generator.normal(
@@ -383,9 +363,6 @@ class SequentialMonteCarloCTRVFilter:
         process_time_scale = ctrv_dynamics.process_time_scale(dt)
         _, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles,
-            position_observation_noise_floor_m=(
-                self.position_observation_noise_floor_m
-            ),
         )
         predicted_origins = ctrv_dynamics.transition_states(self.state_particles, dt)
         next_states = predicted_origins.copy()
@@ -449,7 +426,6 @@ class SequentialMonteCarloCTRVFilter:
         base_states = self._forecast_origins().copy()
         observation_noise, _, _ = _parameter_values(
             self.parameter_particles,
-            position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
         # Position fixes cannot identify heading while translation is below the
         # observation scale. Restore its circular support before resampling can
@@ -607,7 +583,6 @@ class SequentialMonteCarloCTRVFilter:
         states = self._forecast_origins()[indices]
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles[indices],
-            position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
         return particle_utils.SequentialCTRVFit(
             {
@@ -643,7 +618,6 @@ class SequentialMonteCarloCTRVFilter:
         states = self._forecast_origins()[indices].copy()
         observation_noise, speed_process, turn_rate_process = _parameter_values(
             self.parameter_particles[indices],
-            position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
         x_at_origin = states[:, _STATE_X_INDEX].copy()
         y_at_origin = states[:, _STATE_Y_INDEX].copy()
@@ -735,7 +709,6 @@ class SequentialMonteCarloCTRVFilter:
             raise RuntimeError("Sequential CTRV SMC parameter rejuvenation failed.")
         _parameter_values(
             rejuvenated_parameters,
-            position_observation_noise_floor_m=self.position_observation_noise_floor_m,
         )
         return (
             selected_states,
@@ -750,21 +723,12 @@ class SequentialMonteCarloCTRVFilter:
 
 def _parameter_values(
     parameter_particles: np.ndarray,
-    *,
-    position_observation_noise_floor_m: float = 0.0,
 ):
     """Transform log-scale particles to positive observation/process scales."""
-    position_observation_noise_floor_m = (
-        numeric_validation.validate_non_negative_finite(
-            "position_observation_noise_floor_m",
-            position_observation_noise_floor_m,
-        )
-    )
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         values = np.exp(parameter_particles)
     if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
         raise RuntimeError("Sequential CTRV SMC parameters became invalid.")
-    values[:, 0] = np.hypot(values[:, 0], position_observation_noise_floor_m)
     return values[:, 0], values[:, 1], values[:, 2]
 
 

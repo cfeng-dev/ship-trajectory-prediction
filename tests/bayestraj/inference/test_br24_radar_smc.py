@@ -60,7 +60,7 @@ def test_bayesian_br24_tracker_associates_online_and_continues_after_a_miss():
     assert missed.nis is None
     assert missed.measurement_covariance is None
     assert tracker.filter.last_observation_time_seconds == 2.0
-    assert tracker.filter.position_observation_noise_floor_m == 1e-6
+    assert not hasattr(tracker.filter, "position_observation_noise_floor_m")
 
 
 def test_bayesian_br24_tracker_does_not_configure_automatic_recovery():

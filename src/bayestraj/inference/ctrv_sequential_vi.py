@@ -421,18 +421,11 @@ def transformed_draws(
     fit: object,
     *,
     minimum_positive: float = MINIMUM_POSITIVE_SCALE,
-    position_observation_noise_floor_m: float = 0.0,
 ) -> tuple[np.ndarray, float]:
     """Return posterior draws in the Gaussian carry coordinate system."""
     minimum_positive = float(minimum_positive)
     if not np.isfinite(minimum_positive) or minimum_positive <= 0.0:
         raise ValueError("minimum_positive must be strictly positive and finite.")
-    position_observation_noise_floor_m = (
-        numeric_validation.validate_non_negative_finite(
-            "position_observation_noise_floor_m",
-            position_observation_noise_floor_m,
-        )
-    )
 
     headings = _posterior_vector(fit, "heading_at_origin")
     heading_reference = float(
@@ -447,19 +440,14 @@ def transformed_draws(
         fit,
         "sigma_position_observation",
     )
-    observation_noise_excess = np.sqrt(
-        np.maximum(
-            observation_noise**2 - position_observation_noise_floor_m**2,
-            minimum_positive**2,
-        )
-    )
+    observation_noise = np.maximum(observation_noise, minimum_positive)
     vectors = (
         _posterior_origin_position(fit, "x"),
         _posterior_origin_position(fit, "y"),
         np.log(speed),
         local_headings,
         _posterior_vector(fit, "turn_rate_at_origin"),
-        np.log(observation_noise_excess),
+        np.log(observation_noise),
         np.log(_positive_posterior_vector(fit, "sigma_speed_process")),
         np.log(_positive_posterior_vector(fit, "sigma_turn_rate_process")),
     )
@@ -509,12 +497,10 @@ def build_gaussian_carry(
     *,
     covariance_jitter: float = 1e-9,
     regularization_attempts: int = 8,
-    position_observation_noise_floor_m: float = 0.0,
 ) -> GaussianCarry:
     """Project a posterior fit to a full-covariance Gaussian carry."""
     transformed, heading_reference = transformed_draws(
         fit,
-        position_observation_noise_floor_m=position_observation_noise_floor_m,
     )
     covariance = np.cov(transformed, rowvar=False, ddof=1)
     cholesky = _regularized_cholesky(
@@ -533,16 +519,8 @@ def build_gaussian_carry(
 def _physical_draw_mapping(
     transformed: np.ndarray,
     heading_reference: float,
-    *,
-    position_observation_noise_floor_m: float = 0.0,
 ) -> dict[str, np.ndarray]:
     maximum_log = float(np.log(np.finfo(float).max))
-    position_observation_noise_floor_m = (
-        numeric_validation.validate_non_negative_finite(
-            "position_observation_noise_floor_m",
-            position_observation_noise_floor_m,
-        )
-    )
     return {
         "x_at_origin": transformed[:, 0],
         "y_at_origin": transformed[:, 1],
@@ -551,9 +529,8 @@ def _physical_draw_mapping(
             heading_reference + transformed[:, 3]
         ),
         "turn_rate_at_origin": transformed[:, 4],
-        "sigma_position_observation": np.hypot(
-            np.exp(np.minimum(transformed[:, 5], maximum_log)),
-            position_observation_noise_floor_m,
+        "sigma_position_observation": np.exp(
+            np.minimum(transformed[:, 5], maximum_log)
         ),
         "sigma_speed_process": np.exp(np.minimum(transformed[:, 6], maximum_log)),
         "sigma_turn_rate_process": np.exp(np.minimum(transformed[:, 7], maximum_log)),
@@ -565,7 +542,6 @@ def sample_gaussian_carry(
     *,
     draw_count: int,
     generator: np.random.Generator,
-    position_observation_noise_floor_m: float = 0.0,
 ) -> dict[str, np.ndarray]:
     """Sample physical state and parameter draws from a Gaussian carry."""
     if not isinstance(carry, GaussianCarry):
@@ -585,7 +561,6 @@ def sample_gaussian_carry(
     return _physical_draw_mapping(
         transformed,
         carry.heading_reference,
-        position_observation_noise_floor_m=position_observation_noise_floor_m,
     )
 
 
@@ -611,7 +586,6 @@ def build_sequential_update_data(
     observation_interval_seconds: float,
     x_observed: float,
     y_observed: float,
-    position_observation_noise_floor_m: float = 0.0,
     measurement_covariance: np.ndarray | None = None,
 ) -> dict[str, object]:
     """Build scalar Stan data for one position-observation update."""
@@ -638,12 +612,6 @@ def build_sequential_update_data(
             ctrv_dynamics.PROCESS_REFERENCE_INTERVAL_SECONDS
         ),
         "minimum_positive_scale": MINIMUM_POSITIVE_SCALE,
-        "sigma_position_observation_floor_m": (
-            numeric_validation.validate_non_negative_finite(
-                "position_observation_noise_floor_m",
-                position_observation_noise_floor_m,
-            )
-        ),
     }
 
 
@@ -684,7 +652,6 @@ def fit_sequential_update(
     config: SequentialVIConfig,
     seed: int,
     model: CmdStanModel | None = None,
-    position_observation_noise_floor_m: float = 0.0,
     measurement_covariance: np.ndarray | None = None,
 ):
     """Fit the one-observation posterior update with full-rank ADVI."""
@@ -698,7 +665,6 @@ def fit_sequential_update(
         observation_interval_seconds=observation_interval_seconds,
         x_observed=x_observed,
         y_observed=y_observed,
-        position_observation_noise_floor_m=position_observation_noise_floor_m,
         measurement_covariance=measurement_covariance,
     )
     return cmdstan.run_variational_inference(
@@ -904,12 +870,9 @@ def forecast_ctrv_prior_predictive(
             priors.turn_rate_prior_scale,
             draw_count,
         ),
-        "sigma_position_observation": np.hypot(
-            generator.exponential(
-                1.0 / priors.sigma_position_observation_prior_rate,
-                draw_count,
-            ),
-            priors.sigma_position_observation_floor_m,
+        "sigma_position_observation": generator.exponential(
+            1.0 / priors.sigma_position_observation_prior_rate,
+            draw_count,
         ),
         "sigma_speed_process": generator.exponential(
             1.0 / priors.sigma_speed_process_prior_rate,
@@ -1063,9 +1026,6 @@ class SequentialCTRVVI:
             bootstrap_fit,
             covariance_jitter=config.covariance_jitter,
             regularization_attempts=config.regularization_attempts,
-            position_observation_noise_floor_m=(
-                priors.sigma_position_observation_floor_m
-            ),
         )
         instance = cls(
             config=config,
@@ -1113,9 +1073,6 @@ class SequentialCTRVVI:
             self.carry,
             draw_count=self.config.draws,
             generator=generator,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
         )
         process_scale = ctrv_dynamics.process_time_scale(
             self.last_process_interval_seconds
@@ -1185,10 +1142,7 @@ class SequentialCTRVVI:
     def expected_position_observation_variance(self) -> float:
         """Return E[sigma_residual**2] under the log-normal Gaussian carry."""
         variance = np.sum(self.carry.cholesky[5] ** 2)
-        return float(
-            self.priors.sigma_position_observation_floor_m**2
-            + np.exp(2.0 * self.carry.mean[5] + 2.0 * variance)
-        )
+        return float(np.exp(2.0 * self.carry.mean[5] + 2.0 * variance))
 
     def predict_position_distribution(
         self, time_seconds: float
@@ -1214,7 +1168,6 @@ class SequentialCTRVVI:
             particle_utils.SequentialCTRVFit(draws),
             covariance_jitter=self.config.covariance_jitter,
             regularization_attempts=self.config.regularization_attempts,
-            position_observation_noise_floor_m=self.priors.sigma_position_observation_floor_m,
         )
         self.carry = next_carry
         self.last_observation_time_seconds = time_value
@@ -1258,9 +1211,6 @@ class SequentialCTRVVI:
             config=self.config,
             seed=self._next_seed,
             model=self._model,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
             **(
                 {"measurement_covariance": measurement_covariance}
                 if measurement_covariance is not None
@@ -1271,9 +1221,6 @@ class SequentialCTRVVI:
             fitted,
             covariance_jitter=self.config.covariance_jitter,
             regularization_attempts=self.config.regularization_attempts,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
         )
         filtered_draws = _physical_fit_draws(fitted)
         filtered_state = _state_summary(filtered_draws)
@@ -1345,9 +1292,6 @@ class SequentialCTRVVI:
             self.carry,
             draw_count=self.config.draws,
             generator=np.random.default_rng(seed),
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
         )
         return particle_utils.SequentialCTRVFit(
             {name: draws[name] for name in bayesian_model.PARAMETER_NAMES}
@@ -1366,9 +1310,6 @@ class SequentialCTRVVI:
             self.carry,
             draw_count=self.config.draws,
             generator=generator,
-            position_observation_noise_floor_m=(
-                self.priors.sigma_position_observation_floor_m
-            ),
         )
         return _forecast_from_origin_draws(
             draws,
@@ -1417,9 +1358,6 @@ class SequentialCTRVVI:
                     self.carry,
                     draw_count=self.config.draws,
                     generator=np.random.default_rng(self._next_seed),
-                    position_observation_noise_floor_m=(
-                        self.priors.sigma_position_observation_floor_m
-                    ),
                 )
                 failure_message = str(error)
                 failure_index = attempted_index

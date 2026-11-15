@@ -44,7 +44,6 @@ PRIOR_FIELD_GROUPS = (
         (
             "sigma_position_observation_prior_upper_m",
             "sigma_position_observation_prior_tail_probability",
-            "sigma_position_observation_floor_m",
         ),
     ),
     (
