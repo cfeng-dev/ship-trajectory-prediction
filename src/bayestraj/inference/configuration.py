@@ -187,7 +187,7 @@ def create_default_mcmc_config() -> dict[str, Any]:
     return {
         "chains": 4,
         "parallel_chains": 4,
-        "iter_warmup": 2_000,
+        "iter_warmup": 1_000,
         "iter_sampling": 2_000,
         "adapt_delta": 0.95,
         "max_treedepth": 10,

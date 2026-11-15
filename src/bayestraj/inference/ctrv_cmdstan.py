@@ -42,7 +42,7 @@ def fit_bayesian_ctrv_model(
     draws: int = cmdstan_inference.DEFAULT_VI_DRAWS,
     chains: int = 4,
     parallel_chains: int | None = None,
-    iter_warmup: int = 2_000,
+    iter_warmup: int = 1_000,
     iter_sampling: int = 2_000,
     adapt_delta: float = 0.95,
     max_treedepth: int = 10,
