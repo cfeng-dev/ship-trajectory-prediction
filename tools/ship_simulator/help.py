@@ -266,6 +266,10 @@ def show_help_window(
 
     simulation_info_descriptions = [
         (
+            "Time factor",
+            "Choose 1×, 5×, 10× or 20× in Actions, also while running. This accelerates simulated time; CSV sampling uses the same simulated-time interval",
+        ),
+        (
             "Movement Parameters",
             "Apply validates and saves the draft; Cancel or closing the window discards edits. Turn limits are symmetric and arrow keys use the selected step sizes",
         ),

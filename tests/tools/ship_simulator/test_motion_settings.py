@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
+import pandas as pd
 import pytest
 from ship_simulator import config as simulator_config
 from ship_simulator.config import GUIConfig
@@ -76,6 +78,91 @@ def _gui():
         update_status=Mock(),
         update_plot=Mock(),
     )
+
+
+def _timed_gui(monkeypatch, factor=1):
+    from ship_simulator import gui as simulator_gui
+
+    clock = [0.0]
+    monkeypatch.setattr(simulator_gui, "perf_counter", lambda: clock[0])
+    gui = _gui()
+    gui.simulation_time_factor = factor
+    gui.simulation_time_accumulator = 0.0
+    gui.last_simulation_tick = None
+    gui.simulation_running = False
+    gui.simulation_start_time = None
+    gui.saved_run_states = {}
+    gui.root = Mock()
+    gui.update_simulation_button = Mock()
+    gui.get_speed_from_slider = gui.speed_slider.get
+    gui.get_omega_from_steering = lambda: 0.13
+    gui.advance_simulation = lambda: simulator_gui.ShipTrajectoryGUI.advance_simulation(
+        gui
+    )
+    gui.simulation_loop = lambda: simulator_gui.ShipTrajectoryGUI.simulation_loop(gui)
+    return gui, clock, simulator_gui.ShipTrajectoryGUI
+
+
+@pytest.mark.parametrize("factor", [1, 5, 10, 20])
+def test_time_factor_preserves_motion_and_ground_truth_csv(monkeypatch, factor):
+    from ship_simulator.io import create_simulation_dataframe
+
+    gui, clock, gui_type = _timed_gui(monkeypatch, factor)
+    gui_type.start_or_continue_simulation(gui)
+    for elapsed in [0.027, 0.101, 0.221, 0.5, 1.003, 2.05, 3.05]:
+        clock[0] = elapsed
+        gui.simulation_loop()
+
+    expected = ShipSimulator(v=gui.initial_speed, dt=gui.simulation_dt)
+    for _ in range(61 * factor):
+        expected.step(0.13, True)
+    assert gui.simulator.current_time == pytest.approx(3.05 * factor)
+    np.testing.assert_array_equal(gui.simulator.x_all, expected.x_all)
+    np.testing.assert_array_equal(gui.simulator.y_all, expected.y_all)
+    data = create_simulation_dataframe(gui.simulator)
+    pd.testing.assert_frame_equal(data, create_simulation_dataframe(expected))
+    assert len(data) >= 2
+    np.testing.assert_allclose(
+        np.diff(data["time"]), gui.csv_export_interval_seconds, atol=1e-10
+    )
+    np.testing.assert_array_equal(data["ground_truth_x"], data["x"])
+    np.testing.assert_array_equal(data["ground_truth_y"], data["y"])
+    gui.root.after.assert_called_with(gui.update_interval_ms, gui.simulation_loop)
+
+
+def test_time_factor_excludes_pause_time_and_reset_clears_pending_time(monkeypatch):
+    gui, clock, gui_type = _timed_gui(monkeypatch, 10)
+    gui_type.start_or_continue_simulation(gui)
+    clock[0] = 0.253
+    gui_type.pause_simulation(gui)
+    assert gui.simulator.current_time == pytest.approx(2.5)
+    clock[0] = 100.0
+    gui.simulation_loop()
+    assert gui.simulator.current_time == pytest.approx(2.5)
+    clock[0] = 120.0
+    gui_type.start_or_continue_simulation(gui)
+    clock[0] = 120.2
+    gui.simulation_loop()
+    assert gui.simulator.current_time == pytest.approx(4.5)
+    gui_type.reset(gui)
+    assert gui.last_simulation_tick is None
+    assert gui.simulation_time_accumulator == 0.0
+    assert gui.simulation_time_factor == 10
+    assert not gui.simulator.has_data()
+
+
+def test_changing_time_factor_accounts_for_time_at_previous_factor(monkeypatch):
+    gui, clock, gui_type = _timed_gui(monkeypatch)
+    gui.simulation_time_factor_var = Mock()
+    gui.simulation_time_factor_var.get.return_value = "20×"
+    gui_type.start_or_continue_simulation(gui)
+    clock[0] = 0.2
+    gui_type.change_simulation_time_factor(gui)
+    assert gui.simulator.current_time == pytest.approx(0.2)
+    assert gui.simulation_time_factor == gui.config.simulation_time_factor == 20
+    clock[0] = 0.3
+    gui.simulation_loop()
+    assert gui.simulator.current_time == pytest.approx(2.2)
 
 
 def test_apply_updates_sliders_simulator_and_persistent_reset_values(monkeypatch):

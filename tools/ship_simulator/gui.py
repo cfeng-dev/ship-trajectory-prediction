@@ -1,6 +1,7 @@
 """Standalone GUI for steering, controlling, and exporting a 2D simulation."""
 
 from datetime import datetime, timezone
+from time import perf_counter
 
 import numpy as np
 
@@ -45,6 +46,8 @@ class ShipTrajectoryGUI:
         self.simulation_running = False
         self.simulation_started = False
         self.simulation_start_time = None
+        self.last_simulation_tick = None
+        self.simulation_time_accumulator = 0.0
 
         # Remember how much of the current simulation session was saved to
         # each CSV file. Reset clears this mapping and requires a new filename.
@@ -253,23 +256,44 @@ class ShipTrajectoryGUI:
         return speed
 
     def simulation_loop(self):
-        """
-        Continuously run the simulation loop.
-        """
-        omega = self.get_omega_from_steering()
-
-        # Update ship speed from speed slider.
-        self.simulator.v = self.get_speed_from_slider()
-
-        self.simulator.step(
-            omega=omega,
-            motor_running=self.simulation_running,
-        )
+        """Advance fixed simulation steps, then refresh the GUI once."""
+        self.advance_simulation()
 
         self.update_status()
         self.update_plot()
 
         self.root.after(self.update_interval_ms, self.simulation_loop)
+
+    def advance_simulation(self):
+        """Convert elapsed real time into complete fixed-duration motion steps."""
+        now = perf_counter()
+        previous = self.last_simulation_tick
+        self.last_simulation_tick = now
+        if previous is None or not self.simulation_running:
+            return
+
+        elapsed = now - previous
+        self.simulation_time_accumulator += elapsed * self.simulation_time_factor
+        dt = self.simulator.dt
+        steps = int((self.simulation_time_accumulator + dt * 1e-9) / dt)
+        self.simulation_time_accumulator = max(
+            0.0, self.simulation_time_accumulator - steps * dt
+        )
+        self.simulator.v = self.get_speed_from_slider()
+        omega = self.get_omega_from_steering()
+        for _ in range(steps):
+            self.simulator.step(omega=omega, motor_running=True)
+
+    def change_simulation_time_factor(self, event=None):
+        """Apply a time factor after accounting for time at the previous rate."""
+        factor = int(self.simulation_time_factor_var.get().removesuffix("×"))
+        if factor not in config.SIMULATION_TIME_FACTORS:
+            raise ValueError("Unsupported simulation time factor.")
+        self.advance_simulation()
+        self.simulation_time_factor = self.config.simulation_time_factor = factor
+        self.update_status()
+        self.update_plot()
+        self.root.focus_set()
 
     def get_simulation_state(self):
         """
@@ -323,6 +347,7 @@ class ShipTrajectoryGUI:
                 microsecond=0
             )
 
+        self.last_simulation_tick = perf_counter()
         self.simulation_running = True
         self.simulation_started = True
 
@@ -336,6 +361,7 @@ class ShipTrajectoryGUI:
         if not self.simulation_started:
             return
 
+        self.advance_simulation()
         self.simulation_running = False
 
         self.update_simulation_button()
@@ -378,6 +404,8 @@ class ShipTrajectoryGUI:
         self.simulation_running = False
         self.simulation_started = False
         self.simulation_start_time = None
+        self.last_simulation_tick = None
+        self.simulation_time_accumulator = 0.0
         self.saved_run_states.clear()
 
         self.steering_slider.set(0)

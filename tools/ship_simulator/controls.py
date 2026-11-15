@@ -1,8 +1,9 @@
 """Tkinter controls for the standalone ship trajectory GUI."""
 
 import tkinter as tk
+from tkinter import ttk
 
-from . import plotting
+from . import config, plotting
 
 
 def create_styled_button(parent, *, text, command, width):
@@ -222,6 +223,29 @@ def create_action_section(gui, parent):
         width=18,
         command=gui.reset,
     ).pack(pady=(5, 2))
+
+    time_frame = tk.Frame(action_frame, bg=gui.control_panel_color)
+    time_frame.pack(pady=(10, 2))
+    tk.Label(
+        time_frame,
+        text="Time factor",
+        bg=gui.control_panel_color,
+        fg="black",
+    ).pack(side=tk.LEFT, padx=(0, 8))
+    gui.simulation_time_factor_var = tk.StringVar(
+        master=gui.root, value=f"{gui.simulation_time_factor}×"
+    )
+    gui.simulation_time_factor_selector = ttk.Combobox(
+        time_frame,
+        textvariable=gui.simulation_time_factor_var,
+        values=tuple(f"{factor}×" for factor in config.SIMULATION_TIME_FACTORS),
+        state="readonly",
+        width=5,
+    )
+    gui.simulation_time_factor_selector.pack(side=tk.LEFT)
+    gui.simulation_time_factor_selector.bind(
+        "<<ComboboxSelected>>", gui.change_simulation_time_factor
+    )
 
 
 def create_steering_section(gui, parent):

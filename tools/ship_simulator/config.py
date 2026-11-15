@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from math import isclose, isfinite
 
 DEFAULT_CSV_EXPORT_INTERVAL_SECONDS = 2.0
+SIMULATION_TIME_FACTORS = (1, 5, 10, 20)
 MOTION_PARAMETER_FIELDS = (
     ("initial_speed", "Initial speed [m/s]"),
     ("min_speed", "Minimum speed [m/s]"),
@@ -71,8 +72,11 @@ class GUIConfig:
     simulation_dt: float = 0.05
 
     # GUI update interval in milliseconds.
-    # The simulation and plot are updated every 50 ms = 0.05 s.
+    # Refresh controls and plots separately from fixed-step simulation time.
     update_interval_ms: int = 50
+
+    # Simulated seconds per real second; adjustable while running.
+    simulation_time_factor: int = 1
 
     # ==================================================
     # CSV export settings
