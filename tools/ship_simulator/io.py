@@ -1,4 +1,4 @@
-"""Export one simulated trajectory as numeric time,x,y for the predictor."""
+"""Export simulated positions and aligned evaluation-only reference states."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +11,14 @@ from .config import DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 
 DATA_DIR = paths.default_simulation_data_directory()
 TRAJECTORY_COLUMNS = ["time", "x", "y"]
+GROUND_TRUTH_COLUMNS = [
+    "ground_truth_x",
+    "ground_truth_y",
+    "ground_truth_velocity",
+    "ground_truth_yaw",
+    "ground_truth_turn_rate",
+]
+SIMULATION_COLUMNS = [*TRAJECTORY_COLUMNS, *GROUND_TRUTH_COLUMNS]
 
 
 @dataclass(frozen=True)
@@ -23,11 +31,14 @@ class TrajectorySaveResult:
 
 def _validate_trajectory(data):
     """Validate one ordered trajectory or a continuation without resetting time."""
-    if data.columns.tolist() != TRAJECTORY_COLUMNS:
-        raise ValueError("Trajectory CSV must contain exactly time,x,y columns.")
+    if data.columns.tolist() not in (TRAJECTORY_COLUMNS, SIMULATION_COLUMNS):
+        raise ValueError(
+            "Trajectory CSV must contain time,x,y columns, optionally followed "
+            "by the complete simulator ground-truth columns."
+        )
     trajectory = data.apply(pd.to_numeric, errors="raise").astype(float)
     if trajectory.empty or not np.isfinite(trajectory.to_numpy()).all():
-        raise ValueError("Trajectory time,x,y values must be finite and non-empty.")
+        raise ValueError("Trajectory values must be finite and non-empty.")
     if np.any(np.diff(trajectory["time"].to_numpy()) <= 0.0):
         raise ValueError("Trajectory times must be strictly increasing.")
     return trajectory
@@ -36,18 +47,24 @@ def _validate_trajectory(data):
 def create_simulation_dataframe(
     simulator, *, interval_seconds=DEFAULT_CSV_EXPORT_INTERVAL_SECONDS
 ):
-    """Select original samples on a fixed time grid without interpolating positions."""
+    """Select original positions and true states on the same fixed time grid."""
     if isinstance(interval_seconds, bool):
         raise ValueError("CSV export interval must be positive and finite.")
     interval = float(interval_seconds)
     if not np.isfinite(interval) or interval <= 0.0:
         raise ValueError("CSV export interval must be positive and finite.")
+    heading = np.asarray(simulator.theta_all, dtype=float)
     trajectory = _validate_trajectory(
         pd.DataFrame(
             {
                 "time": np.asarray(simulator.t_all, dtype=float),
                 "x": np.asarray(simulator.x_all, dtype=float),
                 "y": np.asarray(simulator.y_all, dtype=float),
+                "ground_truth_x": np.asarray(simulator.x_all, dtype=float),
+                "ground_truth_y": np.asarray(simulator.y_all, dtype=float),
+                "ground_truth_velocity": np.asarray(simulator.v_all, dtype=float),
+                "ground_truth_yaw": np.arctan2(np.sin(heading), np.cos(heading)),
+                "ground_truth_turn_rate": np.asarray(simulator.omega_all, dtype=float),
             }
         )
     )
@@ -86,6 +103,11 @@ def save_trajectory_data(df, filename, *, append=False):
         existing = _validate_trajectory(
             pd.read_csv(output_path, float_precision="round_trip")
         )
+        if existing.columns.tolist() != trajectory.columns.tolist():
+            raise ValueError(
+                "Cannot append trajectory data with different CSV columns. "
+                "Choose a new filename for the ground-truth export."
+            )
         if trajectory["time"].iloc[0] <= existing["time"].iloc[-1]:
             raise ValueError(
                 "New trajectory samples must follow the previously saved times."

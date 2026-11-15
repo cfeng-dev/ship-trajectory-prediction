@@ -168,13 +168,13 @@ def save_csv(gui):
     if save_result.appended:
         message_title = "Trajectory Updated"
         message_text = (
-            "New samples appended to the current time,x,y trajectory.\n\n"
+            "New samples and ground-truth states appended to the current trajectory.\n\n"
             f"File:\n{save_result.output_path}"
         )
     else:
         message_title = "Trajectory Saved"
         message_text = (
-            "New time,x,y CSV created for the Bayesian Predictor.\n\n"
+            "New trajectory CSV with ground-truth states created for the Bayesian Predictor.\n\n"
             f"File:\n{save_result.output_path}"
         )
 

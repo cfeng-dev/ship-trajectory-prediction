@@ -275,7 +275,7 @@ def show_help_window(
         ),
         (
             "CSV format",
-            "time,x,y: elapsed seconds and local positions in meters; load directly in Bayesian Predictor",
+            "time,x,y plus ground_truth_x/y [m], ground_truth_velocity [m/s], ground_truth_yaw [rad] and ground_truth_turn_rate [rad/s]. Bayesian Predictor uses truth only for display and evaluation. Without measurement noise, x/y equal ground_truth_x/y",
         ),
         (
             "Repeated save",
