@@ -37,10 +37,10 @@ data/**
 # Ignore generated results
 /results/
 
-# Keep documentation and simulated trajectory CSVs
+# Keep documentation and simulated trajectory examples
 !data/README.md
 !data/simulated/
-!data/simulated/*.csv
+!data/simulated/example_trajectory_[0-9][0-9].csv
 
 # Optional local IMM reference and Python implementation
 external/IMM/

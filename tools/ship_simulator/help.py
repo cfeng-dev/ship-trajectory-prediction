@@ -283,7 +283,7 @@ def show_help_window(
         ),
         (
             "CSV filename",
-            "New runs suggest example_trajectory_01.csv, then the highest existing two-digit number plus one. Cancel does not reserve a number",
+            "New runs use the highest existing run number plus one: simulated_trajectory_01.csv, ..., _99.csv, _100.csv, etc. Cancel does not reserve a number. Rename selected runs to example_trajectory_01.csv, etc., to include them in Git",
         ),
         (
             "Repeated save",

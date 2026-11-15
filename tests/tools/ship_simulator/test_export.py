@@ -21,17 +21,27 @@ def test_status_time_uses_adaptive_elapsed_format(seconds, expected):
 @pytest.mark.parametrize(
     ("existing", "expected"),
     [
-        ([], "example_trajectory_01.csv"),
-        (["example_trajectory_01.csv"], "example_trajectory_02.csv"),
+        ([], "simulated_trajectory_01.csv"),
+        (["simulated_trajectory_01.csv"], "simulated_trajectory_02.csv"),
         (
-            ["example_trajectory_01.csv", "example_trajectory_03.csv"],
-            "example_trajectory_04.csv",
+            ["simulated_trajectory_01.csv", "simulated_trajectory_03.csv"],
+            "simulated_trajectory_04.csv",
         ),
         (
-            ["example_trajectory_notes.csv", "simulated_ship_trajectory.csv"],
-            "example_trajectory_01.csv",
+            ["simulated_trajectory_notes.csv", "simulated_ship_trajectory.csv"],
+            "simulated_trajectory_01.csv",
         ),
-        (["EXAMPLE_TRAJECTORY_09.CSV"], "example_trajectory_10.csv"),
+        (["SIMULATED_TRAJECTORY_09.CSV"], "simulated_trajectory_10.csv"),
+        (["simulated_trajectory_99.csv"], "simulated_trajectory_100.csv"),
+        (
+            ["simulated_trajectory_99.csv", "simulated_trajectory_100.csv"],
+            "simulated_trajectory_101.csv",
+        ),
+        (["simulated_trajectory_999.csv"], "simulated_trajectory_1000.csv"),
+        (
+            ["example_trajectory_01.csv", "example_trajectory_99.csv"],
+            "simulated_trajectory_01.csv",
+        ),
     ],
 )
 def test_numbered_filename_uses_highest_existing_number(tmp_path, existing, expected):
@@ -42,13 +52,17 @@ def test_numbered_filename_uses_highest_existing_number(tmp_path, existing, expe
     assert sorted(path.name for path in tmp_path.iterdir()) == sorted(existing)
 
 
-def test_numbered_filename_preserves_two_digit_tracking_pattern(tmp_path):
-    (tmp_path / "example_trajectory_99.csv").write_text(
+def test_numbered_filename_accepts_a_three_digit_default_basename(tmp_path):
+    (tmp_path / "simulated_trajectory_100.csv").write_text(
         "existing data", encoding="utf-8"
     )
-    with pytest.raises(ValueError, match="99"):
-        simulation_io.next_trajectory_filename(tmp_path)
-    assert not (tmp_path / "example_trajectory_100.csv").exists()
+    assert (
+        simulation_io.next_trajectory_filename(
+            tmp_path, default_filename="simulated_trajectory_100.csv"
+        )
+        == "simulated_trajectory_101.csv"
+    )
+    assert not (tmp_path / "simulated_trajectory_101.csv").exists()
 
 
 def test_csv_export_preserves_numeric_source_time_and_local_positions(tmp_path):
@@ -304,7 +318,7 @@ def test_save_dialog_numbers_new_runs_and_reuses_saved_filename(tmp_path, monkey
     from ship_simulator.core import ShipSimulator
 
     for number in (1, 2):
-        (tmp_path / f"example_trajectory_{number:02d}.csv").write_bytes(
+        (tmp_path / f"simulated_trajectory_{number:02d}.csv").write_bytes(
             b"existing data"
         )
     simulator = ShipSimulator(v=2.2)
@@ -328,13 +342,13 @@ def test_save_dialog_numbers_new_runs_and_reuses_saved_filename(tmp_path, monkey
     for name in ("showinfo", "showwarning", "showerror"):
         monkeypatch.setattr(dialogs.messagebox, name, Mock())
     dialogs.save_csv(gui)
-    assert choices[-1]["initialfile"] == "example_trajectory_03.csv"
+    assert choices[-1]["initialfile"] == "simulated_trajectory_03.csv"
     assert not gui.saved_run_states
-    assert not (tmp_path / "example_trajectory_03.csv").exists()
+    assert not (tmp_path / "simulated_trajectory_03.csv").exists()
 
     cancel[0] = False
     dialogs.save_csv(gui)
-    path = tmp_path / "example_trajectory_03.csv"
+    path = tmp_path / "simulated_trajectory_03.csv"
     assert path.is_file()
     assert gui.last_saved_csv_path == path.resolve()
     for _ in range(40):
@@ -342,17 +356,17 @@ def test_save_dialog_numbers_new_runs_and_reuses_saved_filename(tmp_path, monkey
     dialogs.save_csv(gui)
     assert choices[-1]["initialfile"] == path.name
     np.testing.assert_allclose(pd.read_csv(path)["time"], [0.0, 2.0])
-    assert not (tmp_path / "example_trajectory_04.csv").exists()
+    assert not (tmp_path / "simulated_trajectory_04.csv").exists()
 
     simulator.reset()
     gui.saved_run_states.clear()
     gui.last_saved_csv_path = None
     simulator.step(0.0, True)
     dialogs.save_csv(gui)
-    assert choices[-1]["initialfile"] == "example_trajectory_04.csv"
-    assert (tmp_path / "example_trajectory_04.csv").is_file()
-    assert (tmp_path / "example_trajectory_01.csv").read_bytes() == b"existing data"
-    assert (tmp_path / "example_trajectory_02.csv").read_bytes() == b"existing data"
+    assert choices[-1]["initialfile"] == "simulated_trajectory_04.csv"
+    assert (tmp_path / "simulated_trajectory_04.csv").is_file()
+    assert (tmp_path / "simulated_trajectory_01.csv").read_bytes() == b"existing data"
+    assert (tmp_path / "simulated_trajectory_02.csv").read_bytes() == b"existing data"
 
 
 def test_save_dialog_continues_current_run_and_requires_new_file_after_reset(

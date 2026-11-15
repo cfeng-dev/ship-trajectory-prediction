@@ -32,10 +32,10 @@ class TrajectorySaveResult:
 
 
 def next_trajectory_filename(directory=None, *, default_filename=DEFAULT_CSV_FILENAME):
-    """Suggest the next two-digit run number without creating or reserving a file."""
+    """Suggest the next run number with at least two digits, without reserving it."""
     directory = DATA_DIR if directory is None else Path(directory)
-    prefix = re.sub(r"_[0-9]{2}$", "", Path(default_filename).stem)
-    pattern = re.compile(rf"{re.escape(prefix)}_([0-9]{{2}})\.csv", re.IGNORECASE)
+    prefix = re.sub(r"_[0-9]+$", "", Path(default_filename).stem)
+    pattern = re.compile(rf"{re.escape(prefix)}_([0-9]+)\.csv", re.IGNORECASE)
     highest = 0
     entries = directory.iterdir() if directory.exists() else ()
     for entry in entries:
@@ -43,10 +43,6 @@ def next_trajectory_filename(directory=None, *, default_filename=DEFAULT_CSV_FIL
         if match is not None:
             highest = max(highest, int(match[1]))
     number = highest + 1
-    if number > 99:
-        raise ValueError(
-            "The two-digit trajectory numbers 01–99 are exhausted in this directory."
-        )
     return f"{prefix}_{number:02d}.csv"
 
 
