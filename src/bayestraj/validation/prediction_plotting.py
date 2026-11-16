@@ -77,7 +77,7 @@ def plot_trajectory_paths(
     context_path=None,
     context_label="Frühere Beobachtungen (nicht für Fit)",
     reference_label="Referenztrajektorie",
-    forecast_label="Posterior-prädiktiver Median",
+    forecast_label="Posterior-prädiktiver Mittelwert",
     sample_paths=(),
     sample_label="Posterior-prädiktive Trajektorien",
     prediction_origins=None,
@@ -360,7 +360,7 @@ def plot_prediction(
     position_noise_std_m=None,
     coordinate_mode="m",
     title=None,
-    forecast_label="Posterior-prädiktiver Median",
+    forecast_label="Posterior-prädiktiver Mittelwert",
     sample_label="Posterior-prädiktive Trajektorien",
     show_time_labels=True,
 ):
@@ -402,7 +402,7 @@ def plot_prediction(
         observed_path=plot_data["observed_path"],
         context_path=plot_data["context_path"],
         reference_path=reference_path,
-        forecast_paths=(plot_data["median_path"],),
+        forecast_paths=(plot_data["mean_path"],),
         sample_paths=plot_data["sample_paths"],
         prediction_origins=plot_data["prediction_origin"],
         posterior_draws=plot_data["posterior_draws"],
@@ -436,7 +436,7 @@ def plot_operational_prediction(
     position_noise_std_m=None,
     coordinate_mode="m",
     title=None,
-    forecast_label="Posterior-prädiktiver Median",
+    forecast_label="Posterior-prädiktiver Mittelwert",
     sample_label="Posterior-prädiktive Trajektorien",
     show_time_labels=True,
 ):
@@ -545,9 +545,9 @@ def _prepare_prediction_plot_data(
         ),
         "posterior_draws": (x_samples, y_samples),
         "sample_paths": sample_paths,
-        "median_path": (
-            np.median(connected_x_samples, axis=0),
-            np.median(connected_y_samples, axis=0),
+        "mean_path": (
+            np.mean(connected_x_samples, axis=0),
+            np.mean(connected_y_samples, axis=0),
         ),
         "forecast_time_seconds": np.concatenate(
             ([0.0], prediction_times - prediction_start_time)

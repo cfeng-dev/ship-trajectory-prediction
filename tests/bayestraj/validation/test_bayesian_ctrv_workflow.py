@@ -989,8 +989,18 @@ def test_rolling_forecasts_match_the_tool_at_every_origin(
             forecast.median_positions,
             rows[["x_median_route", "y_median_route"]].to_numpy(),
         )
+        np.testing.assert_array_equal(
+            forecast.mean_positions,
+            rows[["x_mean_route", "y_mean_route"]].to_numpy(),
+        )
+        assert rows["point_estimate"].eq("mean").all()
         gui_metrics = dashboard.analysis_metrics_at(
             trajectory, {int(count): update}, int(count)
+        )
+        assert gui_metrics.ade_m == pytest.approx(rows["position_error_m"].mean())
+        assert gui_metrics.fde_m == pytest.approx(rows["position_error_m"].iloc[-1])
+        assert gui_metrics.rmse_m == pytest.approx(
+            np.sqrt(np.mean(rows["position_error_m"] ** 2))
         )
         assert gui_metrics.negative_log_predictive_density == pytest.approx(
             rows["negative_log_predictive_density"].mean()

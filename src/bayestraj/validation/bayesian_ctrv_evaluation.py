@@ -44,6 +44,9 @@ PREDICTION_CSV_COLUMNS = (
     "y_actual",
     "x_median",
     "y_median",
+    "x_mean",
+    "y_mean",
+    "point_estimate",
     "x_lower",
     "x_upper",
     "y_lower",
@@ -117,6 +120,8 @@ PREDICTION_CSV_COLUMNS = (
     "y_actual_route",
     "x_median_route",
     "y_median_route",
+    "x_mean_route",
+    "y_mean_route",
     "fit_runtime_seconds",
 )
 ASSOCIATION_CSV_COLUMNS = ("time", "cycle_counter", "detection_id", "x", "y")

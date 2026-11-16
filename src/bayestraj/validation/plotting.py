@@ -59,7 +59,7 @@ def plot_bayesian_rolling_predictions(
     for group in posterior_plot_groups:
         if group.forecast_positions is None:
             positions = np.column_stack(
-                (np.median(group.x_samples, axis=0), np.median(group.y_samples, axis=0))
+                (np.mean(group.x_samples, axis=0), np.mean(group.y_samples, axis=0))
             )
         else:
             positions = np.asarray(group.forecast_positions, dtype=float)

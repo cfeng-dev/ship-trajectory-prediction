@@ -52,8 +52,8 @@ def test_rolling_plot_uses_exact_forecast_positions_without_shifting_regions(
             next(line for line in axis.lines if line.get_label() == "Forecast")
             for axis in axes
         ]
-        np.testing.assert_array_equal(lines[0].get_xdata(), [100, 9.5, 15.5])
-        np.testing.assert_array_equal(lines[0].get_ydata(), [200, 1.5, 3])
+        np.testing.assert_array_equal(lines[0].get_xdata(), [100, 9.5, 15])
+        np.testing.assert_array_equal(lines[0].get_ydata(), [200, 1.5, 3.25])
         np.testing.assert_array_equal(lines[1].get_xdata(), [100, 2, 0])
         np.testing.assert_array_equal(lines[1].get_ydata(), [200, 0, 5])
         assert len(axes[0].patches) == len(axes[1].patches) > 0

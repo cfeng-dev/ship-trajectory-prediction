@@ -54,7 +54,16 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
     tmp_path, method, diagnostics
 ):
-    values = {"inference_method": method, "position_error_m": 2.5, **diagnostics}
+    values = {
+        "inference_method": method,
+        "position_error_m": 2.5,
+        "x_mean": 1.0,
+        "y_mean": 2.0,
+        "point_estimate": "mean",
+        "x_mean_route": 1.0,
+        "y_mean_route": 2.0,
+        **diagnostics,
+    }
     table = pd.DataFrame([values])[list(reversed(values))]
     original = table.copy(deep=True)
     path = tmp_path / f"{method}.csv"
@@ -68,6 +77,14 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
         row = next(reader)
     assert row["inference_method"] == method
     assert float(row["position_error_m"]) == 2.5
+    assert row["point_estimate"] == "mean"
+    for name, value in (
+        ("x_mean", 1.0),
+        ("y_mean", 2.0),
+        ("x_mean_route", 1.0),
+        ("y_mean_route", 2.0),
+    ):
+        assert float(row[name]) == value
     for name, value in diagnostics.items():
         if isinstance(value, (bool, str)):
             assert row[name] == str(value)

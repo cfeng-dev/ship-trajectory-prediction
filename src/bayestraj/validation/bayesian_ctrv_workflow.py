@@ -1078,6 +1078,8 @@ def _build_route_prediction_table(
     table["y_actual_route"] = route_y[target_indices]
     table["x_median_route"] = x_median_route
     table["y_median_route"] = y_median_route
+    table["x_mean_route"] = table["x_mean"].to_numpy(dtype=float)
+    table["y_mean_route"] = table["y_mean"].to_numpy(dtype=float)
     return table
 
 

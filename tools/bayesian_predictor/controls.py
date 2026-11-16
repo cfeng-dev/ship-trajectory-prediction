@@ -324,9 +324,9 @@ class SettingsPanel(tk.Frame):
             key: tk.StringVar(self, value="—") for key in ANALYSIS_METRIC_ROW_KEYS
         }
         metric_labels_by_key = {
-            "forecast_ade": "Forecast ADE (median)",
-            "forecast_fde": "Forecast FDE (median)",
-            "forecast_rmse": "Forecast RMSE (median)",
+            "forecast_ade": "Forecast ADE (mean)",
+            "forecast_fde": "Forecast FDE (mean)",
+            "forecast_rmse": "Forecast RMSE (mean)",
             "energy_score": "Forecast Energy Score",
             "negative_log_predictive_density": "NLPD (Gaussian)",
             "joint_coverage_50": "Joint 50% coverage",

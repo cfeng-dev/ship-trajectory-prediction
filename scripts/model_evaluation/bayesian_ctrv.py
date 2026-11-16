@@ -1,4 +1,4 @@
-"""Evaluate Bayesian CTRV forecasts across rolling windows (SMC by default)."""
+"""Evaluate Bayesian CTRV mean forecasts across rolling windows (SMC by default)."""
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.models.bayesian_ctrv as bayesian_model

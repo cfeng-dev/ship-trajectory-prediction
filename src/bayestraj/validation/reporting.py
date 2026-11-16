@@ -18,6 +18,8 @@ PREDICTION_COLUMN_LABELS = {
     "y_predicted": "Pred. y[m]",
     "x_median": "Median x[m]",
     "y_median": "Median y[m]",
+    "x_mean": "Mean x[m]",
+    "y_mean": "Mean y[m]",
     "position_error_m": "Error[m]",
     "prediction_radius_m": "Radius[m]",
     "radial_covered": "Covered",
@@ -53,6 +55,8 @@ def format_prediction_table(table: pd.DataFrame, *, columns) -> str:
         "Pred. y[m]": lambda value: f"{value:.3f}",
         "Median x[m]": lambda value: f"{value:.3f}",
         "Median y[m]": lambda value: f"{value:.3f}",
+        "Mean x[m]": lambda value: f"{value:.3f}",
+        "Mean y[m]": lambda value: f"{value:.3f}",
         "Error[m]": lambda value: f"{value:.3f}",
         "Radius[m]": lambda value: f"{value:.3f}",
     }

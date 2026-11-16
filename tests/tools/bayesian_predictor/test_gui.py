@@ -488,9 +488,9 @@ def test_help_explains_analysis_metrics():
     sections = dict(POSTERIOR_HELP_SECTIONS)
 
     assert dict(sections["Evaluation metrics"]) == {
-        "Forecast ADE (median)": "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
-        "Forecast FDE (median)": "Position error of the median at the final forecast step in meters; lower is better.",
-        "Forecast RMSE (median)": "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
+        "Forecast ADE (mean)": "Mean 2D error of the current mean forecast against available future reference positions, in meters; lower is better.",
+        "Forecast FDE (mean)": "Position error of the mean at the final forecast step in meters; lower is better.",
+        "Forecast RMSE (mean)": "Root mean squared 2D position error of the mean across all forecast steps in meters; lower is better.",
         "Forecast Energy Score": "Energy Score of the joint 2D Gaussian moment approximation to latent forecast positions; lower is better.",
         "NLPD": "Mean negative log density of future reference positions under a joint 2D Gaussian approximation to the latent forecast. Uses the predictive mean and full covariance, without additional sensor noise; lower is better. Unavailable without a forecast or future reference positions.",
         "Joint 50% coverage": "Cumulative share of evaluated future positions inside per-step 2D 50% Gaussian moment ellipses, shown as percentage and count; not whole-path coverage.",
@@ -510,9 +510,7 @@ def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
     display = dict(
         sections["Display" if tool == "bayesian" else "Plot display and uncertainty"]
     )
-    primary, secondary = (
-        ("median", "mean") if tool == "bayesian" else ("mean", "median")
-    )
+    primary, secondary = "mean", "median"
     assert "on by default" in display[f"Forecast ({primary})"]
     assert "off by default" in display[f"Forecast ({secondary})"]
     assert "together" in display["Forecast (mean)"]

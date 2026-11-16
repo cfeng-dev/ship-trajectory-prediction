@@ -617,8 +617,8 @@ def test_predictors_keep_their_selected_forecast_defaults(form):
     from imm_predictor.player import IMMPlayerConfig
 
     result = settings.parse_settings(form)
-    assert result.show_median_forecast is True
-    assert result.show_mean_forecast is False
+    assert result.show_median_forecast is False
+    assert result.show_mean_forecast is True
     assert IMMPlayerConfig().show_forecast_median is False
     assert IMMPlayerConfig().show_forecast_mean is True
     form["data"]["show_mean_forecast"] = True

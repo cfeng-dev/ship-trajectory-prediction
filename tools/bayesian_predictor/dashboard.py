@@ -664,9 +664,9 @@ def analysis_metrics_at(trajectory, updates_by_count, observation_count):
     negative_log_predictive_density = None
     if forecast is not None:
         actual_positions = _forecast_reference_positions(trajectory, update)
-        if actual_positions.size:
+        if actual_positions.size and forecast.mean_positions is not None:
             errors_m = np.linalg.norm(
-                forecast.median_positions[: len(actual_positions)] - actual_positions,
+                forecast.mean_positions[: len(actual_positions)] - actual_positions,
                 axis=1,
             )
             ade_m = float(np.mean(errors_m))
@@ -949,8 +949,8 @@ class PosteriorDashboardNavigator:
         show_current_position=True,
         show_sample_trajectories=True,
         connect_sample_trajectories=False,
-        show_median_forecast=True,
-        show_mean_forecast=False,
+        show_median_forecast=False,
+        show_mean_forecast=True,
         show_forecast_points=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
@@ -1756,6 +1756,7 @@ class PosteriorDashboardNavigator:
                     path[:, 1],
                     color="#DC2626",
                     linewidth=2.2,
+                    linestyle="--",
                     marker="o" if self.show_forecast_points else "None",
                     markersize=3,
                     zorder=4,
@@ -1772,7 +1773,7 @@ class PosteriorDashboardNavigator:
                         mean_path[:, 1],
                         color="#B91C1C",
                         linewidth=2.2,
-                        linestyle="--",
+                        linestyle="-",
                         marker="o" if self.show_forecast_points else "None",
                         markersize=3,
                         zorder=4,
@@ -2033,8 +2034,8 @@ def create_sequential_posterior_dashboard_figure(
     show_current_position=True,
     show_sample_trajectories=True,
     connect_sample_trajectories=False,
-    show_median_forecast=True,
-    show_mean_forecast=False,
+    show_median_forecast=False,
+    show_mean_forecast=True,
     show_forecast_points=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,

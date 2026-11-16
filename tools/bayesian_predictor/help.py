@@ -186,16 +186,16 @@ POSTERIOR_HELP_SECTIONS = (
         "Evaluation metrics",
         (
             (
-                "Forecast ADE (median)",
-                "Mean 2D error of the current median forecast against available future reference positions, in meters; lower is better.",
+                "Forecast ADE (mean)",
+                "Mean 2D error of the current mean forecast against available future reference positions, in meters; lower is better.",
             ),
             (
-                "Forecast FDE (median)",
-                "Position error of the median at the final forecast step in meters; lower is better.",
+                "Forecast FDE (mean)",
+                "Position error of the mean at the final forecast step in meters; lower is better.",
             ),
             (
-                "Forecast RMSE (median)",
-                "Root mean squared 2D position error of the median across all forecast steps in meters; lower is better.",
+                "Forecast RMSE (mean)",
+                "Root mean squared 2D position error of the mean across all forecast steps in meters; lower is better.",
             ),
             (
                 "Forecast Energy Score",
@@ -272,15 +272,15 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Forecast (median)",
-                "Solid red coordinate-wise median of all future latent-position draws; on by default, not a single sampled trajectory",
+                "Dashed red coordinate-wise median of all future latent-position draws; off by default, not a single sampled trajectory",
             ),
             (
                 "Forecast (mean)",
-                "Dashed red mean of all future latent-position draws, independent of the displayed path count; off by default. Mean and median can be shown together",
+                "Solid red mean of all future latent-position draws, independent of the displayed path count; on by default. Mean and median can be shown together",
             ),
             (
                 "Forecast metrics",
-                "ADE, FDE and RMSE always evaluate the median, regardless of visible forecast lines; display switches do not change inference, regions or scores",
+                "ADE, FDE and RMSE always evaluate the mean, regardless of visible forecast lines; display switches do not change inference, regions or scores",
             ),
             (
                 "Forecast points",

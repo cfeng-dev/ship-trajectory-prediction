@@ -283,15 +283,15 @@ def test_dashboard_displays_trajectory_and_forecast_in_kilometres():
             for line in navigator.trajectory_axis.lines
             if line.get_label() == "Reference trajectory"
         )
-        median_line = next(
+        mean_line = next(
             line
             for line in navigator.trajectory_axis.lines
-            if line.get_label() == "Forecast (median)"
+            if line.get_label() == "Forecast (mean)"
         )
         assert reference_line.get_xdata() == pytest.approx([0, 1, 2, 3])
         assert reference_line.get_ydata() == pytest.approx([0, 1, 2, 3])
-        assert median_line.get_xdata() == pytest.approx([0, 1.5, 2])
-        assert median_line.get_ydata() == pytest.approx([0, 0.5, 1])
+        assert mean_line.get_xdata() == pytest.approx([0, 1.4, 1.9])
+        assert mean_line.get_ydata() == pytest.approx([0, 0.4, 0.9])
         assert navigator.trajectory_axis.get_xlabel() == "Easting x [km]"
         assert navigator.trajectory_axis.get_ylabel() == "Northing y [km]"
         legend_labels = [
@@ -383,9 +383,11 @@ def test_forecast_mean_and_median_toggle_independently_without_inference(
         before = dashboard.analysis_metrics_at(
             trajectory, navigator._updates_by_count, 1
         )
-        assert "Forecast (mean)" not in [
-            line.get_label() for line in navigator.trajectory_axis.lines
-        ]
+        lines = {line.get_label(): line for line in navigator.trajectory_axis.lines}
+        assert ("Forecast (mean)" in lines) == forecast_enabled
+        assert "Forecast (median)" not in lines
+        if forecast_enabled:
+            assert lines["Forecast (mean)"].get_linestyle() == "-"
         assert navigator.show_forecast_points is True
         for show_median, show_mean, show_points in [
             (True, False, True),
@@ -1545,7 +1547,7 @@ def test_dashboard_update_rejects_non_boolean_prior_predictive_flag() -> None:
 
 @pytest.mark.parametrize("log_density", [-12.5, 1.5, None])
 def test_dashboard_analysis_metrics_evaluate_forecast_and_joint_coverage(log_density):
-    """Metrics use the current median forecast and 2D 90% forecast regions."""
+    """Metrics use the current mean forecast and 2D 90% forecast regions."""
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
         reference_x=[0.0, 1.0, 3.0, 5.0],
@@ -2037,6 +2039,8 @@ def test_dashboard_forecast_tracks_cached_stage_and_preserves_zoom():
         figure=figure,
         prediction_count=2,
         prediction_region_style="ellipses",
+        show_median_forecast=True,
+        show_mean_forecast=False,
     )
     try:
         navigator.follow_checkbox.set_active(0)
@@ -2184,6 +2188,7 @@ def test_dashboard_display_options_hide_selected_trajectory_elements():
         show_current_position=False,
         show_sample_trajectories=False,
         show_median_forecast=False,
+        show_mean_forecast=False,
         show_prediction_region_50=False,
         show_prediction_region_90=True,
         prediction_region_style="ellipses",
@@ -2561,11 +2566,11 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         prediction_count=2,
     )
 
-    def median_lines():
+    def mean_lines():
         return [
             line
             for line in navigator.trajectory_axis.lines
-            if "Forecast (median)" in line.get_label()
+            if "Forecast (mean)" in line.get_label()
         ]
 
     try:
@@ -2575,7 +2580,7 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
             forecast = dashboard.PosteriorDashboardForecast(
                 [10],
                 [[count * 10, 20]],
-                np.empty((0, 1, 2)),
+                [[[count * 10, 20]]],
             )
             navigator.accept_update(
                 dashboard.PosteriorDashboardUpdate(
@@ -2584,15 +2589,15 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
             )
             if count < 3:
                 assert navigator.observation_count == 0
-                assert not median_lines()
-        assert median_lines()[0].get_xdata()[-1] == 30
+                assert not mean_lines()
+        assert mean_lines()[0].get_xdata()[-1] == 30
         navigator.slider.set_val(4)
         navigator.show_selected_observation_count(None)
-        assert median_lines()[0].get_xdata()[-1] == 30
+        assert mean_lines()[0].get_xdata()[-1] == 30
         navigator.accept_update(
             dashboard.PosteriorDashboardUpdate(4, _dashboard_samples())
         )
-        assert not median_lines()
+        assert not mean_lines()
         assert any(
             "End of recorded trajectory: no further forecast times." in text.get_text()
             for text in navigator.trajectory_axis.texts

@@ -379,7 +379,7 @@ def evaluate_position_predictions(
 ):
     """Evaluate posterior position draws against one held-out trajectory.
 
-    Point errors evaluate the coordinate-wise posterior median. All probability
+    Point errors evaluate the posterior position mean. All probability
     metrics evaluate the common Gaussian moment approximation of latent positions.
     """
     credible_interval = _validate_credible_interval(credible_interval)
@@ -404,8 +404,8 @@ def evaluate_position_predictions(
 
     x_median = np.median(x_samples, axis=0)
     y_median = np.median(y_samples, axis=0)
-    errors_m = np.hypot(x_median - x_actual, y_median - y_actual)
     means, covariances = latent_position_moments(x_samples, y_samples)
+    errors_m = np.linalg.norm(means - np.column_stack((x_actual, y_actual)), axis=1)
     scores = gaussian_position_metrics(
         np.column_stack((x_actual, y_actual)),
         means,
@@ -434,6 +434,9 @@ def evaluate_position_predictions(
             "y_actual": y_actual,
             "x_median": x_median,
             "y_median": y_median,
+            "x_mean": means[:, 0],
+            "y_mean": means[:, 1],
+            "point_estimate": "mean",
             "position_error_m": errors_m,
             **scores,
         }
@@ -480,8 +483,8 @@ def format_position_evaluation(evaluation, *, computation_time_seconds=None):
             "horizon_seconds",
             "x_actual",
             "y_actual",
-            "x_median",
-            "y_median",
+            "x_mean",
+            "y_mean",
             "position_error_m",
             "prediction_radius_m",
             "radial_covered",

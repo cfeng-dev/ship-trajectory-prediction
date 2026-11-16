@@ -218,6 +218,18 @@ def test_evaluators_and_both_predictors_share_latent_gaussian_nlpd(noise):
     assert gui.negative_log_predictive_density == pytest.approx(expected)
     assert imm_gui.negative_log_predictive_density == pytest.approx(expected)
     assert imm.negative_log_predictive_density.iloc[0] == pytest.approx(expected)
+    # Skewed draws have mean (1, 0) and median (0, 0): all paths score the mean.
+    for result in (bayesian, gui, imm_gui):
+        assert result.ade_m == pytest.approx(np.sqrt(2))
+        assert result.fde_m == pytest.approx(np.sqrt(2))
+    assert gui.rmse_m == pytest.approx(np.sqrt(2))
+    np.testing.assert_array_equal(
+        bayesian.prediction_table[["x_mean", "y_mean"]], [[1, 0]]
+    )
+    np.testing.assert_array_equal(
+        bayesian.prediction_table[["x_median", "y_median"]], [[0, 0]]
+    )
+    assert bayesian.prediction_table.point_estimate.eq("mean").all()
     assert bayesian.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
     assert gui.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
     assert imm_gui.energy_score_m == pytest.approx(imm.energy_score_m.iloc[0])
