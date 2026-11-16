@@ -1,8 +1,7 @@
 """Presentation-safe online session data for the IMM Predictor.
 
-This module owns BR24 measurements and the optional local IMM tracker lifetime.
-Reference labels are read only after a forecast has been produced, solely for
-display and evaluation values.
+This module owns local position or BR24 measurements and the optional IMM tracker.
+Reference values remain separate from observations and serve display and evaluation.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from scipy.stats import chi2
 
 import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
+import bayestraj.observations.io as observations_io
 import bayestraj.validation.metrics as validation_metrics
 from bayestraj.inference.imm_adapter import IMMStateMixture, IMMStatePosterior
 from bayestraj.inference.imm_adapter import (
@@ -80,6 +80,7 @@ class IMMPlayerConfig:
     start_index: int = 0
     position_noise_std_m: float = 0.0
     position_noise_seed: int = 2026
+    measurement_noise_std_m: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_file", Path(self.data_file).expanduser())
@@ -97,6 +98,10 @@ class IMMPlayerConfig:
         if not np.isfinite(noise) or noise < 0:
             raise ValueError("position_noise_std_m must be finite and non-negative.")
         object.__setattr__(self, "position_noise_std_m", noise)
+        measurement_noise = float(self.measurement_noise_std_m)
+        if not np.isfinite(measurement_noise) or measurement_noise < 0:
+            raise ValueError("measurement_noise_std_m must be finite and non-negative.")
+        object.__setattr__(self, "measurement_noise_std_m", measurement_noise)
         if self.prediction_region_style not in PREDICTION_REGION_STYLE_LABELS:
             raise ValueError("Unsupported prediction uncertainty style.")
         for name in PLOT_DISPLAY_OPTIONS:
@@ -116,7 +121,7 @@ class IMMPlayerConfig:
 
 @dataclass(frozen=True, slots=True)
 class IMMPlayerStage:
-    """One online IMM posterior and forecast refreshed at a radar cycle."""
+    """One online IMM posterior and forecast refreshed at an input step."""
 
     observation_count: int
     cycle_counter: int
@@ -133,10 +138,13 @@ class IMMPlayerStage:
     posterior_mixture: IMMStateMixture | None = None
     forecast_median_positions: np.ndarray | None = None
     associated_input: bool = False
+    position_input: bool = False
 
     @property
     def association_status(self) -> str:
         """Describe the input step independently of whether NIS is available."""
+        if self.position_input:
+            return "position_csv"
         if self.detection_id is None:
             return "prediction_only"
         if self.observation_count == 1:
@@ -201,23 +209,78 @@ class IMMDisplayState:
     reference_state: IMMMovementState | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _PositionMeasurement:
+    """A local position with known uncertainty, without invented radar IDs."""
+
+    time_seconds: float
+    cycle_counter: int
+    position: np.ndarray
+    measurement_covariance: np.ndarray
+    detection_id: None = None
+
+
+def _read_position_input(config):
+    data = observations_io.read_processed_trajectory_with_reference(config.data_file)
+    supplied = set(observations_io.REFERENCE_POSITION_COLUMNS).intersection(
+        data.columns
+    )
+    if supplied and supplied != set(observations_io.REFERENCE_POSITION_COLUMNS):
+        raise ValueError(
+            "Reference positions require both ground_truth_x and ground_truth_y."
+        )
+    times = data["time"].to_numpy(dtype=float)
+    indices = np.arange(1, len(data) + 1)
+    # Zero is an exact-position assumption; only a numerical variance is retained.
+    variance = max(
+        config.measurement_noise_std_m**2, RESIDUAL_POSITION_NOISE_FLOOR_M**2
+    )
+    covariance = np.eye(2) * variance
+    covariance.setflags(write=False)
+    measurements = []
+    for index, position in enumerate(data[["x", "y"]].to_numpy(dtype=float)):
+        position.setflags(write=False)
+        measurements.append(
+            _PositionMeasurement(times[index], indices[index], position, covariance)
+        )
+    motion = {
+        quantity: next(
+            (data[name].to_numpy(dtype=float) for name in names if name in data), None
+        )
+        for quantity, names in observations_io.REFERENCE_MOTION_COLUMNS.items()
+    }
+    reference = br24.BR24TrackingReference(
+        cycle_counters=indices,
+        time_seconds=times,
+        x_meters=data["ground_truth_x" if supplied else "x"].to_numpy(dtype=float),
+        y_meters=data["ground_truth_y" if supplied else "y"].to_numpy(dtype=float),
+        yaw_rad=motion["heading"],
+        velocity_mps=motion["speed"],
+        turn_rate_rad_s=motion["turn_rate"],
+    )
+    return tuple(measurements), reference
+
+
 class IMMPlaybackStore:
-    """Advance one IMM through raw cycles or associated fixes and cache stages."""
+    """Advance one IMM through positions or BR24 input and cache stages."""
 
     def __init__(self, config: IMMPlayerConfig) -> None:
         self.config = config
         self.data_file = config.data_file
-        cycles = (
-            br24.read_br24_tracking_input(self.data_file)
-            if br24.is_br24_tracking_input(self.data_file)
-            else br24.read_br24_associated_input(self.data_file)
-        )
+        if br24.is_br24_tracking_input(self.data_file):
+            cycles = br24.read_br24_tracking_input(self.data_file)
+            reference = br24.read_br24_tracking_reference(self.data_file)
+        elif br24.is_br24_associated_input(self.data_file):
+            cycles = br24.read_br24_associated_input(self.data_file)
+            reference = br24.read_br24_tracking_reference(self.data_file)
+        else:
+            cycles, reference = _read_position_input(config)
         if config.start_index >= len(cycles):
             raise ValueError(
-                f"Start index {config.start_index} must be smaller than {len(cycles)} radar cycles."
+                f"Start index {config.start_index} must be smaller than {len(cycles)} input steps."
             )
         self.cycles = cycles[config.start_index :]
-        self.reference = br24.read_br24_tracking_reference(self.data_file)
+        self.reference = reference
         if self.reference is not None:
             self.reference = replace(
                 self.reference,
@@ -231,6 +294,15 @@ class IMMPlaybackStore:
                 },
             )
             self._validate_reference_alignment()
+        if isinstance(self.cycles[0], _PositionMeasurement):
+            origin = self.cycles[0].time_seconds
+            self.cycles = tuple(
+                replace(cycle, time_seconds=cycle.time_seconds - origin)
+                for cycle in self.cycles
+            )
+            self.reference = replace(
+                self.reference, time_seconds=self.reference.time_seconds - origin
+            )
         self.cycles = _add_position_noise(self.cycles, config)
         self.times = np.asarray(
             [cycle.time_seconds for cycle in self.cycles], dtype=float
@@ -238,10 +310,12 @@ class IMMPlaybackStore:
         self.maximum_observation_count = len(self.cycles) - config.prediction_count
         if self.maximum_observation_count < 1:
             raise ValueError(
-                "The BR24 input must leave room for the requested prediction horizon."
+                "The input must leave room for the requested prediction horizon."
             )
         initial = self.cycles[0]
-        associated_input = isinstance(initial, br24.BR24AssociatedMeasurement)
+        associated_input = isinstance(
+            initial, (br24.BR24AssociatedMeasurement, _PositionMeasurement)
+        )
         if not associated_input and not initial.detections:
             raise ValueError(
                 "The selected starting BR24 radar cycle has no detection to initialize."
@@ -278,7 +352,7 @@ class IMMPlaybackStore:
         self._capture_stage(fit_runtime_seconds=0.0)
 
     def stage_for(self, observation_count: int) -> IMMPlayerStage:
-        """Return the forecast refreshed after exactly ``observation_count`` cycles."""
+        """Return the forecast after exactly ``observation_count`` input steps."""
         observation_count = self._validate_observation_count(observation_count)
         self._advance_to(observation_count)
         return self._stages[observation_count]
@@ -312,7 +386,9 @@ class IMMPlaybackStore:
         while self._processed_cycle_count < observation_count:
             update_started = time.perf_counter()
             cycle = self.cycles[self._processed_cycle_count]
-            if isinstance(cycle, br24.BR24AssociatedMeasurement):
+            if isinstance(
+                cycle, (br24.BR24AssociatedMeasurement, _PositionMeasurement)
+            ):
                 self._tracker.update_position(
                     cycle.time_seconds, cycle.position, cycle.measurement_covariance
                 )
@@ -399,6 +475,9 @@ class IMMPlaybackStore:
             associated_input=isinstance(
                 self.cycles[observation_count - 1], br24.BR24AssociatedMeasurement
             ),
+            position_input=isinstance(
+                self.cycles[observation_count - 1], _PositionMeasurement
+            ),
         )
 
     def _validate_observation_count(self, observation_count: int) -> int:
@@ -437,6 +516,13 @@ def _add_position_noise(cycles, config: IMMPlayerConfig):
     if config.position_noise_std_m == 0:
         return cycles
     generator = np.random.default_rng(config.position_noise_seed)
+    if isinstance(cycles[0], _PositionMeasurement):
+        noise_x = generator.normal(0.0, config.position_noise_std_m, len(cycles))
+        noise_y = generator.normal(0.0, config.position_noise_std_m, len(cycles))
+        return tuple(
+            replace(cycle, position=cycle.position + np.array([x, y]))
+            for cycle, x, y in zip(cycles, noise_x, noise_y, strict=True)
+        )
     noisy_cycles = []
     for cycle in cycles:
         if isinstance(cycle, br24.BR24AssociatedMeasurement):

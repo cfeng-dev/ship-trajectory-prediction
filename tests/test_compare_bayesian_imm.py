@@ -131,6 +131,100 @@ def _write_model_csvs(directory):
     return paths
 
 
+def _smc_table(particles=100, fractions=(0.5, 0.25)):
+    table = _table("bayesian")
+    table["negative_log_predictive_density"] = -table.pop("log_predictive_density")
+    table["particle_count"] = particles
+    table["particle_effective_sample_size"] = particles * np.repeat(fractions, 2)
+    table["particle_resample_count"] = [1, 1, 3, 3]
+    return table
+
+
+def test_smc_diagnostic_plots_keep_per_update_values_and_only_include_smc(tmp_path):
+    imm = _table("imm")
+    imm["negative_log_predictive_density"] = -imm.pop("log_predictive_density")
+    models = {"SMC": _smc_table(), "IMM": imm}
+    original = {name: table.copy(deep=True) for name, table in models.items()}
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models,
+        show=False,
+        output_dir=tmp_path,
+        show_mean_lines=False,
+        metric_y_scale="symlog",
+    )
+    try:
+        assert summary["metric"].tolist() == METRIC_ORDER
+        assert len(figures) == 10
+        ess_axis, resample_axis = figures[-2][1], figures[-1][1]
+        assert ess_axis.get_ylim() == (0.0, 100.0)
+        assert ess_axis.get_yscale() == "linear"
+        assert [line.get_label() for line in ess_axis.lines] == ["SMC"]
+        assert [line.get_label() for line in resample_axis.lines] == ["SMC"]
+        np.testing.assert_allclose(ess_axis.lines[0].get_xdata(), [0.0, 20.0])
+        np.testing.assert_allclose(ess_axis.lines[0].get_ydata(), [50.0, 25.0])
+        np.testing.assert_allclose(resample_axis.lines[0].get_ydata(), [1, 3])
+        assert resample_axis.lines[0].get_drawstyle() == "steps-post"
+        assert ess_axis.lines[0].get_color() == figures[0][1].lines[0].get_color()
+        assert (tmp_path / "smc_effective_sample_size_fraction.png").is_file()
+        assert (tmp_path / "smc_resample_count.png").is_file()
+        for name, table in models.items():
+            pd.testing.assert_frame_equal(table, original[name])
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize(
+    "field, values",
+    [
+        ("particle_effective_sample_size", [150.0] * 4),
+        ("particle_count", [0] * 4),
+        ("particle_resample_count", [3, 3, 1, 1]),
+        ("particle_resample_count", [1.5] * 4),
+        ("particle_effective_sample_size_fraction", [0.9] * 4),
+        ("particle_effective_sample_size", [1.0, 2.0, 3.0, 3.0]),
+    ],
+)
+def test_smc_diagnostics_reject_invalid_or_inconsistent_values_before_plotting(
+    monkeypatch, field, values
+):
+    table = _smc_table()
+    table[field] = values
+    monkeypatch.setattr(
+        plt, "subplots", lambda **kwargs: pytest.fail("Must validate first")
+    )
+    with pytest.raises(ValueError, match="particle_"):
+        runtime_plotting.plot_model_comparison(
+            {"SMC": table, "IMM": _table("imm")}, show=False
+        )
+
+
+def test_rolling_evaluation_includes_smc_diagnostic_plots(monkeypatch):
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(_smc_table())
+    try:
+        assert len(figures) == 8
+        assert shown == [figure for figure, _ in figures]
+        np.testing.assert_allclose(figures[-2][1].lines[0].get_ydata(), [50, 25])
+        np.testing.assert_allclose(figures[-1][1].lines[0].get_ydata(), [1, 3])
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+def test_smc_diagnostics_preserve_missing_estimates():
+    table = _smc_table()
+    table.loc[table["window_index"].eq(1), "particle_effective_sample_size"] = np.nan
+    values = runtime_plotting._smc_diagnostic_series(table)
+    np.testing.assert_allclose(
+        values["particle_effective_sample_size_fraction"], [0.5, np.nan]
+    )
+    table["particle_count"] = np.nan
+    values = runtime_plotting._smc_diagnostic_series(table)
+    assert values["particle_effective_sample_size_fraction"].isna().all()
+
+
 def _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv):
     for variable, _method, _label in MODEL_CSVS:
         monkeypatch.setitem(namespace, variable, None)

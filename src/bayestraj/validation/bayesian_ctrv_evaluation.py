@@ -101,6 +101,7 @@ PREDICTION_CSV_COLUMNS = (
     "bootstrap_completed",
     "last_fit_error",
     "particle_effective_sample_size",
+    "particle_effective_sample_size_fraction",
     "particle_resample_count",
     "particle_processed_observation_count",
     "particle_count",

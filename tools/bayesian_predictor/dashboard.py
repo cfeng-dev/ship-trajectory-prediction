@@ -44,12 +44,8 @@ from . import coordinates
 from .localization import localize_figure, normalize_language, translate
 
 PARAMETER_NAMES = prior_posterior.PARAMETER_NAMES
-REFERENCE_POSITION_COLUMNS = ("ground_truth_x", "ground_truth_y")
-REFERENCE_MOTION_COLUMNS = {
-    "speed": ("ground_truth_velocity", "velocity", "speed"),
-    "heading": ("ground_truth_yaw", "yaw", "theta"),
-    "turn_rate": ("ground_truth_turn_rate", "turn_rate", "omega"),
-}
+REFERENCE_POSITION_COLUMNS = observations_io.REFERENCE_POSITION_COLUMNS
+REFERENCE_MOTION_COLUMNS = observations_io.REFERENCE_MOTION_COLUMNS
 PARAMETER_GROUPS = {
     "motion": (
         "current_speed",
@@ -2930,20 +2926,7 @@ def _reference_motion_column(data, quantity):
 
 def read_dashboard_trajectory(csv_path):
     """Keep optional reference labels separately from the shared x/y inputs."""
-    data = observations_io.read_processed_trajectory(csv_path)
-    raw = pd.read_csv(csv_path)
-    raw["time"] = pd.to_numeric(raw["time"], errors="raise")
-    raw = raw.sort_values("time").reset_index(drop=True)
-    for names in (REFERENCE_POSITION_COLUMNS, *REFERENCE_MOTION_COLUMNS.values()):
-        for name in names:
-            if name in raw.columns:
-                values = pd.to_numeric(raw[name], errors="raise").to_numpy(dtype=float)
-                if not np.all(np.isfinite(values)):
-                    raise ValueError(
-                        f"Reference column {name} must contain finite values."
-                    )
-                data[name] = values
-    return data
+    return observations_io.read_processed_trajectory_with_reference(csv_path)
 
 
 def create_smc_posterior_dashboard_loader(

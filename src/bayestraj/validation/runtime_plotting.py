@@ -272,6 +272,11 @@ def plot_model_comparison(
     text = COMPARISON_PLOT_TEXT[plot_language]
     names = list(models)
     tables = list(models.values())
+    smc_diagnostics = {
+        name: _smc_diagnostic_series(table)
+        for name, table in models.items()
+        if table["inference_method"].iloc[0] == "smc"
+    }
     labels = [
         _comparison_label_with_window(
             str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
@@ -409,6 +414,19 @@ def plot_model_comparison(
             }
         )
     summary = pd.DataFrame(rows)
+    figures.extend(
+        _plot_smc_diagnostics(
+            {
+                labels[names.index(name)]: values
+                for name, values in smc_diagnostics.items()
+            },
+            colors=dict(zip(labels, colors, strict=True)),
+            show=show,
+            output_dir=output_dir,
+            show_points=show_points,
+            plot_language=plot_language,
+        )
+    )
     if show_summary_table:
         summary_text = (
             {**text, "summary_note": f"{text['summary_note']}\n{text['window_note']}"}
@@ -434,6 +452,149 @@ def plot_model_comparison(
             _show_comparison_figure(figure)
         figures.append((figure, axis))
     return summary, tuple(figures)
+
+
+def _smc_diagnostic_series(predictions):
+    """Validate particle diagnostics and retain one row per forecast update."""
+    fields = (
+        "particle_effective_sample_size",
+        "particle_count",
+        "particle_effective_sample_size_fraction",
+        "particle_resample_count",
+    )
+    values = predictions[["window_index", "forecast_origin_seconds"]].copy()
+    for field in fields:
+        values[field] = pd.to_numeric(
+            predictions.get(field, pd.Series(np.nan, index=predictions.index)),
+            errors="raise",
+        )
+        defined = values[field].dropna()
+        if not np.isfinite(defined).all() or (defined < 0).any():
+            raise ValueError(f"{field} must be finite and non-negative or missing.")
+        if (values.groupby("window_index")[field].nunique(dropna=False) > 1).any():
+            raise ValueError(f"{field} must be constant within a forecast window.")
+    windows = values.drop_duplicates("window_index").sort_values(
+        "forecast_origin_seconds"
+    )
+    counts = windows["particle_count"].dropna()
+    if (counts < 1).any() or not counts.eq(np.floor(counts)).all():
+        raise ValueError("particle_count must contain positive integers.")
+    ess = windows["particle_effective_sample_size"]
+    if (ess.dropna() < 1 - 1e-9).any() or (
+        ess > windows["particle_count"] + 1e-9
+    ).any():
+        raise ValueError(
+            "particle_effective_sample_size must be between 1 and particle_count."
+        )
+    fraction = windows["particle_effective_sample_size_fraction"]
+    derived = ess / windows["particle_count"]
+    defined = fraction.notna() & derived.notna()
+    if (fraction.dropna() > 1 + 1e-9).any() or not np.allclose(
+        fraction[defined], derived[defined], rtol=1e-9, atol=1e-12
+    ):
+        raise ValueError(
+            "particle_effective_sample_size_fraction must equal ESS / particle_count."
+        )
+    windows["particle_effective_sample_size_fraction"] = fraction.combine_first(derived)
+    resamples = windows["particle_resample_count"].dropna()
+    if (
+        not resamples.eq(np.floor(resamples)).all()
+        or (resamples.diff().dropna() < 0).any()
+    ):
+        raise ValueError(
+            "particle_resample_count must contain nondecreasing integer counts."
+        )
+    return windows
+
+
+def _plot_smc_diagnostics(
+    series, *, colors, show, output_dir=None, show_points=True, plot_language="de"
+):
+    """Plot SMC health separately from forecast scores and convergence claims."""
+    if not series:
+        return ()
+    origin = min(
+        float(table["forecast_origin_seconds"].iloc[0]) for table in series.values()
+    )
+    styles = (
+        (
+            "particle_effective_sample_size_fraction",
+            "smc_effective_sample_size_fraction",
+            "Relative ESS [%]",
+            "Relative ESS [%]",
+            "Gewichts-ESS; hohe Werte allein garantieren keine ausreichende Partikelvielfalt.",
+            "Weight ESS; high values alone do not guarantee particle diversity.",
+        ),
+        (
+            "particle_resample_count",
+            "smc_resample_count",
+            "Kumulative Resampling-Ereignisse",
+            "Cumulative resampling events",
+            "Einschließlich Hilfs-Resampling; die Häufigkeit ist kein Konvergenztest.",
+            "Includes auxiliary resampling; frequency is not a convergence test.",
+        ),
+    )
+    figures = []
+    for field, filename, ylabel_de, ylabel_en, note_de, note_en in styles:
+        selected = {
+            label: table
+            for label, table in series.items()
+            if table[field].notna().any()
+        }
+        if not selected:
+            continue
+        percentage = field.endswith("_fraction")
+        figure, axis = _comparison_subplots(
+            figsize=RUNTIME_PLOT_STYLE.speed_figure_size
+        )
+        for label, table in selected.items():
+            axis.plot(
+                table["forecast_origin_seconds"] - origin,
+                table[field] * (100 if percentage else 1),
+                label=label,
+                color=colors[label],
+                marker="o" if show_points else "None",
+                markersize=3,
+                drawstyle="default" if percentage else "steps-post",
+            )
+        if percentage:
+            axis.set_ylim(0, 100)
+        else:
+            axis.set_ylim(bottom=0)
+            axis.yaxis.set_major_locator(MaxNLocator(integer=True))
+        axis.set_xlabel(
+            "Zeit [s]" if plot_language == "de" else "Time [s]",
+            fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
+        )
+        axis.set_ylabel(
+            ylabel_de if plot_language == "de" else ylabel_en,
+            fontsize=RUNTIME_PLOT_STYLE.axis_label_font_size,
+        )
+        axis.tick_params(labelsize=RUNTIME_PLOT_STYLE.axis_tick_font_size)
+        axis.grid(True, color="0.7", alpha=0.2)
+        axis.set_axisbelow(True)
+        axis.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0))
+        figure.suptitle(
+            "SMC-Diagnose" if plot_language == "de" else "SMC diagnostics",
+            fontsize=RUNTIME_PLOT_STYLE.title_font_size,
+            fontweight="bold",
+        )
+        figure.text(
+            0.5,
+            0.02,
+            note_de if plot_language == "de" else note_en,
+            ha="center",
+            fontsize=9,
+        )
+        figure.tight_layout(rect=(0, 0.07, 1, 0.95))
+        if output_dir is not None:
+            figure.savefig(
+                Path(output_dir) / f"{filename}.png", dpi=150, bbox_inches="tight"
+            )
+        if show:
+            _show_comparison_figure(figure)
+        figures.append((figure, axis))
+    return tuple(figures)
 
 
 def plot_observation_count_comparison(
@@ -786,6 +947,11 @@ def _plot_rolling_diagnostics(
             "Rolling diagnostics require exactly one inference_method per "
             "configuration."
         )
+    smc_diagnostics = (
+        {"SMC": _smc_diagnostic_series(predictions)}
+        if inference_methods[0] == "smc"
+        else {}
+    )
     time_seconds, metric_values = _rolling_window_metric_series(predictions)
     elapsed_time_seconds = time_seconds - time_seconds[0]
     inference_title = _format_inference_title(
@@ -849,6 +1015,13 @@ def _plot_rolling_diagnostics(
         figure.tight_layout(rect=(0, 0.07, 1, 1))
         plt.show()
         figures.append((figure, axis))
+    figures.extend(
+        _plot_smc_diagnostics(
+            smc_diagnostics,
+            colors={"SMC": COMPARISON_INFERENCE_COLORS["smc"]},
+            show=True,
+        )
+    )
     return tuple(figures)
 
 

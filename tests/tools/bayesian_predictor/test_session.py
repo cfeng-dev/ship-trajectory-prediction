@@ -283,6 +283,142 @@ def test_associated_br24_preserves_covariances_and_ignores_reference(
     np.testing.assert_array_equal(*results)
 
 
+@pytest.mark.parametrize("with_reference", [False, True])
+@pytest.mark.parametrize("start_index", [0, 1])
+def test_imm_accepts_processed_positions_without_reference_leakage(
+    tmp_path, monkeypatch, with_reference, start_index
+):
+    from imm_predictor import player
+
+    calls = []
+
+    class Tracker:
+        @classmethod
+        def initialize_position(cls, time_seconds, position, covariance):
+            tracker = cls()
+            tracker.update_position(time_seconds, position, covariance)
+            return tracker
+
+        def update_position(self, time_seconds, position, covariance):
+            calls.append((time_seconds, position.copy(), covariance.copy()))
+            self.last_observation_time_seconds = time_seconds
+            self.estimated_position = position.copy()
+
+        def process_cycle(self, cycle):
+            pytest.fail("Plain positions must bypass radar association")
+
+    monkeypatch.setattr(player, "_load_optional_imm_tracker", lambda: Tracker)
+    data = pd.DataFrame(
+        {"time": [110.0, 100.0, 102.5, 107.0], "x": [4.0, 1.0, 2.0, 3.0], "y": 0.0}
+    )
+    if with_reference:
+        data = data.assign(
+            ground_truth_x=data.x + 100,
+            ground_truth_y=5.0,
+            ground_truth_velocity=9.0,
+            ground_truth_yaw=0.25,
+            ground_truth_turn_rate=0.01,
+        )
+    path = tmp_path / (
+        "example_trajectory_01.csv" if with_reference else "ship_trajectory_run_42.csv"
+    )
+    data.to_csv(path, index=False)
+    store = player.IMMPlaybackStore(
+        player.IMMPlayerConfig(
+            data_file=path,
+            prediction_count=0,
+            start_index=start_index,
+            measurement_noise_std_m=0.2,
+        )
+    )
+    state = store.display_state_for(store.maximum_observation_count)
+    selected = data.sort_values("time").iloc[start_index:]
+    expected_times = selected.time.to_numpy() - selected.time.iloc[0]
+    np.testing.assert_allclose(store.times, expected_times)
+    np.testing.assert_allclose([call[0] for call in calls], expected_times)
+    np.testing.assert_array_equal(state.stage.tracked_positions, selected[["x", "y"]])
+    np.testing.assert_allclose(calls[0][2], np.eye(2) * 0.04)
+    np.testing.assert_allclose(
+        store.reference.x_meters, selected.x + (100 if with_reference else 0)
+    )
+    assert state.stage.detection_id is None
+    assert state.stage.nis is None
+    assert state.stage.association_status == "position_csv"
+    assert state.reference_state.speed_is_derived is not with_reference
+    if with_reference:
+        assert state.reference_state.speed_mps == 9.0
+        assert state.reference_state.heading_degrees == pytest.approx(np.rad2deg(0.25))
+        data["ground_truth_x"] += 1000
+        data.to_csv(path, index=False)
+        other = player.IMMPlaybackStore(store.config)
+        np.testing.assert_array_equal(
+            other.stage_for(other.maximum_observation_count).tracked_positions,
+            state.stage.tracked_positions,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid", ["partial_reference", "invalid_reference", "duplicate_time"]
+)
+def test_imm_processed_positions_reject_invalid_inputs_before_starting_tracker(
+    tmp_path, monkeypatch, invalid
+):
+    from imm_predictor import player
+
+    data = pd.DataFrame({"time": [0, 2, 5, 9], "x": [0, 1, 2, 3], "y": 0.0})
+    if invalid == "partial_reference":
+        data["ground_truth_x"] = data.x
+    elif invalid == "invalid_reference":
+        data["ground_truth_velocity"] = [1.0, np.nan, 1.0, 1.0]
+    else:
+        data.loc[1, "time"] = 0
+    path = tmp_path / "positions.csv"
+    data.to_csv(path, index=False)
+    monkeypatch.setattr(
+        player, "_load_optional_imm_tracker", lambda: pytest.fail("Invalid input")
+    )
+    with pytest.raises(ValueError):
+        player.IMMPlaybackStore(
+            player.IMMPlayerConfig(data_file=path, prediction_count=0)
+        )
+
+
+@pytest.mark.parametrize("measurement_noise", [0.0, 0.5])
+def test_processed_imm_forecast_with_optional_backend(tmp_path, measurement_noise):
+    from imm_predictor import player
+
+    if not player.IMM_PYTHON.is_file():
+        pytest.skip("Optional local IMM implementation is unavailable")
+    path = tmp_path / "ship_trajectory_run_42.csv"
+    pd.DataFrame(
+        {
+            "time": [0.0, 2.5, 5.1, 8.0, 11.0, 14.2],
+            "x": [0.0, 5.0, 10.0, 15.0, 19.0, 22.0],
+            "y": [0.0, 0.0, 0.2, 0.8, 2.0, 4.0],
+        }
+    ).to_csv(path, index=False)
+    store = player.IMMPlaybackStore(
+        player.IMMPlayerConfig(
+            data_file=path,
+            prediction_count=2,
+            measurement_noise_std_m=measurement_noise,
+        )
+    )
+    state = store.display_state_for(4)
+    np.testing.assert_allclose(state.stage.forecast.time_seconds, [11.0, 14.2])
+    assert state.metrics.ade_m is not None and np.isfinite(state.metrics.ade_m)
+    assert np.isfinite(state.metrics.negative_log_predictive_density)
+    assert np.isfinite(state.stage.forecast.position_covariances).all()
+
+
+@pytest.mark.parametrize("noise", [-1.0, np.inf, np.nan])
+def test_imm_rejects_invalid_position_measurement_uncertainty(noise):
+    from imm_predictor.player import IMMPlayerConfig
+
+    with pytest.raises(ValueError, match="measurement_noise_std_m"):
+        IMMPlayerConfig(measurement_noise_std_m=noise)
+
+
 def test_imm_associated_position_noise_preserves_nominal_covariance():
     from imm_predictor import player
 

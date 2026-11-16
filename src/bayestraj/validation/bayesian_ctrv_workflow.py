@@ -887,6 +887,9 @@ def _online_filter_diagnostics(online_filter, particle_filter_config):
         effective_sample_size = online_filter.effective_sample_size
     return {
         "particle_effective_sample_size": float(effective_sample_size),
+        "particle_effective_sample_size_fraction": float(
+            effective_sample_size / particle_filter_config.particle_count
+        ),
         "particle_resample_count": int(online_filter.resample_count),
         "particle_processed_observation_count": int(
             online_filter.processed_observation_count

@@ -45,6 +45,9 @@ class PlaybackSettingsDialog:
             "position_noise_seed": tk.StringVar(
                 self.window, value=str(config.position_noise_seed)
             ),
+            "measurement_noise_std_m": tk.StringVar(
+                self.window, value=f"{config.measurement_noise_std_m:g}"
+            ),
             "prediction_region_style": tk.StringVar(
                 self.window,
                 value=PREDICTION_REGION_STYLE_LABELS[config.prediction_region_style],
@@ -130,6 +133,7 @@ class PlaybackSettingsDialog:
         frame.columnconfigure(1, weight=1)
         labels = (
             ("Start index (from 0)", "start_index"),
+            ("Position measurement std. [m]", "measurement_noise_std_m"),
             ("Additional position noise [m]", "position_noise_std_m"),
             ("Position-noise seed", "position_noise_seed"),
             ("Forecast steps (0 = off)", "prediction_count"),
@@ -261,6 +265,9 @@ class PlaybackSettingsDialog:
                     position_noise_seed=int(
                         self._variables["position_noise_seed"].get()
                     ),
+                    measurement_noise_std_m=float(
+                        self._variables["measurement_noise_std_m"].get()
+                    ),
                     prediction_count=int(self._variables["prediction_count"].get()),
                     prediction_sample_count=int(
                         self._variables["prediction_sample_count"].get()
@@ -302,7 +309,7 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "File \u2192 Open CSV",
-                "Select raw BR24 radar cycles or associated Cartesian fixes with cov_xx, cov_xy, cov_yy",
+                "Select time,x,y positions in meters, raw BR24 radar cycles, or associated Cartesian fixes with cov_xx, cov_xy, cov_yy",
             ),
             ("File \u2192 Exit", "Exit IMM Predictor"),
             (
@@ -333,7 +340,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "N slider",
-                "N counts input steps from the selected start: raw radar cycles or supplied associated fixes. Each step refreshes the forecast",
+                "N counts input steps from the selected start: local positions, raw radar cycles or supplied associated fixes. Each step refreshes the forecast",
             ),
             (
                 "Display group",
@@ -378,19 +385,23 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Start index",
-                "First input step, counting from 0; initializes from its associated fix or the first detection of a raw radar cycle",
+                "First input step, counting from 0; initializes from its position, associated fix or the first detection of a raw radar cycle",
+            ),
+            (
+                "Position measurement std.",
+                "Measurement standard deviation per x/y axis for time,x,y input only. Default 0 treats positions as exact; a numerical variance of 1e-12 m^2 keeps matrix operations stable. This is a supplied uncertainty, not an inferred parameter. BR24 input always retains its supplied covariances",
             ),
             (
                 "Additional position noise",
-                "Extra Gaussian noise per position axis in meters; 0 keeps radar detections unchanged. Nominal sensor uncertainties stay unchanged",
+                "Extra Gaussian noise per position axis in meters; 0 keeps input positions unchanged. Nominal measurement uncertainties and reference values stay unchanged",
             ),
             (
                 "Position-noise seed",
-                "Seed for reproducible additional radar-position noise",
+                "Seed for reproducible additional position noise",
             ),
             (
                 "Forecast steps",
-                "Number of future radar timestamps to predict; 0 disables forecasts and forecast metrics",
+                "Number of future input timestamps to predict; 0 disables forecasts and forecast metrics",
             ),
             ("Future trajectories", "Number of sampled IMM paths; 0 disables sampling"),
             (
@@ -408,11 +419,11 @@ IMM_HELP_SECTIONS = (
         (
             (
                 "Reference state",
-                "Ground-truth position, speed, heading and elapsed time since the first selected input timestamp, when available",
+                "Supplied ground-truth position and motion, when available. For time,x,y input without ground_truth_x/y, the unperturbed recorded positions form the reference; they are not independent ground truth. Time is elapsed since the selected input origin",
             ),
             (
                 "Reference motion",
-                "Position and time are required. Optional ground_truth_velocity [m/s], ground_truth_yaw [rad] and ground_truth_turn_rate [rad/s] take priority independently, including zero. Missing motion quantities are derived and marked (derived); invalid supplied values are reported",
+                "Optional ground_truth_velocity [m/s], ground_truth_yaw [rad] and ground_truth_turn_rate [rad/s] take priority independently, including zero. Position CSVs also accept speed/velocity, theta/yaw and omega/turn_rate. Missing motion quantities are derived and marked (derived); invalid supplied values are reported",
             ),
             (
                 "Derived direction",
@@ -474,15 +485,15 @@ IMM_HELP_SECTIONS = (
         ),
     ),
     (
-        "BR24 radar association",
+        "Measurements / association",
         (
             (
                 "Status",
-                "Initial measurement only for the first processed fix; Measurement from CSV for later supplied associations; Associated for raw-radar selections; Prediction only when no detection is accepted",
+                "Position from CSV for time,x,y input. Initial measurement for the first BR24 fix; Measurement from CSV for later supplied associations; Associated for raw-radar selections; Prediction only when no detection is accepted",
             ),
             (
-                "Cycle",
-                "Original radar-cycle counter; can differ from N when the start index is not 0",
+                "Step / cycle",
+                "Original radar-cycle counter or sorted position-row number; can differ from N when the start index is not 0. Plain position CSVs have no radar detection IDs or NIS",
             ),
             ("Detection ID", "Detection selected within the current radar cycle"),
             (

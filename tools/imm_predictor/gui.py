@@ -22,7 +22,7 @@ SIDEBAR_SCROLL_DELAY_MS = 150
 
 INITIAL_PLACEHOLDER_TEXT = (
     "Trajectory and IMM evolution\n\n"
-    "Select a BR24 CSV and configure the analysis on the left.\n"
+    "Select a BR24 or time,x,y CSV and configure the analysis on the left.\n"
     "Then click 'Start analysis'."
 )
 

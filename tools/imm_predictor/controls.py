@@ -128,10 +128,10 @@ class IMMControls(tk.Frame):
         ).grid(row=5, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
-            "BR24 radar association",
+            "Measurements / association",
             (
                 ("Status", "association_status"),
-                ("Cycle", "cycle"),
+                ("Step / cycle", "cycle"),
                 ("Detection ID", "detection_id"),
                 ("NIS", "nis"),
                 ("cov_xx [m²]", "cov_xx"),
@@ -269,7 +269,7 @@ class IMMControls(tk.Frame):
         """Ask for a tracking CSV and notify the application only if selected."""
         filename = filedialog.askopenfilename(
             parent=self.winfo_toplevel(),
-            title="Open BR24 tracking CSV",
+            title="Open trajectory CSV",
             filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
         )
         if filename:
@@ -368,6 +368,7 @@ class IMMControls(tk.Frame):
                 "provided": "Measurement from CSV",
                 "accepted": "Associated",
                 "prediction_only": "Prediction only",
+                "position_csv": "Position from CSV",
             }[stage.association_status]
         )
         self._values["detection_id"].set(

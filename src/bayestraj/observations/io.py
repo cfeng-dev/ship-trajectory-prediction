@@ -11,6 +11,12 @@ import bayestraj.observations.window as observation_window
 
 DEFAULT_SUMMARY_LABEL_WIDTH = 20
 PROCESSED_TRAJECTORY_COLUMNS = ("time", "x", "y")
+REFERENCE_POSITION_COLUMNS = ("ground_truth_x", "ground_truth_y")
+REFERENCE_MOTION_COLUMNS = {
+    "speed": ("ground_truth_velocity", "velocity", "speed"),
+    "heading": ("ground_truth_yaw", "yaw", "theta"),
+    "turn_rate": ("ground_truth_turn_rate", "turn_rate", "omega"),
+}
 
 
 def read_ship_data(csv_path, run_id=None, start_time=None, end_time=None):
@@ -105,6 +111,24 @@ def read_processed_trajectory(csv_path):
     if np.any(np.diff(trajectory["time"].to_numpy(dtype=float)) <= 0.0):
         raise ValueError("Processed trajectory times must be strictly increasing.")
     return trajectory
+
+
+def read_processed_trajectory_with_reference(csv_path):
+    """Keep optional reference labels separate from normalized time,x,y inputs."""
+    data = read_processed_trajectory(csv_path)
+    raw = pd.read_csv(csv_path)
+    raw["time"] = pd.to_numeric(raw["time"], errors="raise")
+    raw = raw.sort_values("time").reset_index(drop=True)
+    for names in (REFERENCE_POSITION_COLUMNS, *REFERENCE_MOTION_COLUMNS.values()):
+        for name in names:
+            if name in raw.columns:
+                values = pd.to_numeric(raw[name], errors="raise").to_numpy(dtype=float)
+                if not np.all(np.isfinite(values)):
+                    raise ValueError(
+                        f"Reference column {name} must contain finite values."
+                    )
+                data[name] = values
+    return data
 
 
 def export_processed_positions(time, x, y, output_csv, *, normalize_time=True):

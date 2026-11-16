@@ -41,7 +41,14 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
                 "vi_elbo_delta_median": 0.003,
             },
         ),
-        ("smc", {"particle_effective_sample_size": 50.0, "particle_count": 64}),
+        (
+            "smc",
+            {
+                "particle_effective_sample_size": 50.0,
+                "particle_effective_sample_size_fraction": 50.0 / 64,
+                "particle_count": 64,
+            },
+        ),
     ],
 )
 def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
@@ -86,6 +93,7 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
     }
     if method != "smc":
         assert row["particle_effective_sample_size"] == ""
+        assert row["particle_effective_sample_size_fraction"] == ""
         assert row["particle_count"] == ""
     assert "evaluation_start_observation_count" not in row
     assert len(reader.fieldnames) == len(set(reader.fieldnames))

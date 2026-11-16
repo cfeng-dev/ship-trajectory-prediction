@@ -1223,6 +1223,7 @@ def test_online_filter_diagnostics_are_available_for_benchmark_records():
 
     assert diagnostics == {
         "particle_effective_sample_size": 123.0,
+        "particle_effective_sample_size_fraction": 123.0 / 500,
         "particle_resample_count": 4,
         "particle_processed_observation_count": 9,
         "particle_count": 500,
