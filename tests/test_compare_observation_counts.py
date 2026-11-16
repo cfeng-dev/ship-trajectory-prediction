@@ -51,6 +51,7 @@ def _predictions(method, count):
                     y_actual=0.0,
                     x_median=origin + step + error,
                     y_median=0.0,
+                    point_estimate="median",
                     position_error_m=error,
                     energy_score_m=error / 2,
                     negative_log_predictive_density=step - 0.5,
@@ -646,10 +647,10 @@ def test_rhat_plot_preserves_missing_values_and_highlights_nearest_one(result_di
         assert np.isfinite(axis.get_ylim()).all()
         assert 0 in axis.get_yticks()
         cells = figures[-1][1].tables[0].get_celld()
-        assert cells[1, 9].get_text().get_text() == "0.980"
-        assert cells[3, 9].get_text().get_text() == "1.005"
-        assert cells[1, 9].get_text().get_weight() != "bold"
-        assert cells[3, 9].get_text().get_weight() == "bold"
+        assert cells[1, 1].get_text().get_text() == "0.980"
+        assert cells[3, 1].get_text().get_text() == "1.005"
+        assert cells[1, 1].get_text().get_weight() != "bold"
+        assert cells[3, 1].get_text().get_weight() == "bold"
     finally:
         for figure, _ in figures:
             plt.close(figure)
@@ -683,8 +684,8 @@ def test_all_fit_diagnostics_are_plotted_and_ess_prefers_higher_values(
         plot_language="en",
     )
     try:
-        assert len(figures) == len(metrics) + 1
-        for metric, (_, axis) in zip(metrics, figures[:-1], strict=True):
+        assert len(figures) == len(metrics) + 2
+        for metric, (_, axis) in zip(metrics, figures[:-2], strict=True):
             assert (tmp_path / f"{metric}.png").is_file()
             if metric not in DIAGNOSTICS:
                 continue
@@ -698,8 +699,14 @@ def test_all_fit_diagnostics_are_plotted_and_ess_prefers_higher_values(
                 assert axis.get_ylim() == (0.0, 100.0)
                 assert axis.get_yscale() == "linear"
         cells = figures[-1][1].tables[0].get_celld()
-        ess_column = metrics.index("mcmc_ess_bulk_min") + 1
-        convergence_column = metrics.index("vi_convergence_rate") + 1
+        ess_column = list(DIAGNOSTICS).index("mcmc_ess_bulk_min") + 1
+        convergence_column = list(DIAGNOSTICS).index("vi_convergence_rate") + 1
+        performance_cells = figures[-2][1].tables[0].get_celld()
+        assert len(performance_cells) == 7 * (len(METRICS) + 1)
+        assert len(cells) == 7 * (len(DIAGNOSTICS) + 1)
+        assert "Inference diagnostics" in figures[-1][0]._suptitle.get_text()
+        assert "Performance comparison" in figures[-2][0]._suptitle.get_text()
+        assert (tmp_path / "diagnostics_summary.png").is_file()
         assert cells[1, ess_column].get_text().get_weight() == "bold"
         assert cells[3, ess_column].get_text().get_weight() != "bold"
         assert cells[6, convergence_column].get_text().get_text() == "75.0%"
@@ -720,9 +727,8 @@ def test_all_fit_diagnostics_are_plotted_and_ess_prefers_higher_values(
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
-@pytest.mark.parametrize("show_summary_table", [False, True])
 def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
-    result_dirs, tmp_path, monkeypatch, method, metric_y_scale, show_summary_table
+    result_dirs, tmp_path, monkeypatch, method, metric_y_scale
 ):
     monkeypatch.setattr("bayestraj.paths.project_path", lambda path: tmp_path / path)
     original_read = comparison._read_csv
@@ -740,8 +746,7 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         monkeypatch.setitem(
             module["main"].__globals__, "METRIC_Y_SCALE", metric_y_scale
         )
-        if not show_summary_table:
-            monkeypatch.setitem(module["main"].__globals__, "SHOW_SUMMARY_TABLE", False)
+        assert "SHOW_SUMMARY_TABLE" not in module
         models = module["main"]()
         saved = pd.read_csv(result_dirs[method] / "summary.csv")
         expected = (
@@ -752,7 +757,7 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
         pd.testing.assert_frame_equal(saved, expected, check_dtype=False)
         assert saved["observation_count"].tolist() == [2, 3, 4]
         metrics = MCMC_METRICS if method == "mcmc" else VI_METRICS
-        assert len(shown) == len(metrics) + int(show_summary_table)
+        assert len(shown) == len(metrics) + 2
         metric_figures = shown[: len(metrics)]
         assert all(
             figure.axes[0].lines[0].get_label() == method.upper()
@@ -769,12 +774,12 @@ def test_comparison_entrypoint_reads_forecasts_and_generates_summary(
                 lower, upper = figure.axes[0].get_ylim()
                 assert lower <= 0 <= upper
                 assert 0 in figure.axes[0].get_yticks()
-        if show_summary_table:
+        cells = shown[-2].axes[0].tables[0].get_celld()
+        assert cells[1, 0].get_text().get_text() == f"{method.upper()} (T=2)"
+        assert cells[1, 1].get_text().get_text() == "5.000"
+        if method == "mcmc":
             cells = shown[-1].axes[0].tables[0].get_celld()
-            assert cells[1, 0].get_text().get_text() == f"{method.upper()} (T=2)"
-            assert cells[1, 1].get_text().get_text() == "5.000"
-            if method == "mcmc":
-                assert cells[1, 9].get_text().get_text() == "1.012"
+            assert cells[1, 1].get_text().get_text() == "1.012"
     finally:
         for figure in shown:
             plt.close(figure)
@@ -799,11 +804,11 @@ def test_observation_count_summary_table_preserves_metrics_and_fits_labels(
         output_dir=tmp_path,
     )
     try:
-        assert len(figures) == len(MCMC_METRICS) + 1
-        figure, axis = figures[-1]
+        assert len(figures) == len(MCMC_METRICS) + 2
+        figure, axis = figures[-2]
         assert not axis.axison
         cells = axis.tables[0].get_celld()
-        assert len(cells) == (count + 1) * (len(MCMC_METRICS) + 1)
+        assert len(cells) == (count + 1) * (len(METRICS) + 1)
         assert cells[1, 0].get_text().get_text() == "MCMC (T=2)"
         assert cells[count, 0].get_text().get_text() == f"MCMC (T={count + 1})"
         assert cells[1, 1].get_text().get_text() == "5.000"

@@ -749,21 +749,38 @@ def plot_observation_count_comparison(
                 "Coverage over all forecast positions; bold: closest to nominal."
             ),
         }
-        if "mcmc_rhat_max" in metrics:
-            summary_text["summary_note"] += (
-                "\nR-hat: Maximum über Parameter und Fenster; fett: nächster Wert zu 1."
+        groups = [
+            (
+                list(OBSERVATION_COUNT_METRICS),
+                "Leistungsvergleich"
                 if plot_language == "de"
-                else "\nR-hat: maximum over parameters and windows; bold: closest to 1."
+                else "Performance comparison",
+                "metrics_summary.png",
+                summary_text["summary_note"],
             )
-        if any(metric in OBSERVATION_COUNT_DIAGNOSTICS for metric in metrics):
-            summary_text["summary_note"] = (
-                "T: maximale Fenstergröße. Vorhersagemetriken wie in den Einzelplots.\n"
+        ]
+        diagnostics = [
+            metric for metric in metrics if metric in OBSERVATION_COUNT_DIAGNOSTICS
+        ]
+        if diagnostics:
+            diagnostic_note = (
+                "T: maximale Fenstergröße. Diagnosewerte der ausgewerteten Fits.\n"
                 "Diagnosen je Fit: Ereignisse summiert; ESS minimal; R-hat/ELBO-Änderungen maximal.\n"
                 "Quoten je Fit; fett: günstigerer Wert (ESS/Erfolgsquoten höher, R-hat nahe 1)."
                 if plot_language == "de"
-                else "T: maximum window size. Forecast metrics follow the individual plots.\n"
+                else "T: maximum window size. Diagnostics of the evaluated fits.\n"
                 "Per-fit diagnostics: event totals; minimum ESS; maximum R-hat/ELBO changes.\n"
                 "Rates per fit; bold: preferred value (higher ESS/pass rates, R-hat near 1)."
+            )
+            groups.append(
+                (
+                    diagnostics,
+                    "Inferenzdiagnosen"
+                    if plot_language == "de"
+                    else "Inference diagnostics",
+                    "diagnostics_summary.png",
+                    diagnostic_note,
+                )
             )
         metric_labels = {metric: labels[0] for metric, labels in metrics.items()}
         metric_labels["mean_fit_runtime_seconds"] = f"{text['runtime']} [s]"
@@ -772,21 +789,20 @@ def plot_observation_count_comparison(
             ("median", "Median" if plot_language == "de" else "median"),
         ):
             metric_labels[f"vi_elbo_delta_{suffix}_max"] = f"Max. rel. ΔELBO\n({label})"
-        figure, axis = _plot_comparison_summary_table(
-            summary,
-            list(configurations),
-            text=summary_text,
-            title=f"{title} ({text['summary']})",
-            metric_labels=metric_labels,
-            transpose=True,
-        )
-        if output_dir is not None:
-            figure.savefig(
-                output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
+        for group_metrics, group_title, filename, note in groups:
+            figure, axis = _plot_comparison_summary_table(
+                summary.loc[summary["metric"].isin(group_metrics)],
+                list(configurations),
+                text={**summary_text, "summary_note": note},
+                title=f"{title} ({group_title})",
+                metric_labels=metric_labels,
+                transpose=True,
             )
-        if show:
-            _show_comparison_figure(figure)
-        figures.append((figure, axis))
+            if output_dir is not None:
+                figure.savefig(output_dir / filename, dpi=150, bbox_inches="tight")
+            if show:
+                _show_comparison_figure(figure)
+            figures.append((figure, axis))
     return tuple(figures)
 
 
