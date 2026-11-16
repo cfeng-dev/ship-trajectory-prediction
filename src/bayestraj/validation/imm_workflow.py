@@ -1,4 +1,4 @@
-"""Rolling BR24 IMM evaluation with median point forecasts and Gaussian scores."""
+"""Rolling BR24 IMM evaluation with mean point forecasts and Gaussian scores."""
 
 import time
 from dataclasses import dataclass
@@ -171,7 +171,7 @@ def run_imm_evaluation(
             seed=forecast_seed + specification.window_index,
         )
         forecast_runtime_seconds = time.perf_counter() - fit_runtime_started
-        # Share the predictor's exact marginal medians, not a sample median.
+        # Retain exact medians as separate CSV data; point errors use the mean.
         forecast_medians = imm_adapter.forecast_position_medians(tracker, forecast)
 
         # Evaluation labels are read only after the raw-radar tracker forecast.
@@ -230,7 +230,7 @@ def _evaluate_forecast(
     forecast_origin_position,
     forecast_runtime_seconds,
 ) -> tuple[pd.DataFrame, np.ndarray]:
-    """Score median positions while retaining Gaussian distribution metrics."""
+    """Score fused mean positions and export separately labelled mixture medians."""
     prediction_count = specification.prediction_count
     expected_shape = (prediction_count, 2)
     means = np.asarray(forecast.position_means, dtype=float)
@@ -256,7 +256,7 @@ def _evaluate_forecast(
     actual_positions = np.column_stack(
         (reference.x_meters[target_indices], reference.y_meters[target_indices])
     )
-    errors = np.linalg.norm(medians - actual_positions, axis=1)
+    errors = np.linalg.norm(means - actual_positions, axis=1)
     scores = metrics.gaussian_position_metrics(
         actual_positions, means, covariances, credible_interval=credible_interval
     )
@@ -281,6 +281,9 @@ def _evaluate_forecast(
             "y_actual": actual_positions[:, 1],
             "x_median": medians[:, 0],
             "y_median": medians[:, 1],
+            "x_mean": means[:, 0],
+            "y_mean": means[:, 1],
+            "point_estimate": "mean",
             "position_error_m": errors,
             **scores,
             "observation_count": specification.observation_count,
@@ -301,6 +304,8 @@ def _evaluate_forecast(
             "y_actual_route": actual_positions[:, 1],
             "x_median_route": medians[:, 0],
             "y_median_route": medians[:, 1],
+            "x_mean_route": means[:, 0],
+            "y_mean_route": means[:, 1],
             "cov_xx": covariances[:, 0, 0],
             "cov_xy": covariances[:, 0, 1],
             "cov_yy": covariances[:, 1, 1],
@@ -423,7 +428,7 @@ def _print_configuration(
                 ("Stride", str(options.stride)),
                 ("Forecast origins", str(window_count)),
                 ("Reference labels", "evaluation only"),
-                ("Point forecast", "coordinate-wise posterior median"),
+                ("Point forecast", "fused IMM mean"),
                 ("Uncertainty", "IMM Gaussian position covariance"),
             )
         )

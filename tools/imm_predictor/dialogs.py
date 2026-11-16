@@ -363,12 +363,12 @@ IMM_HELP_SECTIONS = (
                 "Fallback for older local IMM backends exposing only a fused mean and covariance; it is labelled separately and cannot retain multiple model peaks",
             ),
             (
-                "Posterior medians",
-                "Sidebar speed, heading and turn rate are the marginal medians of the same cached model mixture shown in the motion plots, including point masses. No estimated-position field or inferred noise parameters are shown",
+                "IMM state estimate",
+                "Sidebar speed, heading and turn rate come from the fused IMM state, matching MATLAB output fusion. These values can differ from the medians of the mixture shown in the motion plots. No estimated-position field or inferred noise parameters are shown",
             ),
             (
                 "N = 0",
-                "Preview only; reference-state, posterior-median and evaluation values are not displayed",
+                "Preview only; reference-state, IMM-state-estimate and evaluation values are not displayed",
             ),
             (
                 "Analysis errors",
@@ -434,8 +434,8 @@ IMM_HELP_SECTIONS = (
                 "Use supplied rates, otherwise wrapped yaw differences, or course differences if yaw is absent, over the actual preceding time interval. Shown in degrees/s with (derived); unavailable values show a dash",
             ),
             (
-                "Posterior medians",
-                "The 50% quantile of each complete weighted IMM marginal, not an average of model medians or track-position differences. Discrete jumps are retained; if the median lies in the CV zero-turn-rate mass, it is exactly zero. Heading uses the plot's local branch and is displayed in [-180, 180) degrees. A fused-only Gaussian backend uses its mean as median",
+                "IMM state estimate",
+                "The current CV/CTRV/CA states are converted to common CTRV coordinates and combined with their model probabilities, as in MATLAB. Sidebar values use this cached fused state, without sampling. Heading is displayed in [-180, 180) degrees",
             ),
             (
                 "Reference boundary",
@@ -451,16 +451,16 @@ IMM_HELP_SECTIONS = (
         "Evaluation metrics",
         (
             (
-                "Forecast ADE (median)",
-                "Mean 2D position error of the coordinate-wise IMM median across the current forecast steps in meters; lower is better",
+                "Forecast ADE (mean)",
+                "Mean 2D position error of the fused IMM mean across the current forecast steps in meters; lower is better",
             ),
             (
-                "Forecast FDE (median)",
-                "Position error of the coordinate-wise IMM median at the final forecast step in meters; lower is better",
+                "Forecast FDE (mean)",
+                "Position error of the fused IMM mean at the final forecast step in meters; lower is better",
             ),
             (
-                "Forecast RMSE (median)",
-                "Root mean squared 2D position error of the coordinate-wise IMM median across the current forecast steps in meters; lower is better",
+                "Forecast RMSE (mean)",
+                "Root mean squared 2D position error of the fused IMM mean across the current forecast steps in meters; lower is better",
             ),
             (
                 "Forecast Energy Score",
@@ -519,11 +519,11 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Forecast (median)",
-                "Solid red coordinate-wise median of each future CV/CTRV/CA position mixture, independent of the displayed path count; on by default. For a fused Gaussian-only backend, median equals mean",
+                "Dashed red coordinate-wise median of each future CV/CTRV/CA position mixture, independent of the displayed path count; off by default. For a fused Gaussian-only backend, median equals mean",
             ),
             (
                 "Forecast (mean)",
-                "Dashed red analytic IMM mean from the original backend; off by default. Mean and median can be shown together without restarting analysis",
+                "Solid red fused IMM mean from the original backend; on by default. Mean and median can be shown together without restarting analysis",
             ),
             (
                 "Prediction uncertainty",
@@ -551,7 +551,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Forecast summaries / metrics",
-                "ADE, FDE and RMSE always evaluate the cached coordinate-wise IMM median. Energy Score, NLPD and coverage retain the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
+                "ADE, FDE and RMSE always evaluate the cached fused IMM mean, matching scripts/model_evaluation/imm.py. Energy Score, NLPD and coverage use the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
             ),
         ),
     ),

@@ -265,8 +265,8 @@ def test_imm_cached_posterior_is_not_replaced_by_later_cycles():
     assert store.stage_for(1).posterior_mixture.components[0].mean[4] == 4.0
     assert store.stage_for(2).posterior_mixture.components[0].mean[4] == 9.0
     first_display = store.display_state_for(1)
-    assert first_display.posterior_medians.speed_mps == 4.0
-    assert store.display_state_for(2).posterior_medians.speed_mps == 9.0
+    assert first_display.state_estimate.speed_mps == 4.0
+    assert store.display_state_for(2).state_estimate.speed_mps == 9.0
     assert store.display_state_for(1) is first_display
 
 
@@ -457,7 +457,7 @@ def imm_forecast_case():
 
 
 @pytest.mark.parametrize("displayed_sample_count", [0, 1, 20])
-def test_imm_point_metrics_use_medians_without_changing_distribution_scores(
+def test_imm_point_metrics_use_means_without_changing_distribution_scores(
     imm_forecast_case, displayed_sample_count
 ):
     from dataclasses import replace
@@ -470,10 +470,10 @@ def test_imm_point_metrics_use_medians_without_changing_distribution_scores(
     )
     result = _forecast_metrics(stage, reference, coverage_stages=(stage,))
 
-    # Reference indices 1 and 2 give median errors 3 m and 4 m, not mean errors 8 m and 10 m.
-    assert result.ade_m == 3.5
-    assert result.fde_m == 4.0
-    assert result.rmse_m == pytest.approx(np.sqrt(12.5))
+    # Mean errors are 8 m and 10 m, even when optional display medians differ.
+    assert result.ade_m == 9.0
+    assert result.fde_m == 10.0
+    assert result.rmse_m == pytest.approx(np.sqrt(82.0))
     original_gaussian_stage = replace(
         stage, forecast_median_positions=stage.forecast.position_means
     )
@@ -571,20 +571,21 @@ def test_imm_heading_median_matches_the_local_branch_used_for_plotting():
 
 
 @pytest.mark.parametrize("available", [False, True])
-def test_imm_posterior_medians_use_fused_gaussian_only_as_backend_fallback(available):
+@pytest.mark.parametrize("has_mixture", [False, True])
+def test_imm_state_estimate_uses_cached_fused_state(available, has_mixture):
     from types import SimpleNamespace
 
-    from imm_predictor.player import IMMStatePosterior, _posterior_medians
+    from imm_predictor.player import IMMStatePosterior, _state_estimate
 
     stage = SimpleNamespace(
-        posterior_mixture=None,
+        posterior_mixture=object() if has_mixture else None,
         posterior=IMMStatePosterior(
             [1, 2, np.deg2rad(30), np.deg2rad(-2), 4], np.eye(5)
         )
         if available
         else None,
     )
-    result = _posterior_medians(stage)
+    result = _state_estimate(stage)
     if available:
         assert result.speed_mps == 4
         assert result.heading_degrees == pytest.approx(30)
@@ -612,14 +613,14 @@ def form(tmp_path):
     return values
 
 
-def test_both_predictors_default_to_median_and_keep_mean_plot_only(form):
+def test_predictors_keep_their_selected_forecast_defaults(form):
     from imm_predictor.player import IMMPlayerConfig
 
     result = settings.parse_settings(form)
     assert result.show_median_forecast is True
     assert result.show_mean_forecast is False
-    assert IMMPlayerConfig().show_forecast_median is True
-    assert IMMPlayerConfig().show_forecast_mean is False
+    assert IMMPlayerConfig().show_forecast_median is False
+    assert IMMPlayerConfig().show_forecast_mean is True
     form["data"]["show_mean_forecast"] = True
     result = settings.parse_settings(form)
     assert result.show_mean_forecast is True

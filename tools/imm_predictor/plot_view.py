@@ -777,14 +777,14 @@ class IMMPlotView(tk.Frame):
                 self.store.config.show_forecast_median,
                 "Forecast (median)",
                 "#DC2626",
-                "-",
+                "--",
             ),
             (
                 means,
                 self.store.config.show_forecast_mean,
                 "Forecast (mean)",
                 "#B91C1C",
-                "--",
+                "-",
             ),
         ):
             if len(positions) and enabled:

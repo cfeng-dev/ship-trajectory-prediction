@@ -105,7 +105,7 @@ class IMMControls(tk.Frame):
         ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self._add_value_section(
             body,
-            "Posterior medians",
+            "IMM state estimate",
             (
                 ("Speed", "speed"),
                 ("Heading", "heading"),
@@ -116,9 +116,9 @@ class IMMControls(tk.Frame):
             body,
             "Evaluation metrics",
             (
-                ("Forecast ADE (median)", "ade"),
-                ("Forecast FDE (median)", "fde"),
-                ("Forecast RMSE (median)", "rmse"),
+                ("Forecast ADE (mean)", "ade"),
+                ("Forecast FDE (mean)", "fde"),
+                ("Forecast RMSE (mean)", "rmse"),
                 ("Forecast Energy Score", "energy_score"),
                 ("NLPD (Gaussian)", "negative_log_predictive_density"),
                 ("Joint 50% coverage", "coverage_50"),
@@ -302,8 +302,8 @@ class IMMControls(tk.Frame):
     def show_display_state(
         self, state: IMMDisplayState, *, coordinate_display_mode="m"
     ) -> None:
-        """Render posterior medians, reference, metric, and association fields."""
-        medians = state.posterior_medians
+        """Render the IMM state estimate, reference, metric, and association fields."""
+        estimate = state.state_estimate
         metrics = state.metrics
         stage = state.stage
         for key, attribute, unit in (
@@ -311,7 +311,7 @@ class IMMControls(tk.Frame):
             ("heading", "heading_degrees", "°"),
             ("turn_rate", "turn_rate_degrees_per_second", "°/s"),
         ):
-            value = None if medians is None else getattr(medians, attribute)
+            value = None if estimate is None else getattr(estimate, attribute)
             self._values[key].set(_format_optional(value, unit))
         reference = state.reference_state
         for name in ("position", "speed", "heading", "turn_rate", "time"):

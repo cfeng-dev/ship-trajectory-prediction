@@ -510,11 +510,14 @@ def test_help_explains_both_forecast_summaries_and_fixed_metric_basis(tool):
     display = dict(
         sections["Display" if tool == "bayesian" else "Plot display and uncertainty"]
     )
-    assert "on by default" in display["Forecast (median)"]
-    assert "off by default" in display["Forecast (mean)"]
+    primary, secondary = (
+        ("median", "mean") if tool == "bayesian" else ("mean", "median")
+    )
+    assert "on by default" in display[f"Forecast ({primary})"]
+    assert "off by default" in display[f"Forecast ({secondary})"]
     assert "together" in display["Forecast (mean)"]
     for label in ("ADE", "FDE", "RMSE"):
-        assert f"Forecast {label} (median)" in dict(sections["Evaluation metrics"])
+        assert f"Forecast {label} ({primary})" in dict(sections["Evaluation metrics"])
 
 
 @pytest.mark.parametrize(
@@ -858,7 +861,19 @@ def test_imm_forecast_switches_redraw_cached_mean_and_median(
         prediction_count=2 if forecast_enabled else 0,
     )
     view._draw()
-    assert "Forecast (mean)" not in [line.get_label() for line in view.route_axis.lines]
+    assert (
+        "Forecast (mean)" in [line.get_label() for line in view.route_axis.lines]
+    ) == forecast_enabled
+    assert "Forecast (median)" not in [
+        line.get_label() for line in view.route_axis.lines
+    ]
+    if forecast_enabled:
+        mean_line = next(
+            line
+            for line in view.route_axis.lines
+            if line.get_label() == "Forecast (mean)"
+        )
+        assert mean_line.get_linestyle() == "-"
     app = IMMPredictorApp.__new__(IMMPredictorApp)
     app._closing = False
     app._analysis_active = True
@@ -1134,11 +1149,11 @@ def test_imm_pure_cv_turn_rate_shows_a_fixed_value_without_invented_density():
 
 
 @pytest.mark.parametrize("coordinate_mode", ["m", "km"])
-def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_mode):
+def test_imm_sidebar_uses_fused_state_and_keeps_reference_values(coordinate_mode):
     from dataclasses import replace
 
     from imm_predictor.controls import IMMControls
-    from imm_predictor.player import IMMForecastMetrics, _posterior_medians
+    from imm_predictor.player import IMMForecastMetrics, _state_estimate
 
     panel = IMMControls.__new__(IMMControls)
     panel._values = {
@@ -1170,10 +1185,10 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
         )
     }
     stage = _imm_mixture_stage(weights=(0.6, 0.3, 0.1), point_mass=True)
-    medians = _posterior_medians(stage)
+    estimate = _state_estimate(stage)
     state = SimpleNamespace(
         stage=stage,
-        posterior_medians=medians,
+        state_estimate=estimate,
         metrics=IMMForecastMetrics(None, None, None, None, None, 0, 0, 0),
         reference_state=SimpleNamespace(
             position_meters=np.array([1000, -2000]),
@@ -1187,16 +1202,16 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
         ),
     )
     panel.show_display_state(state, coordinate_display_mode=coordinate_mode)
-    assert panel._values["speed"].get() == "1.19 m/s"
+    assert panel._values["speed"].get() == "4.00 m/s"
     assert panel._values["heading"].get() == "30.00 °"
-    assert panel._values["turn_rate"].get() == "0.00 °/s"
+    assert panel._values["turn_rate"].get() == "2.00 °/s"
     assert panel._values["reference_turn_rate"].get() == "0.50 °/s (derived)"
     assert panel._values["reference_position"].get() == (
         "x = 1000.00 m\ny = -2000.00 m"
         if coordinate_mode == "m"
         else "x = 1.00 km\ny = -2.00 km"
     )
-    state.posterior_medians = None
+    state.state_estimate = None
     state.stage = replace(stage, associated_input=True, nis=None)
     panel.show_display_state(state, coordinate_display_mode=coordinate_mode)
     assert panel._values["association_status"].get() == "Measurement from CSV"
@@ -1206,7 +1221,7 @@ def test_imm_sidebar_uses_mixture_medians_and_keeps_reference_values(coordinate_
     )
 
 
-def test_imm_sidebar_replaces_track_state_with_three_posterior_medians(root):
+def test_imm_sidebar_labels_three_motion_values_as_imm_state_estimate(root):
     from imm_predictor.controls import IMMControls
 
     panel = IMMControls(
@@ -1223,9 +1238,10 @@ def test_imm_sidebar_replaces_track_state_with_three_posterior_medians(root):
             sections[widget.cget("text")] = widget
         widgets.extend(widget.winfo_children())
     assert "IMM track state" not in sections
+    assert "Posterior medians" not in sections
     labels = [
         widget.cget("text")
-        for widget in sections["Posterior medians"].winfo_children()
+        for widget in sections["IMM state estimate"].winfo_children()
         if isinstance(widget, tk.Label) and not widget.cget("textvariable")
     ]
     assert labels == ["Speed:", "Heading:", "Turn rate:"]

@@ -118,7 +118,7 @@ def _score_imm_case(case, medians):
     )
 
 
-def test_imm_evaluation_uses_median_errors_but_preserves_distribution_scores(
+def test_imm_evaluation_uses_mean_errors_and_keeps_true_median_columns(
     imm_median_case,
 ):
     case = imm_median_case
@@ -130,7 +130,11 @@ def test_imm_evaluation_uses_median_errors_but_preserves_distribution_scores(
 
     np.testing.assert_array_equal(table[["x_median", "y_median"]], medians)
     np.testing.assert_array_equal(table[["x_median_route", "y_median_route"]], medians)
-    np.testing.assert_array_equal(table["position_error_m"], [3, 4])
+    np.testing.assert_array_equal(
+        table[["x_mean", "y_mean"]], case.forecast.position_means
+    )
+    assert table["point_estimate"].eq("mean").all()
+    np.testing.assert_array_equal(table["position_error_m"], [8, 10])
     np.testing.assert_array_equal(mean_table["position_error_m"], [8, 10])
     np.testing.assert_array_equal(covariances, case.forecast.position_covariances)
     changed_columns = {
@@ -138,15 +142,29 @@ def test_imm_evaluation_uses_median_errors_but_preserves_distribution_scores(
         "y_median",
         "x_median_route",
         "y_median_route",
-        "position_error_m",
     }
     unchanged = [name for name in table.columns if name not in changed_columns]
     pd.testing.assert_frame_equal(table[unchanged], mean_table[unchanged])
     summary = case.workflow._summarize_predictions(table)
-    assert summary.ade_m == 3.5
-    assert summary.fde_m == 4.0
+    assert summary.ade_m == 9.0
+    assert summary.fde_m == 10.0
     _, diagnostics = runtime_plotting._rolling_window_metric_series(table)
-    assert diagnostics["rmse_m"] == pytest.approx([np.sqrt(12.5)])
+    assert diagnostics["rmse_m"] == pytest.approx([np.sqrt(82.0)])
+
+    # GUI, evaluation CSV and comparison must use the same point forecast.
+    stage = SimpleNamespace(
+        observation_count=1,
+        forecast=case.forecast,
+        forecast_median_positions=medians,
+    )
+    gui = imm_player._forecast_metrics(stage, case.reference, coverage_stages=(stage,))
+    assert gui.ade_m == summary.ade_m
+    assert gui.fde_m == summary.fde_m
+    assert gui.rmse_m == pytest.approx(diagnostics["rmse_m"][0])
+    from bayestraj.validation import comparison
+
+    validated = comparison._validate_table(table, "imm")
+    np.testing.assert_array_equal(validated["position_error_m"], [8, 10])
 
 
 @pytest.mark.parametrize("medians", [[[1, 2]], [[1, 2], [np.nan, 3]]])
@@ -211,9 +229,9 @@ def test_imm_evaluation_exports_predictor_medians_without_trajectory_plots(
     arguments = ["--observations", "1", "--predictions", "2", "--stride", "2"]
     try:
         table, summary = case.module["main"](arguments)
-        assert summary.ade_m == 3.5
-        assert summary.fde_m == 4.0
-        np.testing.assert_array_equal(table["position_error_m"], [3, 4])
+        assert summary.ade_m == 9.0
+        assert summary.fde_m == 10.0
+        np.testing.assert_array_equal(table["position_error_m"], [8, 10])
         exported = pd.read_csv(output)
         np.testing.assert_array_equal(
             exported[["x_median", "y_median"]], [[2, 0], [0, 5]]

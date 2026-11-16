@@ -71,8 +71,8 @@ class IMMPlayerConfig:
     show_reference_points: bool = False
     show_imm_track: bool = True
     show_current_position: bool = True
-    show_forecast_median: bool = True
-    show_forecast_mean: bool = False
+    show_forecast_median: bool = False
+    show_forecast_mean: bool = True
     show_forecast_points: bool = True
     show_sample_trajectories: bool = True
     prediction_sample_count: int = 20
@@ -167,8 +167,8 @@ class IMMMovementState:
 
 
 @dataclass(frozen=True, slots=True)
-class IMMPosteriorMedians:
-    """Current motion marginal medians, not finite differences of the track."""
+class IMMStateEstimate:
+    """Current fused IMM motion state, not finite differences of the track."""
 
     speed_mps: float
     heading_degrees: float
@@ -177,7 +177,7 @@ class IMMPosteriorMedians:
 
 @dataclass(frozen=True, slots=True)
 class IMMForecastMetrics:
-    """Median point errors and Gaussian distribution scores for the IMM forecast."""
+    """Mean point errors and Gaussian distribution scores for the IMM forecast."""
 
     ade_m: float | None
     fde_m: float | None
@@ -203,7 +203,7 @@ class IMMDisplayState:
     """All non-mutating values needed by one player display refresh."""
 
     stage: IMMPlayerStage
-    posterior_medians: IMMPosteriorMedians | None
+    state_estimate: IMMStateEstimate | None
     metrics: IMMForecastMetrics
     uncertainty: IMMForecastUncertainty
     reference_state: IMMMovementState | None = None
@@ -365,7 +365,7 @@ class IMMPlaybackStore:
             stage = self._stages[observation_count]
             self._display_states[observation_count] = IMMDisplayState(
                 stage=stage,
-                posterior_medians=_posterior_medians(stage),
+                state_estimate=_state_estimate(stage),
                 metrics=_forecast_metrics(
                     stage,
                     self.reference,
@@ -575,23 +575,19 @@ def _reference_state(stage: IMMPlayerStage, reference) -> IMMMovementState | Non
     )
 
 
-def _posterior_medians(stage: IMMPlayerStage) -> IMMPosteriorMedians | None:
-    """Summarize exactly the cached distribution displayed in the motion panels."""
-    if stage.posterior_mixture is not None:
-        values = [stage.posterior_mixture.marginal_median(index) for index in (4, 2, 3)]
-    elif stage.posterior is not None:
-        # For the labelled fused-only Gaussian fallback, median equals mean.
-        values = stage.posterior.mean[[4, 2, 3]]
-    else:
+def _state_estimate(stage: IMMPlayerStage) -> IMMStateEstimate | None:
+    """Read the cached fused state, matching the MATLAB output estimate."""
+    if stage.posterior is None:
         return None
+    values = stage.posterior.mean[[4, 2, 3]]
     heading = float(np.rad2deg((values[1] + np.pi) % (2 * np.pi) - np.pi))
-    return IMMPosteriorMedians(float(values[0]), heading, float(np.rad2deg(values[2])))
+    return IMMStateEstimate(float(values[0]), heading, float(np.rad2deg(values[2])))
 
 
 def _forecast_metrics(
     stage: IMMPlayerStage, reference, *, coverage_stages
 ) -> IMMForecastMetrics:
-    """Score cached median positions while retaining Gaussian distribution scores."""
+    """Score cached mean positions and their Gaussian distribution."""
     if reference is None or stage.forecast is None:
         return IMMForecastMetrics(None, None, None, None, None, 0, 0, 0)
     forecast = stage.forecast
@@ -604,13 +600,7 @@ def _forecast_metrics(
     targets = np.column_stack(
         (reference.x_meters[target_indices], reference.y_meters[target_indices])
     )
-    # Legacy fused-Gaussian stages have equal marginal means and medians.
-    median_positions = (
-        means
-        if stage.forecast_median_positions is None
-        else np.asarray(stage.forecast_median_positions, dtype=float)
-    )
-    errors = np.linalg.norm(median_positions - targets, axis=1)
+    errors = np.linalg.norm(means - targets, axis=1)
     scores = validation_metrics.gaussian_position_metrics(targets, means, covariances)
     covered_50_count, covered_90_count, total_count = _joint_coverage_counts(
         coverage_stages,

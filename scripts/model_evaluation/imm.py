@@ -1,4 +1,4 @@
-"""Evaluate IMM forecasts across rolling windows."""
+"""Evaluate fused IMM mean forecasts across rolling windows."""
 
 import bayestraj.validation.imm_workflow as evaluation
 from bayestraj.paths import project_path

@@ -1011,6 +1011,31 @@ def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
     assert plt.get_fignums() == existing_figures
 
 
+@pytest.mark.parametrize(
+    "problem", [None, "wrong_error", "missing_mean", "nonfinite", "mixed_estimate"]
+)
+def test_comparison_checks_mean_forecasts_independently_of_medians(problem):
+    table = _table("imm")
+    table["point_estimate"] = "mean"
+    table["x_mean"] = table["x_actual"] + 2
+    table["y_mean"] = table["y_actual"]
+    table["position_error_m"] = 2.0
+    if problem == "wrong_error":
+        table["position_error_m"] = 3.0
+    elif problem == "missing_mean":
+        table = table.drop(columns="x_mean")
+    elif problem == "nonfinite":
+        table.loc[0, "x_mean"] = np.nan
+    elif problem == "mixed_estimate":
+        table.loc[0, "point_estimate"] = "median"
+    if problem is None:
+        _, aligned = comparison.prepare_comparison(_table("bayesian"), table)
+        np.testing.assert_array_equal(aligned["position_error_m"], 2.0)
+    else:
+        with pytest.raises(ValueError, match="mean|finite|point_estimate"):
+            comparison.prepare_comparison(_table("bayesian"), table)
+
+
 @pytest.mark.parametrize("problem", ["reference", "horizons", "time", "no_common"])
 def test_comparison_rejects_incompatible_forecasts(problem):
     imm = _table("imm")

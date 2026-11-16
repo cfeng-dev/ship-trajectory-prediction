@@ -44,8 +44,22 @@ NUMERIC_COLUMNS = (
 )
 
 
+def _point_estimate_name(predictions):
+    """Read the declared point forecast; older CSVs evaluated their medians."""
+    if "point_estimate" not in predictions:
+        return "median"
+    values = predictions["point_estimate"]
+    if (
+        values.isna().any()
+        or values.nunique() != 1
+        or not values.isin(["mean", "median"]).all()
+    ):
+        raise ValueError("point_estimate must be one constant 'mean' or 'median'.")
+    return values.iloc[0]
+
+
 def _validate_table(predictions, model_variant):
-    """Require one finite, complete forecast configuration and median errors."""
+    """Require finite forecasts and errors matching the declared point estimate."""
     predictions = predictions.copy()
     if "log_predictive_density" in predictions:
         legacy = -pd.to_numeric(
@@ -60,8 +74,14 @@ def _validate_table(predictions, model_variant):
             legacy,
         ):
             raise ValueError("Conflicting log predictive density and NLPD columns.")
+    point_estimate = _point_estimate_name(predictions)
+    numeric_columns = (
+        (*NUMERIC_COLUMNS, "x_mean", "y_mean")
+        if point_estimate == "mean"
+        else NUMERIC_COLUMNS
+    )
     required = {
-        *NUMERIC_COLUMNS,
+        *numeric_columns,
         "time",
         "inference_method",
         "model_variant",
@@ -92,9 +112,9 @@ def _validate_table(predictions, model_variant):
             "Regenerate saved forecasts before comparison."
         )
     table = predictions.copy().reset_index(drop=True)
-    for name in NUMERIC_COLUMNS:
+    for name in numeric_columns:
         table[name] = pd.to_numeric(table[name], errors="raise")
-    if not np.all(np.isfinite(table[list(NUMERIC_COLUMNS)].to_numpy(dtype=float))):
+    if not np.all(np.isfinite(table[list(numeric_columns)].to_numpy(dtype=float))):
         raise ValueError(f"The {model_variant} CSV must contain finite numeric values.")
     for column in ("joint_covered_50", "joint_covered_90"):
         if table[column].isna().any() or not table[column].isin([False, True]).all():
@@ -166,13 +186,14 @@ def _validate_table(predictions, model_variant):
             "Target time must equal forecast origin time plus horizon_seconds."
         )
     expected_errors = np.hypot(
-        table["x_median"] - table["x_actual"], table["y_median"] - table["y_actual"]
+        table[f"x_{point_estimate}"] - table["x_actual"],
+        table[f"y_{point_estimate}"] - table["y_actual"],
     )
     if not np.allclose(
         table["position_error_m"], expected_errors, rtol=1e-8, atol=1e-6
     ):
         raise ValueError(
-            "position_error_m must match the saved median positions and reference."
+            f"position_error_m must match the saved {point_estimate} positions and reference."
         )
     return table.sort_values(keys).reset_index(drop=True)
 
@@ -683,8 +704,11 @@ def run_model_comparison(
     if any(table["model_variant"].iloc[0] == "imm" for table in models.values()):
         print(
             "\nNote: All distribution scores use the same latent Gaussian moment approximation. "
-            "Point errors evaluate coordinate-wise median forecasts."
+            "Point errors use the point estimate recorded in each CSV "
+            "(legacy CSVs use coordinate-wise medians)."
         )
+        for name, table in models.items():
+            print(f"Point forecast for {name}: {_point_estimate_name(table)}")
     print(
         "Runtime boundaries are shared; inference work and observation histories can differ."
     )
