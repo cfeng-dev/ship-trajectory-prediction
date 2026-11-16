@@ -352,11 +352,11 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Posterior density",
-                "The shared legend appears only in the Speed posterior plot. Each blue curve sums model densities with their current probabilities; it can have several peaks. This remains an IMM filter approximation, not an exact nonlinear posterior. Headings use one local angle branch; Gaussian tails are not truncated, so negative speeds or angles outside the usual range can appear",
+                "The shared legend appears only in the Speed posterior plot. Each blue curve sums continuous model densities with their current probabilities; it can have several peaks. Discrete probability components are omitted, so the displayed curve can integrate to less than one. This remains an IMM filter approximation, not an exact nonlinear posterior. Headings use one local angle branch; Gaussian tails are not truncated, so negative speeds or angles outside the usual range can appear",
             ),
             (
-                "Point masses",
-                "Zero-variance model components are not given artificial noise. CV assumes exactly zero turn rate. Discrete probabilities remain annotated in their own plot, even when legends are hidden. A dotted guide beside a continuous density marks the atom; the continuous area excludes that mass. For a purely discrete marginal, stem heights show probability. This is a model assumption, not physical certainty",
+                "Fixed values",
+                "Zero-variance model components are not given artificial noise. CV assumes exactly zero turn rate. Point-mass labels and markers are hidden. If no continuous density exists, the plot lists the fixed values. All components remain included in the calculations",
             ),
             (
                 "Gaussian approximation",

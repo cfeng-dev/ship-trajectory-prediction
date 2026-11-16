@@ -1034,10 +1034,9 @@ def test_imm_motion_panels_keep_cv_turn_rate_mass_separate_from_density():
     x, density = axis.lines[0].get_data()
     assert np.trapezoid(density, x) == pytest.approx(0.4, abs=1e-4)
     assert axis.get_ylabel() == "Density"
-    assert "Point mass at 0: 60.0%" in axis.get_legend_handles_labels()[1]
-    assert axis.lines[1].get_xdata() == pytest.approx([0, 0])
+    assert len(axis.lines) == 1
     assert axis.get_legend() is None
-    assert "Point mass at 0: 60.0%" in [text.get_text() for text in axis.texts]
+    assert not axis.texts
 
 
 def test_imm_motion_panels_refresh_the_model_weights_without_adding_axes():
@@ -1089,7 +1088,7 @@ def test_imm_mixture_does_not_bridge_separated_narrow_peaks(sigma):
     assert np.trapezoid(density, x) == pytest.approx(1, abs=1e-4)
 
 
-def test_imm_point_mass_weights_remain_visible_without_a_legend():
+def test_imm_point_mass_annotations_are_hidden_without_a_legend():
     from dataclasses import replace
 
     view = _headless_imm_panels(
@@ -1099,7 +1098,8 @@ def test_imm_point_mass_weights_remain_visible_without_a_legend():
     view._draw()
     axis = view.motion_axes[2]
     assert axis.get_legend() is None
-    assert any("60.0%" in text.get_text() for text in axis.texts)
+    assert not axis.texts
+    assert len(axis.lines) == 1
 
 
 def test_imm_fused_only_fallback_remains_identified_without_a_legend():
@@ -1124,15 +1124,13 @@ def test_imm_zero_variance_fused_fallback_is_identified(show_legend):
         assert any("Fused-state fallback" in text.get_text() for text in axis.texts)
 
 
-def test_imm_pure_cv_turn_rate_uses_a_probability_stem_without_invented_density():
+def test_imm_pure_cv_turn_rate_shows_a_fixed_value_without_invented_density():
     view = _headless_imm_panels(_imm_mixture_stage(weights=(1, 0, 0), point_mass=True))
     view._draw()
     axis = view.motion_axes[2]
-    assert axis.get_ylabel() == "Probability mass"
-    x, probability = axis.lines[0].get_data()
-    np.testing.assert_array_equal(x, [0, 0])
-    np.testing.assert_array_equal(probability, [0, 1])
-    assert len(axis.lines) == 1
+    assert axis.get_ylabel() == ""
+    assert not axis.lines
+    assert "Fixed value: 0" in [text.get_text() for text in axis.texts]
 
 
 @pytest.mark.parametrize("coordinate_mode", ["m", "km"])
@@ -1397,13 +1395,13 @@ def test_imm_motion_panels_show_no_invented_prior_at_n_zero():
         assert "Available after\nN = 1" in [text.get_text() for text in axis.texts]
 
 
-def test_imm_motion_panels_preserve_zero_variance_as_point_masses():
+def test_imm_motion_panels_show_zero_variance_as_fixed_values():
     view = _headless_imm_panels(_imm_motion_stage(zero_variance=True))
     view._draw()
     for axis, mean in zip(view.motion_axes, [4.0, 30.0, 2.0], strict=True):
-        assert axis.get_ylabel() == "Probability mass"
-        assert axis.lines[0].get_xdata() == pytest.approx([mean, mean])
-        assert "Point mass" in axis.get_legend_handles_labels()[1]
+        assert axis.get_ylabel() == ""
+        assert not axis.lines
+        assert any(f"Fixed value: {mean:g}" in text.get_text() for text in axis.texts)
 
 
 @pytest.fixture

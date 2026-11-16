@@ -23,7 +23,7 @@ PANEL_GROUP_LABELS = {"motion": "Motion state", "forecast": "Forecast uncertaint
 
 
 def _draw_mixture_marginal(axis, mixture: IMMStateMixture, index, scale, point_span):
-    """Draw the continuous density and label any discrete mass without smoothing."""
+    """Draw the continuous density, omitting discrete probability annotations."""
     weights, means, sigmas = mixture.marginal_parameters(index)
     means *= scale
     sigmas *= scale
@@ -74,30 +74,16 @@ def _draw_mixture_marginal(axis, mixture: IMMStateMixture, index, scale, point_s
         padding = max(point_span, 0.05 * (right - left))
         axis.set_xlim(left - padding, right + padding)
         axis.set_ylim(0, 1.05)
-        axis.set_ylabel("Probability mass")
-    for mean, weight in point_masses.items():
-        label = f"Point mass at {mean:g}: {weight:.1%}"
-        if np.any(continuous):
-            # This guide has no density height: its discrete probability is in the label.
-            axis.axvline(
-                mean, linestyle=":", color="#52616B", linewidth=1.5, label=label
-            )
-        else:
-            axis.plot(
-                [mean, mean], [0, weight], color="#24557A", linewidth=2, label=label
-            )
-    if point_masses:
+        axis.set_ylabel("")
+        axis.set_yticks([])
         axis.text(
-            0.02,
-            0.96,
-            "\n".join(
-                f"Point mass at {mean:g}: {weight:.1%}"
-                for mean, weight in point_masses.items()
-            ),
+            0.5,
+            0.5,
+            "\n".join(f"Fixed value: {mean:g}" for mean in point_masses),
             transform=axis.transAxes,
-            va="top",
+            ha="center",
+            va="center",
             fontsize=8,
-            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
         )
     return density_line
 
@@ -652,14 +638,13 @@ class IMMPlotView(tk.Frame):
             mean = float(posterior.mean[index] * scale)
             sigma = float(np.sqrt(max(0.0, posterior.covariance[index, index])) * scale)
             if sigma == 0.0:
-                axis.axvline(mean, color="#24557A", linewidth=2.0, label="Point mass")
                 axis.set_xlim(mean - point_span, mean + point_span)
                 axis.set_yticks([])
-                axis.set_ylabel("Probability mass")
+                axis.set_ylabel("")
                 axis.text(
                     0.02,
                     0.96,
-                    "Fused-state fallback\nPoint mass (100%)",
+                    f"Fused-state fallback\nFixed value: {mean:g}",
                     transform=axis.transAxes,
                     va="top",
                     fontsize=8,
