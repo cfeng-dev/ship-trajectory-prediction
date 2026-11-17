@@ -43,7 +43,12 @@ OBSERVATION_COUNT_METRICS = {
     "mean_fit_runtime_seconds": ("Runtime [s]", "Runtime"),
 }
 OBSERVATION_COUNT_DIAGNOSTICS = {
-    "mcmc_rhat_max": ("mcmc", "Max. R-hat", "Max. R-hat", "near 1"),
+    "mcmc_rhat_max_mean": (
+        "mcmc",
+        "R_hat",
+        "R_hat",
+        "near 1",
+    ),
     "mcmc_divergences": ("mcmc", "Divergenzen gesamt", "Total divergences", "lower"),
     "mcmc_ess_bulk_min": ("mcmc", "Min. Bulk-ESS", "Min. Bulk ESS", "higher"),
     "mcmc_ess_tail_min": ("mcmc", "Min. Tail-ESS", "Min. Tail ESS", "higher"),
@@ -272,11 +277,6 @@ def plot_model_comparison(
     text = COMPARISON_PLOT_TEXT[plot_language]
     names = list(models)
     tables = list(models.values())
-    smc_diagnostics = {
-        name: _smc_diagnostic_series(table)
-        for name, table in models.items()
-        if table["inference_method"].iloc[0] == "smc"
-    }
     labels = [
         _comparison_label_with_window(
             str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
@@ -414,19 +414,6 @@ def plot_model_comparison(
             }
         )
     summary = pd.DataFrame(rows)
-    figures.extend(
-        _plot_smc_diagnostics(
-            {
-                labels[names.index(name)]: values
-                for name, values in smc_diagnostics.items()
-            },
-            colors=dict(zip(labels, colors, strict=True)),
-            show=show,
-            output_dir=output_dir,
-            show_points=show_points,
-            plot_language=plot_language,
-        )
-    )
     if show_summary_table:
         summary_text = (
             {**text, "summary_note": f"{text['summary_note']}\n{text['window_note']}"}
@@ -743,15 +730,33 @@ def plot_observation_count_comparison(
                 "T: maximale Anzahl der Zeitschritte im Beobachtungsfenster. "
                 "Mittelwerte je Fenster.\n"
                 "Coverage über alle Vorhersagepunkte; fett: nächster Sollwert."
+                + (" R_hat nahe 1." if "mcmc_rhat_max_mean" in metrics else "")
+                + (
+                    " VI-Konvergenzquote: höher ist besser."
+                    if "vi_convergence_rate" in metrics
+                    else ""
+                )
                 if plot_language == "de"
                 else "T: maximum number of time steps in the observation window. "
                 "Mean metrics per window.\n"
                 "Coverage over all forecast positions; bold: closest to nominal."
+                + (" R_hat near 1." if "mcmc_rhat_max_mean" in metrics else "")
+                + (
+                    " VI convergence rate: higher is better."
+                    if "vi_convergence_rate" in metrics
+                    else ""
+                )
             ),
         }
+        performance_metrics = [
+            metric
+            for metric in metrics
+            if metric in OBSERVATION_COUNT_METRICS
+            or metric in {"mcmc_rhat_max_mean", "vi_convergence_rate"}
+        ]
         groups = [
             (
-                list(OBSERVATION_COUNT_METRICS),
+                performance_metrics,
                 "Leistungsvergleich"
                 if plot_language == "de"
                 else "Performance comparison",
@@ -760,17 +765,17 @@ def plot_observation_count_comparison(
             )
         ]
         diagnostics = [
-            metric for metric in metrics if metric in OBSERVATION_COUNT_DIAGNOSTICS
+            metric for metric in metrics if metric not in performance_metrics
         ]
         if diagnostics:
             diagnostic_note = (
                 "T: maximale Fenstergröße. Diagnosewerte der ausgewerteten Fits.\n"
-                "Diagnosen je Fit: Ereignisse summiert; ESS minimal; R-hat/ELBO-Änderungen maximal.\n"
-                "Quoten je Fit; fett: günstigerer Wert (ESS/Erfolgsquoten höher, R-hat nahe 1)."
+                "Ereignisse summiert; ESS minimal; ELBO-Änderungen maximal.\n"
+                "Quoten je Fit; fett: günstigerer Wert (ESS/Erfolgsquoten höher)."
                 if plot_language == "de"
                 else "T: maximum window size. Diagnostics of the evaluated fits.\n"
-                "Per-fit diagnostics: event totals; minimum ESS; maximum R-hat/ELBO changes.\n"
-                "Rates per fit; bold: preferred value (higher ESS/pass rates, R-hat near 1)."
+                "Event totals; minimum ESS; maximum ELBO changes.\n"
+                "Rates per fit; bold: preferred value (higher ESS/pass rates)."
             )
             groups.append(
                 (
@@ -849,7 +854,7 @@ def _plot_comparison_summary_table(
         if row.get("preferred") == "higher":
             scores = -values
         finite = np.isfinite(scores)
-        if name == "mcmc_rhat_max":
+        if name == "mcmc_rhat_max_mean":
             scores = np.abs(values - 1.0)
         if finite.any():
             # Allow floating-point roundoff in otherwise equal scores.

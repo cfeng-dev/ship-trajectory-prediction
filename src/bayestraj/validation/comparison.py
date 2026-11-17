@@ -456,6 +456,7 @@ def _summarize_observation_count_diagnostics(table, method, path):
     """Aggregate fit diagnostics once per window; incomplete evidence stays missing."""
     fields = (
         {
+            "mcmc_rhat_max": ("mcmc_rhat_max_mean", "mean"),
             "mcmc_divergences": ("mcmc_divergences", "sum"),
             "mcmc_ess_bulk_min": ("mcmc_ess_bulk_min", "min"),
             "mcmc_ess_tail_min": ("mcmc_ess_tail_min", "min"),

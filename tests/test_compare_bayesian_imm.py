@@ -140,7 +140,7 @@ def _smc_table(particles=100, fractions=(0.5, 0.25)):
     return table
 
 
-def test_smc_diagnostic_plots_keep_per_update_values_and_only_include_smc(tmp_path):
+def test_model_comparison_omits_smc_diagnostic_plots(tmp_path):
     imm = _table("imm")
     imm["negative_log_predictive_density"] = -imm.pop("log_predictive_density")
     models = {"SMC": _smc_table(), "IMM": imm}
@@ -154,19 +154,10 @@ def test_smc_diagnostic_plots_keep_per_update_values_and_only_include_smc(tmp_pa
     )
     try:
         assert summary["metric"].tolist() == METRIC_ORDER
-        assert len(figures) == 10
-        ess_axis, resample_axis = figures[-2][1], figures[-1][1]
-        assert ess_axis.get_ylim() == (0.0, 100.0)
-        assert ess_axis.get_yscale() == "linear"
-        assert [line.get_label() for line in ess_axis.lines] == ["SMC"]
-        assert [line.get_label() for line in resample_axis.lines] == ["SMC"]
-        np.testing.assert_allclose(ess_axis.lines[0].get_xdata(), [0.0, 20.0])
-        np.testing.assert_allclose(ess_axis.lines[0].get_ydata(), [50.0, 25.0])
-        np.testing.assert_allclose(resample_axis.lines[0].get_ydata(), [1, 3])
-        assert resample_axis.lines[0].get_drawstyle() == "steps-post"
-        assert ess_axis.lines[0].get_color() == figures[0][1].lines[0].get_color()
-        assert (tmp_path / "smc_effective_sample_size_fraction.png").is_file()
-        assert (tmp_path / "smc_resample_count.png").is_file()
+        assert len(figures) == 8
+        assert {path.name for path in tmp_path.iterdir()} == {
+            f"{metric}.png" for metric in METRIC_ORDER
+        }
         for name, table in models.items():
             pd.testing.assert_frame_equal(table, original[name])
     finally:
@@ -194,9 +185,7 @@ def test_smc_diagnostics_reject_invalid_or_inconsistent_values_before_plotting(
         plt, "subplots", lambda **kwargs: pytest.fail("Must validate first")
     )
     with pytest.raises(ValueError, match="particle_"):
-        runtime_plotting.plot_model_comparison(
-            {"SMC": table, "IMM": _table("imm")}, show=False
-        )
+        runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(table)
 
 
 def test_rolling_evaluation_includes_smc_diagnostic_plots(monkeypatch):
@@ -1205,7 +1194,7 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     bayesian_csv, imm_csv = tmp_path / "bayesian.csv", tmp_path / "imm.csv"
-    _table("bayesian").to_csv(bayesian_csv, index=False)
+    _smc_table().to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
     originals = [path.read_bytes() for path in (bayesian_csv, imm_csv)]
     _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv)

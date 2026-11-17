@@ -10,7 +10,7 @@ from bayestraj.paths import project_path
 
 VI_RESULTS_DIR = project_path("results/inference_evaluation/bayesian_ctrv_vi")
 SHOW_POINTS = True
-METRIC_Y_SCALE = "symlog"  # "linear" or "symlog" for metric curves.
+METRIC_Y_SCALE = "linear"  # "linear" or "symlog" for metric curves.
 PLOT_LANGUAGE = "de"  # "de" or "en".
 
 
