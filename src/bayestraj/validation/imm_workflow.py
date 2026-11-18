@@ -68,7 +68,7 @@ def run_evaluation(
     )
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    predictions.to_csv(output_path, index=False)
+    predictions.drop(columns="time", errors="ignore").to_csv(output_path, index=False)
     print(f"\nSaved per-forecast IMM metrics: {output_path}")
     if options.show_plot and show_rolling_diagnostics_plot:
         runtime_plotting.plot_imm_rolling_diagnostics(predictions)

@@ -43,7 +43,6 @@ def _predictions(method, count):
                     forecast_origin_seconds=origin,
                     horizon_step=step,
                     horizon_seconds=float(step),
-                    time=pd.Timestamp(origin + step, unit="s", tz="UTC"),
                     prediction_count=horizons,
                     observation_count=window + 2,
                     configured_observation_count=count,
@@ -239,6 +238,9 @@ def _metadata(directory, method):
 
 
 def test_reader_recomputes_metrics_and_counts_runtime_once_per_window(result_dirs):
+    for method, directory in result_dirs.items():
+        for path in directory.glob(f"bayesian_ctrv_{method}_*.csv"):
+            assert "time" not in pd.read_csv(path)
     models = _read(result_dirs)
     assert list(models) == ["MCMC", "VI"]
     for method, table in models.items():
@@ -355,11 +357,6 @@ def test_reader_rejects_different_forecast_cohorts(result_dirs, change):
     table = pd.read_csv(path)
     if change == "origins":
         table["forecast_origin_seconds"] += 100
-        table["time"] = pd.to_datetime(
-            table["forecast_origin_seconds"] + table["horizon_seconds"],
-            unit="s",
-            utc=True,
-        )
     elif change == "reference":
         table["x_actual"] += 1
         table["x_median"] += 1

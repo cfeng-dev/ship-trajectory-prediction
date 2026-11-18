@@ -82,7 +82,6 @@ def _validate_table(predictions, model_variant):
     )
     required = {
         *numeric_columns,
-        "time",
         "inference_method",
         "model_variant",
         "joint_covered_50",
@@ -145,9 +144,6 @@ def _validate_table(predictions, model_variant):
         raise ValueError("The IMM CSV must have inference_method='imm'.")
     if model_variant == "bayesian" and methods.iloc[0] == "imm":
         raise ValueError("The Bayesian CSV cannot have inference_method='imm'.")
-    table["time"] = pd.to_datetime(table["time"], utc=True, format="mixed")
-    if table["time"].isna().any():
-        raise ValueError("Forecast target times must not be missing.")
     keys = ["forecast_origin_seconds", "horizon_step"]
     if table.duplicated(keys).any():
         raise ValueError("Duplicate forecast origin/horizon rows in an evaluation CSV.")
@@ -173,18 +169,6 @@ def _validate_table(predictions, model_variant):
         horizons = window["horizon_seconds"].to_numpy(dtype=float)
         if np.any(horizons <= 0) or np.any(np.diff(horizons) <= 0):
             raise ValueError("Forecast horizons must be positive and increasing.")
-    target_seconds = (
-        table["time"] - pd.Timestamp(0, unit="s", tz="UTC")
-    ).dt.total_seconds()
-    if not np.allclose(
-        target_seconds,
-        table["forecast_origin_seconds"] + table["horizon_seconds"],
-        rtol=0,
-        atol=1e-6,
-    ):
-        raise ValueError(
-            "Target time must equal forecast origin time plus horizon_seconds."
-        )
     expected_errors = np.hypot(
         table[f"x_{point_estimate}"] - table["x_actual"],
         table[f"y_{point_estimate}"] - table["y_actual"],
@@ -208,7 +192,7 @@ def prepare_comparison(bayesian, imm):
 
 
 def _align_forecasts(models):
-    """Use one common cohort across every selected model."""
+    """Match origins and horizons, which also determine numeric target times."""
     if len(models) < 2:
         raise ValueError("Select at least two CSV files for comparison.")
     common = None
@@ -240,10 +224,6 @@ def _align_forecasts(models):
         ):
             raise ValueError(
                 f"Common forecasts have different horizon_seconds ({reference_label}, {label})."
-            )
-        if (left["time"] != right["time"]).any():
-            raise ValueError(
-                f"Common forecasts have different target times ({reference_label}, {label})."
             )
         if not np.allclose(
             left[["x_actual", "y_actual"]],
@@ -398,7 +378,6 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                     "forecast_origin_seconds",
                     "horizon_step",
                     "horizon_seconds",
-                    "time",
                     "x_actual",
                     "y_actual",
                 ]

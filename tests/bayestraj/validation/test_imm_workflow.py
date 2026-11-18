@@ -61,7 +61,16 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     settings = module["main"].__globals__
     calls = []
     plots = []
-    table = pd.DataFrame({"position_error_m": [1.0]})
+    table = pd.DataFrame(
+        {
+            "time": pd.to_datetime([49078.5], unit="s", utc=True),
+            "forecast_origin_seconds": [49075.8],
+            "horizon_seconds": [2.7],
+            "fit_runtime_seconds": [0.002],
+            "position_error_m": [1.0],
+        }
+    )
+    original = table.copy(deep=True)
 
     def evaluate(**kwargs):
         calls.append(kwargs)
@@ -94,7 +103,10 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     assert calls[0]["options"].observation_count == expected_observations
     assert set(calls[0]) == {"data_file", "imm_python", "options"}
     assert len(plots) == 1 and plots[0] is table
-    pd.testing.assert_frame_equal(pd.read_csv(tmp_path / "imm.csv"), table)
+    pd.testing.assert_frame_equal(
+        pd.read_csv(tmp_path / "imm.csv"), table.drop(columns="time")
+    )
+    pd.testing.assert_frame_equal(table, original)
 
 
 def test_imm_associated_evaluation_uses_covariances_and_evaluation_only_reference(

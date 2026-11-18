@@ -38,7 +38,6 @@ PREDICTION_CSV_COLUMNS = (
     "forecast_start_index",
     "target_index",
     "horizon_step",
-    "time",
     "horizon_seconds",
     "x_actual",
     "y_actual",
@@ -431,14 +430,17 @@ def export_evaluation_csv(
     """Export evaluation results through the shared atomic CSV writer.
 
     Individual forecast CSVs always use PREDICTION_CSV_COLUMNS in that order.
-    Missing method-specific fields are empty cells; existing values and the
-    input table are preserved. Unknown columns are rejected rather than lost.
+    Internal target timestamps in ``time`` are omitted; target seconds follow
+    from forecast_origin_seconds + horizon_seconds. Missing method-specific
+    fields are empty cells; the input table is preserved. Unknown columns are
+    rejected rather than lost.
     Pass summary=True for the aggregate summary's separate table format.
     Return False with a warning when normalization or writing fails.
     """
     try:
         path = Path(output_path)
         if not summary:
+            table = table.drop(columns="time", errors="ignore")
             unknown = set(table.columns).difference(PREDICTION_CSV_COLUMNS)
             if unknown:
                 raise ValueError(f"Unknown prediction CSV columns: {sorted(unknown)}")

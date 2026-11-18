@@ -90,7 +90,6 @@ def _table(model):
             "horizon_step": [1, 2, 1, 2],
             "horizon_seconds": horizons,
             "prediction_count": 2,
-            "time": pd.to_datetime(origin + horizons, unit="s", utc=True),
             "x_actual": actual_x,
             "y_actual": 0.0,
             "x_median": actual_x + errors,
@@ -438,11 +437,6 @@ def test_named_comparison_checks_the_last_model_as_well_as_the_first_pair(
         table["x_median"] += 1.0
     elif problem == "horizon":
         table["horizon_seconds"] += 0.25
-        table["time"] = pd.to_datetime(
-            table["forecast_origin_seconds"] + table["horizon_seconds"],
-            unit="s",
-            utc=True,
-        )
     else:
         table = table[table["horizon_step"] == 1].copy()
         table["prediction_count"] = 1
@@ -930,11 +924,26 @@ def test_comparison_uses_only_complete_common_forecast_origins():
     assert matched_imm["forecast_origin_seconds"].tolist() == [120, 120]
 
 
-def test_comparison_accepts_equivalent_target_time_zones_and_resolutions():
+@pytest.mark.parametrize("legacy_model", [None, "bayesian", "imm", "both"])
+def test_comparison_preserves_runtimes_with_or_without_legacy_time(legacy_model):
     bayesian = _table("bayesian")
-    bayesian["time"] = bayesian["time"].dt.tz_convert("Europe/Berlin").dt.as_unit("us")
-    left, right = comparison.prepare_comparison(bayesian, _table("imm"))
-    assert (left["time"] == right["time"]).all()
+    imm = _table("imm")
+    for name, table in (("bayesian", bayesian), ("imm", imm)):
+        if legacy_model in {name, "both"}:
+            table["time"] = pd.to_datetime(
+                table["forecast_origin_seconds"] + table["horizon_seconds"],
+                unit="s",
+                utc=True,
+            )
+    left, right = comparison.prepare_comparison(bayesian, imm)
+    np.testing.assert_array_equal(left["fit_runtime_seconds"], [0.01, 0.01, 0.02, 0.02])
+    np.testing.assert_array_equal(
+        right["fit_runtime_seconds"], [0.002, 0.002, 0.004, 0.004]
+    )
+    np.testing.assert_array_equal(
+        left["forecast_origin_seconds"] + left["horizon_seconds"],
+        right["forecast_origin_seconds"] + right["horizon_seconds"],
+    )
 
 
 def test_comparison_does_not_truncate_different_complete_forecast_horizons():
@@ -961,6 +970,8 @@ def test_comparison_does_not_truncate_different_complete_forecast_horizons():
         ("incorrect_error", "median|position_error"),
         ("inconsistent_origin", "window|origin"),
         ("fractional_step", "integer|horizon"),
+        ("nonpositive_horizon", "positive"),
+        ("unordered_horizons", "increasing"),
     ],
 )
 def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
@@ -994,6 +1005,10 @@ def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
     elif problem == "fractional_step":
         table["horizon_step"] = table["horizon_step"].astype(float)
         table.loc[0, "horizon_step"] = 1.5
+    elif problem == "nonpositive_horizon":
+        table.loc[0, "horizon_seconds"] = 0.0
+    elif problem == "unordered_horizons":
+        table.loc[0, "horizon_seconds"] = 6.0
     existing_figures = plt.get_fignums()
     with pytest.raises(ValueError, match=message):
         comparison.prepare_comparison(table, _table("imm"))
@@ -1025,7 +1040,7 @@ def test_comparison_checks_mean_forecasts_independently_of_medians(problem):
             comparison.prepare_comparison(_table("bayesian"), table)
 
 
-@pytest.mark.parametrize("problem", ["reference", "horizons", "time", "no_common"])
+@pytest.mark.parametrize("problem", ["reference", "horizons", "no_common"])
 def test_comparison_rejects_incompatible_forecasts(problem):
     imm = _table("imm")
     if problem == "reference":
@@ -1033,21 +1048,9 @@ def test_comparison_rejects_incompatible_forecasts(problem):
         imm["x_median"] += 100
     elif problem == "horizons":
         imm["horizon_seconds"] += 0.5
-        imm["time"] = pd.to_datetime(
-            imm["forecast_origin_seconds"] + imm["horizon_seconds"], unit="s", utc=True
-        )
-    elif problem == "time":
-        imm["time"] = pd.to_datetime(
-            imm["forecast_origin_seconds"] + imm["horizon_seconds"] + 10,
-            unit="s",
-            utc=True,
-        )
     else:
         imm["forecast_origin_seconds"] += 100
-        imm["time"] = pd.to_datetime(
-            imm["forecast_origin_seconds"] + imm["horizon_seconds"], unit="s", utc=True
-        )
-    with pytest.raises(ValueError, match="reference|horizon|time|common"):
+    with pytest.raises(ValueError, match="reference|horizon|common"):
         comparison.prepare_comparison(_table("bayesian"), imm)
 
 
@@ -1360,7 +1363,7 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     assert plotted == (["smc"] if show_diagnostics else [])
     assert output.is_file()
     exported = pd.read_csv(output)
-    exported["time"] = pd.to_datetime(exported["time"], format="mixed", utc=True)
+    assert "time" not in exported
     pd.testing.assert_frame_equal(
         exported, original.reindex(columns=evaluation.PREDICTION_CSV_COLUMNS)
     )

@@ -56,6 +56,10 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
 ):
     values = {
         "inference_method": method,
+        "time": pd.Timestamp("1970-01-01 13:37:58.5+00:00"),
+        "forecast_origin_seconds": 49075.8,
+        "horizon_seconds": 2.7,
+        "fit_runtime_seconds": 1.25,
         "position_error_m": 2.5,
         "x_mean": 1.0,
         "y_mean": 2.0,
@@ -73,11 +77,15 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
     with path.open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream)
         assert reader.fieldnames == list(evaluation.PREDICTION_CSV_COLUMNS)
+        assert "time" not in reader.fieldnames
         assert "window_runtime_seconds" not in reader.fieldnames
         row = next(reader)
     assert row["inference_method"] == method
     assert float(row["position_error_m"]) == 2.5
     assert row["point_estimate"] == "mean"
+    assert float(row["forecast_origin_seconds"]) == 49075.8
+    assert float(row["horizon_seconds"]) == 2.7
+    assert float(row["fit_runtime_seconds"]) == 1.25
     for name, value in (
         ("x_mean", 1.0),
         ("y_mean", 2.0),
