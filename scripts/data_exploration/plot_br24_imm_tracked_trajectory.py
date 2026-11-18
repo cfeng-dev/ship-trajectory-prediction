@@ -1,20 +1,21 @@
-"""Plot the IMM-tracked BR24 trajectory."""
-
-import pandas as pd
+"""Plot BR24 IMM positions and the ground truth stored alongside them."""
 
 import bayestraj.observations.plotting as plotting
 from bayestraj.paths import project_path
 
 INPUT_CSV = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
-TRAJECTORY_LABEL = "IMM-getrackte BR24-Zieltrajektorie"
+SHOW_IMM_TRACK = True
+SHOW_REFERENCE = True
+TRAJECTORY_LABEL = "IMM-Track"
 DIRECTION_ARROW_STEP = 100  # Point interval; None disables direction arrows.
 
 
 def main() -> None:
-    """Plot the configured IMM-tracked BR24 trajectory."""
-    trajectory_data = pd.read_csv(INPUT_CSV)
-    plotting.plot_processed_trajectory(
-        trajectory_data,
+    """Plot the BR24 trajectories selected in the header."""
+    plotting.plot_br24_imm_trajectory(
+        INPUT_CSV,
+        show_imm_track=SHOW_IMM_TRACK,
+        show_reference=SHOW_REFERENCE,
         trajectory_label=TRAJECTORY_LABEL,
         direction_arrow_step=DIRECTION_ARROW_STEP,
     )

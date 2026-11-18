@@ -1,9 +1,11 @@
 """Plotting utilities for real ship trajectory data."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib import dates as mdates
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import FancyArrowPatch
@@ -11,6 +13,7 @@ from matplotlib.patches import FancyArrowPatch
 import bayestraj.numeric_validation as numeric_validation
 import bayestraj.observations.coordinates as coordinates
 import bayestraj.observations.window as observation_window
+from bayestraj.observations.io import REFERENCE_POSITION_COLUMNS
 
 # ==================================================
 # Technical plot settings
@@ -25,6 +28,7 @@ START_MARKER_SIZE = 45
 END_MARKER_SIZE = 110
 
 TRAJECTORY_LINE_WIDTH = 1.8
+REFERENCE_TRAJECTORY_COLOR = "#9CA3AF"
 DIRECTION_LINE_WIDTH = 1.5
 
 END_ALPHA = 0.45
@@ -296,23 +300,7 @@ def plot_ship_trajectory(
     plt.show()
 
 
-def plot_processed_trajectory(
-    data,
-    *,
-    trajectory_label="Schiffstrajektorie",
-    title=None,
-    direction_arrow_step=100,
-    position_noise_std_m=0.0,
-    position_noise_seed=2026,
-    plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
-    show_points=False,
-):
-    """Plot a local trajectory with optional points and reproducible position noise.
-
-    ``show_points`` defaults to False; start/end markers remain visible.
-    ``direction_arrow_step`` spaces arrows by point intervals, starting after
-    the first interval. ``None`` disables arrows.
-    """
+def _processed_trajectory_coordinates(data):
     required_columns = ("time", "x", "y")
     missing_columns = [
         column for column in required_columns if column not in data.columns
@@ -336,6 +324,36 @@ def plot_processed_trajectory(
         raise ValueError("Processed time, x, and y values must be finite.")
     if np.any(np.diff(time_seconds) <= 0.0):
         raise ValueError("Processed time values must be strictly increasing.")
+    return x_coordinates, y_coordinates
+
+
+def plot_processed_trajectory(
+    data,
+    *,
+    trajectory_label="Schiffstrajektorie",
+    title=None,
+    direction_arrow_step=100,
+    position_noise_std_m=0.0,
+    position_noise_seed=2026,
+    plot_style=DEFAULT_SHIP_DATA_PLOT_STYLE,
+    show_points=False,
+    trajectory_linestyle="-",
+    reference_data=None,
+    reference_label="Referenztrajektorie",
+):
+    """Plot a local trajectory with optional points, noise, and a reference line.
+
+    ``show_points`` defaults to False; start/end markers remain visible.
+    ``direction_arrow_step`` spaces arrows by point intervals, starting after
+    the first interval. ``None`` disables arrows.
+    ``reference_data`` uses its own samples in the same local coordinates.
+    """
+    x_coordinates, y_coordinates = _processed_trajectory_coordinates(data)
+    reference_coordinates = (
+        None
+        if reference_data is None
+        else _processed_trajectory_coordinates(reference_data)
+    )
 
     position_noise_std_m = numeric_validation.validate_non_negative_finite(
         "position_noise_std_m",
@@ -374,11 +392,22 @@ def plot_processed_trajectory(
         x_coordinates,
         y_coordinates,
         color=plot_style.recorded_data_color,
+        linestyle=trajectory_linestyle,
         marker="o" if show_points else "None",
         markersize=TRAJECTORY_MARKER_SIZE,
         linewidth=TRAJECTORY_LINE_WIDTH,
         label=displayed_trajectory_label,
     )[0]
+    reference_line = None
+    if reference_coordinates is not None:
+        reference_line = axis.plot(
+            *reference_coordinates,
+            color=REFERENCE_TRAJECTORY_COLOR,
+            linestyle="--",
+            linewidth=1.5,
+            label=reference_label,
+            zorder=1,
+        )[0]
     start_marker = axis.scatter(
         x_coordinates[0],
         y_coordinates[0],
@@ -429,9 +458,14 @@ def plot_processed_trajectory(
     axis.set_aspect("equal", adjustable="box")
     axis.tick_params(axis="both", labelsize=plot_style.axis_tick_font_size)
 
-    x_center = (x_coordinates.min() + x_coordinates.max()) / 2
-    y_center = (y_coordinates.min() + y_coordinates.max()) / 2
-    data_range = max(np.ptp(x_coordinates), np.ptp(y_coordinates))
+    x_extent, y_extent = x_coordinates, y_coordinates
+    if reference_coordinates is not None:
+        reference_x, reference_y = reference_coordinates
+        x_extent = np.concatenate((x_extent, reference_x))
+        y_extent = np.concatenate((y_extent, reference_y))
+    x_center = (x_extent.min() + x_extent.max()) / 2
+    y_center = (y_extent.min() + y_extent.max()) / 2
+    data_range = max(np.ptp(x_extent), np.ptp(y_extent))
     margin = max(data_range * 0.05, MIN_AXIS_MARGIN_METERS)
     plot_range = max(data_range + 2 * margin, 2 * MIN_AXIS_MARGIN_METERS)
     axis.set_xlim(x_center - plot_range / 2, x_center + plot_range / 2)
@@ -439,7 +473,10 @@ def plot_processed_trajectory(
     axis.ticklabel_format(useOffset=False, style="plain")
 
     if plot_style.show_legend:
-        legend_handles = [trajectory_line, start_marker, end_marker]
+        legend_handles = [trajectory_line]
+        if reference_line is not None:
+            legend_handles.append(reference_line)
+        legend_handles.extend((start_marker, end_marker))
         legend_handler_map = {}
         if direction_arrow_indices:
             direction_handle = FancyArrowPatch(
@@ -462,6 +499,57 @@ def plot_processed_trajectory(
     figure.tight_layout()
     plt.show()
     return figure, axis
+
+
+def plot_br24_imm_trajectory(
+    csv_path: str | Path,
+    *,
+    show_imm_track=True,
+    show_reference=True,
+    trajectory_label="IMM-Track",
+    reference_label="Referenz",
+    direction_arrow_step=100,
+):
+    """Plot a saved IMM track and optional ground truth from the same CSV rows.
+
+    The input uses ``time,x,y`` and optional ``ground_truth_x,ground_truth_y``.
+    Skip the reference if fewer than two complete positions are available.
+    Return the figure and axes, or ``None`` when there is nothing to draw.
+    """
+    if not (show_imm_track or show_reference):
+        return None
+    csv_path = Path(csv_path)
+    if not csv_path.is_file():
+        return None
+
+    data = pd.read_csv(csv_path)
+    reference = _embedded_reference_positions(data) if show_reference else None
+    trajectory = data if show_imm_track else reference
+    if trajectory is None:
+        return None
+
+    overlay = reference if show_imm_track else None
+    color = "#24557A" if show_imm_track else REFERENCE_TRAJECTORY_COLOR
+    return plot_processed_trajectory(
+        trajectory,
+        trajectory_label=trajectory_label if show_imm_track else reference_label,
+        title="BR24-Zieltrajektorie: IMM und Referenz" if overlay is not None else None,
+        direction_arrow_step=direction_arrow_step,
+        plot_style=replace(DEFAULT_SHIP_DATA_PLOT_STYLE, recorded_data_color=color),
+        trajectory_linestyle="-" if show_imm_track else "--",
+        reference_data=overlay,
+        reference_label=reference_label,
+    )
+
+
+def _embedded_reference_positions(data: pd.DataFrame) -> pd.DataFrame | None:
+    if not set(REFERENCE_POSITION_COLUMNS).issubset(data.columns):
+        return None
+
+    reference = data.loc[:, ["time", *REFERENCE_POSITION_COLUMNS]].copy()
+    reference.columns = ["time", "x", "y"]
+    reference = reference.dropna(subset=["x", "y"])
+    return reference if len(reference) >= 2 else None
 
 
 def plot_ship_speeds(

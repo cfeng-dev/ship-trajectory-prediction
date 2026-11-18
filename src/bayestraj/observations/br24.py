@@ -515,6 +515,23 @@ def read_br24_tracking_input(csv_path: str | Path) -> tuple[BR24RadarCycle, ...]
     return tuple(cycles)
 
 
+def read_br24_reference_positions(
+    reference_csv: str | Path, *, sensor_csv: str | Path | None = None
+) -> pd.DataFrame:
+    """Read original reference positions, optionally limited to sensor coverage."""
+    reference = pd.read_csv(reference_csv)
+    if sensor_csv is None:
+        return reference
+
+    sensor_times = pd.to_numeric(pd.read_csv(sensor_csv)["Time"], errors="coerce")
+    if sensor_times.empty or not np.isfinite(sensor_times.to_numpy()).all():
+        raise ValueError("BR24 sensor times must be finite and non-empty.")
+    reference_times = pd.to_numeric(reference["time"], errors="raise")
+    return reference.loc[
+        reference_times.between(sensor_times.min(), sensor_times.max())
+    ]
+
+
 def read_br24_tracking_reference(
     csv_path: str | Path,
 ) -> BR24TrackingReference | None:

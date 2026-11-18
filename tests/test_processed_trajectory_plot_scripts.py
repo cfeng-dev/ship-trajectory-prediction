@@ -414,7 +414,7 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         ),
         (
             "plot_br24_imm_tracked_trajectory.py",
-            "IMM-getrackte BR24-Zieltrajektorie mit Fahrtrichtung",
+            "IMM-Track mit Fahrtrichtung",
             [0.0, 3.0, 6.0],
         ),
     ),
@@ -439,6 +439,8 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
     module = runpy.run_path(PROJECT_ROOT / "scripts" / "data_exploration" / script_name)
     monkeypatch.setitem(module["main"].__globals__, "INPUT_CSV", input_csv)
     monkeypatch.setitem(module["main"].__globals__, "DIRECTION_ARROW_STEP", 1)
+    if script_name == "plot_br24_imm_tracked_trajectory.py":
+        monkeypatch.setitem(module["main"].__globals__, "SHOW_REFERENCE", False)
     monkeypatch.setattr(module["plotting"].plt, "show", lambda: None)
     try:
         module["main"]()
@@ -454,6 +456,76 @@ def test_processed_trajectory_plot_script_loads_its_configured_csv(
         )
     finally:
         plt.close("all")
+
+
+@pytest.mark.parametrize(
+    ("show_track", "show_reference", "missing", "expected"),
+    [
+        (True, True, None, ["track", "reference"]),
+        (False, True, None, ["reference"]),
+        (True, False, None, ["track"]),
+        (True, True, "reference", ["track"]),
+        (True, True, "reference_y", ["track"]),
+        (True, True, "file", []),
+        (False, False, None, []),
+    ],
+)
+def test_br24_imm_plot_overlays_available_trajectories(
+    tmp_path, monkeypatch, show_track, show_reference, missing, expected
+):
+    tracked_csv = tmp_path / "tracked.csv"
+    if missing != "file":
+        data = pd.DataFrame({"time": [5, 8, 10], "x": [1, 2, 3], "y": [3, 4, 5]})
+        if missing != "reference":
+            data["ground_truth_x"] = [100, 110, 120]
+        if missing not in {"reference", "reference_y"}:
+            data["ground_truth_y"] = [20, np.nan, 30]
+        data.to_csv(tracked_csv, index=False)
+
+    script = (
+        PROJECT_ROOT / "scripts/data_exploration/plot_br24_imm_tracked_trajectory.py"
+    )
+    module = runpy.run_path(script)
+    settings = module["main"].__globals__
+    assert "SENSOR_CSV" not in settings
+    for name, value in {
+        "INPUT_CSV": tracked_csv,
+        "SHOW_IMM_TRACK": show_track,
+        "SHOW_REFERENCE": show_reference,
+    }.items():
+        monkeypatch.setitem(settings, name, value)
+    monkeypatch.setattr(plt, "show", lambda: None)
+    original_figures = set(plt.get_fignums())
+
+    try:
+        module["main"]()
+        new_figures = set(plt.get_fignums()) - original_figures
+        assert len(new_figures) == bool(expected)
+        if not expected:
+            return
+        axis = plt.figure(new_figures.pop()).axes[0]
+        assert len(axis.lines) == len(expected)
+        assert axis.get_aspect() == 1.0
+        labels = []
+        for kind, line in zip(expected, axis.lines, strict=True):
+            if kind == "track":
+                assert line.get_color() == "#24557A"
+                assert line.get_linestyle() == "-"
+                np.testing.assert_array_equal(line.get_xdata(), [1, 2, 3])
+                labels.append(settings["TRAJECTORY_LABEL"])
+            else:
+                assert line.get_color() == "#9CA3AF"
+                assert line.get_linestyle() == "--"
+                np.testing.assert_array_equal(line.get_xdata(), [100, 120])
+                np.testing.assert_array_equal(line.get_ydata(), [20, 30])
+                assert axis.get_xlim()[1] >= 120
+                labels.append("Referenz")
+        assert [text.get_text() for text in axis.get_legend().get_texts()][
+            : len(labels)
+        ] == labels
+    finally:
+        for number in set(plt.get_fignums()) - original_figures:
+            plt.close(number)
 
 
 def test_br24_reference_plot_uses_raw_points_within_radar_window(tmp_path, monkeypatch):
