@@ -101,8 +101,6 @@ def _table(model):
             "energy_score_m": np.array([2.0, 4.0, 6.0, 10.0]) + (model == "imm"),
             "log_predictive_density": np.array([-1.0, -3.0, -5.0, -7.0])
             - (model == "imm"),
-            "nlpd_definition": "gaussian_latent_2d_v1",
-            "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v2",
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02]
             if model == "bayesian"
             else [0.002, 0.002, 0.004, 0.004],
@@ -864,7 +862,10 @@ def test_comparison_normalizes_old_and_new_density_columns_exactly_once(legacy_m
     expected = [-table["log_predictive_density"].copy() for table in tables]
     for model, table, values in zip(("bayesian", "imm"), tables, expected, strict=True):
         if model != legacy_model:
-            table["negative_log_predictive_density"] = values
+            table["gaussian_negative_log_predictive_density"] = values
+            table.rename(
+                columns={"energy_score_m": "gaussian_energy_score_m"}, inplace=True
+            )
             table.drop(columns="log_predictive_density", inplace=True)
     originals = [table.copy(deep=True) for table in tables]
 
@@ -873,6 +874,7 @@ def test_comparison_normalizes_old_and_new_density_columns_exactly_once(legacy_m
     ):
         np.testing.assert_allclose(table["negative_log_predictive_density"], values)
         assert "log_predictive_density" not in table
+        assert "energy_score_m" in table
     for table, original in zip(tables, originals, strict=True):
         pd.testing.assert_frame_equal(table, original)
 
@@ -892,17 +894,32 @@ def test_comparison_checks_duplicated_density_conventions(consistent):
             comparison.prepare_comparison(table, _table("imm"))
 
 
-@pytest.mark.parametrize("problem", ["legacy", "all_legacy", "different", "within_csv"])
-def test_comparison_rejects_incompatible_nlpd_definitions(problem):
+def test_comparison_rejects_conflicting_gaussian_and_unprefixed_scores():
+    table = _table("bayesian")
+    table["gaussian_energy_score_m"] = table["energy_score_m"] + 1.0
+
+    with pytest.raises(ValueError, match="Conflicting energy_score_m"):
+        comparison.prepare_comparison(table, _table("imm"))
+
+
+def test_comparison_accepts_untagged_and_compatible_legacy_csvs():
+    bayesian, imm = _table("bayesian"), _table("imm")
+    bayesian["nlpd_definition"] = "gaussian_latent_2d_v1"
+    bayesian["evaluation_definition"] = "gaussian_latent_2d_gl64_runtime_v2"
+
+    compared = comparison.prepare_comparison(bayesian, imm)
+
+    for table in compared:
+        assert "nlpd_definition" not in table
+        assert "evaluation_definition" not in table
+
+
+@pytest.mark.parametrize("problem", ["different", "within_csv"])
+def test_comparison_rejects_incompatible_legacy_nlpd_definitions(problem):
     bayesian, imm = _table("bayesian"), _table("imm")
     bayesian["nlpd_definition"] = "gaussian_latent_2d_v1"
     imm["nlpd_definition"] = "gaussian_latent_2d_v1"
-    if problem == "legacy":
-        imm = imm.drop(columns="nlpd_definition")
-    elif problem == "all_legacy":
-        bayesian = bayesian.drop(columns="nlpd_definition")
-        imm = imm.drop(columns="nlpd_definition")
-    elif problem == "different":
+    if problem == "different":
         imm["nlpd_definition"] = "observation_predictive"
     else:
         bayesian.loc[0, "nlpd_definition"] = "observation_predictive"
@@ -910,12 +927,11 @@ def test_comparison_rejects_incompatible_nlpd_definitions(problem):
         comparison.prepare_comparison(bayesian, imm)
 
 
-@pytest.mark.parametrize("problem", ["missing", "different", "mixed", "old_runtime"])
-def test_comparison_rejects_incompatible_evaluation_definitions(problem):
+@pytest.mark.parametrize("problem", ["different", "mixed", "old_runtime"])
+def test_comparison_rejects_incompatible_legacy_evaluation_definitions(problem):
     bayesian, imm = _table("bayesian"), _table("imm")
-    if problem == "missing":
-        imm = imm.drop(columns="evaluation_definition")
-    elif problem == "different":
+    imm["evaluation_definition"] = "gaussian_latent_2d_gl64_runtime_v2"
+    if problem == "different":
         imm["evaluation_definition"] = "empirical_regions"
     elif problem == "old_runtime":
         imm["evaluation_definition"] = "gaussian_latent_2d_gl64_runtime_v1"
@@ -1374,6 +1390,12 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     exported = pd.read_csv(output)
     assert "time" not in exported
     pd.testing.assert_frame_equal(
-        exported, original.reindex(columns=evaluation.PREDICTION_CSV_COLUMNS)
+        exported,
+        original.rename(
+            columns={
+                "negative_log_predictive_density": "gaussian_negative_log_predictive_density",
+                "energy_score_m": "gaussian_energy_score_m",
+            }
+        ).reindex(columns=evaluation.PREDICTION_CSV_COLUMNS),
     )
     pd.testing.assert_frame_equal(predictions, original)

@@ -25,6 +25,7 @@ class BayesianCTRVEvaluationOptions:
     position_noise_seed: int
     require_converged: bool
     max_windows: int | None
+    student_t_scores: bool = True
 
     def __post_init__(self) -> None:
         """Validate the combined rolling inference selection."""
@@ -43,6 +44,16 @@ class IMMEvaluationOptions:
     stride: int
     max_windows: int | None
     show_plot: bool
+    student_t_scores: bool = True
+
+
+def add_student_t_scores_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--student-t-scores",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Export Energy Score and NLPD for a moment-matched 2D Student t with 5 degrees of freedom (default: enabled).",
+    )
 
 
 def parse_bayesian_ctrv_evaluation_arguments(
@@ -125,6 +136,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
         default=max_windows,
         help="Optional smoke-test limit; omit it to evaluate the complete run.",
     )
+    add_student_t_scores_argument(parser)
     arguments = parser.parse_args(argv)
     try:
         return BayesianCTRVEvaluationOptions(
@@ -139,6 +151,7 @@ def parse_bayesian_ctrv_evaluation_arguments(
             position_noise_seed=arguments.position_noise_seed,
             require_converged=arguments.require_converged,
             max_windows=arguments.max_windows,
+            student_t_scores=arguments.student_t_scores,
         )
     except ValueError as error:
         parser.error(str(error))
@@ -172,6 +185,7 @@ def parse_imm_evaluation_arguments(
         default=show_plot,
         help="Print and export metrics without opening summary diagnostic plots.",
     )
+    add_student_t_scores_argument(parser)
     arguments = parser.parse_args(argv)
     for name, value in (
         ("observations", arguments.observations),
@@ -187,6 +201,7 @@ def parse_imm_evaluation_arguments(
         stride=arguments.stride,
         max_windows=arguments.max_windows,
         show_plot=arguments.show_plot,
+        student_t_scores=arguments.student_t_scores,
     )
 
 

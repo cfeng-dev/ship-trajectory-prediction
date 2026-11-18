@@ -61,6 +61,16 @@ def _point_estimate_name(predictions):
 def _validate_table(predictions, model_variant):
     """Require finite forecasts and errors matching the declared point estimate."""
     predictions = predictions.copy()
+    for name, csv_name in metrics.GAUSSIAN_SCORE_CSV_NAMES.items():
+        if csv_name not in predictions:
+            continue
+        if name in predictions:
+            if not np.array_equal(
+                pd.to_numeric(predictions[name]), pd.to_numeric(predictions[csv_name])
+            ):
+                raise ValueError(f"Conflicting {name} and {csv_name} columns.")
+            predictions.drop(columns=name, inplace=True)
+        predictions.rename(columns={csv_name: name}, inplace=True)
     if "log_predictive_density" in predictions:
         legacy = -pd.to_numeric(
             predictions.pop("log_predictive_density"), errors="raise"
@@ -92,25 +102,11 @@ def _validate_table(predictions, model_variant):
         raise ValueError(f"Missing {model_variant} CSV columns: {missing}")
     if predictions.empty:
         raise ValueError(f"The {model_variant} evaluation table is empty.")
-    if (
-        "nlpd_definition" not in predictions
-        or not predictions["nlpd_definition"].eq(metrics.NLPD_DEFINITION).all()
-    ):
-        raise ValueError(
-            f"NLPD requires nlpd_definition={metrics.NLPD_DEFINITION!r}. "
-            "Regenerate saved forecasts before comparison."
-        )
-    if (
-        "evaluation_definition" not in predictions
-        or not predictions["evaluation_definition"]
-        .eq(metrics.EVALUATION_DEFINITION)
-        .all()
-    ):
-        raise ValueError(
-            f"Comparison requires evaluation_definition={metrics.EVALUATION_DEFINITION!r}. "
-            "Regenerate saved forecasts before comparison."
-        )
-    table = predictions.copy().reset_index(drop=True)
+    evaluation.validate_legacy_score_columns(predictions)
+    table = predictions.drop(
+        columns=list(evaluation.LEGACY_SCORE_DEFINITIONS), errors="ignore"
+    )
+    table = table.reset_index(drop=True)
     for name in numeric_columns:
         table[name] = pd.to_numeric(table[name], errors="raise")
     if not np.all(np.isfinite(table[list(numeric_columns)].to_numpy(dtype=float))):
@@ -368,8 +364,6 @@ def read_observation_count_evaluations(mcmc_dir=None, vi_dir=None):
                 data_file=record["data_file"] if record is not None else pd.NA,
                 rmse_m=float((table["position_error_m"] ** 2).mean() ** 0.5),
                 mcmc_rhat_max=float(rhat.max()) if method == "mcmc" else np.nan,
-                nlpd_definition=metrics.NLPD_DEFINITION,
-                evaluation_definition=metrics.EVALUATION_DEFINITION,
             )
             row.update(_summarize_observation_count_diagnostics(table, method, path))
             rows.append(row)
@@ -489,16 +483,9 @@ def _summarize_observation_count_diagnostics(table, method, path):
 
 def _validate_observation_count_metadata(record, path, method, count):
     """Reject stale provenance after replacement or manual changes to a CSV."""
-    if (
-        "evaluation_definition" in record
-        and record["evaluation_definition"] != metrics.EVALUATION_DEFINITION
-    ):
-        raise ValueError(f"Incompatible evaluation_definition in metadata: {path}.")
-    if (
-        "nlpd_definition" in record
-        and record["nlpd_definition"] != metrics.NLPD_DEFINITION
-    ):
-        raise ValueError(f"Incompatible NLPD definition in metadata: {path}.")
+    for field, value in evaluation.LEGACY_SCORE_DEFINITIONS.items():
+        if field in record and record[field] != value:
+            raise ValueError(f"Incompatible {field} in metadata: {path}.")
     required = {
         "sha256",
         "data_file",

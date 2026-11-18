@@ -118,6 +118,8 @@ def test_sweep_input_formats_preserve_common_origins_reference_and_metadata(
     assert len(outputs) == 2
     for count, destination in zip([2, 3], outputs, strict=True):
         table = pd.read_csv(destination)
+        assert np.isfinite(table["student_t_negative_log_predictive_density"]).all()
+        assert np.isfinite(table["student_t_energy_score_m"]).all()
         np.testing.assert_array_equal(
             table["forecast_origin_seconds"].unique(), times[1:4]
         )
@@ -240,8 +242,6 @@ def sweep_run(tmp_path, monkeypatch):
                     "joint_covered_90": True,
                     "mean_marginal_interval_width_m": 6.0,
                     "negative_log_predictive_density": 2.5,
-                    "nlpd_definition": "gaussian_latent_2d_v1",
-                    "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v2",
                     "inference_mode": "batch",
                     "inference_method": options.inference_method,
                     "converged": True if options.inference_method == "vi" else None,
@@ -288,14 +288,10 @@ def test_evaluation_exports_forecasts_and_metadata_without_creating_summary(
     assert all(
         record["inference_seed"] == 42 for record in metadata["evaluations"].values()
     )
-    assert all(
-        record["nlpd_definition"] == "gaussian_latent_2d_v1"
-        for record in metadata["evaluations"].values()
-    )
-    assert all(
-        record["evaluation_definition"] == "gaussian_latent_2d_gl64_runtime_v2"
-        for record in metadata["evaluations"].values()
-    )
+    for path in outputs:
+        for name in ("nlpd_definition", "evaluation_definition"):
+            assert name not in metadata["evaluations"][path.name]
+            assert name not in pd.read_csv(path, nrows=0)
 
 
 @pytest.mark.parametrize("method", ["mcmc", "vi"])
@@ -507,6 +503,7 @@ def test_sweep_cli_can_limit_counts_origins_and_output_directory(
     )
 
     assert [call["options"].observation_count for call in sweep_run] == [3, 4]
+    assert all(call["options"].student_t_scores for call in sweep_run)
     assert len(outputs) == 2
     assert all(pd.read_csv(path)["window_index"].nunique() == 1 for path in outputs)
     assert (destination / f"bayesian_ctrv_{method}_03.csv").is_file()
@@ -586,8 +583,11 @@ def test_sweep_stops_on_metadata_export_failure(tmp_path, monkeypatch, sweep_run
     assert not (destination / "summary.csv").exists()
 
 
+@pytest.mark.parametrize(
+    "legacy_definition", ["gaussian_latent_2d_v1", "observation_predictive"]
+)
 def test_partial_sweeps_preserve_other_metadata_and_existing_summary(
-    tmp_path, sweep_run
+    tmp_path, sweep_run, legacy_definition
 ):
     namespace = _script("vi")
     namespace["main"](
@@ -595,6 +595,12 @@ def test_partial_sweeps_preserve_other_metadata_and_existing_summary(
     )
     directory = tmp_path / "results/inference_evaluation/bayesian_ctrv_vi"
     (directory / "summary.csv").write_text("previous derived results", encoding="utf-8")
+    metadata_path = directory / "metadata.json"
+    previous = json.loads(metadata_path.read_text(encoding="utf-8"))
+    for record in previous["evaluations"].values():
+        record["nlpd_definition"] = legacy_definition
+        record["evaluation_definition"] = "gaussian_latent_2d_gl64_runtime_v2"
+    metadata_path.write_text(json.dumps(previous), encoding="utf-8")
 
     namespace["main"](
         ["--min-observations", "4", "--max-observations", "4", "--max-windows", "1"]
@@ -602,11 +608,22 @@ def test_partial_sweeps_preserve_other_metadata_and_existing_summary(
 
     metadata = evaluation.read_observation_count_metadata(directory)
     assert set(metadata) == {f"bayesian_ctrv_vi_{count:02d}.csv" for count in [2, 3, 4]}
+    for record in metadata.values():
+        assert "evaluation_definition" not in record
     assert (directory / "summary.csv").read_text(
         encoding="utf-8"
     ) == "previous derived results"
-    table = comparison.read_observation_count_evaluations(vi_dir=directory)["VI"]
-    assert table["observation_count"].tolist() == [2, 3, 4]
+    if legacy_definition == "observation_predictive":
+        assert (
+            metadata["bayesian_ctrv_vi_02.csv"]["nlpd_definition"] == legacy_definition
+        )
+        assert "nlpd_definition" not in metadata["bayesian_ctrv_vi_04.csv"]
+        with pytest.raises(ValueError, match="nlpd_definition"):
+            comparison.read_observation_count_evaluations(vi_dir=directory)
+    else:
+        assert all("nlpd_definition" not in record for record in metadata.values())
+        table = comparison.read_observation_count_evaluations(vi_dir=directory)["VI"]
+        assert table["observation_count"].tolist() == [2, 3, 4]
 
 
 def test_rerunning_one_size_preserves_seed_provenance_for_other_sizes(

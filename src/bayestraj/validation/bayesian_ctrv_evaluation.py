@@ -51,10 +51,10 @@ PREDICTION_CSV_COLUMNS = (
     "y_lower",
     "y_upper",
     "position_error_m",
-    "negative_log_predictive_density",
-    "nlpd_definition",
-    "evaluation_definition",
-    "energy_score_m",
+    *(
+        metrics.GAUSSIAN_SCORE_CSV_NAMES.get(name, name)
+        for name in metrics.POSITION_SCORE_COLUMNS
+    ),
     "prediction_radius_m",
     "squared_mahalanobis_distance",
     "squared_mahalanobis_radius",
@@ -124,6 +124,11 @@ PREDICTION_CSV_COLUMNS = (
     "fit_runtime_seconds",
 )
 ASSOCIATION_CSV_COLUMNS = ("time", "cycle_counter", "detection_id", "x", "y")
+# Check old artifacts that still declare their scoring protocol.
+LEGACY_SCORE_DEFINITIONS = {
+    "nlpd_definition": "gaussian_latent_2d_v1",
+    "evaluation_definition": "gaussian_latent_2d_gl64_runtime_v2",
+}
 
 
 def run_evaluation(
@@ -264,6 +269,7 @@ def run_observation_count_evaluation(
     parser.add_argument("--max-observations", type=int, default=max_observation_count)
     parser.add_argument("--max-windows", type=int, default=max_windows)
     parser.add_argument("--output-dir", type=Path, default=Path(output_dir))
+    cli.add_student_t_scores_argument(parser)
     arguments = parser.parse_args(argv)
     try:
         lower = numeric_validation.validate_non_negative_integer(
@@ -316,6 +322,7 @@ def run_observation_count_evaluation(
             position_noise_seed=experiment.position_noise_seed,
             require_converged=vi_config["require_converged"],
             max_windows=arguments.max_windows,
+            student_t_scores=arguments.student_t_scores,
         )
         print(
             f"\n=== {experiment.inference_method.upper()}: observation_count={count} ==="
@@ -382,10 +389,12 @@ def _record_observation_count_metadata(
         "credible_interval": credible_interval,
         "position_noise_std_m": experiment.position_noise_std_m,
         "position_noise_seed": experiment.position_noise_seed,
-        "nlpd_definition": metrics.NLPD_DEFINITION,
-        "evaluation_definition": metrics.EVALUATION_DEFINITION,
         "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
+    for record in metadata.values():
+        for field, value in LEGACY_SCORE_DEFINITIONS.items():
+            if record.get(field) == value:
+                record.pop(field)
     path = destination.parent / "metadata.json"
     try:
         with TemporaryDirectory(prefix=".bayestraj-metadata-", dir=path.parent) as work:
@@ -424,12 +433,19 @@ def _csv_output_path(
         return None
 
 
+def validate_legacy_score_columns(table: pd.DataFrame) -> None:
+    """Reject explicitly incompatible scores in historical forecast tables."""
+    for field, value in LEGACY_SCORE_DEFINITIONS.items():
+        if field in table and not table[field].eq(value).fillna(False).all():
+            raise ValueError(f"Incompatible {field}. Regenerate saved forecasts.")
+
+
 def export_evaluation_csv(
     table: pd.DataFrame, output_path: str | Path, *, summary: bool = False
 ) -> bool:
     """Export evaluation results through the shared atomic CSV writer.
 
-    Individual forecast CSVs always use PREDICTION_CSV_COLUMNS in that order.
+    Forecast CSVs follow PREDICTION_CSV_COLUMNS, including the paired score columns.
     Internal target timestamps in ``time`` are omitted; target seconds follow
     from forecast_origin_seconds + horizon_seconds. Missing method-specific
     fields are empty cells; the input table is preserved. Unknown columns are
@@ -440,7 +456,10 @@ def export_evaluation_csv(
     try:
         path = Path(output_path)
         if not summary:
-            table = table.drop(columns="time", errors="ignore")
+            validate_legacy_score_columns(table)
+            table = table.drop(
+                columns=["time", *LEGACY_SCORE_DEFINITIONS], errors="ignore"
+            ).rename(columns=metrics.GAUSSIAN_SCORE_CSV_NAMES)
             unknown = set(table.columns).difference(PREDICTION_CSV_COLUMNS)
             if unknown:
                 raise ValueError(f"Unknown prediction CSV columns: {sorted(unknown)}")

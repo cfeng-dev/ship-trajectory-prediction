@@ -54,8 +54,6 @@ def _predictions(method, count):
                     position_error_m=error,
                     energy_score_m=error / 2,
                     negative_log_predictive_density=step - 0.5,
-                    nlpd_definition="gaussian_latent_2d_v1",
-                    evaluation_definition="gaussian_latent_2d_gl64_runtime_v2",
                     prediction_radius_m=5.0,
                     radial_covered=True,
                     joint_covered_50=step == 1,
@@ -335,7 +333,7 @@ def test_reader_requires_forecast_csvs_even_if_summary_exists(tmp_path):
         ("model_variant", "imm"),
         ("position_error_m", np.nan),
         ("joint_covered_90", 1.1),
-        ("energy_score_m", np.nan),
+        ("gaussian_energy_score_m", np.nan),
         ("fit_runtime_seconds", -1.0),
         ("mcmc_rhat_max", np.inf),
         ("is_prior_predictive", "invalid"),
@@ -415,7 +413,7 @@ def test_sweep_reader_checks_nlpd_definition_against_metadata(result_dirs):
 
 
 def test_reader_preserves_negative_log_predictive_density(result_dirs):
-    _edit(result_dirs, "negative_log_predictive_density", -2.0)
+    _edit(result_dirs, "gaussian_negative_log_predictive_density", -2.0)
     table = _read(result_dirs)["VI"]
     assert (
         table.loc[
@@ -470,7 +468,7 @@ def test_reader_rejects_mixed_run_metadata(result_dirs, field, value):
 
 def test_reader_rejects_stale_metadata_after_csv_changes(result_dirs):
     _metadata(result_dirs["vi"], "vi")
-    _edit(result_dirs, "negative_log_predictive_density", -2.0)
+    _edit(result_dirs, "gaussian_negative_log_predictive_density", -2.0)
     with pytest.raises(ValueError, match="metadata"):
         _read(result_dirs)
 

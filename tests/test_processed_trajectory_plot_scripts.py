@@ -394,7 +394,15 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         result, returned_summary = module["main"](arguments)
         assert result is predictions and returned_summary is summary
         pd.testing.assert_frame_equal(result, original)
-        pd.testing.assert_frame_equal(pd.read_csv(output_csv), original)
+        pd.testing.assert_frame_equal(
+            pd.read_csv(output_csv),
+            original.rename(
+                columns={
+                    "negative_log_predictive_density": "gaussian_negative_log_predictive_density",
+                    "energy_score_m": "gaussian_energy_score_m",
+                }
+            ),
+        )
         assert len(shown) == expected_plots
         for figure in shown:
             assert figure._suptitle.get_text() == "IMM"

@@ -68,7 +68,10 @@ def run_evaluation(
     )
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    predictions.drop(columns="time", errors="ignore").to_csv(output_path, index=False)
+    exported = predictions.drop(columns="time", errors="ignore").rename(
+        columns=metrics.GAUSSIAN_SCORE_CSV_NAMES
+    )
+    exported.to_csv(output_path, index=False)
     print(f"\nSaved per-forecast IMM metrics: {output_path}")
     if options.show_plot and show_rolling_diagnostics_plot:
         runtime_plotting.plot_imm_rolling_diagnostics(predictions)
@@ -178,6 +181,7 @@ def run_imm_evaluation(
         table, _ = _evaluate_forecast(
             forecast,
             credible_interval=credible_interval,
+            student_t_scores=options.student_t_scores,
             forecast_median_positions=forecast_medians,
             reference=reference,
             specification=specification,
@@ -229,6 +233,7 @@ def _evaluate_forecast(
     forecast_origin_time,
     forecast_origin_position,
     forecast_runtime_seconds,
+    student_t_scores=False,
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """Score fused mean positions and export separately labelled mixture medians."""
     prediction_count = specification.prediction_count
@@ -258,7 +263,11 @@ def _evaluate_forecast(
     )
     errors = np.linalg.norm(means - actual_positions, axis=1)
     scores = metrics.gaussian_position_metrics(
-        actual_positions, means, covariances, credible_interval=credible_interval
+        actual_positions,
+        means,
+        covariances,
+        credible_interval=credible_interval,
+        student_t_scores=student_t_scores,
     )
     covariances = metrics.regularize_position_covariances(covariances)
     future_times = np.asarray(forecast.time_seconds, dtype=float)

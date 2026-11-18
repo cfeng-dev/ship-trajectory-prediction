@@ -109,6 +109,7 @@ def run_bayesian_ctrv_evaluation(
             smc_config=smc_config,
             sequential_vi_config=sequential_vi_config,
             credible_interval=credible_interval,
+            student_t_scores=options.student_t_scores,
             max_windows=options.max_windows,
             selected_window_indices=selected_window_indices,
             association_records=association_records,
@@ -123,6 +124,7 @@ def run_bayesian_ctrv_evaluation(
         sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
+        student_t_scores=options.student_t_scores,
         vi_algorithm=options.vi_algorithm,
         require_converged=options.require_converged,
         max_windows=options.max_windows,
@@ -141,6 +143,7 @@ def _run_evaluation(
     sequential_vi_config,
     fullrank_grad_samples,
     credible_interval,
+    student_t_scores,
     vi_algorithm,
     require_converged,
     max_windows,
@@ -412,6 +415,7 @@ def _run_evaluation(
             fit,
             window,
             credible_interval=credible_interval,
+            student_t_scores=student_t_scores,
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)
@@ -487,6 +491,7 @@ def _run_br24_radar_evaluation(
     smc_config,
     sequential_vi_config,
     credible_interval,
+    student_t_scores,
     max_windows,
     selected_window_indices,
     association_records=None,
@@ -646,6 +651,7 @@ def _run_br24_radar_evaluation(
             fit,
             window,
             credible_interval=credible_interval,
+            student_t_scores=student_t_scores,
             position_variable_names=("x_prediction", "y_prediction"),
         )
         diagnostics = _posterior_diagnostics(fit)

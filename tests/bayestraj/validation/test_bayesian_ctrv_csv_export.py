@@ -134,16 +134,22 @@ def test_summary_uses_the_same_api_without_the_prediction_schema(tmp_path):
     pd.testing.assert_frame_equal(pd.read_csv(path), table)
 
 
-def test_export_rejects_unknown_columns_instead_of_discarding_them(tmp_path, capsys):
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [("new_diagnostic", 0.5), ("nlpd_definition", "observation_predictive")],
+)
+def test_export_preserves_previous_file_on_invalid_columns(
+    tmp_path, capsys, column, value
+):
     path = tmp_path / "metrics.csv"
     original = b"previous,results\n1,2\n"
     path.write_bytes(original)
-    table = pd.DataFrame({"inference_method": ["smc"], "new_diagnostic": [0.5]})
+    table = pd.DataFrame({"inference_method": ["smc"], column: [value]})
 
     assert not evaluation.export_evaluation_csv(table, path)
 
     assert path.read_bytes() == original
-    assert "new_diagnostic" in capsys.readouterr().out
+    assert column in capsys.readouterr().out
     assert list(tmp_path.iterdir()) == [path]
 
 

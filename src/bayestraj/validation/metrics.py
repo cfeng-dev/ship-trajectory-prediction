@@ -5,16 +5,25 @@ from functools import lru_cache
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2, norm
+from scipy.special import beta
+from scipy.stats import chi2, norm, t
 
 import bayestraj.validation.reporting as reporting
 
-# Bump this definition when the target, moment estimator or numerical floors change.
-NLPD_DEFINITION = "gaussian_latent_2d_v1"
 NLPD_MIN_VARIANCE_M2 = 1e-12
 NLPD_RELATIVE_VARIANCE_FLOOR = 1e-12
-EVALUATION_DEFINITION = "gaussian_latent_2d_gl64_runtime_v2"
-GAUSSIAN_ENERGY_QUADRATURE_ORDER = 64
+ENERGY_QUADRATURE_ORDER = 64
+STUDENT_T_DEGREES_OF_FREEDOM = 5
+GAUSSIAN_SCORE_CSV_NAMES = {
+    "negative_log_predictive_density": "gaussian_negative_log_predictive_density",
+    "energy_score_m": "gaussian_energy_score_m",
+}
+POSITION_SCORE_COLUMNS = (
+    "negative_log_predictive_density",
+    "student_t_negative_log_predictive_density",
+    "energy_score_m",
+    "student_t_energy_score_m",
+)
 
 
 def _gaussian_geometry(actual_positions, means, covariances):
@@ -138,8 +147,8 @@ def gaussian_position_coverage(
 
 
 @lru_cache(maxsize=1)
-def _gaussian_energy_quadrature():
-    roots, weights = np.polynomial.legendre.leggauss(GAUSSIAN_ENERGY_QUADRATURE_ORDER)
+def _energy_quadrature():
+    roots, weights = np.polynomial.legendre.leggauss(ENERGY_QUADRATURE_ORDER)
     return (roots + 1) / 2, weights / 2
 
 
@@ -154,7 +163,7 @@ def _gaussian_expected_norm(projected_mean, variances):
     scale = np.sqrt(np.sum(projected_mean**2 + variances, axis=1))
     variance = variances / scale[:, None] ** 2
     mean_squared = (projected_mean / scale[:, None]) ** 2
-    nodes, weights = _gaussian_energy_quadrature()
+    nodes, weights = _energy_quadrature()
     t = (nodes / (1 - nodes)) ** 2
     scaled_variance = 2 * t[None, :, None] * variance[:, None, :]
     log_laplace = -0.5 * np.log1p(scaled_variance).sum(axis=2) - (
@@ -169,17 +178,61 @@ def _gaussian_expected_norm(projected_mean, variances):
     )
 
 
+def _student_t_position_scores(projected_errors, variances):
+    """Score a bivariate Student t with the supplied mean and covariance."""
+    df = STUDENT_T_DEGREES_OF_FREEDOM
+    shape_variances = variances * ((df - 2) / df)
+    squared_distance = np.sum(projected_errors**2 / shape_variances, axis=1)
+    nlpd = (
+        np.log(2 * np.pi)
+        + 0.5 * np.log(shape_variances).sum(axis=1)
+        + 0.5 * (df + 2) * np.log1p(squared_distance / df)
+    )
+
+    # The energy score in 2D is half the integral of projected CRPS over [0, pi].
+    # Split where the projected error vanishes to resolve narrow forecasts.
+    nodes, weights = _energy_quadrature()
+    zero_angle = np.arctan2(-projected_errors[:, 0], projected_errors[:, 1]) % np.pi
+    boundaries = np.column_stack(
+        (np.zeros_like(zero_angle), zero_angle, np.full_like(zero_angle, np.pi))
+    )
+    widths = np.diff(boundaries, axis=1)
+    angles = boundaries[:, :-1, None] + widths[:, :, None] * nodes
+    directions = np.stack((np.cos(angles), np.sin(angles)), axis=-1)
+    scales = np.sqrt(np.einsum("naki,ni->nak", directions**2, shape_variances))
+    standardized = np.einsum("naki,ni->nak", directions, projected_errors) / scales
+
+    # Closed-form Student-t CRPS, Jordan, Krüger and Lerch (2019), Appendix A.
+    half_pair_distance = (
+        2 * np.sqrt(df) * beta(0.5, df - 0.5) / ((df - 1) * beta(0.5, df / 2) ** 2)
+    )
+    crps = scales * (
+        standardized * (2 * t.cdf(standardized, df) - 1)
+        + 2 * t.pdf(standardized, df) * (df + standardized**2) / (df - 1)
+        - half_pair_distance
+    )
+    energy = 0.5 * np.sum(widths * (crps @ weights), axis=1)
+    return {
+        "student_t_energy_score_m": energy,
+        "student_t_negative_log_predictive_density": nlpd,
+    }
+
+
 def gaussian_position_metrics(
-    actual_positions, means, covariances, *, credible_interval=0.9
+    actual_positions,
+    means,
+    covariances,
+    *,
+    credible_interval=0.9,
+    student_t_scores=False,
 ):
     """Score Gaussian moment forecasts under one common evaluation protocol.
 
     All probability scores use latent positions in metres, with no extra sensor
     variance. Energy uses fixed 64-node Gauss-Legendre integration. Coverage uses
     chi-square ellipses; marginal intervals use Gaussian quantiles. Point-forecast
-    medians are evaluated separately. The protocol tag also versions CSV timing:
-    fit includes inference/update plus forecast, excluding scoring/assembly and
-    initial tracker setup. Sequential VI bootstrap inference remains included.
+    medians are evaluated separately. Optionally include Student-t Energy Score
+    and NLPD using the same mean and covariance.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     actual, means, eigenvalues, eigenvectors = _gaussian_geometry(
@@ -199,14 +252,19 @@ def gaussian_position_metrics(
     energy = _gaussian_expected_norm(
         projected, eigenvalues
     ) - 0.5 * _gaussian_expected_norm(np.zeros_like(projected), 2 * eigenvalues)
+    scores = {
+        "negative_log_predictive_density": np.log(2 * np.pi)
+        + 0.5 * (np.log(eigenvalues).sum(axis=1) + squared_distance),
+        "energy_score_m": np.asarray(energy),
+    }
+    if student_t_scores:
+        scores.update(_student_t_position_scores(projected, eigenvalues))
     return {
         "x_lower": lower[:, 0],
         "x_upper": upper[:, 0],
         "y_lower": lower[:, 1],
         "y_upper": upper[:, 1],
-        "negative_log_predictive_density": np.log(2 * np.pi)
-        + 0.5 * (np.log(eigenvalues).sum(axis=1) + squared_distance),
-        "energy_score_m": np.asarray(energy),
+        **{name: scores[name] for name in POSITION_SCORE_COLUMNS if name in scores},
         "prediction_radius_m": np.sqrt(threshold)
         * np.prod(eigenvalues, axis=1) ** 0.25,
         "squared_mahalanobis_distance": squared_distance,
@@ -215,8 +273,6 @@ def gaussian_position_metrics(
         "joint_covered_50": squared_distance <= chi2.ppf(0.5, 2),
         "joint_covered_90": squared_distance <= chi2.ppf(0.9, 2),
         "mean_marginal_interval_width_m": np.mean(upper - lower, axis=1),
-        "nlpd_definition": NLPD_DEFINITION,
-        "evaluation_definition": EVALUATION_DEFINITION,
     }
 
 
@@ -376,11 +432,13 @@ def evaluate_position_predictions(
     credible_interval=0.9,
     *,
     position_variable_names=("x_prediction", "y_prediction"),
+    student_t_scores=False,
 ):
     """Evaluate posterior position draws against one held-out trajectory.
 
-    Point errors evaluate the posterior position mean. All probability
-    metrics evaluate the common Gaussian moment approximation of latent positions.
+    Point errors evaluate the posterior position mean. The default probability
+    metrics use a Gaussian moment approximation of latent positions. Optional
+    Student-t scores use the same moments.
     """
     credible_interval = _validate_credible_interval(credible_interval)
     x_variable_name, y_variable_name = _validate_position_variable_names(
@@ -411,6 +469,7 @@ def evaluate_position_predictions(
         means,
         covariances,
         credible_interval=credible_interval,
+        student_t_scores=student_t_scores,
     )
 
     prediction_times = np.asarray(window.time_seconds[prediction], dtype=float)

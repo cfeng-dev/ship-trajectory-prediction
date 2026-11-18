@@ -29,6 +29,7 @@ def test_entrypoint_keeps_scoring_defaults_without_trajectory_plot_settings(
     assert namespace["SHOW_ROLLING_DIAGNOSTICS_PLOT"] is True
     assert calls[0]["credible_interval"] == 0.9
     assert calls[0]["options"].stride == 1
+    assert calls[0]["options"].student_t_scores
     assert not {
         "sample_trajectories_per_forecast",
         "show_time_labels",

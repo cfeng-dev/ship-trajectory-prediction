@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from scipy.integrate import quad
+from scipy.stats import multivariate_t, t
 
 import bayestraj.validation.metrics as metrics
 
@@ -59,7 +61,44 @@ def test_gaussian_evaluation_uses_full_covariance_for_regions_and_intervals():
     )
     assert values["x_lower"][0] == pytest.approx(-norm.ppf(0.95) * 2.0)
     assert values["y_upper"][0] == pytest.approx(norm.ppf(0.95) * 3.0)
-    assert values["evaluation_definition"] == metrics.EVALUATION_DEFINITION
+    assert "evaluation_definition" not in values
+    assert "nlpd_definition" not in values
+    assert "student_t_energy_score_m" not in values
+
+
+@pytest.mark.parametrize(
+    "covariance", [np.eye(2), np.array([[4.0, 1.3], [1.3, 9.0]]), np.diag([1.0, 1e-10])]
+)
+def test_student_t_scores_match_density_and_integrated_projected_cdf(covariance):
+    target = np.array([0.3, -0.2])
+    mean = np.array([0.9, 0.7])
+    shape = covariance * 3 / 5
+    values = metrics.gaussian_position_metrics(
+        [target], [mean], [covariance], student_t_scores=True
+    )
+    center_crps = 2 * quad(lambda x: t.sf(x, 5) ** 2, 0, np.inf)[0]
+    tail_mean = quad(lambda x: t.sf(x, 5), 0, np.inf)[0]
+
+    def projected_crps(angle):
+        direction = np.array([np.cos(angle), np.sin(angle)])
+        scale = np.sqrt(direction @ shape @ direction)
+        z = abs((target - mean) @ direction) / scale
+        # Integrate the CRPS derivative 2F(z) - 1 from the center to z.
+        remaining_tail = quad(lambda x: t.sf(x, 5), z, np.inf)[0]
+        return scale * (center_crps + z - 2 * (tail_mean - remaining_tail))
+
+    expected_energy = 0.5 * quad(projected_crps, 0, np.pi, epsabs=1e-6)[0]
+    assert values["student_t_energy_score_m"][0] == pytest.approx(
+        expected_energy, abs=2e-6
+    )
+    factor = np.linalg.cholesky(shape)
+    whitened_error = np.linalg.solve(factor, target - mean)
+    expected_nlpd = np.log(np.diag(factor)).sum() - multivariate_t.logpdf(
+        whitened_error, shape=np.eye(2), df=5
+    )
+    assert values["student_t_negative_log_predictive_density"][0] == pytest.approx(
+        expected_nlpd
+    )
 
 
 def test_gaussian_energy_matches_centered_isotropic_analytic_score():
@@ -250,13 +289,9 @@ def test_evaluators_and_both_predictors_share_latent_gaussian_nlpd(noise):
         expected_count = int(imm[f"joint_covered_{probability}"].sum())
         assert getattr(gui, f"joint_coverage_{probability}_count") == expected_count
         assert getattr(imm_gui, f"joint_coverage_{probability}_count") == expected_count
-    assert (
-        bayesian.prediction_table.evaluation_definition.iloc[0]
-        == metrics.EVALUATION_DEFINITION
-    )
-    assert imm.evaluation_definition.iloc[0] == metrics.EVALUATION_DEFINITION
-    assert bayesian.prediction_table.nlpd_definition.iloc[0] == "gaussian_latent_2d_v1"
-    assert imm.nlpd_definition.iloc[0] == "gaussian_latent_2d_v1"
+    for table in (bayesian.prediction_table, imm):
+        assert "evaluation_definition" not in table
+        assert "nlpd_definition" not in table
 
 
 @pytest.mark.parametrize("sigma", [1.0, 0.1])

@@ -618,7 +618,23 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     output_csv = tmp_path / "evaluation.csv"
     assert evaluation.export_evaluation_csv(predictions, output_csv)
     exported = pd.read_csv(output_csv)
-    assert exported.columns.tolist() == list(evaluation.PREDICTION_CSV_COLUMNS)
+    assert tuple(exported.columns) == evaluation.PREDICTION_CSV_COLUMNS
+    start = exported.columns.get_loc("gaussian_negative_log_predictive_density")
+    assert tuple(exported.columns[start : start + 4]) == (
+        "gaussian_negative_log_predictive_density",
+        "student_t_negative_log_predictive_density",
+        "gaussian_energy_score_m",
+        "student_t_energy_score_m",
+    )
+    np.testing.assert_allclose(
+        exported["gaussian_negative_log_predictive_density"],
+        predictions["negative_log_predictive_density"],
+    )
+    np.testing.assert_allclose(
+        exported["gaussian_energy_score_m"], predictions["energy_score_m"]
+    )
+    assert np.all(np.isfinite(exported["student_t_energy_score_m"]))
+    assert np.all(np.isfinite(exported["student_t_negative_log_predictive_density"]))
     if method in {"mcmc", "vi"}:
         assert exported["configured_observation_count"].tolist() == [10, 10]
     else:

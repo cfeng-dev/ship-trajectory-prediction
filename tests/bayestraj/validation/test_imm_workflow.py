@@ -160,12 +160,18 @@ def test_imm_associated_evaluation_uses_covariances_and_evaluation_only_referenc
             )
 
     monkeypatch.setattr(workflow, "_load_optional_imm_tracker", lambda _: Tracker)
-    options = cli.IMMEvaluationOptions(2, 2, 1, 2, False)
+    output_path = tmp_path / "imm.csv"
 
     def evaluate():
         data.to_csv(path, index=False)
-        return workflow.run_imm_evaluation(
-            data_file=path, imm_python=tmp_path / "backend.py", options=options
+        return workflow.run_evaluation(
+            data_file=path,
+            imm_python=tmp_path / "backend.py",
+            output_csv=output_path,
+            prediction_count=2,
+            max_windows=2,
+            show_rolling_diagnostics_plot=False,
+            argv=["--observations", "2", "--no-plot"],
         )[0]
 
     before = evaluate()
@@ -182,6 +188,20 @@ def test_imm_associated_evaluation_uses_covariances_and_evaluation_only_referenc
         before[["x_median", "y_median"]], after[["x_median", "y_median"]]
     )
     np.testing.assert_allclose(after["x_actual"] - before["x_actual"], 1000.0)
+    exported = pd.read_csv(output_path)
+    start = exported.columns.get_loc("gaussian_negative_log_predictive_density")
+    assert tuple(exported.columns[start : start + 4]) == (
+        "gaussian_negative_log_predictive_density",
+        "student_t_negative_log_predictive_density",
+        "gaussian_energy_score_m",
+        "student_t_energy_score_m",
+    )
+    for column in (
+        "student_t_energy_score_m",
+        "student_t_negative_log_predictive_density",
+    ):
+        assert (after[column] > before[column]).all()
+        np.testing.assert_allclose(exported[column], after[column])
 
 
 def _parse(arguments):
