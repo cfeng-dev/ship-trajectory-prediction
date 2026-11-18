@@ -7,8 +7,6 @@ import numpy as np
 import pytest
 from bayesian_predictor import cli, settings
 
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
-
 
 @pytest.mark.parametrize(
     ("package", "description"),
@@ -630,7 +628,7 @@ def test_predictors_keep_their_selected_forecast_defaults(form):
         settings.parse_settings(form)
 
 
-@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_settings_preserve_selected_method_and_units(form, method):
     form["data"]["inference_method"] = method
     form["priors"]["sigma_turn_rate_process_prior_upper_deg_s"] = "7.5"
@@ -659,21 +657,22 @@ def test_inference_method_display_labels_normalize_to_internal_values():
     assert "rbpf" not in settings.METHOD_DISPLAY_LABELS
     assert settings.METHOD_DISPLAY_LABELS["vi"] == "VI – Variational inference"
     assert settings.METHOD_DISPLAY_LABELS["mcmc"] == "MCMC – Markov chain Monte Carlo"
-    assert (
-        settings.METHOD_DISPLAY_LABELS["sequential_vi"]
-        == "Seq. VI – Sequential variational inference"
-    )
     for method, label in settings.METHOD_DISPLAY_LABELS.items():
         assert settings.normalize_inference_method(label) == method
         assert settings.normalize_inference_method(method) == method
 
 
-def test_gui_inference_method_options_exclude_rbpf():
-    assert "rbpf" not in settings.METHODS
-    assert "rbpf" not in settings.default_form_values()
+def test_gui_offers_smc_vi_and_mcmc_inference():
+    assert settings.METHODS == ("smc", "vi", "mcmc")
+    assert set(settings.default_form_values()) == {
+        "data",
+        "priors",
+        "smc",
+        "vi",
+        "mcmc",
+    }
     assert settings.METHOD_DISPLAY_OPTIONS == (
         settings.METHOD_DISPLAY_LABELS["smc"],
-        settings.METHOD_DISPLAY_LABELS["sequential_vi"],
         settings.METHOD_DISPLAY_LABELS["vi"],
         settings.METHOD_DISPLAY_LABELS["mcmc"],
     )
@@ -717,8 +716,7 @@ def test_settings_do_not_expose_manual_br24_start_selection(form):
 def test_settings_do_not_expose_automatic_track_recovery_controls(form):
     defaults = settings.default_form_values()
 
-    for method in ("smc", "sequential_vi"):
-        assert "predictive_log_density_threshold" not in defaults[method]
+    assert "predictive_log_density_threshold" not in defaults["smc"]
     assert "br24_recovery_nis_gate" not in defaults["smc"]
 
     result = settings.parse_settings(form)
@@ -739,48 +737,6 @@ def test_predictors_default_to_associated_br24_with_reference():
     )
     assert str(IMMPlayerConfig().data_file) == data["data_file"]
     assert "run_id" not in data
-
-
-def test_sequential_vi_hides_bootstrap_and_preserves_its_internal_default(form):
-    defaults = settings.default_form_values()["sequential_vi"]
-
-    assert "n_bootstrap" not in defaults
-    assert settings.create_default_sequential_vi_config().n_bootstrap == 3
-    assert set(defaults) == set(SequentialVIConfig.__dataclass_fields__) - {
-        "n_bootstrap"
-    }
-    form["data"]["inference_method"] = "sequential_vi"
-    form["sequential_vi"]["draws"] = "32"
-    validated = settings.validate_dialog_values("sequential_vi", form["sequential_vi"])
-    assert set(validated) == set(defaults)
-    first = settings.parse_settings(form).analysis.sequential_vi_config
-    second = settings.parse_settings(form).analysis.sequential_vi_config
-
-    assert isinstance(first, SequentialVIConfig)
-    assert first.n_bootstrap == 3
-    assert first.draws == 32
-    assert first is not second
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("n_bootstrap", "2", "Bootstrap observations"),
-        ("algorithm", "meanfield", "fullrank"),
-        ("draws", "1", "Posterior draws"),
-    ],
-)
-def test_sequential_vi_settings_report_clear_invalid_fields(
-    form,
-    field,
-    value,
-    message,
-):
-    form["data"]["inference_method"] = "sequential_vi"
-    form["sequential_vi"][field] = value
-
-    with pytest.raises(ValueError, match=message):
-        settings.parse_settings(form)
 
 
 def test_bayesian_predictor_defaults_to_three_forecast_steps():
@@ -913,7 +869,7 @@ def test_batch_window_size_rejects_invalid_values_before_starting(form, count):
         settings.validate_dialog_values("data", {"batch_observation_count": count})
 
 
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_observation_noise_floor_is_absent_from_form_and_dialog(form, method):
     form["data"]["inference_method"] = method
     assert "sigma_position_observation_floor_m" not in form["priors"]
@@ -999,13 +955,12 @@ def test_dialog_validation_is_independent_of_csv_and_other_sections():
     assert values["priors"]["speed_prior_upper_mps"] == "25.5"
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc"])
 def test_inference_dialog_validates_the_method_being_edited(method):
     values = settings.default_form_values()[method]
     invalid_field = {
         "vi": "draws",
         "mcmc": "chains",
-        "sequential_vi": "draws",
     }.get(method, "particle_count")
     values[invalid_field] = "0"
     with pytest.raises(ValueError):

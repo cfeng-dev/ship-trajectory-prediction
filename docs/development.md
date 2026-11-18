@@ -56,10 +56,10 @@ Use **Language → English / Deutsch** to switch the interface and plot
 labels without restarting analysis. English is selected at startup.
 
 The built-in **Help** window describes the controls, settings, and keyboard
-shortcuts. SMC and Sequential VI update online; VI and MCMC repeatedly fit the
-latest 10 steps and are slower. For raw BR24 input, these windows count radar
+shortcuts. SMC updates online. VI and MCMC repeatedly fit the latest observations
+within the configured window. For raw BR24 input, these windows count radar
 cycles, including cycles without an accepted detection. Each method associates
-raw detections using its own predicted state; ground truth is evaluation-only.
+raw detections using its own predicted state. Ground truth is reserved for evaluation.
 
 ### 3. IMM Predictor
 

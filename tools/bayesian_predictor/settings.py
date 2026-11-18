@@ -7,10 +7,8 @@ from pathlib import Path
 from bayestraj.inference.configuration import (
     create_default_ctrv_smc_config,
     create_default_mcmc_config,
-    create_default_sequential_vi_config,
     create_default_vi_config,
 )
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.paths import project_path
 
@@ -38,17 +36,13 @@ COORDINATE_DISPLAY_MODES = _COORDINATE_DISPLAY_MODES
 PREDICTION_REGION_STYLE_DISPLAY_LABELS = _PREDICTION_REGION_STYLE_DISPLAY_LABELS
 PREDICTION_REGION_STYLE_DISPLAY_OPTIONS = _PREDICTION_REGION_STYLE_DISPLAY_OPTIONS
 
-METHODS = ("smc", "sequential_vi", "vi", "mcmc")
-GUI_INFERENCE_METHODS = ("smc", "sequential_vi", "vi", "mcmc")
+METHODS = ("smc", "vi", "mcmc")
 METHOD_DISPLAY_LABELS = {
     "smc": "SMC – Sequential Monte Carlo",
-    "sequential_vi": "Seq. VI – Sequential variational inference",
     "vi": "VI – Variational inference",
     "mcmc": "MCMC – Markov chain Monte Carlo",
 }
-METHOD_DISPLAY_OPTIONS = tuple(
-    METHOD_DISPLAY_LABELS[method] for method in GUI_INFERENCE_METHODS
-)
+METHOD_DISPLAY_OPTIONS = tuple(METHOD_DISPLAY_LABELS[method] for method in METHODS)
 METHOD_DISPLAY_TO_VALUE = {
     label: method for method, label in METHOD_DISPLAY_LABELS.items()
 }
@@ -129,7 +123,6 @@ LABELS = {
     "resample_ess_fraction": "Resampling: ESS fraction",
     "rejuvenation_scale": "Rejuvenation scale",
     "require_converged": "Require VI convergence",
-    "n_bootstrap": "Bootstrap observations",
     "algorithm": "VI algorithm",
     "iter": "Maximum VI iterations",
     "grad_samples": "Gradient samples",
@@ -140,8 +133,6 @@ LABELS = {
     "eval_elbo": "ELBO evaluation interval",
     "draws": "Posterior draws",
     "show_console": "Show CmdStan console",
-    "covariance_jitter": "Covariance jitter",
-    "regularization_attempts": "Covariance regularization attempts",
 }
 
 
@@ -176,7 +167,6 @@ class ExplorerSettings:
 
 def _defaults():
     vi_defaults = create_default_vi_config()
-    sequential_vi_defaults = asdict(create_default_sequential_vi_config())
     return {
         "data": {
             "data_file": str(
@@ -211,7 +201,6 @@ def _defaults():
         },
         "priors": asdict(BayesianCTRVPriors()),
         "smc": asdict(create_default_ctrv_smc_config()),
-        "sequential_vi": sequential_vi_defaults,
         "vi": vi_defaults,
         "mcmc": create_default_mcmc_config(),
     }
@@ -227,7 +216,6 @@ def default_form_values():
             if value is None
             else str(value)
             for key, value in fields.items()
-            if group != "sequential_vi" or key != "n_bootstrap"
         }
         for group, fields in _defaults().items()
     }
@@ -286,16 +274,6 @@ def _validate_batch(method, fields):
             raise ValueError("adapt_delta must be between 0 and 1.")
         if fields["parallel_chains"] > fields["chains"]:
             raise ValueError("parallel_chains must not exceed chains.")
-
-
-def _validate_sequential_vi(fields):
-    if fields["n_bootstrap"] < 3:
-        raise ValueError("Bootstrap observations must be at least 3.")
-    if fields["algorithm"] != "fullrank":
-        raise ValueError("Sequential VI algorithm must be fullrank.")
-    if fields["draws"] < 2:
-        raise ValueError("Posterior draws must be at least 2.")
-    SequentialVIConfig(**fields)
 
 
 def _validate_data_options(fields):
@@ -360,9 +338,6 @@ def validate_dialog_values(group, values):
         BayesianCTRVPriors(**parsed)
     elif group == "smc":
         type(create_default_ctrv_smc_config())(**parsed)
-    elif group == "sequential_vi":
-        _validate_sequential_vi(parsed)
-        parsed.pop("n_bootstrap")
     else:
         _validate_batch(group, parsed)
     return parsed
@@ -378,7 +353,7 @@ def parse_settings(values) -> ExplorerSettings:
         raise ValueError("Select an existing CSV file.")
     method = data["inference_method"]
     if method not in METHODS:
-        raise ValueError("Inference method must be smc, sequential_vi, vi, or mcmc.")
+        raise ValueError("Inference method must be smc, vi, or mcmc.")
     maximum = data["maximum_observation_count"]
     try:
         data["maximum_observation_count"] = int(maximum) if maximum else None
@@ -397,12 +372,8 @@ def parse_settings(values) -> ExplorerSettings:
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
-    if method == "sequential_vi":
-        _validate_sequential_vi(defaults[method])
-    else:
-        _validate_batch(method, defaults[method])
+    _validate_batch(method, defaults[method])
     smc = type(create_default_ctrv_smc_config())(**defaults["smc"])
-    sequential_vi = SequentialVIConfig(**defaults["sequential_vi"])
     return ExplorerSettings(
         AnalysisSettings(
             data_file=data_file,
@@ -411,7 +382,6 @@ def parse_settings(values) -> ExplorerSettings:
             vi_config=defaults["vi"],
             mcmc_config=defaults["mcmc"],
             smc_config=smc,
-            sequential_vi_config=sequential_vi,
         ),
         playback_interval_ms=interval,
         coordinate_display_mode=coordinate_display_mode,

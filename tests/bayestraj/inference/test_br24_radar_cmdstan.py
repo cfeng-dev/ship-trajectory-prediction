@@ -9,7 +9,6 @@ import pytest
 
 from bayestraj.forecasting.bayesian_ctrv import RollingExperimentConfig
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.validation.bayesian_ctrv_evaluation import export_evaluation_csv
@@ -21,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.skipif(not RUN_INTEGRATION, reason="Set RUN_CMDSTAN_INTEGRATION=1.")
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     tmp_path, monkeypatch, method
 ):
@@ -53,7 +52,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
     ] = np.nan
     input_csv = tmp_path / "radar_with_miss.csv"
     data.to_csv(input_csv, index=False)
-    window_count = 4 if method == "sequential_vi" else 3
+    window_count = 3
     options = BayesianCTRVEvaluationOptions(
         observation_count=5,
         prediction_count=2,
@@ -106,7 +105,6 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         smc_config=SequentialMonteCarloCTRVConfig(
             particle_count=64, posterior_draw_count=64
         ),
-        sequential_vi_config=SequentialVIConfig(n_bootstrap=3, **vi_config),
         fullrank_grad_samples=20,
         credible_interval=0.9,
         options=options,
@@ -139,7 +137,7 @@ def test_real_br24_methods_fit_and_forecast_across_a_missing_cycle(
         )
     )
     expected_files = {input_csv}
-    if method in {"vi", "sequential_vi"}:
+    if method == "vi":
         prior = predictions.loc[predictions["is_prior_predictive"]]
         assert prior["vi_termination"].isna().all()
         assert prior["vi_elbo_delta_mean"].isna().all()

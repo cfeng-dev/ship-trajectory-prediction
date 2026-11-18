@@ -11,7 +11,6 @@ import bayestraj.inference.br24_radar_tracker as br24_radar_tracker
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
 import bayestraj.inference.ctrv_cmdstan as batch_inference
-import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.numeric_validation as numeric_validation
@@ -31,7 +30,6 @@ def _resolve_inference_configs(
     vi_config,
     mcmc_config,
     smc_config,
-    sequential_vi_config=None,
 ):
     """Return explicit inference settings or the source-owned defaults."""
     return (
@@ -40,9 +38,6 @@ def _resolve_inference_configs(
         inference.create_default_ctrv_smc_config()
         if smc_config is None
         else smc_config,
-        inference.create_default_sequential_vi_config()
-        if sequential_vi_config is None
-        else sequential_vi_config,
     )
 
 
@@ -54,7 +49,6 @@ def run_bayesian_ctrv_evaluation(
     vi_config=None,
     mcmc_config=None,
     smc_config=None,
-    sequential_vi_config=None,
     fullrank_grad_samples,
     credible_interval,
     options: validation_cli.BayesianCTRVEvaluationOptions,
@@ -66,13 +60,10 @@ def run_bayesian_ctrv_evaluation(
     association_records receives raw fixes and explicit misses without changing
     the two-value return contract or processing additional radar cycles.
     """
-    vi_config, mcmc_config, smc_config, sequential_vi_config = (
-        _resolve_inference_configs(
-            vi_config,
-            mcmc_config,
-            smc_config,
-            sequential_vi_config,
-        )
+    vi_config, mcmc_config, smc_config = _resolve_inference_configs(
+        vi_config,
+        mcmc_config,
+        smc_config,
     )
     configured_experiment = dataclasses.replace(
         experiment,
@@ -107,7 +98,6 @@ def run_bayesian_ctrv_evaluation(
             vi_config=radar_vi_config,
             mcmc_config=mcmc_config,
             smc_config=smc_config,
-            sequential_vi_config=sequential_vi_config,
             credible_interval=credible_interval,
             student_t_scores=options.student_t_scores,
             max_windows=options.max_windows,
@@ -121,7 +111,6 @@ def run_bayesian_ctrv_evaluation(
         vi_config=vi_config,
         mcmc_config=mcmc_config,
         smc_config=smc_config,
-        sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         student_t_scores=options.student_t_scores,
@@ -140,7 +129,6 @@ def _run_evaluation(
     vi_config,
     mcmc_config,
     smc_config,
-    sequential_vi_config,
     fullrank_grad_samples,
     credible_interval,
     student_t_scores,
@@ -156,26 +144,11 @@ def _run_evaluation(
     online_mode = inference_mode == "online"
     if online_mode:
         inference_config = {}
-        if inference_method == "smc":
-            if not isinstance(
-                smc_config,
-                smc_model.SequentialMonteCarloCTRVConfig,
-            ):
-                raise TypeError(
-                    "smc_config must be a SequentialMonteCarloCTRVConfig instance."
-                )
-            particle_filter_config = smc_config
-        else:
-            if not isinstance(
-                sequential_vi_config,
-                sequential_vi_model.SequentialVIConfig,
-            ):
-                raise TypeError(
-                    "sequential_vi_config must be a SequentialVIConfig instance."
-                )
-            particle_filter_config = None
+        if not isinstance(smc_config, smc_model.SequentialMonteCarloCTRVConfig):
+            raise TypeError(
+                "smc_config must be a SequentialMonteCarloCTRVConfig instance."
+            )
     else:
-        particle_filter_config = None
         inference_method, inference_config = inference.select_inference_config(
             inference_mode,
             inference_method,
@@ -272,17 +245,13 @@ def _run_evaluation(
         f"{priors.sigma_turn_rate_process_prior_tail_probability:g})"
     )
     if online_mode:
-        _print_online_configuration(
-            inference_method,
-            particle_filter_config=particle_filter_config,
-            sequential_vi_config=sequential_vi_config,
-        )
+        _print_smc_configuration(smc_config)
 
     prediction_tables = []
     online_filter = None
     noisy_route_x = route_x + route_noise_x
     noisy_route_y = route_y + route_noise_y
-    if online_mode and inference_method == "smc" and windows:
+    if online_mode and windows:
         online_filter = smc_model.SequentialMonteCarloCTRVFilter.initialize(
             route_time_seconds[:1],
             noisy_route_x[:1],
@@ -313,26 +282,17 @@ def _run_evaluation(
             noise_seed=experiment.position_noise_seed,
         )
         fit_runtime_started = time.perf_counter()
-        minimum_fit_count = (
-            sequential_vi_config.n_bootstrap
-            if inference_method == "sequential_vi"
-            else bayesian_model.MIN_OBSERVATION_COUNT
-        )
         is_prior_predictive = (
-            inference_method != "smc"
-            and specification.observation_count < minimum_fit_count
+            not online_mode
+            and specification.observation_count < bayesian_model.MIN_OBSERVATION_COUNT
         )
         if is_prior_predictive:
-            draw_count = (
-                sequential_vi_config.draws
-                if inference_method == "sequential_vi"
-                else inference_config.get(
-                    "draws",
-                    inference_config.get("chains", 1)
-                    * inference_config.get("iter_sampling", 1_000),
-                )
+            draw_count = inference_config.get(
+                "draws",
+                inference_config.get("chains", 1)
+                * inference_config.get("iter_sampling", 1_000),
             )
-            fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+            fit = batch_inference.forecast_ctrv_prior_predictive(
                 x_at_origin=position_observations.x_meters[-1],
                 y_at_origin=position_observations.y_meters[-1],
                 origin_time_seconds=window.time_seconds[window.observation_count - 1],
@@ -350,8 +310,6 @@ def _run_evaluation(
                 noisy_route_y=noisy_route_y,
                 priors=priors,
                 smc_config=smc_config,
-                sequential_vi_config=sequential_vi_config,
-                inference_method=inference_method,
                 inference_seed=experiment.inference_seed,
             )
             prediction_stop_index = (
@@ -385,7 +343,7 @@ def _run_evaluation(
             converged = None
             mcmc_diagnostics_ok = _mcmc_diagnostics_ok(fit)
             inference_status = f"MCMC diagnostics passed={mcmc_diagnostics_ok}"
-        elif inference_method == "smc":
+        else:
             converged = None
             mcmc_diagnostics_ok = None
             latest_update_ess = online_filter.last_effective_sample_size
@@ -395,20 +353,8 @@ def _run_evaluation(
                 f"{inference_method.upper()} posterior "
                 f"processed={online_filter.processed_observation_count}, "
                 f"latest-update ESS={latest_update_ess:.0f}/"
-                f"{particle_filter_config.particle_count}, "
+                f"{smc_config.particle_count}, "
                 f"resamples={online_filter.resample_count}"
-            )
-        else:
-            converged = online_filter.bootstrap_converged and all(
-                update.converged for update in online_filter.updates
-            )
-            mcmc_diagnostics_ok = None
-            inference_status = (
-                "Sequential VI posterior "
-                f"processed={online_filter.processed_observation_count}, "
-                f"bootstrap={online_filter.bootstrap_runtime_seconds:.3f} s, "
-                f"updates={sum(update.runtime_seconds for update in online_filter.updates):.3f} s, "
-                f"converged={converged}"
             )
 
         evaluation = metrics.evaluate_position_predictions(
@@ -422,30 +368,14 @@ def _run_evaluation(
         diagnostics.update(
             _mcmc_diagnostics(fit if inference_method == "mcmc" else None)
         )
-        vi_fit = (
-            getattr(online_filter, "last_fit", None)
-            if inference_method == "sequential_vi"
-            else fit
-        )
         diagnostics.update(
             cmdstan_inference.variational_diagnostics(
-                vi_fit
-                if inference_method in {"vi", "sequential_vi"}
-                and not is_prior_predictive
-                else None
+                fit if inference_method == "vi" and not is_prior_predictive else None
             )
         )
         diagnostics["is_prior_predictive"] = is_prior_predictive
         if online_mode and online_filter is not None:
-            if inference_method == "smc":
-                diagnostics.update(
-                    _online_filter_diagnostics(
-                        online_filter,
-                        particle_filter_config,
-                    )
-                )
-            else:
-                diagnostics.update(_sequential_vi_diagnostics(online_filter))
+            diagnostics.update(_online_filter_diagnostics(online_filter, smc_config))
         table = _build_route_prediction_table(
             evaluation.prediction_table,
             specification=specification,
@@ -489,7 +419,6 @@ def _run_br24_radar_evaluation(
     vi_config,
     mcmc_config,
     smc_config,
-    sequential_vi_config,
     credible_interval,
     student_t_scores,
     max_windows,
@@ -555,7 +484,6 @@ def _run_br24_radar_evaluation(
         ),
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        sequential_vi_config=sequential_vi_config,
     )
     if associated_input:
         first = cycles[0]
@@ -604,11 +532,7 @@ def _run_br24_radar_evaluation(
     print("Position noise        : disabled; raw radar covariance per detection")
     print("Reference labels      : evaluation only")
     if inference_mode == "online":
-        _print_online_configuration(
-            inference_method,
-            particle_filter_config=smc_config,
-            sequential_vi_config=sequential_vi_config,
-        )
+        _print_smc_configuration(smc_config)
 
     prediction_tables = []
     for number, specification in enumerate(windows, start=1):
@@ -665,7 +589,7 @@ def _run_br24_radar_evaluation(
         )
         diagnostics.update(
             cmdstan_inference.variational_diagnostics(
-                last_fit if inference_method in {"vi", "sequential_vi"} else None
+                last_fit if inference_method == "vi" else None
             )
         )
         mcmc_diagnostics_ok = (
@@ -831,18 +755,8 @@ def _build_evaluation_windows(
     )
 
 
-def _print_online_configuration(
-    inference_method,
-    *,
-    particle_filter_config,
-    sequential_vi_config,
-):
-    """Print settings for the selected persistent online approximation."""
-    if inference_method == "sequential_vi":
-        print(f"Bootstrap observations: {sequential_vi_config.n_bootstrap}")
-        print(f"Posterior draws       : {sequential_vi_config.draws}")
-        print("Variational family    : fullrank")
-        return
+def _print_smc_configuration(particle_filter_config):
+    """Print settings for the persistent particle filter."""
     print(f"Particles             : {particle_filter_config.particle_count}")
     print(f"Posterior draws       : {particle_filter_config.posterior_draw_count}")
     print(
@@ -904,28 +818,6 @@ def _online_filter_diagnostics(online_filter, particle_filter_config):
     }
 
 
-def _sequential_vi_diagnostics(online_filter):
-    """Return bootstrap and incremental VI runtime diagnostics."""
-    latest_runtime = (
-        online_filter.updates[-1].runtime_seconds if online_filter.updates else 0.0
-    )
-    cumulative_update_runtime = sum(
-        update.runtime_seconds for update in online_filter.updates
-    )
-    return {
-        "sequential_vi_bootstrap_runtime_seconds": float(
-            online_filter.bootstrap_runtime_seconds
-        ),
-        "sequential_vi_latest_update_runtime_seconds": float(latest_runtime),
-        "sequential_vi_cumulative_update_runtime_seconds": float(
-            cumulative_update_runtime
-        ),
-        "sequential_vi_processed_observation_count": int(
-            online_filter.processed_observation_count
-        ),
-    }
-
-
 def _advance_online_filter(
     online_filter,
     *,
@@ -936,28 +828,16 @@ def _advance_online_filter(
     priors,
     inference_seed,
     smc_config=None,
-    sequential_vi_config=None,
-    inference_method="smc",
 ):
-    """Initialize once or update one persistent online CTRV approximation."""
+    """Initialize once or update the persistent particle filter."""
     update_stop_index = specification.forecast_start_index
     if online_filter is None:
-        if inference_method == "smc":
-            filter_type = smc_model.SequentialMonteCarloCTRVFilter
-            filter_config = smc_config
-        elif inference_method == "sequential_vi":
-            filter_type = sequential_vi_model.SequentialCTRVVI
-            filter_config = sequential_vi_config
-        else:
-            raise ValueError(
-                f"Unsupported online inference method: {inference_method!r}."
-            )
-        return filter_type.initialize(
+        return smc_model.SequentialMonteCarloCTRVFilter.initialize(
             route_time_seconds[:update_stop_index],
             noisy_route_x[:update_stop_index],
             noisy_route_y[:update_stop_index],
             priors=priors,
-            config=filter_config,
+            config=smc_config,
             seed=inference_seed,
         )
 

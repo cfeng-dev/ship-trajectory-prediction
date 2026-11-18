@@ -15,7 +15,6 @@ import pandas as pd
 from bayestraj import numeric_validation
 from bayestraj.inference import configuration as inference
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import MIN_OBSERVATION_COUNT, BayesianCTRVPriors
 from bayestraj.observations.br24 import (
@@ -29,7 +28,7 @@ IMM_TRACKED_TRAJECTORY_CSV = project_path(
     "data/processed/BR24_imm_tracked_trajectory.csv"
 )
 OUTPUT_DIR = project_path("results/validation")
-INFERENCE_METHOD = "smc"  # "smc", "mcmc", "vi", or "seq_vi".
+INFERENCE_METHOD = "smc"  # "smc", "mcmc", or "vi".
 OBSERVATION_COUNT = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT
 INFERENCE_SEED = 42
 MAX_CYCLES = None
@@ -47,7 +46,6 @@ def compare_associations(
     observation_count: int = inference.DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT,
     vi_config: Mapping[str, Any] | None = None,
     mcmc_config: Mapping[str, Any] | None = None,
-    sequential_vi_config: SequentialVIConfig | None = None,
     max_cycles: int | None = None,
     bayesian_csv: str | Path | None = None,
 ) -> pd.DataFrame:
@@ -123,7 +121,6 @@ def compare_associations(
             observation_count=observation_count,
             vi_config=vi_options,
             mcmc_config=mcmc_options,
-            sequential_vi_config=sequential_vi_config,
         )
         bayesian_detection_ids = {initial_cycle.cycle_counter: initial_detection_id}
         for cycle in cycles[1:]:
@@ -315,7 +312,7 @@ def main(argv=None) -> pd.DataFrame:
     parser.add_argument(
         "--method",
         default=INFERENCE_METHOD,
-        choices=(*inference.CTRV_ROLLING_INFERENCE_METHODS, "seq_vi"),
+        choices=inference.CTRV_ROLLING_INFERENCE_METHODS,
     )
     parser.add_argument("--raw-csv", type=Path, default=RAW_INPUT_CSV)
     parser.add_argument("--imm-csv", type=Path, default=IMM_TRACKED_TRAJECTORY_CSV)
@@ -330,8 +327,7 @@ def main(argv=None) -> pd.DataFrame:
     parser.add_argument("--max-cycles", type=int, default=MAX_CYCLES)
     options = parser.parse_args(argv)
     _, method = inference.normalize_inference_method(options.method)
-    name = "seq_vi" if method == "sequential_vi" else method
-    output = options.output_dir / f"BR24_association_comparison_{name}.csv"
+    output = options.output_dir / f"BR24_association_comparison_{method}.csv"
     print(f"\nRunning BR24 association check: {method.upper()}", flush=True)
     comparison = compare_associations(
         raw_csv=options.raw_csv,

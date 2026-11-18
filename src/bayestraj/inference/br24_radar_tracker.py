@@ -1,4 +1,4 @@
-"""Bayesian CTRV radar tracking with SMC, VI, MCMC, and Sequential VI."""
+"""Bayesian CTRV radar tracking with SMC, VI, and MCMC."""
 
 from __future__ import annotations
 
@@ -11,11 +11,9 @@ import numpy as np
 
 from bayestraj.inference.br24_radar_inference import (
     BR24BatchAdapter,
-    BR24SequentialVIAdapter,
     BR24SMCAdapter,
     normalize_radar_inference_method,
 )
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
     SequentialMonteCarloCTRVConfig,
 )
@@ -46,7 +44,7 @@ class BR24TrackerStep:
 class BR24BayesianRadarTracker:
     """Associate raw detections using the selected method's predictive state."""
 
-    filter: BR24SMCAdapter | BR24BatchAdapter | BR24SequentialVIAdapter
+    filter: BR24SMCAdapter | BR24BatchAdapter
     association_gate_nis: float = ASSOCIATION_GATE_NIS
     inference_method: str = "smc"
     _accepted_measurement_count: int = 1
@@ -81,7 +79,6 @@ class BR24BayesianRadarTracker:
         observation_count: int = 10,
         vi_config: Mapping[str, Any] | None = None,
         mcmc_config: Mapping[str, Any] | None = None,
-        sequential_vi_config: SequentialVIConfig | None = None,
     ) -> BR24BayesianRadarTracker:
         """Start the target track from the documented manual BR24 seed."""
         detection = _detection_by_id(cycle.detections, initial_detection_id)
@@ -98,7 +95,6 @@ class BR24BayesianRadarTracker:
             observation_count=observation_count,
             vi_config=vi_config,
             mcmc_config=mcmc_config,
-            sequential_vi_config=sequential_vi_config,
         )
 
     @classmethod
@@ -115,7 +111,6 @@ class BR24BayesianRadarTracker:
         observation_count=10,
         vi_config=None,
         mcmc_config=None,
-        sequential_vi_config=None,
     ) -> BR24BayesianRadarTracker:
         """Initialize from an already associated Cartesian fix and its covariance."""
         covariance = measurement_covariance
@@ -127,16 +122,6 @@ class BR24BayesianRadarTracker:
                 covariance,
                 priors=priors,
                 config=config,
-                seed=seed,
-            )
-        elif inference_method == "sequential_vi":
-            radar_filter = BR24SequentialVIAdapter.initialize(
-                time_seconds,
-                position,
-                covariance,
-                priors=priors,
-                observation_count=observation_count,
-                config=sequential_vi_config,
                 seed=seed,
             )
         else:
@@ -242,7 +227,6 @@ def track_br24_csv(
     observation_count: int = 10,
     vi_config: Mapping[str, Any] | None = None,
     mcmc_config: Mapping[str, Any] | None = None,
-    sequential_vi_config: SequentialVIConfig | None = None,
 ) -> tuple[BR24BayesianRadarTracker, tuple[BR24TrackerStep, ...]]:
     """Track a manually seeded target through later BR24 radar cycles online."""
     cycles = read_br24_tracking_input(input_csv)
@@ -267,7 +251,6 @@ def track_br24_csv(
         observation_count=observation_count,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        sequential_vi_config=sequential_vi_config,
     )
     steps = [
         BR24TrackerStep(

@@ -4,15 +4,13 @@ from collections.abc import Mapping
 from typing import Any
 
 import bayestraj.inference.cmdstan as inference_support
-import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 
 DEFAULT_FULLRANK_GRAD_SAMPLES = 20
 DEFAULT_CTRV_ROLLING_OBSERVATION_COUNT = 10
 INFERENCE_MODES = ("batch", "online")
 BATCH_INFERENCE_METHODS = ("vi", "mcmc")
-ONLINE_INFERENCE_METHODS = ("smc", "sequential_vi")
-INFERENCE_METHOD_ALIASES = {"seq_vi": "sequential_vi"}
+ONLINE_INFERENCE_METHODS = ("smc",)
 CTRV_ONLINE_INFERENCE_METHODS = ONLINE_INFERENCE_METHODS
 WINDOW_MODES = ("sliding", "expanding")
 _CTRV_ROLLING_BATCH_INFERENCE_METHODS = {
@@ -30,14 +28,11 @@ def normalize_inference_method(
     *,
     online_inference_methods: tuple[str, ...] = ONLINE_INFERENCE_METHODS,
 ) -> tuple[str, str]:
-    """Validate a method or short alias and derive its batch or online mode."""
+    """Validate a method and derive its batch or online mode."""
     if not isinstance(inference_method, str):
         raise ValueError("inference_method must be a supported inference method.")
 
     normalized_method = inference_method.strip().lower()
-    normalized_method = INFERENCE_METHOD_ALIASES.get(
-        normalized_method, normalized_method
-    )
     if normalized_method in BATCH_INFERENCE_METHODS:
         return "batch", normalized_method
     if normalized_method in online_inference_methods:
@@ -64,9 +59,6 @@ def normalize_inference_configuration(
     if not isinstance(inference_method, str):
         raise ValueError("inference_method must be a supported inference method.")
     normalized_method = inference_method.strip().lower()
-    normalized_method = INFERENCE_METHOD_ALIASES.get(
-        normalized_method, normalized_method
-    )
     allowed_methods = (
         BATCH_INFERENCE_METHODS
         if normalized_mode == "batch"
@@ -119,9 +111,6 @@ def normalize_ctrv_rolling_inference_method(
         raise ValueError("rolling inference_method must be a supported value.")
 
     normalized_selection = inference_method.strip().lower()
-    normalized_selection = INFERENCE_METHOD_ALIASES.get(
-        normalized_selection, normalized_selection
-    )
     if normalized_selection in CTRV_ONLINE_INFERENCE_METHODS:
         return "online", normalized_selection, None
     if normalized_selection in _CTRV_ROLLING_BATCH_INFERENCE_METHODS:
@@ -197,11 +186,6 @@ def create_default_mcmc_config() -> dict[str, Any]:
 def create_default_ctrv_smc_config() -> smc_model.SequentialMonteCarloCTRVConfig:
     """Return independent default settings for Bayesian CTRV guided SMC."""
     return smc_model.SequentialMonteCarloCTRVConfig()
-
-
-def create_default_sequential_vi_config() -> sequential_vi_model.SequentialVIConfig:
-    """Return independent default settings for online Sequential VI."""
-    return sequential_vi_model.SequentialVIConfig()
 
 
 def select_inference_config(

@@ -3,9 +3,8 @@
 import numpy as np
 import pytest
 
-from bayestraj.inference import br24_radar_inference, ctrv_cmdstan, ctrv_sequential_vi
+from bayestraj.inference import ctrv_cmdstan
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import (
     SequentialMonteCarloCTRVConfig,
     SequentialMonteCarloCTRVFilter,
@@ -70,7 +69,6 @@ def _tracker(method, **options):
         ),
         inference_method=method,
         observation_count=6,
-        sequential_vi_config=SequentialVIConfig(n_bootstrap=3, draws=40),
         seed=42,
         **options,
     )
@@ -82,7 +80,6 @@ def _tracker(method, **options):
         ("smc", "BR24SMCAdapter"),
         ("mcmc", "BR24BatchAdapter"),
         ("vi", "BR24BatchAdapter"),
-        ("sequential_vi", "BR24SequentialVIAdapter"),
     ],
 )
 def test_tracker_selects_a_method_specific_radar_adapter(method, adapter_name):
@@ -91,12 +88,6 @@ def test_tracker_selects_a_method_specific_radar_adapter(method, adapter_name):
     assert adapter.estimated_position.shape == (2,)
     assert adapter.processed_observation_count == 1
     assert adapter.last_observation_time_seconds == 0.0
-
-
-def test_sequential_vi_adapter_does_not_inherit_batch_adapter():
-    adapter = _tracker("sequential_vi").filter
-    assert hasattr(br24_radar_inference, "BR24BatchAdapter")
-    assert not isinstance(adapter, br24_radar_inference.BR24BatchAdapter)
 
 
 def test_smc_adapter_preserves_native_filter_state_draws_and_diagnostics():
@@ -164,7 +155,7 @@ def test_smc_adapter_preserves_native_filter_state_draws_and_diagnostics():
             )
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
 def test_log_density_scores_the_new_fix_before_fitting_with_full_covariance(
     monkeypatch, method
 ):
@@ -193,12 +184,12 @@ def test_log_density_scores_the_new_fix_before_fitting_with_full_covariance(
     assert radar_filter.last_log_predictive_density == pytest.approx(expected)
     assert radar_filter.predictive_log_density_history[-1] == pytest.approx(expected)
     assert len(radar_filter.predictive_log_density_history) == 2
-    assert radar_filter.posterior_fit_count == (1 if method == "sequential_vi" else 2)
+    assert radar_filter.posterior_fit_count == 2
     assert radar_filter.converged is (None if method == "mcmc" else False)
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
-def test_log_density_updates_after_bootstrap_and_is_cleared_for_a_missed_fix(
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_log_density_updates_after_first_fit_and_is_cleared_for_a_missed_fix(
     monkeypatch, method
 ):
     def fitter(*args, **kwargs):
@@ -207,9 +198,6 @@ def test_log_density_updates_after_bootstrap_and_is_cleared_for_a_missed_fix(
         return _fit()
 
     monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", fitter)
-    monkeypatch.setattr(
-        ctrv_sequential_vi, "fit_sequential_update", lambda *args, **kwargs: _fit()
-    )
     tracker = _tracker(method)
     tracker.process_cycle(_cycle(0.4))
     tracker.process_cycle(_cycle(1.7))
@@ -218,10 +206,6 @@ def test_log_density_updates_after_bootstrap_and_is_cleared_for_a_missed_fix(
 
     assert np.isfinite(radar_filter.last_log_predictive_density)
     assert len(radar_filter.predictive_log_density_history) == 3
-    if method == "sequential_vi":
-        assert radar_filter.last_log_predictive_density == (
-            radar_filter.sequential_filter.last_log_predictive_density
-        )
     history = radar_filter.predictive_log_density_history.copy()
     tracker.process_cycle(_cycle(3.7, ranges=()))
     assert radar_filter.last_log_predictive_density is None
@@ -231,55 +215,22 @@ def test_log_density_updates_after_bootstrap_and_is_cleared_for_a_missed_fix(
     assert len(radar_filter.predictive_log_density_history) == 4
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
 def test_failed_fit_does_not_publish_a_new_log_density(monkeypatch, method):
     def failed_fit(*args, **kwargs):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", failed_fit)
     tracker = _tracker(method)
-    if method == "sequential_vi":
-        tracker.process_cycle(_cycle(0.4))
     previous = tracker.filter.last_log_predictive_density
     history = tracker.filter.predictive_log_density_history.copy()
     with pytest.raises(RuntimeError, match="fit failed"):
-        tracker.process_cycle(_cycle(1.7 if method == "sequential_vi" else 0.4))
+        tracker.process_cycle(_cycle(0.4))
     assert tracker.filter.last_log_predictive_density == previous
     assert tracker.filter.predictive_log_density_history == history
 
 
-@pytest.mark.parametrize(
-    ("bootstrap_converged", "update_flags", "expected"),
-    [(False, [True], False), (True, [False, True], False), (True, [True, True], True)],
-)
-def test_sequential_convergence_retains_every_carried_fit_failure(
-    monkeypatch, bootstrap_converged, update_flags, expected
-):
-    def batch_fitter(*args, **kwargs):
-        fit = _fit()
-        fit.converged = bootstrap_converged
-        return fit
-
-    flags = iter(update_flags)
-
-    def update_fitter(*args, **kwargs):
-        fit = _fit()
-        fit.converged = next(flags)
-        return fit
-
-    monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", batch_fitter)
-    monkeypatch.setattr(ctrv_sequential_vi, "fit_sequential_update", update_fitter)
-    tracker = _tracker("sequential_vi")
-    tracker.process_cycle(_cycle(0.4))
-    tracker.process_cycle(_cycle(1.7))
-    for time in (2.2, 3.7)[: len(update_flags)]:
-        tracker.process_cycle(_cycle(time, ranges=(30.0,)))
-
-    assert tracker.filter.converged is expected
-    assert tracker.filter.diagnostics["converged"] is expected
-
-
-@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
 def test_each_backend_associates_using_its_own_fitted_prediction(monkeypatch, method):
     calls = []
 
@@ -290,9 +241,6 @@ def test_each_backend_associates_using_its_own_fitted_prediction(monkeypatch, me
         return _fit(150.0 if method == "mcmc" else 130.0)
 
     monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", fitter)
-    monkeypatch.setattr(
-        ctrv_sequential_vi, "fit_sequential_update", lambda *args, **kwargs: _fit()
-    )
 
     def forbidden_smc(*args, **kwargs):
         raise AssertionError("A non-SMC backend must not run an SMC prepass")
@@ -304,14 +252,12 @@ def test_each_backend_associates_using_its_own_fitted_prediction(monkeypatch, me
     step = tracker.process_cycle(_cycle(2.2, ranges=(10.0, 30.0, 50.0)))
 
     assert step.detection_id == (3 if method == "mcmc" else 2)
-    assert calls[0] == ("mcmc" if method == "mcmc" else "vi")
+    assert calls[0] == method
     assert tracker.accepted_measurement_count == 4
     assert not tracker.is_prior_predictive
     assert tracker.filter.last_fit is not None
     assert tracker.filter.converged is (None if method == "mcmc" else True)
-    assert tracker.filter.diagnostics["posterior_fit_count"] == (
-        2 if method == "sequential_vi" else 3
-    )
+    assert tracker.filter.diagnostics["posterior_fit_count"] == 3
 
 
 @pytest.mark.parametrize("method", ["vi", "mcmc"])
@@ -346,27 +292,23 @@ def test_batch_passes_full_cycle_grid_mask_and_correlated_sensor_covariance(
     assert tracker.accepted_measurement_count == 3
 
 
-@pytest.mark.parametrize("method", ["sequential_vi"])
-def test_seed_warmup_keeps_uncertainty_and_does_not_reanchor_on_buffered_fixes(method):
-    accepted = _tracker(method)
-    missed = _tracker(method)
-    draws = accepted.filter.forecast([0.01], seed=100)
-    assert np.var(draws.stan_variable("x_at_origin")) > 1.0
-    accepted.process_cycle(_cycle(0.4, ranges=(18.0,)))
-    missed.process_cycle(_cycle(0.4, ranges=()))
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_batch_seed_prior_keeps_position_uncertainty_through_missed_cycle(method):
+    tracker = _tracker(method)
+    before = tracker.filter.forecast([0.01], seed=100)
+    assert np.var(before.stan_variable("x_at_origin")) > 1.0
 
-    np.testing.assert_allclose(accepted.estimated_position, missed.estimated_position)
-    np.testing.assert_allclose(
-        accepted.filter.predict_position_distribution(1.7)[0],
-        missed.filter.predict_position_distribution(1.7)[0],
-    )
-    assert accepted.accepted_measurement_count == 2
-    assert missed.accepted_measurement_count == 1
-    assert accepted.is_prior_predictive
-    assert accepted.fit_status == "seed_conditioned_prior"
+    tracker.process_cycle(_cycle(0.4, ranges=()))
+    after = tracker.filter.forecast([1.7], seed=100)
+
+    assert np.var(after.stan_variable("x_at_origin")) > 1.0
+    assert tracker.accepted_measurement_count == 1
+    assert tracker.filter.processed_observation_count == 2
+    assert tracker.is_prior_predictive
+    assert tracker.fit_status == "seed_conditioned_prior"
 
 
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_rendering_and_repeated_forecasts_cannot_change_later_association(
     monkeypatch, method
 ):
@@ -418,44 +360,7 @@ def test_batch_retains_last_posterior_when_recent_cycle_window_loses_fixes(
     assert tracker.filter.diagnostics["window_accepted_measurement_count"] == 1
 
 
-def test_sequential_vi_bootstraps_on_real_fixes_and_predicts_through_misses(
-    monkeypatch,
-):
-    batches = []
-    updates = []
-
-    def batch_fitter(window, **kwargs):
-        batches.append(kwargs)
-        return _fit()
-
-    def update_fitter(*args, **kwargs):
-        updates.append(kwargs)
-        return _fit()
-
-    monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", batch_fitter)
-    monkeypatch.setattr(ctrv_sequential_vi, "fit_sequential_update", update_fitter)
-    tracker = _tracker("sequential_vi")
-    tracker.process_cycle(_cycle(0.4, ranges=()))
-    tracker.process_cycle(_cycle(1.7))
-    tracker.process_cycle(_cycle(2.2))
-    tracker.process_cycle(_cycle(3.7, ranges=()))
-    tracker.process_cycle(_cycle(4.1, ranges=(30.0,)))
-
-    assert len(batches) == 1
-    observations = batches[0]["position_observations"]
-    np.testing.assert_array_equal(observations.time_seconds, [0, 0.4, 1.7, 2.2])
-    np.testing.assert_array_equal(observations.observed_mask, [1, 0, 1, 1])
-    assert len(updates) == 1
-    assert updates[0]["process_interval_seconds"] == 1.5
-    assert updates[0]["observation_interval_seconds"] == pytest.approx(0.4)
-    assert "measurement_covariance" in updates[0]
-    assert tracker.filter.processed_observation_count == 6
-    assert tracker.accepted_measurement_count == 4
-    assert tracker.filter.sequential_filter.processed_cycle_count == 6
-    assert tracker.filter.sequential_filter.processed_observation_count == 4
-
-
-@pytest.mark.parametrize("method", ["vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
 def test_fitted_posterior_rendering_cannot_change_next_fit_or_association(
     monkeypatch, method
 ):
@@ -466,7 +371,6 @@ def test_fitted_posterior_rendering_cannot_change_next_fit_or_association(
         return _fit()
 
     monkeypatch.setattr(ctrv_cmdstan, "fit_bayesian_ctrv_model", fitter)
-    monkeypatch.setattr(ctrv_sequential_vi, "fit_sequential_update", fitter)
     rendered = _tracker(method)
     untouched = _tracker(method)
     for tracker in (rendered, untouched):
@@ -522,7 +426,7 @@ def test_batch_forecast_preserves_transition_informed_first_interval_motion(
     tracker.process_cycle(_cycle(0.4))
     tracker.process_cycle(_cycle(1.7))
     forecast = tracker.filter.forecast([2.7], seed=10)
-    # Existing Stan/SMC/Sequential VI forecasts use transition-informed motion
+    # Stan and SMC forecasts use transition-informed motion
     # for the first future interval; association uses prepared next motion.
     np.testing.assert_allclose(
         forecast.stan_variable("x_prediction")[:, 0]
@@ -531,3 +435,31 @@ def test_batch_forecast_preserves_transition_informed_first_interval_motion(
     )
     predicted_mean, _ = tracker.filter.predict_position_distribution(2.7)
     assert abs(predicted_mean[0] - forecast.stan_variable("x_prediction").mean()) > 0.5
+
+
+@pytest.mark.parametrize("method", ["vi", "mcmc"])
+def test_batch_reads_final_positions_from_stan_state_draws(monkeypatch, method):
+    origin_fit = _fit()
+
+    class StateHistoryFit:
+        converged = True
+
+        def stan_variable(self, name, *, mean=False):
+            assert not mean
+            if name in {"x_at_origin", "y_at_origin"}:
+                raise ValueError(name)
+            if name in {"x_state", "y_state"}:
+                origin = origin_fit.stan_variable(f"{name[0]}_at_origin")
+                return np.column_stack((np.zeros_like(origin), origin))
+            return origin_fit.stan_variable(name)
+
+    fit = StateHistoryFit()
+    if method == "vi":
+        fit.variational_sample = True
+    monkeypatch.setattr(
+        ctrv_cmdstan, "fit_bayesian_ctrv_model", lambda *args, **kwargs: fit
+    )
+    tracker = _tracker(method)
+    tracker.process_cycle(_cycle(0.4))
+
+    np.testing.assert_allclose(tracker.estimated_position, [130.0, -20.0])

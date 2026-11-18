@@ -1729,7 +1729,7 @@ def test_sidebar_keeps_only_data_selection_and_moves_analysis_inputs_to_settings
     assert "coordinate_display_mode" not in DATA_OPTION_FIELDS
 
 
-@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_batch_window_field_is_only_offered_for_batch_methods(root, method):
     from bayesian_predictor.dialogs import SettingsDialog
 
@@ -2075,7 +2075,7 @@ def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     dialog.apply()
     assert not dialog.winfo_exists()
     assert panel.variables["smc"]["particle_count"].get() == "64"
-    assert panel.values()["sequential_vi"] == original["sequential_vi"]
+    assert panel.values()["vi"] == original["vi"]
 
 
 def test_data_settings_dialog_keeps_an_empty_observation_interval_after_apply(

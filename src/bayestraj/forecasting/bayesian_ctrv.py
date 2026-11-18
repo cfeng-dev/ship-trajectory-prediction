@@ -10,7 +10,7 @@ class RollingExperimentConfig:
     """Configuration of one rolling parametric CTRV experiment.
 
     Attributes:
-        observation_count: Maximum past positions (raw radar cycles for BR24) per VI/MCMC fit. The window grows until this size is reached. Ignored by online SMC and Sequential VI; evaluation starts at N=2.
+        observation_count: Maximum past positions (raw radar cycles for BR24) per VI/MCMC fit. The window grows until this size is reached. Ignored by online SMC; evaluation starts at N=2.
 
         prediction_count: Number of future positions forecast per window.
 
@@ -20,7 +20,7 @@ class RollingExperimentConfig:
 
         stride: Number of newly observed positions between forecast origins; defaults to one. None uses the prediction horizon.
 
-        inference_method: ``vi``, ``mcmc``, ``smc``, or ``seq_vi`` (Sequential VI). VI and MCMC use a fixed sliding window.
+        inference_method: ``vi``, ``mcmc``, or ``smc``. VI and MCMC use a fixed sliding window.
 
         inference_seed: Random seed for reproducible inference.
     """

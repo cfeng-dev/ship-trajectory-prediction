@@ -100,17 +100,12 @@ PREDICTION_CSV_COLUMNS = (
     "last_fit_time_seconds",
     "last_fit_runtime_seconds",
     "cumulative_fit_runtime_seconds",
-    "bootstrap_completed",
     "last_fit_error",
     "particle_effective_sample_size",
     "particle_effective_sample_size_fraction",
     "particle_resample_count",
     "particle_processed_observation_count",
     "particle_count",
-    "sequential_vi_bootstrap_runtime_seconds",
-    "sequential_vi_latest_update_runtime_seconds",
-    "sequential_vi_cumulative_update_runtime_seconds",
-    "sequential_vi_processed_observation_count",
     "forecast_origin_time",
     "forecast_origin_seconds",
     "forecast_origin_x_route",
@@ -144,7 +139,6 @@ def run_evaluation(
     associations_output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
     vi_config=None,
     mcmc_config=None,
-    sequential_vi_config=None,
     options: cli.BayesianCTRVEvaluationOptions | None = None,
     selected_window_indices: Sequence[int] | None = None,
     require_csv_export: bool = False,
@@ -156,8 +150,8 @@ def run_evaluation(
     Omitted output paths use this module's settings, resolved from the project
     root when the evaluation runs. Explicit arguments remain available.
     The optional `{inference_method}` placeholder in `output_csv` follows the
-    actual selection, including command-line overrides. Sequential VI uses
-    `seq_vi` in filenames. Literal paths are also accepted for custom output
+    actual selection, including command-line overrides. Literal paths are also
+    accepted for custom output
     filenames. None or an empty string skips export with a terminal warning.
     associations_output_csv accepts the same placeholder for BR24 raw choices;
     None disables that export. Disabling output_csv still disables both files.
@@ -214,7 +208,6 @@ def run_evaluation(
         priors=priors,
         vi_config=vi_config,
         mcmc_config=mcmc_config,
-        sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=fullrank_grad_samples,
         credible_interval=credible_interval,
         options=options,
@@ -419,10 +412,7 @@ def _csv_output_path(
             raise TypeError("expected a .csv path or None")
         if "\0" in str(value):
             raise ValueError("CSV paths must not contain null characters")
-        filename_method = (
-            "seq_vi" if inference_method == "sequential_vi" else inference_method
-        )
-        path = Path(str(value).replace("{inference_method}", filename_method))
+        path = Path(str(value).replace("{inference_method}", inference_method))
         if path.suffix.lower() != ".csv":
             raise ValueError("expected a .csv filename")
         if path.is_dir():

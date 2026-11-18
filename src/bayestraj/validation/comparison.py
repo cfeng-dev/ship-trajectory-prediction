@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+import bayestraj.inference.configuration as inference
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 import bayestraj.validation.metrics as metrics
 import bayestraj.validation.rolling as rolling
@@ -18,11 +19,6 @@ import bayestraj.validation.runtime_plotting as runtime_plotting
 MODEL_CSV_SPECS = {
     "IMM_CSV": ("imm", "imm", "IMM"),
     "BAYESIAN_SMC_CSV": ("bayesian", "smc", "Bayesian CTRV (SMC)"),
-    "BAYESIAN_SEQ_VI_CSV": (
-        "bayesian",
-        "sequential_vi",
-        "Bayesian CTRV (Sequential VI)",
-    ),
     "BAYESIAN_VI_CSV": ("bayesian", "vi", "Bayesian CTRV (VI)"),
     "BAYESIAN_MCMC_CSV": ("bayesian", "mcmc", "Bayesian CTRV (MCMC)"),
 }
@@ -138,8 +134,10 @@ def _validate_table(predictions, model_variant):
         raise ValueError("Each CSV must have exactly one inference_method.")
     if model_variant == "imm" and methods.iloc[0] != "imm":
         raise ValueError("The IMM CSV must have inference_method='imm'.")
-    if model_variant == "bayesian" and methods.iloc[0] == "imm":
-        raise ValueError("The Bayesian CSV cannot have inference_method='imm'.")
+    if model_variant == "bayesian" and methods.iloc[0] not in (
+        inference.CTRV_ROLLING_INFERENCE_METHODS
+    ):
+        raise ValueError(f"Unsupported Bayesian inference_method={methods.iloc[0]!r}.")
     keys = ["forecast_origin_seconds", "horizon_step"]
     if table.duplicated(keys).any():
         raise ValueError("Duplicate forecast origin/horizon rows in an evaluation CSV.")

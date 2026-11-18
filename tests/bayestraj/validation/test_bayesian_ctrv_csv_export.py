@@ -32,16 +32,6 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
             },
         ),
         (
-            "sequential_vi",
-            {
-                "sequential_vi_bootstrap_runtime_seconds": 0.5,
-                "converged": False,
-                "vi_termination": "elbo_converged",
-                "vi_elbo_delta_mean": 0.004,
-                "vi_elbo_delta_median": 0.003,
-            },
-        ),
-        (
             "smc",
             {
                 "particle_effective_sample_size": 50.0,
@@ -107,7 +97,7 @@ def test_export_keeps_one_ordered_schema_and_blank_inapplicable_diagnostics(
             "mcmc_treedepth_hits",
         ):
             assert row[name] == ""
-    if method not in {"vi", "sequential_vi"}:
+    if method != "vi":
         assert row["vi_termination"] == ""
         assert row["vi_elbo_delta_mean"] == ""
         assert row["vi_elbo_delta_median"] == ""

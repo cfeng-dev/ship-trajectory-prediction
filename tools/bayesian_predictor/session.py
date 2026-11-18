@@ -13,7 +13,6 @@ from pathlib import Path
 from queue import Empty, Queue
 from threading import Condition, Thread
 
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 from bayestraj.inference.ctrv_smc import SequentialMonteCarloCTRVConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
 from bayestraj.observations.br24 import (
@@ -36,7 +35,6 @@ class AnalysisSettings:
     vi_config: dict
     mcmc_config: dict
     smc_config: SequentialMonteCarloCTRVConfig
-    sequential_vi_config: SequentialVIConfig
 
 
 @dataclass(frozen=True)
@@ -60,7 +58,6 @@ def prepare_analysis(settings: AnalysisSettings):
             smc_config=settings.smc_config,
             vi_config=settings.vi_config,
             mcmc_config=settings.mcmc_config,
-            sequential_vi_config=settings.sequential_vi_config,
         )
     data = (
         dashboard.read_dashboard_trajectory(settings.data_file)
@@ -76,7 +73,6 @@ def prepare_analysis(settings: AnalysisSettings):
         vi_config=settings.vi_config,
         mcmc_config=settings.mcmc_config,
         smc_config=settings.smc_config,
-        sequential_vi_config=settings.sequential_vi_config,
     )
 
 

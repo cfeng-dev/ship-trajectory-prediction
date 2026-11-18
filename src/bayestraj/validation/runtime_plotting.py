@@ -18,7 +18,6 @@ COMPARISON_INFERENCE_COLORS = {
     "smc": "#0072B2",
     "vi": "#009E73",
     "mcmc": "#CC79A7",
-    "sequential_vi": "#D55E00",
 }
 COMPARISON_METRIC_LABELS = {
     "ade_m": ("ADE [m]", "Average Displacement Error"),

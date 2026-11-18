@@ -14,29 +14,18 @@ from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/model_comparison/compare_bayesian_ctrv_imm.py"
-SCRIPT_MODEL_CSVS = (
+MODEL_CSVS = (
     ("IMM_CSV", "imm", "IMM"),
     ("BAYESIAN_SMC_CSV", "smc", "Bayesian CTRV (SMC)"),
     ("BAYESIAN_VI_CSV", "vi", "Bayesian CTRV (VI)"),
     ("BAYESIAN_MCMC_CSV", "mcmc", "Bayesian CTRV (MCMC)"),
 )
-MODEL_CSVS = (
-    *SCRIPT_MODEL_CSVS,
-    ("BAYESIAN_SEQ_VI_CSV", "sequential_vi", "Bayesian CTRV (Sequential VI)"),
-)
-MODEL_DISPLAY_ORDER = [
-    "IMM",
-    "Bayesian CTRV (SMC)",
-    "Bayesian CTRV (Sequential VI)",
-    "Bayesian CTRV (VI)",
-    "Bayesian CTRV (MCMC)",
-]
+MODEL_DISPLAY_ORDER = [label for _, _, label in MODEL_CSVS]
 PLOT_MODEL_LABELS = {
     "en": MODEL_DISPLAY_ORDER,
     "de": [
         "IMM",
         "Bayessches CTRV (SMC)",
-        "Bayessches CTRV (Sequential VI)",
         "Bayessches CTRV (VI)",
         "Bayessches CTRV (MCMC)",
     ],
@@ -116,9 +105,9 @@ def _table(model):
     )
 
 
-def _write_model_csvs(directory, model_csvs=MODEL_CSVS):
+def _write_model_csvs(directory):
     paths = {}
-    for index, (variable, method, _label) in enumerate(model_csvs):
+    for index, (variable, method, _label) in enumerate(MODEL_CSVS):
         table = _table("imm" if method == "imm" else "bayesian")
         table["inference_method"] = method
         if method != "imm":
@@ -215,18 +204,19 @@ def test_smc_diagnostics_preserve_missing_estimates():
 
 
 def _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv):
-    for variable, _method, _label in SCRIPT_MODEL_CSVS:
+    for variable, _method, _label in MODEL_CSVS:
         monkeypatch.setitem(namespace, variable, None)
     monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", bayesian_csv)
     monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
 
 
-def test_named_csvs_load_all_five_methods_without_modifying_files(tmp_path):
+def test_named_csvs_load_all_supported_methods_without_modifying_files(tmp_path):
     paths = _write_model_csvs(tmp_path)
     originals = {key: path.read_bytes() for key, path in paths.items()}
 
     models = comparison.read_model_comparison_csvs(paths)
 
+    assert list(comparison.MODEL_CSV_SPECS) == list(paths)
     assert list(models) == MODEL_DISPLAY_ORDER
     for variable, method, label in MODEL_CSVS:
         assert models[label]["inference_method"].unique().tolist() == [method]
@@ -372,7 +362,7 @@ def test_coverage_legend_stays_above_bars_and_percent_labels(tmp_path, plot_lang
 
 def test_named_comparison_supports_bayesian_only_subsets_and_none_paths(tmp_path):
     paths = _write_model_csvs(tmp_path)
-    paths.update(IMM_CSV=None, BAYESIAN_MCMC_CSV=None, BAYESIAN_SEQ_VI_CSV=None)
+    paths.update(IMM_CSV=None, BAYESIAN_MCMC_CSV=None)
 
     models = comparison.read_model_comparison_csvs(paths)
 
@@ -431,7 +421,7 @@ def test_named_comparison_checks_the_last_model_as_well_as_the_first_pair(
     tmp_path, problem
 ):
     paths = _write_model_csvs(tmp_path)
-    path = paths["BAYESIAN_SEQ_VI_CSV"]
+    path = paths["BAYESIAN_MCMC_CSV"]
     table = pd.read_csv(path)
     if problem == "reference":
         table["x_actual"] += 1.0
@@ -483,7 +473,7 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
         ]
         assert list(summary) == ["metric", *labels, "preferred"]
         indexed = summary.set_index("metric")
-        assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 9.0, 7.0, 8.0]
+        assert indexed.loc["ade_m", labels].tolist() == [9.25, 6.0, 7.0, 8.0]
         metric_names = [*METRIC_NAMES[:-1], text["runtime"]]
         for (figure, axis), metric_name in zip(
             curve_figures, metric_names, strict=True
@@ -492,14 +482,14 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
             assert axis.get_xlabel() == text["time"]
             curves = axis.lines[:: 2 if show_mean_lines else 1]
             assert [line.get_label() for line in curves] == display_labels
-            assert len({line.get_color() for line in curves}) == 5
+            assert len({line.get_color() for line in curves}) == len(labels)
             np.testing.assert_array_equal(curves[0].get_xdata(), [0, 20])
         for (figure, axis), nominal in zip(figures[5:7], (50, 90), strict=True):
             assert (
                 figure._suptitle.get_text()
                 == f"{text['title']} (Joint {nominal}% Coverage)"
             )
-            assert len(axis.patches) == 5
+            assert len(axis.patches) == len(labels)
             lower, upper = axis.get_ylim()
             assert lower == 0.0 and upper > 100.0
             np.testing.assert_array_equal(axis.get_yticks(), [0, 20, 40, 60, 80, 100])
@@ -548,16 +538,10 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
 ):
     from bayestraj.validation import imm_workflow
 
-    paths = _write_model_csvs(tmp_path, SCRIPT_MODEL_CSVS)
+    paths = _write_model_csvs(tmp_path)
     originals = {path: path.read_bytes() for path in paths.values()}
-    model_labels = [label for _, _, label in SCRIPT_MODEL_CSVS]
-    display_labels = [
-        display_label
-        for label, display_label in zip(
-            MODEL_DISPLAY_ORDER, PLOT_MODEL_LABELS[plot_language], strict=True
-        )
-        if label in model_labels
-    ]
+    model_labels = MODEL_DISPLAY_ORDER
+    display_labels = PLOT_MODEL_LABELS[plot_language]
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
     assert namespace["PLOT_LANGUAGE"] == "de"
     for variable, path in paths.items():
@@ -636,7 +620,7 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
 
 
 @pytest.mark.parametrize("plot_language", ["de", "en"])
-@pytest.mark.parametrize("model_count", [2, 5])
+@pytest.mark.parametrize("model_count", [2, len(MODEL_CSVS)])
 def test_summary_table_preserves_values_and_fits_labels_inside_export(
     tmp_path, plot_language, model_count
 ):
@@ -989,6 +973,7 @@ def test_comparison_does_not_truncate_different_complete_forecast_horizons():
         ("mixed_method", "inference_method"),
         ("nonstring_method", "inference_method"),
         ("wrong_method", "inference_method"),
+        ("unsupported_method", "inference_method"),
         ("duplicate", "Duplicate|duplicate"),
         ("incomplete", "horizon|prediction_count"),
         ("inconsistent_runtime", "runtime"),
@@ -1017,6 +1002,8 @@ def test_comparison_rejects_invalid_tables_before_plotting(problem, message):
         table["inference_method"] = 5
     elif problem == "wrong_method":
         table["inference_method"] = "imm"
+    elif problem == "unsupported_method":
+        table["inference_method"] = "unsupported"
     elif problem == "duplicate":
         table = pd.concat([table, table.iloc[:1]], ignore_index=True)
     elif problem == "incomplete":

@@ -8,10 +8,10 @@ import pytest
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.inference.cmdstan as cmdstan_inference
 import bayestraj.inference.configuration as inference
+import bayestraj.inference.ctrv_cmdstan as ctrv_cmdstan
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as ctrv_model
 import bayestraj.validation.cli as validation_cli
-from bayestraj.inference.ctrv_sequential_vi import SequentialVIConfig
 
 
 @pytest.mark.parametrize(
@@ -207,15 +207,14 @@ def test_default_vi_config_uses_stable_fullrank_optimization():
     assert inference.DEFAULT_FULLRANK_GRAD_SAMPLES == 20
 
 
-@pytest.mark.parametrize("method", ("smc", "sequential_vi"))
-def test_online_inference_is_valid_without_a_window_mode(method):
+def test_online_inference_is_valid_without_a_window_mode():
     normalized = inference.normalize_rolling_inference_configuration(
         "online",
-        method,
+        "smc",
         None,
     )
 
-    assert normalized == ("online", method, None)
+    assert normalized == ("online", "smc", None)
 
 
 def test_ctrv_online_smc_is_valid_without_a_window_mode():
@@ -231,13 +230,12 @@ def test_ctrv_online_smc_is_valid_without_a_window_mode():
     assert normalized == ("online", "smc", None)
 
 
-def test_supported_inference_methods_exclude_removed_rbpf():
-    assert inference.ONLINE_INFERENCE_METHODS == ("smc", "sequential_vi")
+def test_supported_inference_methods():
+    assert inference.ONLINE_INFERENCE_METHODS == ("smc",)
     assert inference.CTRV_ROLLING_INFERENCE_METHODS == (
         "vi",
         "mcmc",
         "smc",
-        "sequential_vi",
     )
     with pytest.raises(ValueError, match="inference_method must be one of"):
         inference.normalize_inference_method("rbpf")
@@ -379,55 +377,6 @@ def test_default_ctrv_smc_factory_returns_an_independent_config():
     assert first_config is not second_config
 
 
-def test_sequential_vi_is_registered_for_online_inference():
-    assert "sequential_vi" in inference.CTRV_ONLINE_INFERENCE_METHODS
-    assert "sequential_vi" in inference.ONLINE_INFERENCE_METHODS
-    assert inference.normalize_inference_method(
-        "sequential_vi",
-        online_inference_methods=inference.CTRV_ONLINE_INFERENCE_METHODS,
-    ) == ("online", "sequential_vi")
-    assert inference.normalize_ctrv_rolling_inference_method("sequential_vi") == (
-        "online",
-        "sequential_vi",
-        None,
-    )
-
-
-@pytest.mark.parametrize("selection", ["seq_vi", " SEQ_VI "])
-def test_short_sequential_vi_name_selects_the_existing_online_method(selection):
-    assert inference.normalize_inference_method(selection) == (
-        "online",
-        "sequential_vi",
-    )
-    assert inference.normalize_inference_configuration("online", selection) == (
-        "online",
-        "sequential_vi",
-    )
-    assert inference.normalize_ctrv_rolling_inference_method(selection) == (
-        "online",
-        "sequential_vi",
-        None,
-    )
-    assert _ctrv_rolling_config(inference_method=selection).inference_method == (
-        "sequential_vi"
-    )
-    with pytest.raises(ValueError, match="Batch inference requires"):
-        inference.normalize_inference_configuration("batch", selection)
-    with pytest.raises(ValueError, match="inference_method must be one of"):
-        inference.normalize_inference_method(
-            selection, online_inference_methods=("smc",)
-        )
-
-
-def test_default_sequential_vi_factory_returns_independent_configs():
-    first_config = inference.create_default_sequential_vi_config()
-    second_config = inference.create_default_sequential_vi_config()
-
-    assert isinstance(first_config, SequentialVIConfig)
-    assert first_config == second_config
-    assert first_config is not second_config
-
-
 @pytest.mark.parametrize(
     ("method", "expected"),
     [
@@ -452,7 +401,6 @@ def test_existing_ctrv_method_normalization_is_unchanged(method, expected):
         "vi",
         "mcmc",
         "smc",
-        "sequential_vi",
     ),
 )
 def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
@@ -477,7 +425,6 @@ def test_rolling_ctrv_accepts_only_one_inference_selection(inference_method):
         "vi",
         "mcmc",
         "smc",
-        "sequential_vi",
     ),
 )
 def test_ctrv_rolling_cli_accepts_one_inference_selection(inference_method):
@@ -546,3 +493,74 @@ def test_ctrv_rolling_cli_rejects_removed_window_mode_option():
             max_windows=None,
             argv=["--window-mode", "sliding"],
         )
+
+
+def test_prior_predictive_forecast_matches_shared_prediction_contract() -> None:
+    priors = ctrv_model.BayesianCTRVPriors()
+    future_times = np.array([12.0, 14.0])
+
+    first = ctrv_cmdstan.forecast_ctrv_prior_predictive(
+        x_at_origin=100.0,
+        y_at_origin=-25.0,
+        origin_time_seconds=10.0,
+        future_time_seconds=future_times,
+        priors=priors,
+        draw_count=40,
+        seed=123,
+    )
+    second = ctrv_cmdstan.forecast_ctrv_prior_predictive(
+        x_at_origin=100.0,
+        y_at_origin=-25.0,
+        origin_time_seconds=10.0,
+        future_time_seconds=future_times,
+        priors=priors,
+        draw_count=40,
+        seed=123,
+    )
+
+    for name in ctrv_model.PARAMETER_NAMES:
+        values = first.stan_variable(name)
+        assert values.shape == (40,)
+        assert np.all(np.isfinite(values))
+        np.testing.assert_array_equal(values, second.stan_variable(name))
+    for name in (
+        "x_prediction",
+        "y_prediction",
+        "x_observation_prediction",
+        "y_observation_prediction",
+    ):
+        values = first.stan_variable(name)
+        assert values.shape == (40, 2)
+        assert np.all(np.isfinite(values))
+        np.testing.assert_array_equal(values, second.stan_variable(name))
+    assert np.all(first.stan_variable("speed_at_origin") >= 0.0)
+    assert np.all(
+        (-np.pi <= first.stan_variable("heading_at_origin"))
+        & (first.stan_variable("heading_at_origin") <= np.pi)
+    )
+
+
+def test_prior_predictive_observation_noise_is_independent_standard_deviation() -> None:
+    fit = ctrv_cmdstan.forecast_ctrv_prior_predictive(
+        x_at_origin=0.0,
+        y_at_origin=0.0,
+        origin_time_seconds=0.0,
+        future_time_seconds=np.array([1.0]),
+        priors=ctrv_model.BayesianCTRVPriors(),
+        draw_count=20_000,
+        seed=321,
+    )
+
+    sigma = fit.stan_variable("sigma_position_observation")
+    x_standardized = (
+        fit.stan_variable("x_observation_prediction")[:, 0]
+        - fit.stan_variable("x_prediction")[:, 0]
+    ) / sigma
+    y_standardized = (
+        fit.stan_variable("y_observation_prediction")[:, 0]
+        - fit.stan_variable("y_prediction")[:, 0]
+    ) / sigma
+
+    assert np.std(x_standardized, ddof=1) == pytest.approx(1.0, abs=0.03)
+    assert np.std(y_standardized, ddof=1) == pytest.approx(1.0, abs=0.03)
+    assert abs(np.corrcoef(x_standardized, y_standardized)[0, 1]) < 0.03

@@ -58,7 +58,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Inference method",
-                "Select SMC, Sequential VI, VI, or MCMC for the next analysis",
+                "Select SMC, VI, or MCMC for the next analysis",
             ),
             (
                 "VI / MCMC",
@@ -169,10 +169,6 @@ POSTERIOR_HELP_SECTIONS = (
                 "Sequential Monte Carlo updates a weighted particle approximation as observations arrive",
             ),
             (
-                "Sequential VI",
-                "Initializes once from three accepted measurements, then updates one measurement at a time; distinct from rolling batch VI",
-            ),
-            (
                 "Inference parameters",
                 "Edit settings for the selected method, such as particle count, posterior draws or convergence controls",
             ),
@@ -224,7 +220,7 @@ POSTERIOR_HELP_SECTIONS = (
         (
             (
                 "Radar input",
-                "Raw and associated BR24 inputs support all four methods from index 0 with original timestamps and no added noise. Associated fixes use their CSV covariances and bypass detection selection",
+                "Raw and associated BR24 inputs support all three methods from index 0 with original timestamps and no added noise. Associated fixes use their CSV covariances and bypass detection selection",
             ),
             (
                 "Status",

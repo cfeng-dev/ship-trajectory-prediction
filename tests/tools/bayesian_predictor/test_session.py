@@ -69,7 +69,7 @@ def test_measurement_status_uses_step_and_input_source(
         assert stage.nis == nis
 
 
-@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 @pytest.mark.parametrize("prediction_count", [0, 1])
 def test_br24_runtime_counts_update_and_forecast_and_survives_cache(
     tmp_path, monkeypatch, method, prediction_count
@@ -481,7 +481,7 @@ def test_processed_csv_reference_motion_preserves_native_values_or_derives(
         assert trajectory.reference_state_at(1)[2:5] == (0.0, 0.0, 0.0)
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc"])
 def test_processed_ground_truth_drives_reference_and_scores_without_replacing_inputs(
     tmp_path, method
 ):
@@ -632,7 +632,7 @@ def wait_for_event(worker, kind, timeout=5, *, match=lambda _: True):
     pytest.fail(f"No {kind} event; received {collected}")
 
 
-@pytest.mark.parametrize("method", ("vi", "mcmc", "smc", "sequential_vi"))
+@pytest.mark.parametrize("method", ("vi", "mcmc", "smc"))
 def test_br24_session_forwards_each_method_and_its_configs(
     analysis, method, monkeypatch
 ):
@@ -661,18 +661,11 @@ def test_br24_session_forwards_each_method_and_its_configs(
     assert captured["vi_config"] is selected.vi_config
     assert captured["mcmc_config"] is selected.mcmc_config
     assert captured["smc_config"] is selected.smc_config
-    assert captured["sequential_vi_config"] is selected.sequential_vi_config
     if method == "vi":
         assert captured["vi_config"]["iter"] == 10_000
         assert captured["vi_config"]["tol_rel_obj"] == 0.01
         assert captured["vi_config"]["adapt_iter"] == 250
         assert captured["vi_config"]["grad_samples"] == 20
-    elif method == "sequential_vi":
-        config = captured["sequential_vi_config"]
-        assert config.iter == 10_000
-        assert config.tol_rel_obj == 0.01
-        assert config.adapt_iter == 250
-        assert config.grad_samples == 20
 
 
 @pytest.mark.parametrize("method", ["smc"])
@@ -1067,10 +1060,10 @@ def test_error_stops_generation_but_allows_new_analysis(analysis):
         worker.join(5)
 
 
-def test_worker_surfaces_sequential_vi_update_failure(analysis):
+def test_worker_surfaces_inference_update_failure(analysis):
     def prepare(_):
         def load(_count):
-            raise RuntimeError("Sequential ADVI failed")
+            raise RuntimeError("Inference update failed")
 
         return None, 8, 5, load
 
@@ -1079,7 +1072,7 @@ def test_worker_surfaces_sequential_vi_update_failure(analysis):
         worker.start(analysis)
         worker.request(5)
         events = wait_for_event(worker, "error")
-        assert "Sequential ADVI failed" in events[-1].payload
+        assert "Inference update failed" in events[-1].payload
     finally:
         worker.close()
         worker.join(5)

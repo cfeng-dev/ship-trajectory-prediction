@@ -77,7 +77,7 @@ def test_association_audit_uses_the_imm_initialization_and_records_misses(tmp_pa
     pd.testing.assert_frame_equal(persisted, comparison)
 
 
-@pytest.mark.parametrize("method", ["smc", "mcmc", "vi", "seq_vi"])
+@pytest.mark.parametrize("method", ["smc", "mcmc", "vi"])
 def test_audit_dispatches_selected_method_and_reports_both_misses(
     tmp_path, monkeypatch, method
 ):
@@ -102,12 +102,11 @@ def test_audit_dispatches_selected_method_and_reports_both_misses(
         observation_count=4,
         seed=13,
     )
-    canonical = "sequential_vi" if method == "seq_vi" else method
-    assert calls[0][1]["inference_method"] == canonical
+    assert calls[0][1]["inference_method"] == method
     assert calls[0][1]["initial_detection_id"] == 9
     assert calls[0][1]["observation_count"] == 4
     assert calls[0][1]["seed"] == 13
-    assert result["inference_method"].eq(canonical).all()
+    assert result["inference_method"].eq(method).all()
     if method in {"vi", "mcmc"}:
         assert result["configured_observation_count"].eq(4).all()
     else:
@@ -159,9 +158,7 @@ def test_terminal_reports_verdict_and_first_differing_cycle(capsys, different):
         assert "First differing cycles: 5" in output
 
 
-@pytest.mark.parametrize(
-    "method", [None, "smc", "mcmc", "vi", "seq_vi", "sequential_vi"]
-)
+@pytest.mark.parametrize("method", [None, "smc", "mcmc", "vi"])
 def test_main_only_runs_selected_method_and_supports_cycle_limit(
     tmp_path, monkeypatch, capsys, method
 ):
@@ -189,13 +186,11 @@ def test_main_only_runs_selected_method_and_supports_cycle_limit(
         arguments += ["--method", method]
     result = main(arguments)
     selected = method or "mcmc"
-    canonical = "sequential_vi" if selected == "seq_vi" else selected
-    assert calls == [canonical]
-    name = "seq_vi" if canonical == "sequential_vi" else canonical
-    path = output_dir / f"BR24_association_comparison_{name}.csv"
+    assert calls == [selected]
+    path = output_dir / f"BR24_association_comparison_{selected}.csv"
     assert list(output_dir.glob("*.csv")) == [path]
     assert result["cycle_counter"].tolist() == [4, 5]
-    assert pd.read_csv(path)["inference_method"].eq(canonical).all()
+    assert pd.read_csv(path)["inference_method"].eq(selected).all()
     text = capsys.readouterr().out
     assert text.count("associations: MATCH") == 1
 

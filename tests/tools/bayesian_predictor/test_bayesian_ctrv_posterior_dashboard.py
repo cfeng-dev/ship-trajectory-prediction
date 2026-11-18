@@ -19,7 +19,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
-import bayestraj.inference.ctrv_sequential_vi as sequential_vi
 import bayestraj.inference.ctrv_smc as smc
 import bayestraj.inference.particle_utils as particle_utils
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -1130,7 +1129,7 @@ def test_br24_dashboard_displays_reference_yaw_rate_without_using_it_in_filter(
         )
 
 
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_br24_loader_reports_current_observation_log_density_without_reference(
     tmp_path, monkeypatch, method
 ):
@@ -1182,7 +1181,6 @@ def test_br24_loader_reports_current_observation_log_density_without_reference(
     monkeypatch.setattr(
         dashboard.batch_inference, "fit_bayesian_ctrv_model", lambda *a, **k: fit
     )
-    monkeypatch.setattr(sequential_vi, "fit_sequential_update", lambda *a, **k: fit)
     trajectory, _, _, load = dashboard.create_br24_radar_dashboard_loader(
         path,
         experiment=dashboard.PosteriorDashboardConfig(
@@ -1198,7 +1196,6 @@ def test_br24_loader_reports_current_observation_log_density_without_reference(
         smc_config=smc.SequentialMonteCarloCTRVConfig(
             particle_count=64, posterior_draw_count=32
         ),
-        sequential_vi_config=sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=32),
     )
 
     assert not trajectory.has_reference
@@ -1278,41 +1275,20 @@ def test_forecast_rejects_unpaired_or_nonfinite_sample_origins(origins):
         )
 
 
-@pytest.mark.parametrize("method", ["smc", "sequential_vi"])
-def test_native_forecasts_export_their_paired_latent_origins(method):
+def test_smc_forecasts_export_their_paired_latent_origins():
     import bayestraj.models.ctrv as dynamics
 
-    if method == "sequential_vi":
-        draws = {
-            "x_at_origin": np.array([10.0, 20.0]),
-            "y_at_origin": np.array([-4.0, 6.0]),
-            "speed_at_origin": np.array([2.0, 3.0]),
-            "heading_at_origin": np.array([0.1, 0.2]),
-            "turn_rate_at_origin": np.array([0.0, 0.1]),
-            "sigma_position_observation": np.ones(2),
-            "sigma_speed_process": np.ones(2),
-            "sigma_turn_rate_process": np.ones(2),
-        }
-        fit = sequential_vi._forecast_from_origin_draws(
-            draws,
-            origin_time_seconds=2.0,
-            future_time_seconds=[3.5, 5.0],
-            generator=np.random.default_rng(42),
-        )
-        np.testing.assert_array_equal(fit.stan_variable("x_at_origin"), [10, 20])
-        np.testing.assert_array_equal(fit.stan_variable("y_at_origin"), [-4, 6])
-    else:
-        config = smc.SequentialMonteCarloCTRVConfig(
-            particle_count=64, posterior_draw_count=12
-        )
-        tracker = smc.SequentialMonteCarloCTRVFilter.initialize(
-            [0.0, 1.0, 2.0],
-            [0.0, 2.0, 4.0],
-            [0.0, 0.0, 0.0],
-            priors=bayesian_model.BayesianCTRVPriors(),
-            config=config,
-        )
-        fit = tracker.forecast([3.5, 5.0], seed=42)
+    config = smc.SequentialMonteCarloCTRVConfig(
+        particle_count=64, posterior_draw_count=12
+    )
+    tracker = smc.SequentialMonteCarloCTRVFilter.initialize(
+        [0.0, 1.0, 2.0],
+        [0.0, 2.0, 4.0],
+        [0.0, 0.0, 0.0],
+        priors=bayesian_model.BayesianCTRVPriors(),
+        config=config,
+    )
+    fit = tracker.forecast([3.5, 5.0], seed=42)
     dx, dy = dynamics.displacements(
         fit.stan_variable("speed_at_origin"),
         fit.stan_variable("heading_at_origin"),
@@ -1741,7 +1717,7 @@ def _dashboard_fit_variables():
     }
 
 
-@pytest.mark.parametrize("method", ["smc", "sequential_vi", "vi", "mcmc"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 @pytest.mark.parametrize("prediction_count", [0, 1])
 def test_processed_loader_times_model_work_without_dashboard_extraction(
     monkeypatch, method, prediction_count
@@ -1794,7 +1770,7 @@ def test_processed_loader_times_model_work_without_dashboard_extraction(
     monkeypatch.setattr(dashboard, "_extract_dashboard_samples", samples)
     monkeypatch.setattr(dashboard, "_extract_dashboard_forecast", forecast)
     monkeypatch.setattr(
-        dashboard.sequential_vi, "forecast_ctrv_prior_predictive", batch_fit
+        dashboard.batch_inference, "forecast_ctrv_prior_predictive", batch_fit
     )
     _, _, _, load = dashboard.create_posterior_dashboard_loader(
         _dashboard_trajectory_data(6),
@@ -1811,17 +1787,12 @@ def test_processed_loader_times_model_work_without_dashboard_extraction(
         smc_config=inference.create_default_ctrv_smc_config(),
         vi_config=inference.create_default_vi_config(),
         mcmc_config=inference.create_default_mcmc_config(),
-        sequential_vi_config=inference.create_default_sequential_vi_config(),
         initialize_online_filter=initialize,
         fit_batch_model=batch_fit,
     )
     prior_runtime = (3.0 if method == "smc" else 5.0) * prediction_count
     assert load(1).fit_runtime_seconds == pytest.approx(prior_runtime)
-    third = load(3)
-    if method == "sequential_vi":
-        assert third.fit_runtime_seconds == pytest.approx(
-            101.0 + 3.0 * prediction_count
-        )
+    load(3)
     expected_runtime = 5.0 if method in {"mcmc", "vi"} else 2.0 + 3.0 * prediction_count
     assert load(4).fit_runtime_seconds == pytest.approx(expected_runtime)
 
@@ -2606,7 +2577,7 @@ def test_async_forecast_waits_for_selected_stage_and_clears_at_route_end():
         navigator.disconnect()
 
 
-@pytest.mark.parametrize("inference_method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("inference_method", ["vi", "mcmc", "smc"])
 def test_dashboard_config_accepts_all_ctrv_inference_methods(inference_method):
     dashboard = _load_dashboard_module()
 
@@ -2664,259 +2635,6 @@ def test_dashboard_loader_uses_selected_online_filter_config(inference_method):
     )
 
 
-def test_dashboard_loader_persists_sequential_vi_without_replaying_bootstrap(
-    monkeypatch,
-):
-    dashboard = _load_dashboard_module()
-    initialize_calls = []
-    update_calls = []
-    prior_calls = []
-
-    class FakeSequentialVI:
-        processed_observation_count = 3
-
-        def update(self, time_seconds, x_observed, y_observed):
-            update_calls.append((time_seconds, x_observed, y_observed))
-            self.processed_observation_count += 1
-
-        def sample_current_posterior(self, *, seed):
-            values = np.ones(8)
-            return particle_utils.SequentialCTRVFit(
-                {name: values for name in bayesian_model.PARAMETER_NAMES}
-            )
-
-        def forecast(self, future_time_seconds, *, seed):
-            prediction_count = len(future_time_seconds)
-            positions = np.zeros((8, prediction_count))
-            values = np.ones(8)
-            return particle_utils.SequentialCTRVFit(
-                {
-                    **{name: values for name in bayesian_model.PARAMETER_NAMES},
-                    "x_prediction": positions,
-                    "y_prediction": positions,
-                    "x_observation_prediction": positions,
-                    "y_observation_prediction": positions,
-                }
-            )
-
-    def initialize(time_seconds, x_observed, y_observed, **options):
-        initialize_calls.append(
-            (
-                np.asarray(time_seconds).copy(),
-                np.asarray(x_observed).copy(),
-                np.asarray(y_observed).copy(),
-                options,
-            )
-        )
-        return FakeSequentialVI()
-
-    def forecast_prior_predictive(**options):
-        prior_calls.append(options)
-        draw_count = options["draw_count"]
-        prediction_count = len(options["future_time_seconds"])
-        values = np.ones(draw_count)
-        positions = np.zeros((draw_count, prediction_count))
-        return particle_utils.SequentialCTRVFit(
-            {
-                **{name: values for name in bayesian_model.PARAMETER_NAMES},
-                "x_prediction": positions,
-                "y_prediction": positions,
-                "x_observation_prediction": positions,
-                "y_observation_prediction": positions,
-            }
-        )
-
-    monkeypatch.setattr(
-        sequential_vi,
-        "forecast_ctrv_prior_predictive",
-        forecast_prior_predictive,
-    )
-    config = sequential_vi.SequentialVIConfig(n_bootstrap=3, draws=8)
-    experiment = dashboard.PosteriorDashboardConfig(
-        start_index=0,
-        maximum_observation_count=None,
-        position_noise_std_m=0.0,
-        position_noise_seed=2026,
-        inference_method="sequential_vi",
-        inference_seed=42,
-        prediction_count=2,
-    )
-
-    trajectory, maximum_count, minimum_count, load_update = (
-        dashboard.create_posterior_dashboard_loader(
-            _dashboard_trajectory_data(12),
-            experiment=experiment,
-            priors=bayesian_model.BayesianCTRVPriors(),
-            vi_config=inference.create_default_vi_config(),
-            mcmc_config=inference.create_default_mcmc_config(),
-            smc_config=inference.create_default_ctrv_smc_config(),
-            sequential_vi_config=config,
-            initialize_online_filter=initialize,
-        )
-    )
-
-    first = load_update(1)
-    second = load_update(2)
-    third = load_update(3)
-    tenth = load_update(10)
-    eleventh = load_update(11)
-
-    assert maximum_count == 12
-    assert minimum_count == 1
-    assert trajectory.reference_x.shape == (12,)
-    assert len(prior_calls) == 2
-    assert first.is_prior_predictive
-    assert second.is_prior_predictive
-    assert not third.is_prior_predictive
-    assert len(initialize_calls) == 1
-    assert initialize_calls[0][0].shape == (3,)
-    assert initialize_calls[0][3]["config"] is config
-    assert [call[0] for call in update_calls] == list(np.arange(3, 11) * 10.0)
-    assert [
-        first.observation_count,
-        second.observation_count,
-        third.observation_count,
-        tenth.observation_count,
-        eleventh.observation_count,
-    ] == [
-        1,
-        2,
-        3,
-        10,
-        11,
-    ]
-    assert all(
-        update.particle_count is None
-        for update in (first, second, third, tenth, eleventh)
-    )
-    assert all(
-        update.effective_sample_size is None
-        for update in (first, second, third, tenth, eleventh)
-    )
-    repeated_first = load_update(1)
-    assert repeated_first.is_prior_predictive
-    assert len(prior_calls) == 3
-    with pytest.raises(ValueError, match="cannot move backward"):
-        load_update(10)
-
-
-def test_dashboard_loader_extends_prior_phase_to_configured_sequential_bootstrap(
-    monkeypatch,
-):
-    dashboard = _load_dashboard_module()
-    initialize_calls = []
-
-    class FakeSequentialVI:
-        processed_observation_count = 5
-
-        def sample_current_posterior(self, *, seed):
-            values = np.ones(8)
-            return particle_utils.SequentialCTRVFit(
-                {name: values for name in bayesian_model.PARAMETER_NAMES}
-            )
-
-        def forecast(self, future_time_seconds, *, seed):
-            prediction_count = len(future_time_seconds)
-            values = np.ones(8)
-            positions = np.zeros((8, prediction_count))
-            return particle_utils.SequentialCTRVFit(
-                {
-                    **{name: values for name in bayesian_model.PARAMETER_NAMES},
-                    "x_prediction": positions,
-                    "y_prediction": positions,
-                    "x_observation_prediction": positions,
-                    "y_observation_prediction": positions,
-                }
-            )
-
-    def forecast_prior_predictive(**options):
-        draw_count = options["draw_count"]
-        prediction_count = len(options["future_time_seconds"])
-        values = np.ones(draw_count)
-        positions = np.zeros((draw_count, prediction_count))
-        return particle_utils.SequentialCTRVFit(
-            {
-                **{name: values for name in bayesian_model.PARAMETER_NAMES},
-                "x_prediction": positions,
-                "y_prediction": positions,
-                "x_observation_prediction": positions,
-                "y_observation_prediction": positions,
-            }
-        )
-
-    monkeypatch.setattr(
-        sequential_vi,
-        "forecast_ctrv_prior_predictive",
-        forecast_prior_predictive,
-    )
-    _, _, minimum_count, load_update = dashboard.create_posterior_dashboard_loader(
-        _dashboard_trajectory_data(9),
-        experiment=dashboard.PosteriorDashboardConfig(
-            start_index=0,
-            maximum_observation_count=None,
-            position_noise_std_m=0.0,
-            position_noise_seed=2026,
-            inference_method="sequential_vi",
-            inference_seed=42,
-        ),
-        priors=bayesian_model.BayesianCTRVPriors(),
-        vi_config=inference.create_default_vi_config(),
-        mcmc_config=inference.create_default_mcmc_config(),
-        smc_config=inference.create_default_ctrv_smc_config(),
-        sequential_vi_config=sequential_vi.SequentialVIConfig(
-            n_bootstrap=5,
-            draws=8,
-        ),
-        initialize_online_filter=lambda *args, **kwargs: (
-            initialize_calls.append((args, kwargs)) or FakeSequentialVI()
-        ),
-    )
-
-    fourth = load_update(4)
-    fifth = load_update(5)
-
-    assert minimum_count == 1
-    assert fourth.is_prior_predictive
-    assert not fifth.is_prior_predictive
-    assert len(initialize_calls) == 1
-    assert np.asarray(initialize_calls[0][0][0]).shape == (5,)
-
-
-def test_dashboard_loader_propagates_sequential_vi_update_failure():
-    dashboard = _load_dashboard_module()
-
-    class FailingSequentialVI:
-        processed_observation_count = 5
-
-        def update(self, time_seconds, x_observed, y_observed):
-            raise RuntimeError("Sequential ADVI failed")
-
-    experiment = dashboard.PosteriorDashboardConfig(
-        start_index=0,
-        maximum_observation_count=None,
-        position_noise_std_m=0.0,
-        position_noise_seed=2026,
-        inference_method="sequential_vi",
-        inference_seed=42,
-    )
-    _, _, _, load_update = dashboard.create_posterior_dashboard_loader(
-        _dashboard_trajectory_data(9),
-        experiment=experiment,
-        priors=bayesian_model.BayesianCTRVPriors(),
-        vi_config=inference.create_default_vi_config(),
-        mcmc_config=inference.create_default_mcmc_config(),
-        smc_config=inference.create_default_ctrv_smc_config(),
-        sequential_vi_config=sequential_vi.SequentialVIConfig(
-            n_bootstrap=5,
-            draws=8,
-        ),
-        initialize_online_filter=lambda *args, **kwargs: FailingSequentialVI(),
-    )
-
-    with pytest.raises(RuntimeError, match="Sequential ADVI failed"):
-        load_update(6)
-
-
 @pytest.mark.parametrize("method", ["vi", "mcmc"])
 @pytest.mark.parametrize("window_size", [2, 5, 10, 20])
 def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_windows(
@@ -2951,7 +2669,7 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
         )
 
     monkeypatch.setattr(
-        sequential_vi,
+        dashboard.batch_inference,
         "forecast_ctrv_prior_predictive",
         forecast_prior_predictive,
     )
@@ -3013,7 +2731,7 @@ def test_dashboard_loader_runs_batch_from_prior_then_uses_growing_and_sliding_wi
         )
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc"])
 @pytest.mark.parametrize("window_size", [2, 5])
 @pytest.mark.parametrize("associated", [False, True])
 def test_br24_dashboard_forwards_window_size_only_to_batch_methods(

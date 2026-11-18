@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import bayestraj.forecasting.bayesian_ctrv as forecasting
-import bayestraj.inference.ctrv_sequential_vi as sequential_vi_model
 import bayestraj.inference.ctrv_smc as smc_model
 import bayestraj.models.bayesian_ctrv as bayesian_model
 import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
@@ -102,7 +101,7 @@ def test_processed_evaluation_input_keeps_local_positions_and_numeric_time(tmp_p
     np.testing.assert_allclose(route_time_seconds, [0.0, 2.5, 7.0, 11.0])
 
 
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_associated_evaluation_scores_reference_without_association_or_label_leakage(
     tmp_path, monkeypatch, method
 ):
@@ -169,9 +168,6 @@ def test_associated_evaluation_scores_reference_without_association_or_label_lea
             inference_method=method,
             prediction_count=2,
             max_windows=2,
-            sequential_vi_config=sequential_vi_model.SequentialVIConfig(
-                n_bootstrap=10, draws=32
-            ),
         )[0]
 
     before = evaluate()
@@ -318,7 +314,6 @@ def _run_br24_evaluation(
     inference_method="smc",
     position_noise_std_m=0.0,
     max_windows=None,
-    sequential_vi_config=None,
     prediction_count=1,
     association_records=None,
 ):
@@ -352,7 +347,6 @@ def _run_br24_evaluation(
             particle_count=64,
             posterior_draw_count=16,
         ),
-        sequential_vi_config=sequential_vi_config,
         fullrank_grad_samples=1,
         credible_interval=0.9,
         options=options,
@@ -360,139 +354,9 @@ def _run_br24_evaluation(
     )
 
 
-@pytest.mark.parametrize("source", ["positions", "raw", "associated"])
-def test_sequential_vi_csv_uses_latest_fit_and_retains_cumulative_convergence(
-    tmp_path, monkeypatch, source
-):
-    from bayestraj.inference.particle_utils import SequentialCTRVFit
-
-    path = tmp_path / "trajectory.csv"
-    if source == "positions":
-        pd.DataFrame({"time": np.arange(8), "x": 10.0 + np.arange(8), "y": 0.0}).to_csv(
-            path, index=False
-        )
-    else:
-        _write_br24_evaluation_input(path, cycle_count=8)
-        data = pd.read_csv(path)
-        if source == "associated":
-            data["x"], data["y"] = data["x_relative"], data["y_relative"]
-            data["cov_xx"], data["cov_xy"], data["cov_yy"] = 0.25, 0.0, 0.25
-            data = data[
-                [
-                    "time",
-                    "cycle_counter",
-                    "detection_id",
-                    "x",
-                    "y",
-                    "cov_xx",
-                    "cov_xy",
-                    "cov_yy",
-                    "ground_truth_x",
-                    "ground_truth_y",
-                ]
-            ]
-        else:
-            missing_columns = [
-                "detection_id",
-                "range",
-                "azimuth",
-                "std_range",
-                "std_azimuth",
-                "x_relative",
-                "y_relative",
-            ]
-            data.loc[5, missing_columns] = np.nan
-        data.to_csv(path, index=False)
-
-    fits = []
-
-    class Fit(SequentialCTRVFit):
-        converged = False
-
-    def fit_at(x, y, *, bootstrap):
-        update_index = len(fits)
-        spread = np.linspace(-0.01, 0.01, 40)
-        fit = Fit(
-            {
-                "x_at_origin": x + spread,
-                "y_at_origin": y + spread,
-                "speed_at_origin": np.full(40, 1.0),
-                "heading_at_origin": spread * 0.01,
-                "turn_rate_at_origin": spread * 0.001,
-                "sigma_position_observation": np.full(40, 0.2),
-                "sigma_speed_process": np.full(40, 0.1),
-                "sigma_turn_rate_process": np.full(40, 0.001),
-            }
-        )
-        fit.converged = not bootstrap
-        mean, median = (
-            (0.2, 0.3) if bootstrap else (update_index * 0.001, update_index * 0.002)
-        )
-        note = (
-            "The maximum number of iterations is reached! The algorithm may not have converged."
-            if bootstrap
-            else "MEAN ELBO CONVERGED"
-        )
-        transcript = tmp_path / f"vi_{len(fits)}.txt"
-        transcript.write_text(
-            "iter ELBO delta_ELBO_mean delta_ELBO_med notes\n"
-            f"100 -100.0 {mean} {median} {note}\nCOMPLETED.\n",
-            encoding="utf-8",
-        )
-        fit.runset = SimpleNamespace(stdout_files=[transcript])
-        fits.append(fit)
-        return fit
-
-    def bootstrap_fit(window, *, position_observations, **options):
-        return fit_at(
-            position_observations.x_meters[-1],
-            position_observations.y_meters[-1],
-            bootstrap=True,
-        )
-
-    def update_fit(carry, *, x_observed, y_observed, **options):
-        return fit_at(x_observed, y_observed, bootstrap=False)
-
-    monkeypatch.setattr(
-        workflow.batch_inference, "fit_bayesian_ctrv_model", bootstrap_fit
-    )
-    monkeypatch.setattr(sequential_vi_model, "fit_sequential_update", update_fit)
-    predictions, _ = _run_br24_evaluation(
-        path,
-        inference_method="sequential_vi",
-        max_windows=6,
-        sequential_vi_config=sequential_vi_model.SequentialVIConfig(
-            n_bootstrap=3, draws=40
-        ),
-    )
-    assert predictions.iloc[0]["is_prior_predictive"]
-    assert pd.isna(predictions.iloc[0]["vi_termination"])
-    expected_updates = [1, 2, 2, 3] if source == "raw" else [1, 2, 3, 4]
-    assert predictions["vi_termination"].iloc[1:].tolist() == [
-        "iteration_limit",
-        *["elbo_converged"] * 4,
-    ]
-    np.testing.assert_allclose(
-        predictions["vi_elbo_delta_mean"].iloc[1:],
-        [0.2, *[i * 0.001 for i in expected_updates]],
-    )
-    np.testing.assert_allclose(
-        predictions["vi_elbo_delta_median"].iloc[1:],
-        [0.3, *[i * 0.002 for i in expected_updates]],
-    )
-    assert not predictions["converged"].iloc[1:].any()
-    assert len(fits) == (4 if source == "raw" else 5)
-    output = tmp_path / "evaluation.csv"
-    assert evaluation.export_evaluation_csv(predictions, output)
-    saved = pd.read_csv(output)
-    pd.testing.assert_series_equal(
-        saved["vi_elbo_delta_mean"], predictions["vi_elbo_delta_mean"]
-    )
-
-
-@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc"])
 @pytest.mark.parametrize("radar_input", [True, False])
-def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
+def test_forecast_metrics_start_at_two_with_batch_fit_or_smc(
     tmp_path, monkeypatch, method, radar_input
 ):
     clock = [0.0]
@@ -522,9 +386,7 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         workflow.bayesian_model.build_stan_data(
             window, position_observations=position_observations
         )
-        if method == "sequential_vi":
-            pytest.fail("Sequential VI must wait for its configured bootstrap.")
-        fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+        fit = workflow.batch_inference.forecast_ctrv_prior_predictive(
             x_at_origin=position_observations.x_meters[-1],
             y_at_origin=position_observations.y_meters[-1],
             origin_time_seconds=window.time_seconds[window.observation_count - 1],
@@ -607,9 +469,7 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
     assert np.all(np.isfinite(predictions["position_error_m"]))
     assert np.all(np.isfinite(predictions["negative_log_predictive_density"]))
     assert fit_counts == ([2] if method in {"vi", "mcmc"} else [])
-    assert (
-        predictions["is_prior_predictive"].tolist() == [method == "sequential_vi"] * 2
-    )
+    assert not predictions["is_prior_predictive"].any()
     if method == "vi":
         assert predictions["converged"].tolist() == [True, True]
     elif method == "mcmc":
@@ -676,7 +536,6 @@ def test_forecast_metrics_start_at_two_with_batch_fit_or_sequential_prior(
         "mcmc": "BAYESIAN_MCMC_CSV",
         "vi": "BAYESIAN_VI_CSV",
         "smc": "BAYESIAN_SMC_CSV",
-        "sequential_vi": "BAYESIAN_SEQ_VI_CSV",
     }[method]
     compared = comparison.read_model_comparison_csvs(
         {variable: output_csv, "IMM_CSV": imm_csv}
@@ -914,7 +773,7 @@ def test_processed_batch_evaluation_grows_then_slides_without_fitting_future_poi
     def fit_window(window, *, position_observations, initial_seed, **kwargs):
         fit_observations.append(position_observations.x_meters.copy())
         fit_seeds.append(initial_seed)
-        fit = sequential_vi_model.forecast_ctrv_prior_predictive(
+        fit = workflow.batch_inference.forecast_ctrv_prior_predictive(
             x_at_origin=position_observations.x_meters[-1],
             y_at_origin=position_observations.y_meters[-1],
             origin_time_seconds=window.time_seconds[window.observation_count - 1],
@@ -1023,31 +882,6 @@ def test_rolling_forecasts_match_the_tool_at_every_origin(
         )
 
 
-def test_processed_sequential_vi_keeps_prior_forecasts_until_its_own_bootstrap(
-    tmp_path, monkeypatch
-):
-    input_csv = tmp_path / "positions.csv"
-    pd.DataFrame({"time": np.arange(7), "x": np.arange(7), "y": 0.0}).to_csv(
-        input_csv, index=False
-    )
-
-    def unexpected_initialize(*args, **kwargs):
-        pytest.fail("Sequential VI must wait for its configured bootstrap count.")
-
-    monkeypatch.setattr(workflow, "_advance_online_filter", unexpected_initialize)
-    predictions, summary = _run_br24_evaluation(
-        input_csv,
-        inference_method="sequential_vi",
-        sequential_vi_config=sequential_vi_model.SequentialVIConfig(n_bootstrap=5),
-        max_windows=3,
-    )
-
-    assert summary.window_count == 3
-    assert predictions["observation_count"].tolist() == [2, 3, 4]
-    assert predictions["is_prior_predictive"].all()
-    assert predictions["converged"].isna().all()
-
-
 def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
     tmp_path,
 ):
@@ -1073,7 +907,7 @@ def test_br24_evaluation_tracks_raw_cycles_and_uses_reference_only_for_metrics(
     )
 
 
-@pytest.mark.parametrize("method", ["vi", "mcmc", "smc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["vi", "mcmc", "smc"])
 def test_br24_evaluation_dispatches_the_selected_radar_method(
     tmp_path, monkeypatch, method
 ):
@@ -1125,7 +959,6 @@ def test_br24_evaluation_dispatches_the_selected_radar_method(
     assert configured[0]["inference_method"] == method
     assert configured[0]["observation_count"] == 10
     assert configured[0]["vi_config"]["algorithm"] == "meanfield"
-    assert configured[0]["sequential_vi_config"].n_bootstrap == 3
     assert summary.inference_method == method
     assert set(predictions["inference_method"]) == {method}
     assert predictions["forecast_origin_seconds"].tolist() == [1.0, 2.0, 3.0]
@@ -1158,22 +991,6 @@ def test_radar_prior_forecasts_do_not_count_as_failed_fits(tmp_path, method):
         else summary.mcmc_diagnostics_pass_rate
     )
     assert rate == 0.5
-
-
-def test_sequential_vi_configuration_reporting_does_not_require_particles(capsys):
-    config = sequential_vi_model.SequentialVIConfig(n_bootstrap=7, draws=25)
-
-    workflow._print_online_configuration(
-        "sequential_vi",
-        particle_filter_config=None,
-        sequential_vi_config=config,
-    )
-
-    output = capsys.readouterr().out
-    assert "Bootstrap observations: 7" in output
-    assert "Posterior draws       : 25" in output
-    assert "Variational family    : fullrank" in output
-    assert "Particles" not in output
 
 
 @pytest.mark.parametrize("radar_input", [False, True])
@@ -1257,14 +1074,13 @@ def test_online_filter_diagnostics_are_available_for_benchmark_records():
 
 
 def test_inference_configs_default_to_source_owned_factories():
-    vi_config, mcmc_config, smc_config, sequential_vi_config = (
-        workflow._resolve_inference_configs(None, None, None, None)
+    vi_config, mcmc_config, smc_config = workflow._resolve_inference_configs(
+        None, None, None
     )
 
     assert vi_config["algorithm"] == "fullrank"
     assert mcmc_config["chains"] >= 1
     assert smc_config.particle_count > 0
-    assert isinstance(sequential_vi_config, sequential_vi_model.SequentialVIConfig)
 
 
 def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):

@@ -113,16 +113,6 @@ def evaluation_run(tmp_path, monkeypatch):
             "mcmc",
             "bayesian_ctrv_mcmc.csv",
         ),
-        (
-            "sequential_vi",
-            "sequential_vi",
-            "bayesian_ctrv_seq_vi.csv",
-        ),
-        (
-            "seq_vi",
-            "sequential_vi",
-            "bayesian_ctrv_seq_vi.csv",
-        ),
     ],
 )
 def test_run_button_uses_header_method_and_exports_its_own_csv(
@@ -149,9 +139,7 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
         tmp_path / "data/processed/BR24_imm_tracked_trajectory.csv"
     )
     assert "VI_CONFIG" not in namespace
-    assert "SEQUENTIAL_VI_CONFIG" not in namespace
     assert calls[0]["vi_config"] is None
-    assert calls[0]["sequential_vi_config"] is None
     output = tmp_path / "results/evaluation" / csv_name
     associations = tmp_path / "results/associations" / csv_name
     assert set((tmp_path / "results").rglob("*.csv")) == {output, associations}
@@ -332,14 +320,14 @@ def test_association_filename_can_be_configured_independently_and_follows_cli_me
         evaluation, "ASSOCIATIONS_OUTPUT_CSV", tmp_path / "raw_{inference_method}.csv"
     )
 
-    namespace["main"](["--inference-method", "seq_vi"])
+    namespace["main"](["--inference-method", "vi"])
 
     assert len(calls) == 1
     assert set(tmp_path.iterdir()) == {
         tmp_path / "forecast.csv",
-        tmp_path / "raw_seq_vi.csv",
+        tmp_path / "raw_vi.csv",
     }
-    assert pd.read_csv(tmp_path / "raw_seq_vi.csv")["cycle_counter"].tolist() == [1, 2]
+    assert pd.read_csv(tmp_path / "raw_vi.csv")["cycle_counter"].tolist() == [1, 2]
 
 
 def test_association_export_can_be_disabled_without_disabling_forecast_export(
@@ -423,18 +411,15 @@ def test_cli_override_exports_selected_method_without_overwriting_other_methods(
     ].tolist() == ["vi"]
 
 
-@pytest.mark.parametrize(
-    ("method", "canonical_method", "csv_method"),
-    [("mcmc", "mcmc", "mcmc"), ("seq_vi", "sequential_vi", "seq_vi")],
-)
+@pytest.mark.parametrize("method", ["mcmc", "vi"])
 def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
-    tmp_path, monkeypatch, evaluation_run, method, canonical_method, csv_method
+    tmp_path, monkeypatch, evaluation_run, method
 ):
     evaluation, calls = evaluation_run
     plotted = []
 
     def plot(table, *, inference_selection):
-        output = tmp_path / f"results/evaluation/bayesian_ctrv_{csv_method}.csv"
+        output = tmp_path / f"results/evaluation/bayesian_ctrv_{method}.csv"
         assert output.is_file()
         plotted.append(inference_selection)
 
@@ -445,10 +430,10 @@ def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
 
     predictions, summary = namespace["main"](["--inference-method", method])
 
-    assert calls[0]["options"].inference_method == canonical_method
-    assert predictions["inference_method"].tolist() == [canonical_method]
+    assert calls[0]["options"].inference_method == method
+    assert predictions["inference_method"].tolist() == [method]
     assert summary is None
-    assert plotted == [canonical_method]
+    assert plotted == [method]
     assert not (tmp_path / "results/evaluation/bayesian_ctrv_smc.csv").exists()
 
 
@@ -546,7 +531,7 @@ def test_csv_write_failure_preserves_previous_results_and_still_plots(
     assert "Saved per-forecast" not in terminal
 
 
-@pytest.mark.parametrize("method", ["smc", "vi", "mcmc", "sequential_vi"])
+@pytest.mark.parametrize("method", ["smc", "vi", "mcmc"])
 def test_script_settings_and_source_output_control_evaluation(
     tmp_path, monkeypatch, evaluation_run, method
 ):
@@ -587,7 +572,6 @@ def test_script_settings_and_source_output_control_evaluation(
     assert call["experiment"] is experiment
     assert call["priors"] is priors
     assert call["vi_config"] is None
-    assert call["sequential_vi_config"] is None
     assert call["credible_interval"] == 0.9
     assert call["options"].observation_count == 14
     assert call["options"].prediction_count == 7
@@ -610,7 +594,6 @@ def test_comparison_defines_default_csv_paths_for_four_models(tmp_path, monkeypa
     )
 
     assert namespace["IMM_CSV"] == ROOT / "results/evaluation/imm.csv"
-    assert "BAYESIAN_SEQ_VI_CSV" not in namespace
     paths = [namespace["IMM_CSV"]]
     for method in ("smc", "vi", "mcmc"):
         path = namespace[f"BAYESIAN_{method.upper()}_CSV"]

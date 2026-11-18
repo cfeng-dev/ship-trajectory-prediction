@@ -57,17 +57,14 @@ def test_localized_choices_parse_to_the_same_analysis_configuration(tmp_path):
     original["data"]["data_file"] = str(data_file)
     localized = {group: dict(values) for group, values in original.items()}
     localized["data"]["inference_method"] = localization.translate(
-        METHOD_DISPLAY_LABELS["sequential_vi"], "de"
+        METHOD_DISPLAY_LABELS["vi"], "de"
     )
     localized["data"]["prediction_region_style"] = localization.translate(
         "Horizon density region", "de"
     )
-    original["data"]["inference_method"] = "sequential_vi"
+    original["data"]["inference_method"] = "vi"
     assert parse_settings(localized) == parse_settings(original)
-    assert (
-        normalize_inference_method(localized["data"]["inference_method"])
-        == "sequential_vi"
-    )
+    assert normalize_inference_method(localized["data"]["inference_method"]) == "vi"
     assert (
         normalize_prediction_region_style(localized["data"]["prediction_region_style"])
         == "funnel"
