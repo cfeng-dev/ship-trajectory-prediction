@@ -601,9 +601,7 @@ def test_script_settings_and_source_output_control_evaluation(
     assert pd.read_csv(output)["inference_method"].tolist() == [method]
 
 
-def test_comparison_defines_individual_csv_paths_for_all_five_methods(
-    tmp_path, monkeypatch
-):
+def test_comparison_defines_default_csv_paths_for_four_models(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     namespace = runpy.run_path(
@@ -611,12 +609,13 @@ def test_comparison_defines_individual_csv_paths_for_all_five_methods(
     )
 
     assert namespace["IMM_CSV"] == ROOT / "results/evaluation/imm.csv"
+    assert "BAYESIAN_SEQ_VI_CSV" not in namespace
     paths = [namespace["IMM_CSV"]]
-    for method in ("smc", "vi", "mcmc", "seq_vi"):
+    for method in ("smc", "vi", "mcmc"):
         path = namespace[f"BAYESIAN_{method.upper()}_CSV"]
         assert path.parent == ROOT / "results/evaluation"
         assert path.suffix == ".csv"
         expected_stem = f"bayesian_ctrv_{method}"
         assert path.stem == expected_stem or path.stem.startswith(f"{expected_stem}_")
         paths.append(path)
-    assert len(set(paths)) == 5
+    assert len(set(paths)) == 4

@@ -14,11 +14,14 @@ from bayestraj.validation import comparison, runtime_plotting
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/model_comparison/compare_bayesian_ctrv_imm.py"
-MODEL_CSVS = (
+SCRIPT_MODEL_CSVS = (
     ("IMM_CSV", "imm", "IMM"),
     ("BAYESIAN_SMC_CSV", "smc", "Bayesian CTRV (SMC)"),
     ("BAYESIAN_VI_CSV", "vi", "Bayesian CTRV (VI)"),
     ("BAYESIAN_MCMC_CSV", "mcmc", "Bayesian CTRV (MCMC)"),
+)
+MODEL_CSVS = (
+    *SCRIPT_MODEL_CSVS,
     ("BAYESIAN_SEQ_VI_CSV", "sequential_vi", "Bayesian CTRV (Sequential VI)"),
 )
 MODEL_DISPLAY_ORDER = [
@@ -115,9 +118,9 @@ def _table(model):
     )
 
 
-def _write_model_csvs(directory):
+def _write_model_csvs(directory, model_csvs=MODEL_CSVS):
     paths = {}
-    for index, (variable, method, _label) in enumerate(MODEL_CSVS):
+    for index, (variable, method, _label) in enumerate(model_csvs):
         table = _table("imm" if method == "imm" else "bayesian")
         table["inference_method"] = method
         if method != "imm":
@@ -214,7 +217,7 @@ def test_smc_diagnostics_preserve_missing_estimates():
 
 
 def _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv):
-    for variable, _method, _label in MODEL_CSVS:
+    for variable, _method, _label in SCRIPT_MODEL_CSVS:
         monkeypatch.setitem(namespace, variable, None)
     monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", bayesian_csv)
     monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
@@ -542,13 +545,21 @@ def test_all_models_share_eight_plots_and_keep_their_labels_and_colors(
 @pytest.mark.parametrize("show_mean_lines", [False, True])
 @pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
 @pytest.mark.parametrize("plot_language", ["de", "en"])
-def test_run_button_compares_all_five_csvs_without_running_models_or_writing_outputs(
+def test_script_compares_configured_csvs_without_running_models_or_writing_outputs(
     tmp_path, monkeypatch, show_points, show_mean_lines, metric_y_scale, plot_language
 ):
     from bayestraj.validation import imm_workflow
 
-    paths = _write_model_csvs(tmp_path)
+    paths = _write_model_csvs(tmp_path, SCRIPT_MODEL_CSVS)
     originals = {path: path.read_bytes() for path in paths.values()}
+    model_labels = [label for _, _, label in SCRIPT_MODEL_CSVS]
+    display_labels = [
+        display_label
+        for label, display_label in zip(
+            MODEL_DISPLAY_ORDER, PLOT_MODEL_LABELS[plot_language], strict=True
+        )
+        if label in model_labels
+    ]
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
     assert namespace["PLOT_LANGUAGE"] == "de"
     for variable, path in paths.items():
@@ -577,14 +588,12 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
         )
         assert list(summary) == [
             "metric",
-            *MODEL_DISPLAY_ORDER,
+            *model_labels,
             "preferred",
         ]
-        labels = list(summary.columns[1:-1])
-        assert summary.set_index("metric").loc["ade_m", labels].tolist() == [
+        assert summary.set_index("metric").loc["ade_m", model_labels].tolist() == [
             9.25,
             6.0,
-            9.0,
             7.0,
             8.0,
         ]
@@ -598,27 +607,27 @@ def test_run_button_compares_all_five_csvs_without_running_models_or_writing_out
             lower, upper = axis.get_ylim()
             assert lower <= 0 <= upper
             assert 0 in axis.get_yticks()
-            display_labels = PLOT_MODEL_LABELS[plot_language]
             curves = [line for line in axis.lines if line.get_label() in display_labels]
             assert [line.get_label() for line in curves] == display_labels
             assert all(
                 line.get_marker() == ("o" if show_points else "None") for line in curves
             )
             means = [line for line in axis.lines if line.get_linestyle() == "--"]
-            assert len(means) == (5 if show_mean_lines else 0)
+            assert len(means) == (len(model_labels) if show_mean_lines else 0)
             legend = [text.get_text() for text in axis.get_legend().get_texts()]
             mean_label = PLOT_TEXT[plot_language]["mean"] + " ="
             assert any(mean_label in text for text in legend) == show_mean_lines
         for figure, nominal in zip(shown[5:7], (50, 90), strict=True):
             axis = figure.axes[0]
-            assert len(axis.patches) == 5
+            assert len(axis.patches) == len(model_labels)
             assert len(axis.lines) == 1
             assert axis.get_yscale() == "linear"
             np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
         table = shown[8].axes[0].tables[0]
-        assert [table[row, 0].get_text().get_text() for row in range(1, 6)] == [
-            label.replace(" (", "\n(") for label in PLOT_MODEL_LABELS[plot_language]
-        ]
+        assert [
+            table[row, 0].get_text().get_text()
+            for row in range(1, len(model_labels) + 1)
+        ] == [label.replace(" (", "\n(") for label in display_labels]
         assert table[1, 1].get_text().get_text() == "9.250"
         assert table[1, 6].get_text().get_text() == "25.0%"
         assert set(tmp_path.iterdir()) == set(paths.values())
