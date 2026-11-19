@@ -33,14 +33,20 @@ NUMERIC_FIELDS = (
 
 
 def align_cycle_times(path, cycles):
-    """Use the original MATLAB radar times after checking the CSV rounding."""
+    """Align a matching initial sequence to MATLAB's original radar times."""
     data = loadmat(path, variable_names=["time", "cycle_counter"])
     times = np.asarray(data["time"], dtype=float).reshape(-1)
     counters = np.asarray(data["cycle_counter"]).reshape(-1)
-    if times.shape != (len(cycles),) or not np.array_equal(
-        counters, [cycle.cycle_counter for cycle in cycles]
+    count = len(cycles)
+    if (
+        times.shape != counters.shape
+        or count > counters.size
+        or not np.array_equal(
+            counters[:count], [cycle.cycle_counter for cycle in cycles]
+        )
     ):
         raise ValueError("MATLAB trace cycles do not match radar input.")
+    times = times[:count]
     if not np.all(np.isfinite(times)):
         raise ValueError("MATLAB radar times must be finite.")
     if np.any(np.diff(times) <= 0):
@@ -48,6 +54,8 @@ def align_cycle_times(path, cycles):
     csv_times = np.array([cycle.time_seconds for cycle in cycles])
     if not np.all(np.abs(times - csv_times) <= 0.05 + 1e-8):
         raise ValueError("MATLAB and CSV radar times differ beyond rounding tolerance.")
+    if count < counters.size:
+        print(f"Using the first {count} of {counters.size} MATLAB trace cycles.")
     return tuple(
         replace(cycle, time_seconds=float(time))
         for cycle, time in zip(cycles, times, strict=True)
@@ -55,28 +63,36 @@ def align_cycle_times(path, cycles):
 
 
 def read_matlab_trace(path, cycles) -> pd.DataFrame:
-    """Read MATLAB's world-frame output and recover only unambiguous IDs."""
+    """Read the matching initial MATLAB output and recover unambiguous IDs."""
     data = loadmat(path)
     count = len(cycles)
     times = np.asarray(data["time"], dtype=float).reshape(-1)
     counters = np.asarray(data["cycle_counter"]).reshape(-1)
+    source_count = counters.size
     state = np.asarray(data["state"], dtype=float)
     covariance = np.asarray(data["covariance"], dtype=float)
     mode = np.asarray(data["mode"], dtype=float)
     measurement = np.asarray(data["measurement"], dtype=float)
     sensor_position = np.asarray(data["sensor_position"], dtype=float)
     if (
-        times.shape != (count,)
-        or counters.shape != (count,)
-        or state.shape != (5, count)
-        or covariance.shape != (5, 5, count)
-        or mode.shape != (3, count)
-        or measurement.shape != (2, count)
-        or sensor_position.shape != (2, count)
+        times.shape != (source_count,)
+        or state.shape != (5, source_count)
+        or covariance.shape != (5, 5, source_count)
+        or mode.shape != (3, source_count)
+        or measurement.shape != (2, source_count)
+        or sensor_position.shape != (2, source_count)
     ):
         raise ValueError("MATLAB trace dimensions do not match the radar cycles.")
-    if not np.array_equal(counters, [cycle.cycle_counter for cycle in cycles]):
+    if count > source_count or not np.array_equal(
+        counters[:count], [cycle.cycle_counter for cycle in cycles]
+    ):
         raise ValueError("MATLAB trace cycles do not match radar input.")
+    times = times[:count]
+    state = state[:, :count]
+    covariance = covariance[:, :, :count]
+    mode = mode[:, :count]
+    measurement = measurement[:, :count]
+    sensor_position = sensor_position[:, :count]
     if not np.allclose(
         times, [cycle.time_seconds for cycle in cycles], rtol=0.0, atol=1e-6
     ):
@@ -95,7 +111,7 @@ def read_matlab_trace(path, cycles) -> pd.DataFrame:
         ("detection_std_azimuth", "std_azimuth_rad"),
     ):
         matlab_values = np.asarray(data[field], dtype=object).reshape(-1)
-        if len(matlab_values) != count:
+        if len(matlab_values) != source_count:
             raise ValueError(f"MATLAB {field} cycles do not match radar input.")
         for index, cycle in enumerate(cycles):
             actual = np.asarray(matlab_values[index], dtype=float).reshape(-1)

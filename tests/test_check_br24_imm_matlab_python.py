@@ -165,14 +165,23 @@ def test_main_prints_a_clear_verdict_and_exports_the_comparison(
     assert str(output) in text
 
 
-def test_cycle_times_use_unrounded_matlab_values_without_changing_input(tmp_path):
+@pytest.mark.parametrize("trace_cycle_count", [2, 3])
+def test_cycle_times_use_unrounded_matlab_values_without_changing_input(
+    tmp_path, trace_cycle_count
+):
     module = runpy.run_path(SCRIPT)
     cycles = (
         BR24RadarCycle(10.0, 1, np.array([100.0, 50.0]), 0.0, ()),
         BR24RadarCycle(11.0, 2, np.array([100.0, 50.0]), 0.0, ()),
     )
     source = tmp_path / "times.mat"
-    savemat(source, {"time": [10.012, 10.971], "cycle_counter": [1, 2]})
+    savemat(
+        source,
+        {
+            "time": [10.012, 10.971, 12.5][:trace_cycle_count],
+            "cycle_counter": [1, 2, 3][:trace_cycle_count],
+        },
+    )
 
     aligned = module["align_cycle_times"](source, cycles)
 
@@ -187,6 +196,8 @@ def test_cycle_times_use_unrounded_matlab_values_without_changing_input(tmp_path
         ([10.051, 11.0], [1, 2], "rounding"),
         ([10.0, 11.0], [1, 3], "cycles"),
         ([10.0, float("nan")], [1, 2], "finite"),
+        ([10.0], [1], "cycles"),
+        ([10.0, 11.0, 12.5], [2, 3, 4], "cycles"),
     ],
 )
 def test_cycle_times_reject_invalid_or_unrelated_radar_times(
@@ -203,7 +214,10 @@ def test_cycle_times_reject_invalid_or_unrelated_radar_times(
         module["align_cycle_times"](source, cycles)
 
 
-def test_matlab_trace_flags_ambiguous_and_missing_detections(tmp_path):
+@pytest.mark.parametrize("input_cycle_count", [2, 3])
+def test_matlab_trace_flags_ambiguous_and_missing_detections(
+    tmp_path, input_cycle_count
+):
     module = runpy.run_path(SCRIPT)
 
     def detection(identity):
@@ -233,13 +247,24 @@ def test_matlab_trace_flags_ambiguous_and_missing_detections(tmp_path):
         },
     )
 
+    cycles = cycles[:input_cycle_count]
     result = module["read_matlab_trace"](trace_path, cycles)
 
-    assert result["association_status"].tolist() == ["ambiguous", "matched", "missed"]
+    assert (
+        result["association_status"].tolist()
+        == [
+            "ambiguous",
+            "matched",
+            "missed",
+        ][:input_cycle_count]
+    )
     assert np.isnan(result.loc[0, "detection_id"])
     assert result.loc[1, "detection_id"] == 3
-    np.testing.assert_allclose(result["x"], [110, 111, 112])
-    np.testing.assert_allclose(result["cov_xx"], [1, 1, 1])
+    np.testing.assert_allclose(result["x"], [110, 111, 112][:input_cycle_count])
+    np.testing.assert_allclose(result["cov_xx"], 1)
+
+    with pytest.raises(ValueError, match="cycles"):
+        module["read_matlab_trace"](trace_path, cycles[1:])
 
     changed = list(cycles)
     changed[1] = BR24RadarCycle(11.0, 2, np.array([101.0, 50.0]), 0.0, (detection(3),))
@@ -281,8 +306,9 @@ def test_python_imm_trace_preserves_initial_state_and_missed_cycles():
     )
 
 
+@pytest.mark.parametrize("trace_cycle_count", [2, 3])
 def test_main_replaces_cyclewise_comparison_at_fixed_output_path(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, trace_cycle_count
 ):
     module = runpy.run_path(SCRIPT)
     assert module["OUTPUT_CSV"] == (
@@ -307,19 +333,26 @@ def test_main_replaces_cyclewise_comparison_at_fixed_output_path(
             "y_relative": [0.0, np.nan],
         }
     ).to_csv(input_csv, index=False)
-    state = np.zeros((5, 2))
-    state[:2] = [[110, 110], [-20, -20]]
+    cycles = (
+        *read_br24_tracking_input(input_csv),
+        BR24RadarCycle(12.5, 3, np.array([100.0, -20.0]), 0.0, ()),
+    )[:trace_cycle_count]
+    state = np.zeros((5, trace_cycle_count))
+    state[0] = 110
+    state[1] = -20
     matlab = tmp_path / "matlab.mat"
     savemat(
         matlab,
         {
-            "time": [10.012, 10.971],
-            "cycle_counter": [1, 2],
+            "time": [10.012, 10.971, 12.5][:trace_cycle_count],
+            "cycle_counter": [1, 2, 3][:trace_cycle_count],
             "state": state,
-            "covariance": np.repeat(np.eye(5)[:, :, None], 2, axis=2),
-            "mode": [[1, 1], [0, 0], [0, 0]],
-            "measurement": [[110, np.nan], [-20, np.nan]],
-            **_matlab_radar_inputs(read_br24_tracking_input(input_csv)),
+            "covariance": np.repeat(np.eye(5)[:, :, None], trace_cycle_count, axis=2),
+            "mode": np.array([[1, 1, 1], [0, 0, 0], [0, 0, 0]])[:, :trace_cycle_count],
+            "measurement": np.array([[110, np.nan, np.nan], [-20, np.nan, np.nan]])[
+                :, :trace_cycle_count
+            ],
+            **_matlab_radar_inputs(cycles),
         },
     )
     output = tmp_path / "comparison.csv"
