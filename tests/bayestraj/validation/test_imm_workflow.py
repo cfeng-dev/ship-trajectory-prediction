@@ -17,6 +17,8 @@ def test_imm_main_delegates_header_settings_and_return_value(tmp_path, monkeypat
     workflow = importlib.import_module("bayestraj.validation.imm_workflow")
     script = Path(__file__).resolve().parents[3] / "scripts/model_evaluation/imm.py"
     module = runpy.run_path(script)
+    assert "OUTPUT_CSV" not in module
+    assert module["OUTPUT_DIR"] == script.parents[2] / "results/evaluation"
     calls = []
     result = (object(), object())
 
@@ -29,7 +31,7 @@ def test_imm_main_delegates_header_settings_and_return_value(tmp_path, monkeypat
 
     monkeypatch.setattr(workflow, "run_evaluation", run)
     monkeypatch.setattr(workflow, "run_imm_evaluation", unexpected_workflow)
-    monkeypatch.setitem(module["main"].__globals__, "OUTPUT_CSV", tmp_path / "imm.csv")
+    monkeypatch.setitem(module["main"].__globals__, "OUTPUT_DIR", tmp_path)
     arguments = ["--max-windows", "1"]
 
     assert module["main"](arguments) is result
@@ -59,6 +61,9 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     script = Path(__file__).resolve().parents[3] / "scripts/model_evaluation/imm.py"
     module = runpy.run_path(script)
     settings = module["main"].__globals__
+    assert "OUTPUT_DIR" in module
+    output_dir = tmp_path / "custom_evaluation"
+    output = output_dir / "imm.csv"
     calls = []
     plots = []
     table = pd.DataFrame(
@@ -78,7 +83,7 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
         return table, None
 
     def diagnostics(predictions):
-        assert (tmp_path / "imm.csv").is_file()
+        assert output.is_file()
         plots.append(predictions)
 
     monkeypatch.setattr(module["evaluation"], "run_imm_evaluation", evaluate)
@@ -87,7 +92,7 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
         "plot_imm_rolling_diagnostics",
         diagnostics,
     )
-    monkeypatch.setitem(settings, "OUTPUT_CSV", tmp_path / "imm.csv")
+    monkeypatch.setitem(settings, "OUTPUT_DIR", output_dir)
 
     module["main"](arguments)
 
@@ -105,7 +110,7 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     assert set(calls[0]) == {"data_file", "imm_python", "options"}
     assert len(plots) == 1 and plots[0] is table
     pd.testing.assert_frame_equal(
-        pd.read_csv(tmp_path / "imm.csv"),
+        pd.read_csv(output),
         table.drop(columns=["time", "forecast_origin_time"]),
     )
     pd.testing.assert_frame_equal(table, original)

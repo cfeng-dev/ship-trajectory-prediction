@@ -217,12 +217,12 @@ def test_imm_evaluation_exports_predictor_medians_without_trajectory_plots(
             np.testing.assert_array_equal(times, [1, 2])
             return case.mixtures
 
-    output = tmp_path / "metrics.csv"
+    output = tmp_path / "imm.csv"
     monkeypatch.setattr(
         case.workflow, "_load_optional_imm_tracker", lambda path: Tracker
     )
     monkeypatch.setitem(namespace, "DATA_FILE", source)
-    monkeypatch.setitem(namespace, "OUTPUT_CSV", output)
+    monkeypatch.setitem(namespace, "OUTPUT_DIR", output.parent)
     monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", False)
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
@@ -295,8 +295,8 @@ def test_imm_run_button_exports_the_same_early_forecast_origins_as_bayesian(
     settings = module["main"].__globals__
     if not settings["IMM_PYTHON"].is_file() or not settings["DATA_FILE"].is_file():
         pytest.skip("Optional local IMM implementation or BR24 data is unavailable")
-    output = tmp_path / "imm_evaluation.csv"
-    monkeypatch.setitem(settings, "OUTPUT_CSV", output)
+    output = tmp_path / "imm.csv"
+    monkeypatch.setitem(settings, "OUTPUT_DIR", output.parent)
     monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", False)
     monkeypatch.setitem(settings, "MAX_WINDOWS", 2)
     cycles = (
@@ -386,7 +386,7 @@ def test_imm_evaluation_entrypoint_adds_metric_plots_without_changing_export(
         return predictions, summary
 
     monkeypatch.setattr(namespace["evaluation"], "run_imm_evaluation", evaluate)
-    monkeypatch.setitem(namespace, "OUTPUT_CSV", output_csv)
+    monkeypatch.setitem(namespace, "OUTPUT_DIR", output_csv.parent)
     monkeypatch.setitem(namespace, "SHOW_ROLLING_DIAGNOSTICS_PLOT", diagnostics_enabled)
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))

@@ -21,8 +21,10 @@ import bayestraj.validation.metrics as metrics
 import bayestraj.validation.rolling as rolling
 import bayestraj.validation.runtime_plotting as runtime_plotting
 
-EVALUATION_OUTPUT_CSV = "results/evaluation/bayesian_ctrv_{inference_method}.csv"
-ASSOCIATIONS_OUTPUT_CSV = "results/associations/bayesian_ctrv_{inference_method}.csv"
+EVALUATION_OUTPUT_CSV = (
+    "results/evaluation/bayesian_ctrv_{inference_method}{observation_count_suffix}.csv"
+)
+ASSOCIATIONS_OUTPUT_CSV = "results/associations/bayesian_ctrv_{inference_method}{observation_count_suffix}.csv"
 
 
 class _DefaultOutput:
@@ -129,6 +131,7 @@ def run_evaluation(
     *,
     data_file: str | Path,
     output_csv: str | Path | None | _DefaultOutput = _DEFAULT_OUTPUT,
+    output_dir: str | Path | None = None,
     experiment: ctrv_config.RollingExperimentConfig,
     priors: bayesian_model.BayesianCTRVPriors,
     fullrank_grad_samples=inference.DEFAULT_FULLRANK_GRAD_SAMPLES,
@@ -148,11 +151,13 @@ def run_evaluation(
 
     Omitted output paths use this module's settings, resolved from the project
     root when the evaluation runs. Explicit arguments remain available.
-    The optional `{inference_method}` placeholder in `output_csv` follows the
-    actual selection, including command-line overrides. Literal paths are also
-    accepted for custom output
-    filenames. None or an empty string skips export with a terminal warning.
-    associations_output_csv accepts the same placeholder for BR24 raw choices;
+    output_dir relocates the default forecast CSV while retaining its filename;
+    an explicit output_csv takes precedence. Association paths are independent.
+    Output paths support `{inference_method}` and `{observation_count_suffix}`.
+    The suffix is `_NN` for VI/MCMC and empty for SMC; both placeholders follow
+    the actual selection, including command-line overrides. Literal custom
+    filenames are preserved. None or an empty string skips export with a warning.
+    associations_output_csv accepts the same placeholders for BR24 raw choices;
     None disables that export. Disabling output_csv still disables both files.
     By default, export failures do not prevent diagnostic plots.
     Trajectory visualization belongs to the predictor tools. Scoring uses
@@ -175,7 +180,12 @@ def run_evaluation(
     use_default_output = output_csv is _DEFAULT_OUTPUT
     if use_default_output:
         output_csv = EVALUATION_OUTPUT_CSV
-    output_path = _csv_output_path(output_csv, options.inference_method)
+    output_path = _csv_output_path(
+        output_csv,
+        options.inference_method,
+        observation_count=options.observation_count,
+        directory=output_dir if use_default_output else None,
+    )
     if use_default_output and output_path is not None:
         output_path = paths.project_path(output_path)
     if require_csv_export and output_path is None:
@@ -188,6 +198,7 @@ def run_evaluation(
         association_path = _csv_output_path(
             associations_output_csv,
             options.inference_method,
+            observation_count=options.observation_count,
             setting="ASSOCIATIONS_OUTPUT_CSV",
         )
         if use_default_associations and association_path is not None:
@@ -401,7 +412,12 @@ def _record_observation_count_metadata(
 
 
 def _csv_output_path(
-    value: str | Path | None, inference_method: str, *, setting="EVALUATION_OUTPUT_CSV"
+    value: str | Path | None,
+    inference_method: str,
+    *,
+    observation_count: int,
+    directory: str | Path | None = None,
+    setting="EVALUATION_OUTPUT_CSV",
 ) -> Path | None:
     """Resolve an optional CSV destination without creating any files."""
     try:
@@ -409,9 +425,20 @@ def _csv_output_path(
             raise ValueError("no output file configured")
         if not isinstance(value, (str, Path)):
             raise TypeError("expected a .csv path or None")
-        if "\0" in str(value):
+        observation_count_suffix = (
+            f"_{observation_count:02d}"
+            if inference_method in inference.BATCH_INFERENCE_METHODS
+            else ""
+        )
+        path = Path(
+            str(value)
+            .replace("{inference_method}", inference_method)
+            .replace("{observation_count_suffix}", observation_count_suffix)
+        )
+        if directory is not None:
+            path = Path(directory).expanduser() / path.name
+        if "\0" in str(path):
             raise ValueError("CSV paths must not contain null characters")
-        path = Path(str(value).replace("{inference_method}", inference_method))
         if path.suffix.lower() != ".csv":
             raise ValueError("expected a .csv filename")
         if path.is_dir():

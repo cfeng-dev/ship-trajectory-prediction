@@ -96,34 +96,49 @@ def evaluation_run(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("method", "canonical_method", "csv_name"),
+    ("method", "canonical_method", "observation_count", "csv_name"),
     [
         (
             "smc",
             "smc",
+            14,
             "bayesian_ctrv_smc.csv",
         ),
         (
             "vi",
             "vi",
-            "bayesian_ctrv_vi.csv",
+            4,
+            "bayesian_ctrv_vi_04.csv",
         ),
         (
             "mcmc",
             "mcmc",
-            "bayesian_ctrv_mcmc.csv",
+            7,
+            "bayesian_ctrv_mcmc_07.csv",
         ),
+        ("mcmc", "mcmc", 14, "bayesian_ctrv_mcmc_14.csv"),
+        ("vi", "vi", 100, "bayesian_ctrv_vi_100.csv"),
     ],
 )
 def test_run_button_uses_header_method_and_exports_its_own_csv(
-    tmp_path, monkeypatch, evaluation_run, method, canonical_method, csv_name
+    tmp_path,
+    monkeypatch,
+    evaluation_run,
+    method,
+    canonical_method,
+    observation_count,
+    csv_name,
 ):
     evaluation, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
     monkeypatch.setitem(
         namespace["main"].__globals__,
         "EXPERIMENT",
-        replace(namespace["EXPERIMENT"], inference_method=method),
+        replace(
+            namespace["EXPERIMENT"],
+            inference_method=method,
+            observation_count=observation_count,
+        ),
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", [str(SCRIPT)])
@@ -133,6 +148,7 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
     assert len(calls) == 1
     assert calls[0]["experiment"].inference_method == canonical_method
     assert calls[0]["options"].inference_method == canonical_method
+    assert calls[0]["options"].observation_count == observation_count
     assert calls[0]["options"].prediction_count == 3
     assert calls[0]["options"].stride == 1
     assert calls[0]["data_file"] == (
@@ -156,6 +172,31 @@ def test_run_button_uses_header_method_and_exports_its_own_csv(
             {"inference_method": [canonical_method], "position_error_m": [2.5]}
         ),
     )
+
+
+@pytest.mark.parametrize(
+    "method,count,filename",
+    [
+        ("smc", 14, "bayesian_ctrv_smc.csv"),
+        ("vi", 4, "bayesian_ctrv_vi_04.csv"),
+        ("mcmc", 7, "bayesian_ctrv_mcmc_07.csv"),
+    ],
+)
+def test_script_output_directory_keeps_automatic_csv_names(
+    tmp_path, monkeypatch, evaluation_run, method, count, filename
+):
+    _, calls = evaluation_run
+    namespace = runpy.run_path(SCRIPT)
+    directory = tmp_path / "custom_results" / "forecasts"
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", directory)
+
+    namespace["main"](["--inference-method", method, "--observations", str(count)])
+
+    assert calls[0]["options"].inference_method == method
+    assert calls[0]["options"].observation_count == count
+    assert list(directory.iterdir()) == [directory / filename]
+    assert pd.read_csv(directory / filename)["inference_method"].tolist() == [method]
+    assert not (tmp_path / "results/evaluation").exists()
 
 
 def test_standard_evaluation_uses_the_public_csv_api(monkeypatch, evaluation_run):
@@ -200,6 +241,7 @@ def test_programmatic_evaluation_uses_resolved_options_and_inference_settings(
     predictions, _ = evaluation.run_evaluation(
         data_file=tmp_path / "BR24.csv",
         output_csv=destination,
+        output_dir=tmp_path / "unused_directory",
         associations_output_csv=None,
         experiment=namespace["EXPERIMENT"],
         priors=namespace["PRIORS"],
@@ -219,6 +261,7 @@ def test_programmatic_evaluation_uses_resolved_options_and_inference_settings(
     assert calls[0]["credible_interval"] == 0.9
     assert predictions["inference_method"].tolist() == ["mcmc"]
     assert pd.read_csv(destination)["inference_method"].tolist() == ["mcmc"]
+    assert not (tmp_path / "unused_directory").exists()
 
 
 @pytest.mark.parametrize(
@@ -260,13 +303,15 @@ def test_programmatic_evaluation_rejects_conflicting_or_invalid_export_settings(
     assert not (tmp_path / "evaluation.csv").exists()
 
 
-def test_entrypoint_keeps_output_paths_in_the_shared_source_module(
+def test_entrypoint_exposes_output_directory_and_keeps_shared_filenames(
     tmp_path, monkeypatch, evaluation_run
 ):
     evaluation, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
+    assert namespace["OUTPUT_DIR"] == tmp_path / "results/evaluation"
     assert "EVALUATION_OUTPUT_CSV" not in namespace
     assert "ASSOCIATIONS_OUTPUT_CSV" not in namespace
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", tmp_path / "metrics.csv")
     monkeypatch.setattr(
         evaluation, "ASSOCIATIONS_OUTPUT_CSV", tmp_path / "detections.csv"
@@ -315,6 +360,7 @@ def test_association_filename_can_be_configured_independently_and_follows_cli_me
 ):
     evaluation, calls = evaluation_run
     namespace = runpy.run_path(SCRIPT)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", tmp_path / "forecast.csv")
     monkeypatch.setattr(
         evaluation, "ASSOCIATIONS_OUTPUT_CSV", tmp_path / "raw_{inference_method}.csv"
@@ -352,6 +398,7 @@ def test_association_destination_cannot_overwrite_the_forecast_csv(
     namespace = runpy.run_path(SCRIPT)
     destination = tmp_path / "same.csv"
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", destination)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", destination.parent)
     monkeypatch.setattr(evaluation, "ASSOCIATIONS_OUTPUT_CSV", destination)
 
     namespace["main"]([])
@@ -401,25 +448,28 @@ def test_cli_override_exports_selected_method_without_overwriting_other_methods(
     assert namespace["main"].__globals__["EXPERIMENT"].inference_method == "smc"
     outputs = set((tmp_path / "results").rglob("*.csv"))
     assert outputs == {
-        tmp_path / "results/evaluation/bayesian_ctrv_vi.csv",
+        tmp_path / "results/evaluation/bayesian_ctrv_vi_10.csv",
         tmp_path / "results/evaluation/bayesian_ctrv_smc.csv",
-        tmp_path / "results/associations/bayesian_ctrv_vi.csv",
+        tmp_path / "results/associations/bayesian_ctrv_vi_10.csv",
         tmp_path / "results/associations/bayesian_ctrv_smc.csv",
     }
-    assert pd.read_csv(tmp_path / "results/evaluation/bayesian_ctrv_vi.csv")[
+    assert pd.read_csv(tmp_path / "results/evaluation/bayesian_ctrv_vi_10.csv")[
         "inference_method"
     ].tolist() == ["vi"]
 
 
-@pytest.mark.parametrize("method", ["mcmc", "vi"])
+@pytest.mark.parametrize("method, observation_count", [("mcmc", 7), ("vi", 4)])
 def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
-    tmp_path, monkeypatch, evaluation_run, method
+    tmp_path, monkeypatch, evaluation_run, method, observation_count
 ):
     evaluation, calls = evaluation_run
     plotted = []
 
     def plot(table, *, inference_selection):
-        output = tmp_path / f"results/evaluation/bayesian_ctrv_{method}.csv"
+        output = (
+            tmp_path
+            / f"results/evaluation/bayesian_ctrv_{method}_{observation_count:02d}.csv"
+        )
         assert output.is_file()
         plotted.append(inference_selection)
 
@@ -428,9 +478,12 @@ def test_cli_override_uses_actual_method_for_csv_and_diagnostics(
     )
     namespace = runpy.run_path(SCRIPT)
 
-    predictions, summary = namespace["main"](["--inference-method", method])
+    predictions, summary = namespace["main"](
+        ["--inference-method", method, "--observations", str(observation_count)]
+    )
 
     assert calls[0]["options"].inference_method == method
+    assert calls[0]["options"].observation_count == observation_count
     assert predictions["inference_method"].tolist() == [method]
     assert summary is None
     assert plotted == [method]
@@ -474,6 +527,7 @@ def test_csv_destination_directory_is_rejected_without_writing_files(
     destination.mkdir()
     namespace = runpy.run_path(SCRIPT)
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", destination)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", destination.parent)
 
     namespace["main"]([])
 
@@ -493,6 +547,7 @@ def test_csv_write_failure_preserves_previous_results_and_still_plots(
     original = b"previous,results\n1,2\n"
     destination.write_bytes(original)
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", destination)
+    monkeypatch.setitem(namespace["main"].__globals__, "OUTPUT_DIR", destination.parent)
     monkeypatch.setattr(
         evaluation,
         "ASSOCIATIONS_OUTPUT_CSV",
@@ -557,6 +612,7 @@ def test_script_settings_and_source_output_control_evaluation(
     data_file = tmp_path / "custom_data.csv"
     for name, value in {
         "DATA_FILE": data_file,
+        "OUTPUT_DIR": output.parent,
         "EXPERIMENT": experiment,
         "PRIORS": priors,
         "MAX_WINDOWS": 2,

@@ -1,4 +1,4 @@
-"""Evaluate Bayesian CTRV mean forecasts across rolling windows (SMC by default)."""
+"""Evaluate Bayesian CTRV mean forecasts across rolling windows."""
 
 import bayestraj.forecasting.bayesian_ctrv as ctrv_config
 import bayestraj.models.bayesian_ctrv as bayesian_model
@@ -6,6 +6,7 @@ import bayestraj.validation.bayesian_ctrv_evaluation as evaluation
 from bayestraj.paths import project_path
 
 DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
+OUTPUT_DIR = project_path("results/evaluation")
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
     observation_count=10,  # Maximum VI/MCMC window size; ignored by SMC.
@@ -35,6 +36,7 @@ def main(argv=None):
     """Run rolling evaluation using this script's header settings."""
     return evaluation.run_evaluation(
         data_file=DATA_FILE,
+        output_dir=OUTPUT_DIR,
         experiment=EXPERIMENT,
         priors=PRIORS,
         max_windows=MAX_WINDOWS,
