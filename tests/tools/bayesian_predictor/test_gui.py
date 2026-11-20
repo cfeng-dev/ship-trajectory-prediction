@@ -737,6 +737,45 @@ def test_windows_frame_lock_with_hidden_native_window():
         assert native.DestroyWindow(frame)
 
 
+@pytest.mark.parametrize("package", ["bayesian_predictor", "imm_predictor"])
+@pytest.mark.parametrize(
+    "dpi,width,height",
+    [
+        (100, 803, 603),
+        (125, 1003, 1001),
+        (150, 603, 609),
+        (100, 1100, 800),
+        (125, 1100, 800),
+        (150, 1100, 800),
+    ],
+)
+def test_embedded_canvas_repaints_every_pixel_after_resize(package, dpi, width, height):
+    import importlib
+    from unittest.mock import Mock
+
+    from matplotlib.backend_bases import FigureCanvasBase
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.colors import to_rgba
+    from matplotlib.figure import Figure
+
+    canvas_type = importlib.import_module(f"{package}.plot_view").FigureCanvasTkAgg
+    figure = Figure(dpi=dpi, facecolor="#f4f9fc")
+    canvas = canvas_type.__new__(canvas_type)
+    FigureCanvasBase.__init__(canvas, figure)
+    # Exercise the real TkAgg resize/render path without requiring a Tk window.
+    canvas._tkcanvas, canvas._tkphoto = Mock(), Mock()
+    canvas._tkcanvas_image_region = 1
+    canvas._idle_draw_id = "pending"
+    canvas.resize(SimpleNamespace(width=width, height=height))
+    canvas._tkphoto.configure.assert_called_once_with(width=width, height=height)
+    FigureCanvasAgg.draw(canvas)
+    pixels = np.asarray(canvas.buffer_rgba())
+    assert pixels.shape == (height, width, 4)
+    background = np.round(np.array(to_rgba("#f4f9fc")) * 255).astype(np.uint8)
+    np.testing.assert_array_equal(pixels[:, -1], np.tile(background, (height, 1)))
+    np.testing.assert_array_equal(pixels[-1], np.tile(background, (width, 1)))
+
+
 def test_imm_route_legend_labels_the_history_as_observations():
     from imm_predictor.player import IMMPlayerConfig, IMMPlayerStage
     from imm_predictor.plot_view import IMMPlotView

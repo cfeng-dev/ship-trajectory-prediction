@@ -2,7 +2,7 @@
 
 import tkinter as tk
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
 from .dashboard import (
@@ -11,6 +11,7 @@ from .dashboard import (
 )
 from .localization import widget_language
 from .view import PLOT_BACKGROUND, configure_plot_toolbar
+from .view import PredictorFigureCanvas as FigureCanvasTkAgg
 
 
 class PosteriorPlotView(tk.Frame):

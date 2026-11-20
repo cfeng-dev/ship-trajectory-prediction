@@ -2,7 +2,10 @@
 
 import sys
 import tkinter as tk
+from math import inf, nextafter
 from tkinter import ttk
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from .localization import translate
 
@@ -18,6 +21,21 @@ FONT = ("Arial", 10)
 MAIN_WINDOW_WIDTH = 1400
 MAIN_WINDOW_HEIGHT = 700
 MAIN_WINDOW_VERTICAL_OFFSET = 40
+
+
+class PredictorFigureCanvas(FigureCanvasTkAgg):
+    """Keep the rendered image as large as Tk's canvas after resizing."""
+
+    def resize(self, event):
+        super().resize(event)
+        width, height = self.figure.bbox.size
+        if (int(width), int(height)) != (event.width, event.height):
+            # Pixel-to-inch rounding must not leave an old column or row untouched.
+            self.figure.set_size_inches(
+                nextafter(event.width / self.figure.dpi, inf),
+                nextafter(event.height / self.figure.dpi, inf),
+                forward=False,
+            )
 
 
 def input_style_settings():

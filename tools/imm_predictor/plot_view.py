@@ -5,7 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from bayesian_predictor.view import PredictorFigureCanvas as FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib.layout_engine import LayoutEngine
 from matplotlib.patches import Ellipse, Patch
