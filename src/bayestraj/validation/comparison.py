@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 import re
 import warnings
+from collections import Counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -280,6 +281,64 @@ def read_model_comparison_csvs(csv_paths):
             raise ValueError(f"{variable}: {error}") from error
         if table["inference_method"].iloc[0] != method:
             raise ValueError(f"{variable} requires inference_method={method!r}: {path}")
+        models[label] = table
+    return _align_forecasts(models)
+
+
+def read_model_comparison_directory(input_dir: str | Path):
+    """Read every forecast CSV directly in a folder, retaining each saved run.
+
+    Model metadata determines labels and online-then-batch ordering. Batch runs
+    include their configured window size; repeated configurations also include
+    their filenames. Summary, association and other non-forecast tables are
+    skipped. Recognized forecasts must pass the usual validation and alignment.
+    """
+    directory = Path(input_dir).expanduser()
+    if not directory.is_dir():
+        raise ValueError(f"Evaluation CSV directory not found: {directory}")
+    specs = {
+        (variant, method): (index, label)
+        for index, (variant, method, label) in enumerate(MODEL_CSV_SPECS.values())
+    }
+    entries = []
+    for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
+        if not path.is_file() or path.suffix.lower() != ".csv":
+            continue
+        if path.name.casefold() == "summary.csv" or path.stem.casefold().endswith(
+            "_associations"
+        ):
+            continue
+        try:
+            table = _read_csv(path)
+            if not {"model_variant", "inference_method"}.issubset(table.columns):
+                continue
+            variants = table["model_variant"].drop_duplicates()
+            if len(variants) != 1 or variants.iloc[0] not in {"bayesian", "imm"}:
+                raise ValueError("model_variant must be one supported model per CSV.")
+            variant = variants.iloc[0]
+            table = _validate_table(table, variant)
+            method = table["inference_method"].iloc[0]
+            order, label = specs[variant, method]
+            label = runtime_plotting.comparison_model_label(label, table)
+            count = (
+                int(table["configured_observation_count"].iloc[0])
+                if method in {"vi", "mcmc"}
+                and "configured_observation_count" in table
+                and table["configured_observation_count"].notna().any()
+                else 0
+            )
+        except (OSError, ValueError) as error:
+            raise ValueError(f"{path}: {error}") from error
+        entries.append((order, count, path.name, label, table))
+    if len(entries) < 2:
+        raise ValueError(f"Select at least two forecast CSV files in {directory}.")
+    label_counts = Counter(entry[3] for entry in entries)
+    models = {}
+    for _order, _count, filename, label, table in sorted(
+        entries, key=lambda entry: (entry[0], entry[1], entry[2].casefold())
+    ):
+        if label_counts[label] > 1:
+            label = f"{label} [{filename}]"
         models[label] = table
     return _align_forecasts(models)
 

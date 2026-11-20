@@ -1,11 +1,13 @@
 """Plot rolling-evaluation diagnostics for trajectory forecasts."""
 
+from collections import Counter
 from pathlib import Path
 from textwrap import fill
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import to_hex, to_rgb
 from matplotlib.ticker import MaxNLocator
 
 import bayestraj.observations.plotting as observation_plotting
@@ -391,7 +393,7 @@ def _show_comparison_figure(figure):
     plt.show()
 
 
-def _comparison_label_with_window(label, table):
+def comparison_model_label(label, table):
     """Label batch window limits from explicit CSV configuration only."""
     if (
         table["inference_method"].iloc[0] not in {"vi", "mcmc"}
@@ -413,9 +415,29 @@ def _comparison_label_with_window(label, table):
             "integer for every row of a batch evaluation."
         )
     count = int(counts[0])
+    if f", T={count})" in label or f"(T={count})" in label:
+        return label
     if label.endswith(")"):
         return f"{label[:-1]}, T={count})"
     return f"{label} (T={count})"
+
+
+def _comparison_series_colors(tables):
+    """Keep method colors and distinguish multiple runs with lighter shades."""
+    methods = [table["inference_method"].iloc[0] for table in tables]
+    totals, seen = Counter(methods), Counter()
+    colors = []
+    for index, method in enumerate(methods):
+        color = COMPARISON_INFERENCE_COLORS.get(
+            method, COMPARISON_MODEL_COLORS[index % len(COMPARISON_MODEL_COLORS)]
+        )
+        if seen[method]:
+            fraction = 0.55 * seen[method] / (totals[method] - 1)
+            rgb = np.asarray(to_rgb(color))
+            color = to_hex(rgb * (1 - fraction) + fraction)
+        colors.append(color)
+        seen[method] += 1
+    return colors
 
 
 def plot_model_comparison(
@@ -442,7 +464,7 @@ def plot_model_comparison(
     names = list(models)
     tables = list(models.values())
     labels = [
-        _comparison_label_with_window(
+        comparison_model_label(
             str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
             if labels is None
             else labels[name],
@@ -455,13 +477,7 @@ def plot_model_comparison(
     series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
-    colors = [
-        COMPARISON_INFERENCE_COLORS.get(
-            table["inference_method"].iloc[0],
-            COMPARISON_MODEL_COLORS[index % len(COMPARISON_MODEL_COLORS)],
-        )
-        for index, table in enumerate(tables)
-    ]
+    colors = _comparison_series_colors(tables)
     if output_dir is not None:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

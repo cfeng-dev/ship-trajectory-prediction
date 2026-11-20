@@ -234,10 +234,170 @@ def test_smc_diagnostics_preserve_missing_estimates():
 
 
 def _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv):
-    for variable, _method, _label in MODEL_CSVS:
-        monkeypatch.setitem(namespace, variable, None)
-    monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", bayesian_csv)
-    monkeypatch.setitem(namespace, "IMM_CSV", imm_csv)
+    assert bayesian_csv.parent == imm_csv.parent
+    monkeypatch.setitem(namespace, "INPUT_DIR", bayesian_csv.parent)
+
+
+def test_directory_comparison_detects_models_from_contents_and_skips_other_files(
+    tmp_path,
+):
+    paths = _write_model_csvs(tmp_path)
+    pd.DataFrame({"ade_m": [1.0]}).to_csv(tmp_path / "summary.csv", index=False)
+    pd.DataFrame({"time": [1], "x": [2], "y": [3]}).to_csv(
+        tmp_path / "measurements.csv", index=False
+    )
+    (tmp_path / "run_associations.csv").write_text("not a forecast", encoding="utf-8")
+    (tmp_path / "metadata.json").write_text("{}", encoding="utf-8")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    _table("imm").to_csv(nested / "ignored.csv", index=False)
+    originals = {
+        path: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()
+    }
+
+    models = comparison.read_model_comparison_directory(tmp_path)
+
+    assert list(models) == MODEL_DISPLAY_ORDER
+    for _variable, method, label in MODEL_CSVS:
+        assert models[label]["inference_method"].unique().tolist() == [method]
+    assert len(models) == len(paths)
+    assert {path: path.read_bytes() for path in originals} == originals
+
+
+def test_directory_comparison_keeps_multiple_window_sizes_and_duplicate_runs(tmp_path):
+    _table("imm").to_csv(tmp_path / "reference.CSV", index=False)
+    for filename, count in [("a.csv", 10), ("b.csv", 7), ("c.csv", 7)]:
+        table = _table("bayesian").assign(
+            inference_method="mcmc", configured_observation_count=count
+        )
+        table.to_csv(tmp_path / filename, index=False)
+
+    models = comparison.read_model_comparison_directory(tmp_path)
+
+    assert list(models) == [
+        "IMM",
+        "Bayesian CTRV (MCMC, T=7) [b.csv]",
+        "Bayesian CTRV (MCMC, T=7) [c.csv]",
+        "Bayesian CTRV (MCMC, T=10)",
+    ]
+    assert len(models) == 4
+
+
+@pytest.mark.parametrize("problem", ["missing", "file", "empty", "one_forecast"])
+def test_directory_comparison_requires_a_directory_and_two_forecasts(tmp_path, problem):
+    directory = tmp_path
+    if problem == "missing":
+        directory = tmp_path / "absent"
+    elif problem == "file":
+        directory = tmp_path / "file.csv"
+        _table("imm").to_csv(directory, index=False)
+    elif problem == "one_forecast":
+        _table("imm").to_csv(tmp_path / "imm.csv", index=False)
+    message = "directory" if problem in {"missing", "file"} else "at least two"
+
+    with pytest.raises(ValueError, match=message):
+        comparison.read_model_comparison_directory(directory)
+
+
+@pytest.mark.parametrize(
+    "problem, message",
+    [
+        ("missing_column", "position_error_m"),
+        ("method", "inference_method"),
+        ("variant", "model_variant"),
+        ("window_count", "configured_observation_count"),
+        ("mixed_variants", "model_variant"),
+    ],
+)
+def test_directory_comparison_reports_invalid_forecasts_with_the_filename(
+    tmp_path, problem, message
+):
+    _table("imm").to_csv(tmp_path / "imm.csv", index=False)
+    table = _table("bayesian")
+    if problem == "missing_column":
+        table = table.drop(columns="position_error_m")
+    elif problem == "method":
+        table["inference_method"] = "unsupported"
+    elif problem == "variant":
+        table["model_variant"] = "unsupported"
+    elif problem == "window_count":
+        table["inference_method"] = "vi"
+        table["configured_observation_count"] = [4, 4, 5, 5]
+    else:
+        table.loc[0, "model_variant"] = "imm"
+    table.to_csv(tmp_path / "broken.csv", index=False)
+
+    with pytest.raises(ValueError, match=rf"broken.csv.*{message}"):
+        comparison.read_model_comparison_directory(tmp_path)
+
+
+@pytest.mark.parametrize("problem", ["reference", "horizon", "incomplete", "no_common"])
+def test_directory_comparison_preserves_forecast_alignment_checks(tmp_path, problem):
+    _table("imm").to_csv(tmp_path / "imm.csv", index=False)
+    table = _table("bayesian")
+    if problem == "reference":
+        table["x_actual"] += 1
+        table["x_median"] += 1
+    elif problem == "horizon":
+        table["horizon_seconds"] += 0.25
+    elif problem == "incomplete":
+        table = table[table["horizon_step"] == 1].assign(prediction_count=1)
+    else:
+        table["forecast_origin_seconds"] += 1
+    table.to_csv(tmp_path / "bayesian.csv", index=False)
+
+    with pytest.raises(ValueError, match="reference|horizon|common"):
+        comparison.read_model_comparison_directory(tmp_path)
+
+
+def test_directory_comparison_aligns_one_global_intersection(tmp_path):
+    paths = _write_model_csvs(tmp_path)
+    table = pd.read_csv(paths["BAYESIAN_VI_CSV"]).iloc[2:]
+    table.to_csv(paths["BAYESIAN_VI_CSV"], index=False)
+
+    with pytest.warns(UserWarning, match="omitted|unmatched"):
+        models = comparison.read_model_comparison_directory(tmp_path)
+
+    assert all(
+        table["forecast_origin_seconds"].tolist() == [120, 120]
+        for table in models.values()
+    )
+
+
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+def test_directory_variants_have_distinct_colors_and_single_window_labels(
+    tmp_path, plot_language
+):
+    for count in (4, 10):
+        _table("bayesian").assign(
+            inference_method="vi", configured_observation_count=count
+        ).to_csv(tmp_path / f"vi_{count}.csv", index=False)
+    _table("imm").to_csv(tmp_path / "imm.csv", index=False)
+    models = comparison.read_model_comparison_directory(tmp_path)
+
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models,
+        show=False,
+        show_mean_lines=False,
+        show_summary_table=True,
+        plot_language=plot_language,
+    )
+
+    try:
+        assert list(summary) == ["metric", *models, "preferred"]
+        lines = figures[0][1].lines
+        labels = [line.get_label() for line in lines]
+        assert [label.count("T=") for label in labels] == [0, 1, 1]
+        assert "T=4" in labels[1] and "T=10" in labels[2]
+        assert len({line.get_color() for line in lines}) == 3
+        bar_colors = [bar.get_facecolor() for bar in figures[5][1].patches]
+        assert len(set(bar_colors)) == 3
+        cells = figures[-1][1].tables[0]
+        assert cells[2, 0].get_text().get_text().count("T=") == 1
+        assert cells[3, 0].get_text().get_text().count("T=") == 1
+    finally:
+        for figure, _axis in figures:
+            plt.close(figure)
 
 
 def test_named_csvs_load_all_supported_methods_without_modifying_files(tmp_path):
@@ -574,8 +734,7 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
     display_labels = PLOT_MODEL_LABELS[plot_language]
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
     assert namespace["PLOT_LANGUAGE"] == "de"
-    for variable, path in paths.items():
-        monkeypatch.setitem(namespace, variable, path)
+    monkeypatch.setitem(namespace, "INPUT_DIR", tmp_path)
     monkeypatch.setitem(namespace, "SHOW_POINTS", show_points)
     monkeypatch.setitem(namespace, "SHOW_MEAN_LINES", show_mean_lines)
     monkeypatch.setitem(namespace, "METRIC_Y_SCALE", metric_y_scale)
@@ -1322,9 +1481,6 @@ def test_comparison_script_shows_plots_using_configured_csvs(
     table.to_csv(bayesian_csv, index=False)
     _table("imm").to_csv(imm_csv, index=False)
     _configure_pair(monkeypatch, namespace, bayesian_csv, imm_csv)
-    if method != "smc":
-        monkeypatch.setitem(namespace, "BAYESIAN_SMC_CSV", None)
-        monkeypatch.setitem(namespace, f"BAYESIAN_{method.upper()}_CSV", bayesian_csv)
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
     previous_figures = set(plt.get_fignums())
@@ -1333,7 +1489,11 @@ def test_comparison_script_shows_plots_using_configured_csvs(
         summary = module["main"]()
 
         indexed = summary.set_index("metric")
-        assert indexed.loc["ade_m", f"Bayesian CTRV ({method.upper()})"] == 6.0
+        batch_suffix = f", T={5 if method == 'vi' else 3}" if method != "smc" else ""
+        assert (
+            indexed.loc["ade_m", f"Bayesian CTRV ({method.upper()}{batch_suffix})"]
+            == 6.0
+        )
         assert indexed.loc["ade_m", "IMM"] == 9.25
         assert len(shown) == (9 if show_summary_table else 8)
         if method != "smc":
@@ -1348,20 +1508,17 @@ def test_comparison_script_shows_plots_using_configured_csvs(
             plt.close(figure_number)
 
 
-def test_comparison_reports_missing_csv_without_creating_outputs(tmp_path, monkeypatch):
+def test_comparison_reports_missing_directory_without_creating_outputs(
+    tmp_path, monkeypatch
+):
     module = runpy.run_path(SCRIPT)
-    missing_csv = tmp_path / "absent.csv"
+    missing_directory = tmp_path / "absent"
     monkeypatch.setattr("sys.argv", [str(SCRIPT)])
-    _configure_pair(
-        monkeypatch,
-        module["main"].__globals__,
-        tmp_path / "another_missing.csv",
-        missing_csv,
-    )
+    monkeypatch.setitem(module["main"].__globals__, "INPUT_DIR", missing_directory)
     with pytest.raises(SystemExit) as result:
         module["main"]()
-    assert "Evaluation CSV not found" in str(result.value.code)
-    assert str(missing_csv) in str(result.value.code)
+    assert "Evaluation CSV directory not found" in str(result.value.code)
+    assert str(missing_directory) in str(result.value.code)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -1382,6 +1539,7 @@ def test_bayesian_evaluator_exports_predictions_before_diagnostic_plots(
     summary = object()
     output = tmp_path / "results/bayesian_ctrv_smc_evaluation.csv"
     monkeypatch.setattr(evaluation, "EVALUATION_OUTPUT_CSV", output)
+    monkeypatch.setitem(settings, "OUTPUT_DIR", output.parent)
     monkeypatch.setitem(settings, "SHOW_ROLLING_DIAGNOSTICS_PLOT", show_diagnostics)
     monkeypatch.setattr(
         evaluation.workflow,
