@@ -129,7 +129,7 @@ def test_all_catalog_labels_round_trip():
         "Per-step density contour",
         "Covariance ellipse",
     ):
-        for percent in (50, 90):
+        for percent in (50, 90, 99):
             english = f"{label} ({percent} %)"
             german = localization.translate(english, "de")
             assert german != english
@@ -148,6 +148,8 @@ def test_sidebar_and_dialog_labels_are_covered_by_the_catalog():
         *dashboard.PARAMETER_PRIOR_TITLES.values(),
         *dashboard.PARAMETER_POSTERIOR_TITLES.values(),
         *(title for title, _ in dialogs.PRIOR_FIELD_GROUPS),
+        *(title for title, _ in dialogs.PLOT_LAYER_GROUPS),
+        "Region style",
     ]
     assert all(label in localization.TRANSLATIONS for label in labels)
 

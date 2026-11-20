@@ -22,11 +22,16 @@ def test_metric_display_preferences_do_not_change_analysis_settings(tmp_path):
         "show_metric_nlpd",
     )
     values["data"].update({field: field == "show_metric_ade" for field in fields})
-    values["data"].update(follow_metric_time=True, metric_window_width="30")
+    values["data"].update(
+        follow_metric_time=True,
+        metric_window_width="30",
+        show_prediction_region_99=True,
+    )
     changed = settings.parse_settings(values)
     assert changed.analysis == original.analysis
     assert changed.follow_metric_time is True
     assert changed.metric_window_width == 30.0
+    assert changed.show_prediction_region_99 is True
     assert all(
         getattr(changed, field) == (field == "show_metric_ade") for field in fields
     )
@@ -1073,6 +1078,7 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_forecast_points": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
+        "show_prediction_region_99": False,
         "show_metric_ade": True,
         "show_metric_rmse": False,
         "show_metric_fde": False,

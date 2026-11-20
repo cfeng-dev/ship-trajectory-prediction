@@ -276,7 +276,7 @@ POSTERIOR_HELP_SECTIONS = (
             ),
             (
                 "Blue trajectory",
-                "Observations through N for position CSVs; Bayesian track through N for filtered BR24 positions. The legend follows the displayed data",
+                "Positions through N; BR24 positions are filtered estimates",
             ),
             (
                 "Forecast (median)",
@@ -316,7 +316,7 @@ POSTERIOR_HELP_SECTIONS = (
         "Prediction uncertainty",
         (
             (
-                "50% / 90% regions",
+                "50% / 90% / 99% regions",
                 "Toggle each level independently; regions describe future latent positions, not added measurement noise",
             ),
             (

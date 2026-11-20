@@ -15,6 +15,7 @@ import bayestraj.validation.reporting as reporting
 
 DEFAULT_SAMPLE_TRAJECTORIES = 15
 PREDICTION_REGION_LEVELS = (0.5, 0.9)
+SUPPORTED_PREDICTION_REGION_LEVELS = (*PREDICTION_REGION_LEVELS, 0.99)
 PLOT_COORDINATE_MODES = ("m", "km", "gps")
 # Plot typography
 PLOT_TITLE_PAD = 16
@@ -62,6 +63,7 @@ POSTERIOR_MEDIAN_ALPHA = 1.0
 POSTERIOR_MEDIAN_LINE_WIDTH = 2.0
 PREDICTION_REGION_50_ALPHA = 0.22
 PREDICTION_REGION_90_ALPHA = 0.10
+PREDICTION_REGION_99_ALPHA = 0.05
 PREDICTION_REGION_EDGE_LINE_WIDTH = 0.7
 PREDICTION_DENSITY_GRID_SIZE = 80
 PREDICTION_DENSITY_CONTOUR_LINE_WIDTH = 1.2
@@ -596,6 +598,11 @@ def _draw_prediction_regions(
         x_samples.shape[1],
     )
     region_styles = {
+        0.99: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_99_ALPHA,
+            "Covariance ellipse (99 %)",
+        ),
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
@@ -621,7 +628,7 @@ def _draw_prediction_regions(
         )
         center = next(iter(regions.values())).center
         centers.append(center)
-        for probability in (0.9, 0.5):
+        for probability in reversed(SUPPORTED_PREDICTION_REGION_LEVELS):
             if probability not in regions:
                 continue
             color, alpha, _ = region_styles[probability]
@@ -646,27 +653,14 @@ def _draw_prediction_regions(
 
     if annotate_time:
         _label_prediction_horizons(axis, centers, horizon_seconds)
-    handles = [
-        Patch(
-            facecolor=region_styles[0.5][0],
-            edgecolor="none",
-            alpha=region_styles[0.5][1],
-            label=region_styles[0.5][2],
-        ),
-        Patch(
-            facecolor=region_styles[0.9][0],
-            edgecolor="none",
-            alpha=region_styles[0.9][1],
-            label=region_styles[0.9][2],
-        ),
-    ]
     return [
-        handle
-        for handle, probability in zip(
-            handles,
-            (0.5, 0.9),
-            strict=True,
+        Patch(
+            facecolor=region_styles[probability][0],
+            edgecolor="none",
+            alpha=region_styles[probability][1],
+            label=region_styles[probability][2],
         )
+        for probability in SUPPORTED_PREDICTION_REGION_LEVELS
         if probability in selected_probabilities
     ]
 
@@ -689,6 +683,7 @@ def _draw_prediction_density_contours(
     contour_styles = {
         0.5: ("solid", "Per-step density contour (50 %)"),
         0.9: ("dashed", "Per-step density contour (90 %)"),
+        0.99: ("dotted", "Per-step density contour (99 %)"),
     }
     selected_probabilities = tuple(region_probabilities)
     if any(probability not in contour_styles for probability in selected_probabilities):
@@ -762,7 +757,7 @@ def _draw_prediction_density_contours(
             linewidth=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
             label=contour_styles[probability][1],
         )
-        for probability in (0.5, 0.9)
+        for probability in SUPPORTED_PREDICTION_REGION_LEVELS
         if probability in selected_probabilities
     ]
 
@@ -785,6 +780,7 @@ def _draw_horizon_prediction_density_contours(
             "dashed",
             "Horizon density contour (90 %)",
         ),
+        0.99: ("dotted", "Horizon density contour (99 %)"),
     }
     if any(probability not in contour_styles for probability in selected_probabilities):
         raise ValueError("region_probabilities must contain supported regions.")
@@ -844,7 +840,7 @@ def _draw_horizon_prediction_density_contours(
             linewidth=PREDICTION_DENSITY_CONTOUR_LINE_WIDTH,
             label=contour_styles[probability][1],
         )
-        for probability in (0.5, 0.9)
+        for probability in SUPPORTED_PREDICTION_REGION_LEVELS
         if probability in selected_probabilities
     ]
 
@@ -866,6 +862,11 @@ def _draw_prediction_density_regions(
     )
     selected_probabilities = tuple(region_probabilities)
     region_styles = {
+        0.99: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_99_ALPHA,
+            "Per-step density region (99 %)",
+        ),
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
@@ -901,7 +902,7 @@ def _draw_prediction_density_regions(
         }
         upper_level = np.nextafter(float(np.max(density)), np.inf)
         group_suffix = "" if group_index is None else f"-g{group_index}"
-        for probability in (0.9, 0.5):
+        for probability in reversed(SUPPORTED_PREDICTION_REGION_LEVELS):
             if probability not in selected_probabilities:
                 continue
             color, alpha, _ = region_styles[probability]
@@ -934,7 +935,7 @@ def _draw_prediction_density_regions(
             alpha=region_styles[probability][1],
             label=region_styles[probability][2],
         )
-        for probability in (0.5, 0.9)
+        for probability in SUPPORTED_PREDICTION_REGION_LEVELS
         if probability in selected_probabilities
     ]
 
@@ -949,6 +950,11 @@ def _draw_horizon_prediction_density_regions(
     x_samples, y_samples = _posterior_draw_arrays(posterior_draws)
     selected_probabilities = tuple(region_probabilities)
     region_styles = {
+        0.99: (
+            POSTERIOR_COLOR,
+            PREDICTION_REGION_99_ALPHA,
+            "Horizon density region (99 %)",
+        ),
         0.9: (
             POSTERIOR_COLOR,
             PREDICTION_REGION_90_ALPHA,
@@ -981,7 +987,7 @@ def _draw_horizon_prediction_density_regions(
         for probability in selected_probabilities
     }
     upper_level = np.nextafter(float(np.max(density)), np.inf)
-    for probability in (0.9, 0.5):
+    for probability in reversed(SUPPORTED_PREDICTION_REGION_LEVELS):
         if probability not in selected_probabilities:
             continue
         color, alpha, _ = region_styles[probability]
@@ -1005,7 +1011,7 @@ def _draw_horizon_prediction_density_regions(
             alpha=region_styles[probability][1],
             label=region_styles[probability][2],
         )
-        for probability in (0.5, 0.9)
+        for probability in SUPPORTED_PREDICTION_REGION_LEVELS
         if probability in selected_probabilities
     ]
 

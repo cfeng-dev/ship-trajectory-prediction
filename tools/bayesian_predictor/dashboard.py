@@ -1044,10 +1044,11 @@ class PosteriorDashboardNavigator:
         show_forecast_points=True,
         show_prediction_region_50=True,
         show_prediction_region_90=True,
+        show_prediction_region_99=False,
         prediction_region_style="funnel",
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         metric_display_options=None,
-        follow_metric_time=False,
+        follow_metric_time=True,
         metric_window_width=DEFAULT_METRIC_WINDOW_WIDTH,
         on_state_change=None,
         on_metrics_change=None,
@@ -1102,6 +1103,7 @@ class PosteriorDashboardNavigator:
         self.show_forecast_points = show_forecast_points
         self.show_prediction_region_50 = show_prediction_region_50
         self.show_prediction_region_90 = show_prediction_region_90
+        self.show_prediction_region_99 = show_prediction_region_99
         self.prediction_region_style = normalize_prediction_region_style(
             prediction_region_style
         )
@@ -1755,18 +1757,12 @@ class PosteriorDashboardNavigator:
         if self.observation_count > 0:
             observed_slice = slice(0, self.observation_count)
             if self.show_observed_trajectory:
-                update = self._updates_by_count.get(self.observation_count)
-                trajectory_label = (
-                    "Bayesian track through N"
-                    if update is not None and update.tracked_positions is not None
-                    else "Observations through N"
-                )
                 axis.plot(
                     observed_x[observed_slice],
                     observed_y[observed_slice],
                     color="#24557A",
                     linewidth=2.2,
-                    label=trajectory_label,
+                    label="Observations through N",
                     zorder=2,
                 )
             current_index = self.observation_count - 1
@@ -1897,6 +1893,7 @@ class PosteriorDashboardNavigator:
                 for probability, enabled in (
                     (0.5, self.show_prediction_region_50),
                     (0.9, self.show_prediction_region_90),
+                    (0.99, self.show_prediction_region_99),
                 )
                 if enabled
             )
@@ -2081,6 +2078,7 @@ class PosteriorDashboardNavigator:
         show_prediction_region_50,
         show_prediction_region_90,
         show_mean_forecast=None,
+        show_prediction_region_99=None,
         show_reference_points=None,
         show_forecast_points=None,
         connect_sample_trajectories=None,
@@ -2113,6 +2111,8 @@ class PosteriorDashboardNavigator:
             options["connect_sample_trajectories"] = connect_sample_trajectories
         if show_mean_forecast is not None:
             options["show_mean_forecast"] = show_mean_forecast
+        if show_prediction_region_99 is not None:
+            options["show_prediction_region_99"] = show_prediction_region_99
         if show_reference_points is not None:
             options["show_reference_points"] = show_reference_points
         if show_forecast_points is not None:
@@ -2314,10 +2314,11 @@ def create_sequential_posterior_dashboard_figure(
     show_forecast_points=True,
     show_prediction_region_50=True,
     show_prediction_region_90=True,
+    show_prediction_region_99=False,
     prediction_region_style="funnel",
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     metric_display_options=None,
-    follow_metric_time=False,
+    follow_metric_time=True,
     metric_window_width=DEFAULT_METRIC_WINDOW_WIDTH,
     on_state_change=None,
     on_metrics_change=None,
@@ -2417,6 +2418,7 @@ def create_sequential_posterior_dashboard_figure(
         show_forecast_points=show_forecast_points,
         show_prediction_region_50=show_prediction_region_50,
         show_prediction_region_90=show_prediction_region_90,
+        show_prediction_region_99=show_prediction_region_99,
         prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
         metric_display_options=metric_display_options,

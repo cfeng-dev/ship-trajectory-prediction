@@ -2648,6 +2648,58 @@ def test_dashboard_display_options_hide_selected_trajectory_elements():
         navigator.disconnect()
 
 
+@pytest.mark.parametrize(
+    "style",
+    [
+        "ellipses",
+        "density_contours",
+        "density_regions",
+        "horizon_density_contours",
+        "funnel",
+    ],
+)
+def test_dashboard_can_toggle_99_percent_region_without_changing_forecasts(
+    metric_dashboard, style
+):
+    dashboard = _load_dashboard_module()
+    _, navigator, loads = metric_dashboard
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    forecast = navigator._updates_by_count[2].forecast
+    before = dashboard.analysis_metrics_at(
+        navigator.trajectory, navigator._updates_by_count, 2
+    )
+    options = {
+        name: getattr(navigator, name)
+        for name in (
+            "show_legend",
+            "show_reference_trajectory",
+            "show_observed_trajectory",
+            "show_current_position",
+            "show_sample_trajectories",
+            "show_median_forecast",
+            "show_prediction_region_50",
+            "show_prediction_region_90",
+        )
+    }
+    for enabled in (True, False):
+        navigator.set_display_options(
+            **options, prediction_region_style=style, show_prediction_region_99=enabled
+        )
+        labels = navigator.trajectory_axis.get_legend_handles_labels()[1]
+        legend = navigator.trajectory_axis.get_legend()
+        labels += [text.get_text() for text in legend.get_texts()]
+        assert any("(99 %)" in label for label in labels) == enabled
+        assert navigator._updates_by_count[2].forecast is forecast
+        assert (
+            dashboard.analysis_metrics_at(
+                navigator.trajectory, navigator._updates_by_count, 2
+            )
+            == before
+        )
+    assert loads == [1, 2]
+
+
 def test_dashboard_draws_density_contours_instead_of_covariance_ellipses():
     dashboard = _load_dashboard_module()
     angles = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
@@ -3620,7 +3672,7 @@ def test_reference_points_toggle_redraws_cached_trajectory(
         plt.close(figure)
 
 
-def test_dashboard_legend_follows_the_displayed_positions_when_changing_stages():
+def test_dashboard_uses_consistent_observation_label_for_raw_and_filtered_positions():
     dashboard = _load_dashboard_module()
     trajectory = dashboard.PosteriorDashboardTrajectory(
         reference_x=[0.0, 10.0],
@@ -3646,7 +3698,7 @@ def test_dashboard_legend_follows_the_displayed_positions_when_changing_stages()
     try:
         for count, label, expected_x, expected_y in (
             (1, "Observations through N", [0.1], [0.2]),
-            (2, "Bayesian track through N", [100.0, 101.0], [200.0, 202.0]),
+            (2, "Observations through N", [100.0, 101.0], [200.0, 202.0]),
             (1, "Observations through N", [0.1], [0.2]),
         ):
             navigator.slider.set_val(count)

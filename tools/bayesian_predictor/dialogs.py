@@ -8,9 +8,7 @@ from .dashboard import METRIC_DISPLAY_GROUPS
 from .localization import localize_widgets, translate_for
 from .settings import (
     DATA_OPTION_FIELDS,
-    DISPLAY_OPTION_FIELDS,
     LABELS,
-    METRIC_DISPLAY_FIELDS,
     PLOT_DISPLAY_FIELDS,
     PREDICTION_REGION_STYLE_DISPLAY_LABELS,
     PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
@@ -28,6 +26,36 @@ WIDE_DIALOG_WIDTH = 650
 PLOT_DISPLAY_WINDOW_WIDTH = 430
 PLOT_DISPLAY_WINDOW_HEIGHT = 360
 PREDICTION_REGION_SELECTOR_WIDTH = 30
+PLOT_LAYER_GROUPS = (
+    ("General", ("show_legend",)),
+    (
+        "Trajectory",
+        (
+            "show_reference_trajectory",
+            "show_reference_points",
+            "show_observed_trajectory",
+            "show_current_position",
+        ),
+    ),
+    (
+        "Forecast",
+        (
+            "show_sample_trajectories",
+            "connect_sample_trajectories",
+            "show_median_forecast",
+            "show_mean_forecast",
+            "show_forecast_points",
+        ),
+    ),
+    (
+        "Prediction uncertainty",
+        (
+            "show_prediction_region_50",
+            "show_prediction_region_90",
+            "show_prediction_region_99",
+        ),
+    ),
+)
 PRIOR_FIELD_GROUPS = (
     (
         "Speed — half-normal distribution",
@@ -136,23 +164,34 @@ class PlotDisplayWindow(tk.Toplevel):
         ).pack(fill="x")
         body = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=4)
         body.pack(fill="both", expand=True)
-        for row, key in enumerate(
-            key
-            for key in DISPLAY_OPTION_FIELDS
-            if key not in (*METRIC_DISPLAY_FIELDS, "follow_metric_time")
-        ):
-            tk.Checkbutton(
-                body,
-                text=LABELS[key],
-                variable=self.variables[key],
+        layer_body = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        layer_body.grid(row=0, column=0, sticky="nw")
+        layer_sections = {}
+        for title, fields in PLOT_LAYER_GROUPS:
+            section = tk.LabelFrame(
+                layer_body,
+                text=title,
                 bg=CONTROL_BACKGROUND,
-                activebackground=CONTROL_BACKGROUND,
-                font=FONT,
                 fg=TEXT_COLOR,
-                anchor="w",
-            ).grid(row=row, column=0, sticky="w", pady=3)
+                font=FONT,
+                padx=10,
+                pady=6,
+            )
+            section.pack(fill="x", pady=(0, 8))
+            layer_sections[title] = section
+            for key in fields:
+                tk.Checkbutton(
+                    section,
+                    text=LABELS[key],
+                    variable=self.variables[key],
+                    bg=CONTROL_BACKGROUND,
+                    activebackground=CONTROL_BACKGROUND,
+                    fg=TEXT_COLOR,
+                    font=FONT,
+                    anchor="w",
+                ).pack(fill="x", pady=2)
         metric_body = tk.Frame(body, bg=CONTROL_BACKGROUND, padx=18)
-        metric_body.grid(row=0, column=1, rowspan=14, sticky="nw")
+        metric_body.grid(row=0, column=1, sticky="nw")
         for title, fields in METRIC_DISPLAY_GROUPS.items():
             section = tk.LabelFrame(
                 metric_body,
@@ -209,11 +248,13 @@ class PlotDisplayWindow(tk.Toplevel):
             width=12,
             style="Predictor.TEntry",
         ).pack(anchor="w", pady=(0, 3))
-        region_style_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        region_style_row.grid(row=12, column=0, sticky="ew", pady=(8, 3))
+        region_style_row = tk.Frame(
+            layer_sections["Prediction uncertainty"], bg=CONTROL_BACKGROUND
+        )
+        region_style_row.pack(fill="x", pady=(8, 3))
         tk.Label(
             region_style_row,
-            text=LABELS["prediction_region_style"],
+            text="Region style",
             font=FONT,
             bg=CONTROL_BACKGROUND,
             fg=TEXT_COLOR,
@@ -226,8 +267,8 @@ class PlotDisplayWindow(tk.Toplevel):
             width=PREDICTION_REGION_SELECTOR_WIDTH,
             style="Predictor.TCombobox",
         ).pack(side="right")
-        span_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        span_row.grid(row=13, column=0, sticky="ew", pady=(8, 3))
+        span_row = tk.Frame(layer_sections["Trajectory"], bg=CONTROL_BACKGROUND)
+        span_row.pack(fill="x", pady=(8, 3))
         tk.Label(
             span_row,
             text=LABELS["follow_ship_view_span_m"],

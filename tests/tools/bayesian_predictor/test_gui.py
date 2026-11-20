@@ -1901,7 +1901,7 @@ def test_plot_dialog_contains_display_options(root):
         assert labels == {
             "Show legend",
             "Show reference trajectory",
-            "Show observations / Bayesian track through N",
+            "Show observations through N",
             "Show current position",
             "Show possible future trajectories",
             "Show forecast (median)",
@@ -1951,25 +1951,25 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
             window.variables["prediction_region_style"].get()
             == "Horizon density region"
         )
+        descendants, pending = [], [window]
+        while pending:
+            widget = pending.pop()
+            descendants.append(widget)
+            pending.extend(widget.winfo_children())
         prediction_region_selector = next(
-            child
-            for frame in window.winfo_children()
-            for child in frame.winfo_children()
-            if isinstance(child, ttk.Combobox)
+            widget for widget in descendants if isinstance(widget, ttk.Combobox)
         )
         assert int(prediction_region_selector.cget("width")) == 30
         button_labels = {
-            child.cget("text")
-            for frame in window.winfo_children()
-            for child in frame.winfo_children()
-            if isinstance(child, tk.Button)
+            widget.cget("text")
+            for widget in descendants
+            if isinstance(widget, tk.Button)
         }
         assert button_labels == {"Apply", "Cancel"}
         cancel_button = next(
-            child
-            for frame in window.winfo_children()
-            for child in frame.winfo_children()
-            if isinstance(child, tk.Button) and child.cget("text") == "Cancel"
+            widget
+            for widget in descendants
+            if isinstance(widget, tk.Button) and widget.cget("text") == "Cancel"
         )
         cancel_button.invoke()
 
@@ -2131,9 +2131,11 @@ def test_metric_preferences_reach_the_plot_through_the_gui_controller():
             data[key].set(key == "show_metric_ade")
         data["follow_metric_time"].set(True)
         data["metric_window_width"].set("30")
+        data["show_prediction_region_99"].set(True)
         app._update_display_options()
         assert navigator.follow_metric_time is True
         assert navigator.metric_window_width == 30.0
+        assert navigator.show_prediction_region_99 is True
         assert navigator.metric_axes[0].get_xlim() == pytest.approx([1, 31])
         assert navigator.metric_display_options == {
             key: key == "show_metric_ade" for key in METRIC_DISPLAY_FIELDS

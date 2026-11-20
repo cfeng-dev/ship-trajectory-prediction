@@ -77,6 +77,7 @@ DISPLAY_OPTION_FIELDS = (
     "show_forecast_points",
     "show_prediction_region_50",
     "show_prediction_region_90",
+    "show_prediction_region_99",
     "follow_metric_time",
 ) + METRIC_DISPLAY_FIELDS
 PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + (
@@ -101,7 +102,7 @@ LABELS = {
     "show_legend": "Show legend",
     "show_reference_trajectory": "Show reference trajectory",
     "show_reference_points": "Show reference points",
-    "show_observed_trajectory": "Show observations / Bayesian track through N",
+    "show_observed_trajectory": "Show observations through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show possible future trajectories",
     "connect_sample_trajectories": "Connect samples to current position",
@@ -110,6 +111,7 @@ LABELS = {
     "show_forecast_points": "Show forecast points",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
+    "show_prediction_region_99": "Show 99% posterior-predictive region",
     "prediction_region_style": "Prediction uncertainty",
     "follow_ship_view_span_m": "Follow-ship view span [m]",
     "follow_metric_time": "Follow metric time",
@@ -174,12 +176,13 @@ class ExplorerSettings:
     follow_ship_view_span_m: float
     show_reference_points: bool = False
     show_forecast_points: bool = True
+    show_prediction_region_99: bool = False
     show_metric_ade: bool = True
     show_metric_rmse: bool = True
     show_metric_fde: bool = True
     show_metric_energy_score: bool = True
     show_metric_nlpd: bool = True
-    follow_metric_time: bool = False
+    follow_metric_time: bool = True
     metric_window_width: float = DEFAULT_METRIC_WINDOW_WIDTH
 
 
@@ -214,9 +217,10 @@ def _defaults():
             "show_forecast_points": True,
             "show_prediction_region_50": True,
             "show_prediction_region_90": True,
+            "show_prediction_region_99": False,
             "prediction_region_style": "funnel",
             "follow_ship_view_span_m": 100.0,
-            "follow_metric_time": False,
+            "follow_metric_time": True,
             "metric_window_width": DEFAULT_METRIC_WINDOW_WIDTH,
             **dict.fromkeys(METRIC_DISPLAY_FIELDS, True),
         },
