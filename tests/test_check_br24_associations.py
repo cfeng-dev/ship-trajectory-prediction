@@ -9,8 +9,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import bayestraj.validation.br24_associations as checks
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 SCRIPT_PATH = PROJECT_ROOT / "scripts/tracking_checks/check_br24_associations.py"
 
 
@@ -49,7 +52,7 @@ def _input_csvs(tmp_path):
 
 
 def test_association_audit_uses_the_imm_initialization_and_records_misses(tmp_path):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
 
     comparison = module["compare_associations"](
@@ -81,7 +84,7 @@ def test_association_audit_uses_the_imm_initialization_and_records_misses(tmp_pa
 def test_audit_dispatches_selected_method_and_reports_both_misses(
     tmp_path, monkeypatch, method
 ):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
     calls = []
 
@@ -93,7 +96,7 @@ def test_audit_dispatches_selected_method_and_reports_both_misses(
         calls.append((cycle, kwargs))
         return Tracker()
 
-    monkeypatch.setattr(module["BR24BayesianRadarTracker"], "initialize", initialize)
+    monkeypatch.setattr(checks.BR24BayesianRadarTracker, "initialize", initialize)
     result = module["compare_associations"](
         raw_csv=raw_csv,
         imm_csv=imm_csv,
@@ -129,13 +132,13 @@ def test_audit_dispatches_selected_method_and_reports_both_misses(
     ],
 )
 def test_all_association_outcomes_are_distinguished(imm_id, bayesian_id, status):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     assert module["_association_status"](imm_id, bayesian_id) == status
 
 
 @pytest.mark.parametrize("different", [False, True])
 def test_terminal_reports_verdict_and_first_differing_cycle(capsys, different):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     table = pd.DataFrame(
         {
             "cycle_counter": [4, 5, 6],
@@ -180,7 +183,7 @@ def test_main_only_runs_selected_method_and_supports_cycle_limit(
         calls.append(kwargs["inference_method"])
         return Tracker()
 
-    monkeypatch.setattr(module["BR24BayesianRadarTracker"], "initialize", initialize)
+    monkeypatch.setattr(checks.BR24BayesianRadarTracker, "initialize", initialize)
     arguments = ["--max-cycles", "2", "--observations", "4"]
     if method is not None:
         arguments += ["--method", method]
@@ -197,7 +200,7 @@ def test_main_only_runs_selected_method_and_supports_cycle_limit(
 
 @pytest.mark.parametrize("bad_cycle", [4, 5])
 def test_audit_rejects_invalid_imm_reference_detections(tmp_path, bad_cycle):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
     pd.DataFrame({"cycle_counter": [bad_cycle], "detection_id": [999]}).to_csv(
         imm_csv, index=False
@@ -211,7 +214,7 @@ def test_audit_rejects_invalid_imm_reference_detections(tmp_path, bad_cycle):
 
 
 def test_audit_rejects_a_different_imm_initial_detection(tmp_path):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
     pd.DataFrame({"cycle_counter": [4], "detection_id": [10]}).to_csv(
         imm_csv, index=False
@@ -226,7 +229,7 @@ def test_audit_rejects_a_different_imm_initial_detection(tmp_path):
     "options", [{"max_cycles": 0}, {"max_cycles": -1}, {"observation_count": 1}]
 )
 def test_audit_rejects_invalid_cycle_and_window_limits(tmp_path, options):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
     with pytest.raises(ValueError):
         module["compare_associations"](
@@ -240,9 +243,7 @@ def test_cli_rejects_multiple_methods_before_tracking(monkeypatch):
     def forbidden_tracking(**kwargs):
         pytest.fail("Multiple methods must be rejected before tracking starts")
 
-    monkeypatch.setitem(
-        module["main"].__globals__, "compare_associations", forbidden_tracking
-    )
+    monkeypatch.setattr(checks, "compare_associations", forbidden_tracking)
     with pytest.raises(SystemExit) as error:
         module["main"](["--method", "smc", "vi"])
     assert error.value.code == 2
@@ -269,7 +270,7 @@ def test_saved_bayesian_csv_compares_only_processed_cycles_without_running_infer
         pytest.fail("Saved association comparisons must not run inference")
 
     monkeypatch.setattr(
-        module["BR24BayesianRadarTracker"], "initialize", forbidden_inference
+        checks.BR24BayesianRadarTracker, "initialize", forbidden_inference
     )
     result = module["main"](
         [
@@ -299,7 +300,7 @@ def test_saved_bayesian_csv_compares_only_processed_cycles_without_running_infer
 def test_saved_association_csv_rejects_misalignment_or_invalid_raw_fixes(
     tmp_path, bad_field
 ):
-    module = runpy.run_path(SCRIPT_PATH)
+    module = vars(checks)
     raw_csv, imm_csv, output_csv = _input_csvs(tmp_path)
     table = pd.DataFrame(
         {

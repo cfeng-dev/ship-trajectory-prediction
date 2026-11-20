@@ -1,6 +1,7 @@
 """Behavioral checks for the MATLAB-versus-Python BR24 IMM audit."""
 
 import runpy
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,9 @@ import pandas as pd
 import pytest
 from scipy.io import savemat
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+import bayestraj.validation.br24_imm_comparison as checks
 from bayestraj.observations.br24 import (
     BR24Detection,
     BR24RadarCycle,
@@ -61,7 +65,7 @@ def _matlab_radar_inputs(cycles):
 
 def test_comparison_identifies_numeric_and_association_differences():
     assert SCRIPT.exists()
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     matlab = _trace()
     python = _trace()
     python.loc[1, "x"] += 0.5
@@ -81,7 +85,7 @@ def test_comparison_identifies_numeric_and_association_differences():
 
 def test_comparison_rejects_missing_cycles_and_mismatched_times():
     assert SCRIPT.exists()
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     matlab = _trace()
     with pytest.raises(ValueError, match="cycles"):
         module["compare_traces"](matlab, _trace().iloc[:2])
@@ -92,7 +96,7 @@ def test_comparison_rejects_missing_cycles_and_mismatched_times():
 
 
 def test_comparison_rejects_nonfinite_states_and_invalid_associations():
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     incomplete = _trace()
     incomplete.loc[1, "x"] = np.nan
     with pytest.raises(ValueError, match="finite"):
@@ -115,7 +119,7 @@ def test_comparison_rejects_nonfinite_states_and_invalid_associations():
     ],
 )
 def test_summary_reports_numeric_and_association_verdicts(case, expected, capsys):
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     matlab, python = _trace(), _trace()
     if case == "roundoff":
         python.loc[1, "x"] += 1e-9
@@ -150,10 +154,10 @@ def test_main_prints_a_clear_verdict_and_exports_the_comparison(
     module = runpy.run_path(SCRIPT)
     main = module["main"]
     cycles = object()
-    monkeypatch.setitem(main.__globals__, "read_br24_tracking_input", lambda _: cycles)
-    monkeypatch.setitem(main.__globals__, "align_cycle_times", lambda _, value: value)
-    monkeypatch.setitem(main.__globals__, "read_matlab_trace", lambda *_: _trace())
-    monkeypatch.setitem(main.__globals__, "track_python_trace", lambda _: _trace())
+    monkeypatch.setattr(checks, "read_br24_tracking_input", lambda _: cycles)
+    monkeypatch.setattr(checks, "align_cycle_times", lambda _, value: value)
+    monkeypatch.setattr(checks, "read_matlab_trace", lambda *_: _trace())
+    monkeypatch.setattr(checks, "track_python_trace", lambda _, **kwargs: _trace())
     output = tmp_path / "tracking_checks/comparison.csv"
 
     result = main(output_csv=output)
@@ -169,7 +173,7 @@ def test_main_prints_a_clear_verdict_and_exports_the_comparison(
 def test_cycle_times_use_unrounded_matlab_values_without_changing_input(
     tmp_path, trace_cycle_count
 ):
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     cycles = (
         BR24RadarCycle(10.0, 1, np.array([100.0, 50.0]), 0.0, ()),
         BR24RadarCycle(11.0, 2, np.array([100.0, 50.0]), 0.0, ()),
@@ -203,7 +207,7 @@ def test_cycle_times_use_unrounded_matlab_values_without_changing_input(
 def test_cycle_times_reject_invalid_or_unrelated_radar_times(
     tmp_path, times, counters, message
 ):
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     cycles = (
         BR24RadarCycle(10.0, 1, np.array([100.0, 50.0]), 0.0, ()),
         BR24RadarCycle(11.0, 2, np.array([100.0, 50.0]), 0.0, ()),
@@ -218,7 +222,7 @@ def test_cycle_times_reject_invalid_or_unrelated_radar_times(
 def test_matlab_trace_flags_ambiguous_and_missing_detections(
     tmp_path, input_cycle_count
 ):
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
 
     def detection(identity):
         return BR24Detection(identity, 10.0, 0.0, 0.5, 0.01)
@@ -282,7 +286,7 @@ def test_matlab_trace_flags_ambiguous_and_missing_detections(
 
 
 def test_python_imm_trace_preserves_initial_state_and_missed_cycles():
-    module = runpy.run_path(SCRIPT)
+    module = vars(checks)
     if not module["IMM_PYTHON"].is_file():
         pytest.skip("Optional external IMM implementation is not available")
     detection = BR24Detection(1, 10.0, 0.0, 0.5, 0.01)
@@ -379,7 +383,7 @@ def test_python_trace_processes_real_br24_cycles_when_available():
         pytest.skip("Optional IMM implementation or BR24 dataset is not available")
     cycles = read_br24_tracking_input(module["INPUT_CSV"])
 
-    trace = module["track_python_trace"](cycles)
+    trace = checks.track_python_trace(cycles, imm_python=module["IMM_PYTHON"])
 
     assert len(trace) == len(cycles)
     assert trace["cycle_counter"].tolist() == [cycle.cycle_counter for cycle in cycles]
