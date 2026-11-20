@@ -710,6 +710,7 @@ def _plot_smc_diagnostics(
             )
         if percentage:
             axis.set_ylim(0, 100)
+            axis.set_yticks(np.arange(0, 101, 20))
         else:
             axis.set_ylim(bottom=0)
             axis.yaxis.set_major_locator(MaxNLocator(integer=True))
@@ -724,7 +725,7 @@ def _plot_smc_diagnostics(
         axis.tick_params(labelsize=RUNTIME_PLOT_STYLE.axis_tick_font_size)
         axis.grid(True, color="0.7", alpha=0.2)
         axis.set_axisbelow(True)
-        axis.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0))
+        legend = axis.legend(loc="upper right")
         figure.suptitle(
             "SMC-Diagnose" if plot_language == "de" else "SMC diagnostics",
             fontsize=RUNTIME_PLOT_STYLE.title_font_size,
@@ -738,6 +739,7 @@ def _plot_smc_diagnostics(
             fontsize=9,
         )
         figure.tight_layout(rect=(0, 0.07, 1, 0.95))
+        _reserve_legend_headroom(figure, axis, legend, layout_rect=(0, 0.07, 1, 0.95))
         if output_dir is not None:
             figure.savefig(
                 Path(output_dir) / f"{filename}.png", dpi=150, bbox_inches="tight"
@@ -1159,7 +1161,9 @@ def _plot_rolling_diagnostics(
             y_axis_label = f"{runtime_label} [s]"
             label = runtime_label
             mean_label = f"Mittlere {runtime_label}: {{mean:.3f}} s"
-        figure, axis = plt.subplots(figsize=RUNTIME_PLOT_STYLE.speed_figure_size)
+        figure, axis = _comparison_subplots(
+            figsize=RUNTIME_PLOT_STYLE.speed_figure_size
+        )
         axis.plot(
             elapsed_time_seconds,
             metric_values[value_name],
@@ -1183,7 +1187,7 @@ def _plot_rolling_diagnostics(
         )
         axis.set_axisbelow(True)
         axis.grid(True, which="major", axis="both", color="0.7", alpha=0.2)
-        axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
+        legend = axis.legend(loc=RUNTIME_PLOT_STYLE.legend_location)
         figure.suptitle(
             title_template.format(inference_title=inference_title),
             fontsize=RUNTIME_PLOT_STYLE.title_font_size,
@@ -1198,7 +1202,8 @@ def _plot_rolling_diagnostics(
             fontsize=RUNTIME_PLOT_STYLE.axis_tick_font_size,
         )
         figure.tight_layout(rect=(0, 0.07, 1, 1))
-        plt.show()
+        _reserve_legend_headroom(figure, axis, legend, layout_rect=(0, 0.07, 1, 1))
+        _show_comparison_figure(figure)
         figures.append((figure, axis))
     figures.extend(
         _plot_smc_diagnostics(

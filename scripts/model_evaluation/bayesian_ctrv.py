@@ -8,6 +8,7 @@ from bayestraj.paths import project_path
 DATA_FILE = project_path("data/processed/BR24_imm_tracked_trajectory.csv")
 
 EXPERIMENT = ctrv_config.RollingExperimentConfig(
+    observation_count=10,  # Maximum VI/MCMC window size; ignored by SMC.
     prediction_count=3,  # Future positions per forecast.
     position_noise_std_m=0.0,  # Added noise std. [m]; 0 = off.
     position_noise_seed=2026,  # Reproducible added noise.

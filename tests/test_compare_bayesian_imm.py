@@ -177,15 +177,45 @@ def test_smc_diagnostics_reject_invalid_or_inconsistent_values_before_plotting(
         runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(table)
 
 
-def test_rolling_evaluation_includes_smc_diagnostic_plots(monkeypatch):
+@pytest.mark.parametrize("figure_size", [(10, 6), (16, 8)])
+def test_rolling_evaluation_includes_smc_diagnostic_plots(
+    monkeypatch, tmp_path, figure_size
+):
     shown = []
-    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
-    figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(_smc_table())
+
+    def show_ready():
+        figure = plt.gcf()
+        assert not figure.stale
+        shown.append(figure)
+
+    monkeypatch.setattr(plt, "show", show_ready)
+    monkeypatch.setattr(
+        runtime_plotting,
+        "RUNTIME_PLOT_STYLE",
+        replace(runtime_plotting.RUNTIME_PLOT_STYLE, speed_figure_size=figure_size),
+    )
+    predictions = _smc_table(fractions=(0.5, 1.0))
+    original = predictions.copy(deep=True)
+    figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(predictions)
     try:
         assert len(figures) == 8
         assert shown == [figure for figure, _ in figures]
-        np.testing.assert_allclose(figures[-2][1].lines[0].get_ydata(), [50, 25])
+        np.testing.assert_allclose(figures[-2][1].lines[0].get_ydata(), [50, 100])
         np.testing.assert_allclose(figures[-1][1].lines[0].get_ydata(), [1, 3])
+        for index, (figure, axis) in enumerate(figures[-2:]):
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            legend = axis.get_legend().get_window_extent(renderer)
+            bounds = axis.get_window_extent(renderer)
+            assert bounds.contains(legend.x0, legend.y0)
+            assert bounds.contains(legend.x1, legend.y1)
+            assert legend.x1 > bounds.x1 - renderer.points_to_pixels(12)
+            points = axis.transData.transform(axis.lines[0].get_xydata())
+            assert np.max(points[:, 1]) + renderer.points_to_pixels(6) < legend.y0
+            assert axis.get_ylim()[0] == 0
+            figure.savefig(tmp_path / f"smc_diagnostic_{index}.png", dpi=100)
+        assert np.max(figures[-2][1].get_yticks()) <= 100
+        pd.testing.assert_frame_equal(predictions, original)
     finally:
         for figure, _ in figures:
             plt.close(figure)

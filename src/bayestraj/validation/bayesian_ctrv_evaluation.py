@@ -106,7 +106,6 @@ PREDICTION_CSV_COLUMNS = (
     "particle_resample_count",
     "particle_processed_observation_count",
     "particle_count",
-    "forecast_origin_time",
     "forecast_origin_seconds",
     "forecast_origin_x_route",
     "forecast_origin_y_route",
@@ -436,10 +435,10 @@ def export_evaluation_csv(
     """Export evaluation results through the shared atomic CSV writer.
 
     Forecast CSVs follow PREDICTION_CSV_COLUMNS, including the paired score columns.
-    Internal target timestamps in ``time`` are omitted; target seconds follow
-    from forecast_origin_seconds + horizon_seconds. Missing method-specific
-    fields are empty cells; the input table is preserved. Unknown columns are
-    rejected rather than lost.
+    Formatted timestamps in ``time`` and ``forecast_origin_time`` are omitted;
+    target seconds follow from forecast_origin_seconds + horizon_seconds.
+    Missing method-specific fields are empty cells; the input table is preserved.
+    Unknown columns are rejected rather than lost.
     Pass summary=True for the aggregate summary's separate table format.
     Return False with a warning when normalization or writing fails.
     """
@@ -448,7 +447,8 @@ def export_evaluation_csv(
         if not summary:
             validate_legacy_score_columns(table)
             table = table.drop(
-                columns=["time", *LEGACY_SCORE_DEFINITIONS], errors="ignore"
+                columns=["time", "forecast_origin_time", *LEGACY_SCORE_DEFINITIONS],
+                errors="ignore",
             ).rename(columns=metrics.GAUSSIAN_SCORE_CSV_NAMES)
             unknown = set(table.columns).difference(PREDICTION_CSV_COLUMNS)
             if unknown:

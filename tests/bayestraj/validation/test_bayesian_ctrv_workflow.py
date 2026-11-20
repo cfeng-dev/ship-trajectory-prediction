@@ -171,6 +171,7 @@ def test_associated_evaluation_scores_reference_without_association_or_label_lea
         )[0]
 
     before = evaluate()
+    assert "forecast_origin_time" not in before
     data["ground_truth_x"] += 1000.0
     after = evaluate()
     np.testing.assert_array_equal(before["x_actual"], [26.0, 28.0, 28.0])
@@ -1163,9 +1164,11 @@ def test_fit_runtime_plot_uses_observation_history_for_its_x_axis(monkeypatch):
 
 
 @pytest.mark.parametrize("model", ["bayesian", "imm"])
+@pytest.mark.parametrize("interactive", [False, True])
 def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_titles(
     monkeypatch,
     model,
+    interactive,
 ):
     predictions = pd.DataFrame(
         {
@@ -1181,19 +1184,31 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
     )
     original = predictions.copy(deep=True)
     shown_figures = []
-    monkeypatch.setattr(
-        runtime_plotting.plt,
-        "show",
-        lambda: shown_figures.append(runtime_plotting.plt.gcf()),
-    )
+    subplots = runtime_plotting.plt.subplots
 
-    if model == "bayesian":
-        figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
-            predictions,
-            inference_selection="smc_expanding",
+    def create_hidden(**kwargs):
+        assert not runtime_plotting.plt.isinteractive(), (
+            "Plot was created with auto-display enabled"
         )
-    else:
-        figures = runtime_plotting.plot_imm_rolling_diagnostics(predictions)
+        return subplots(**kwargs)
+
+    def show_ready():
+        figure = runtime_plotting.plt.gcf()
+        assert not figure.stale, "Plot was shown before the final layout was rendered"
+        shown_figures.append(figure)
+
+    monkeypatch.setattr(runtime_plotting.plt, "subplots", create_hidden)
+    monkeypatch.setattr(runtime_plotting.plt, "show", show_ready)
+    mode = runtime_plotting.plt.ion if interactive else runtime_plotting.plt.ioff
+    with mode():
+        if model == "bayesian":
+            figures = runtime_plotting.plot_bayesian_ctrv_rolling_diagnostics(
+                predictions,
+                inference_selection="smc_expanding",
+            )
+        else:
+            figures = runtime_plotting.plot_imm_rolling_diagnostics(predictions)
+        assert runtime_plotting.plt.isinteractive() == interactive
     runtime_label = (
         "Inferenzzeit" if model == "bayesian" else "Update-/Forecast-Laufzeit"
     )
@@ -1246,9 +1261,9 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         assert figure._suptitle.get_text() == (
             "Bayesian CTRV (SMC, wachsendes Fenster)" if model == "bayesian" else "IMM"
         )
-        assert figure.get_size_inches() == pytest.approx(
-            runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
-        )
+        width, height = runtime_plotting.RUNTIME_PLOT_STYLE.speed_figure_size
+        assert figure.get_figwidth() == pytest.approx(width)
+        assert figure.get_figheight() >= height
         assert axis.get_xlabel() == "Zeit [s]"
         assert axis.get_title() == ""
         assert axis.get_ylabel() == ylabel
@@ -1270,6 +1285,12 @@ def test_rolling_diagnostics_plot_renders_color_coded_figures_without_axis_title
         assert len(mean_caption) == 1
         figure.canvas.draw()
         renderer = figure.canvas.get_renderer()
+        legend_box = axis.get_legend().get_window_extent(renderer)
+        plot_box = axis.get_window_extent(renderer)
+        assert plot_box.contains(legend_box.x0, legend_box.y0)
+        assert plot_box.contains(legend_box.x1, legend_box.y1)
+        points = axis.transData.transform(axis.lines[0].get_xydata())
+        assert np.max(points[:, 1]) + renderer.points_to_pixels(6) < legend_box.y0
         caption_box = mean_caption[0].get_window_extent(renderer)
         xlabel_box = axis.xaxis.label.get_window_extent(renderer)
         assert caption_box.y1 < xlabel_box.y0

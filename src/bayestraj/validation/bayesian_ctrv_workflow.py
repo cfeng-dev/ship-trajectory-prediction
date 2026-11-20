@@ -954,9 +954,6 @@ def _build_route_prediction_table(
     table["position_noise_seed"] = position_noise_seed
     for name, value in diagnostics.items():
         table[name] = value
-    table["forecast_origin_time"] = window.timestamps[
-        specification.observation_count - 1
-    ]
     table["forecast_origin_seconds"] = float(forecast_origin_seconds)
     table["forecast_origin_x_route"] = route_x[forecast_origin_index]
     table["forecast_origin_y_route"] = route_y[forecast_origin_index]

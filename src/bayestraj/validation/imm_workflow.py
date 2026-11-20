@@ -68,9 +68,9 @@ def run_evaluation(
     )
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    exported = predictions.drop(columns="time", errors="ignore").rename(
-        columns=metrics.GAUSSIAN_SCORE_CSV_NAMES
-    )
+    exported = predictions.drop(
+        columns=["time", "forecast_origin_time"], errors="ignore"
+    ).rename(columns=metrics.GAUSSIAN_SCORE_CSV_NAMES)
     exported.to_csv(output_path, index=False)
     print(f"\nSaved per-forecast IMM metrics: {output_path}")
     if options.show_plot and show_rolling_diagnostics_plot:
@@ -303,9 +303,6 @@ def _evaluate_forecast(
             "converged": None,
             "mcmc_diagnostics_ok": None,
             "position_observation_noise_std_m": RESIDUAL_POSITION_NOISE_FLOOR_M,
-            "forecast_origin_time": pd.Timestamp(
-                forecast_origin_time, unit="s", tz="UTC"
-            ),
             "forecast_origin_seconds": forecast_origin_time,
             "forecast_origin_x_route": float(forecast_origin_position[0]),
             "forecast_origin_y_route": float(forecast_origin_position[1]),

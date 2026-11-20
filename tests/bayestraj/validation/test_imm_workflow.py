@@ -64,6 +64,7 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     table = pd.DataFrame(
         {
             "time": pd.to_datetime([49078.5], unit="s", utc=True),
+            "forecast_origin_time": pd.to_datetime([49075.8], unit="s", utc=True),
             "forecast_origin_seconds": [49075.8],
             "horizon_seconds": [2.7],
             "fit_runtime_seconds": [0.002],
@@ -104,7 +105,8 @@ def test_imm_header_uses_internal_defaults_and_keeps_diagnostics(
     assert set(calls[0]) == {"data_file", "imm_python", "options"}
     assert len(plots) == 1 and plots[0] is table
     pd.testing.assert_frame_equal(
-        pd.read_csv(tmp_path / "imm.csv"), table.drop(columns="time")
+        pd.read_csv(tmp_path / "imm.csv"),
+        table.drop(columns=["time", "forecast_origin_time"]),
     )
     pd.testing.assert_frame_equal(table, original)
 
@@ -175,6 +177,7 @@ def test_imm_associated_evaluation_uses_covariances_and_evaluation_only_referenc
         )[0]
 
     before = evaluate()
+    assert "forecast_origin_time" not in before
     data["ground_truth_x"] += 1000.0
     after = evaluate()
     assert [item[0] for item in measurements[:3]] == [49073.2, 49075.8, 49081.0]
