@@ -255,6 +255,14 @@ POSTERIOR_HELP_SECTIONS = (
             ("Motion state", "Posterior for speed, heading, and turn rate"),
             ("Uncertainties", "Posterior for observation and process noise"),
             (
+                "Metrics",
+                "Forecast error and score histories at each forecast origin; curves use complete forecast horizons. Coverage bars pool all evaluated positions through N.",
+            ),
+            (
+                "Metric selection",
+                "Choose individual metrics in Plot display. Changing their visibility reuses the computed forecasts.",
+            ),
+            (
                 "Reference trajectory",
                 "Dashed gray reference path; visibility does not affect inference or evaluation",
             ),

@@ -603,9 +603,9 @@ def test_hidden_settings_show_both_posterior_groups(follow_dashboard):
     noise_axes = navigator.posterior_axes_by_group["noise"]
 
     assert navigator.posterior_display_mode == "expanded"
-    assert not navigator.group_selector.ax.get_visible()
-    assert not navigator.group_selector._buttons.get_visible()
-    assert not any(label.get_visible() for label in navigator.group_selector.labels)
+    assert navigator.group_selector.ax.get_visible()
+    assert navigator.group_selector._buttons.get_visible()
+    assert all(label.get_visible() for label in navigator.group_selector.labels)
     assert all(axis.get_visible() for axis in (*motion_axes, *noise_axes))
     assert motion_axes[0].get_title() == "Initial speed prior"
     assert motion_axes[1].get_title() == "Initial heading prior"
@@ -1032,6 +1032,315 @@ def _load_dashboard_module():
         return importlib.import_module("bayesian_predictor.dashboard")
     except ModuleNotFoundError:
         pytest.fail("The Bayesian CTRV posterior dashboard module is missing.")
+
+
+@pytest.fixture
+def metric_dashboard():
+    dashboard = _load_dashboard_module()
+    trajectory = dashboard.PosteriorDashboardTrajectory(
+        reference_x=[0, 1, 3, 5, 7, 9],
+        reference_y=np.zeros(6),
+        observed_x=[0, 1, 3, 5, 7, 9],
+        observed_y=np.zeros(6),
+        reference_time_seconds=[100, 102, 105, 109, 114, 120],
+    )
+    loads = []
+
+    def load(count):
+        loads.append(count)
+        positions = {2: [[3, 0], [6, 0]], 3: [[5, 0], [17, 0]], 5: [[9, 0]]}
+        forecast = None
+        if count in positions:
+            means = np.asarray(positions[count], dtype=float)
+            draws = means[None] + np.array(
+                [[[-0.1, -0.1]], [[-0.1, 0.1]], [[0.1, -0.1]], [[0.1, 0.1]]]
+            )
+            forecast = dashboard.PosteriorDashboardForecast(
+                time_offsets_seconds=np.arange(1, len(means) + 1),
+                median_positions=means,
+                sample_positions=draws,
+                position_observation_noise_samples=np.ones(4),
+            )
+        return dashboard.PosteriorDashboardUpdate(
+            count, _dashboard_samples(), forecast=forecast
+        )
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        trajectory,
+        bayesian_model.BayesianCTRVPriors(),
+        load,
+        maximum_observation_count=6,
+        prediction_count=2,
+        prediction_region_style="none",
+        figure=figure,
+    )
+    try:
+        yield figure, navigator, loads
+    finally:
+        navigator.disconnect()
+        plt.close(figure)
+
+
+def _set_metric_display(navigator, **options):
+    navigator.set_display_options(
+        **{
+            name: getattr(navigator, name)
+            for name in (
+                "show_legend",
+                "show_reference_trajectory",
+                "show_observed_trajectory",
+                "show_current_position",
+                "show_sample_trajectories",
+                "show_median_forecast",
+                "show_prediction_region_50",
+                "show_prediction_region_90",
+            )
+        },
+        metric_display_options=options,
+    )
+
+
+def test_metrics_history_uses_forecast_origins_and_complete_horizons(metric_dashboard):
+    figure, navigator, loads = metric_dashboard
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    figure.canvas.draw()
+    point_axis, probability_axis, coverage_axis = navigator.metric_axes
+    curves = {line.get_label(): line for line in point_axis.lines}
+    for label, expected in (
+        ("ADE", [0.5, 5.0]),
+        ("FDE", [1.0, 10.0]),
+        ("RMSE", [np.sqrt(0.5), np.sqrt(50)]),
+    ):
+        line = curves[label]
+        finite = np.isfinite(line.get_ydata())
+        np.testing.assert_allclose(np.asarray(line.get_xdata())[finite], [2.0, 5.0])
+        np.testing.assert_allclose(np.asarray(line.get_ydata())[finite], expected)
+    assert point_axis.get_xlim() == pytest.approx(probability_axis.get_xlim())
+    assert point_axis.get_xlabel() == "Forecast origin time [s]"
+    assert navigator.metric_density_axis.get_visible()
+    assert navigator.metric_density_axis.get_ylabel() == "NLPD"
+    assert [bar.get_height() for bar in coverage_axis.patches] == pytest.approx(
+        [60, 60]
+    )
+    assert {text.get_text() for text in coverage_axis.texts} >= {"60.0%"}
+    assert navigator.group_selector.ax.get_title() == ""
+    assert loads == [1, 2, 3, 4, 5]
+
+
+def test_first_scored_forecast_is_visible_as_an_isolated_point(metric_dashboard):
+    _, navigator, _ = metric_dashboard
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    lines = [
+        line
+        for axis in (*navigator.metric_axes[:2], navigator.metric_density_axis)
+        for line in axis.lines
+        if not line.get_label().startswith("_")
+    ]
+    assert len(lines) == 5
+    for line in lines:
+        assert np.count_nonzero(np.isfinite(line.get_ydata())) == 1
+        assert line.get_marker() not in (None, "None", "none", "", " ")
+
+
+def test_metric_redraws_reuse_scores_and_coverage_follows_slider(
+    metric_dashboard, monkeypatch
+):
+    dashboard = _load_dashboard_module()
+    figure, navigator, loads = metric_dashboard
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+
+    def unexpected_scoring(*_args, **_kwargs):
+        pytest.fail("Cached forecasts were scored again during a display change")
+
+    monkeypatch.setattr(
+        dashboard.validation_metrics, "gaussian_position_metrics", unexpected_scoring
+    )
+    monkeypatch.setattr(
+        dashboard.validation_metrics, "gaussian_position_coverage", unexpected_scoring
+    )
+    navigator.group_selector.set_active(2)
+    _set_metric_display(
+        navigator,
+        show_metric_rmse=False,
+        show_metric_fde=False,
+        show_metric_energy_score=False,
+        show_metric_joint_coverage_90=False,
+    )
+    point_axis, probability_axis, coverage_axis = navigator.metric_axes
+    assert {
+        line.get_label()
+        for line in point_axis.lines
+        if not line.get_label().startswith("_")
+    } == {"ADE"}
+    assert probability_axis.get_ylabel() == "NLPD"
+    assert not navigator.metric_density_axis.get_visible()
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    figure.canvas.draw()
+    assert [bar.get_height() for bar in coverage_axis.patches] == pytest.approx([50])
+    assert [line.get_ydata()[0] for line in coverage_axis.lines] == [50]
+    cursor = next(
+        line for line in point_axis.lines if line.get_label() == "_current_time"
+    )
+    np.testing.assert_allclose(cursor.get_xdata(), [2, 2])
+    assert loads == [1, 2, 3, 4, 5]
+
+
+def test_metrics_view_survives_settings_layout_and_language_changes(metric_dashboard):
+    figure, navigator, _ = metric_dashboard
+    navigator.set_settings_visible(False)
+    figure.canvas.draw()
+    assert navigator.group_selector.ax.get_visible()
+    navigator.group_selector.set_active(2)
+    navigator.set_settings_visible(False)
+    navigator.set_language("de")
+    figure.canvas.draw()
+    assert navigator.metric_axes[0].get_title() == "Punktvorhersage"
+    assert all(axis.get_visible() for axis in navigator.metric_axes)
+    assert not any(
+        axis.get_visible()
+        for axes in navigator.posterior_axes_by_group.values()
+        for axis in axes
+    )
+    assert navigator.group_selector.ax.get_visible()
+    navigator.group_selector.set_active(0)
+    figure.canvas.draw()
+    assert not navigator.metric_density_axis.get_visible()
+    assert not any(axis.get_visible() for axis in navigator.metric_axes)
+    assert all(
+        axis.get_visible()
+        for axes in navigator.posterior_axes_by_group.values()
+        for axis in axes
+    )
+    navigator.set_settings_visible(True)
+    navigator.group_selector.set_active(2)
+    navigator.set_language("en")
+    assert navigator.metric_axes[0].get_title() == "Point prediction"
+
+
+def test_metrics_empty_states_do_not_display_zero_coverage(metric_dashboard):
+    figure, navigator, _ = metric_dashboard
+    navigator.group_selector.set_active(2)
+    figure.canvas.draw()
+    assert not navigator.metric_axes[2].patches
+    assert any(
+        "No evaluated forecasts" in text.get_text()
+        for text in navigator.metric_axes[2].texts
+    )
+    _set_metric_display(
+        navigator,
+        **{
+            f"show_metric_{name}": False
+            for name in (
+                "ade",
+                "rmse",
+                "fde",
+                "energy_score",
+                "nlpd",
+                "joint_coverage_50",
+                "joint_coverage_90",
+            )
+        },
+    )
+    assert all(
+        any(text.get_text() == "No metrics selected" for text in axis.texts)
+        for axis in navigator.metric_axes
+    )
+    assert not navigator.metric_density_axis.get_visible()
+
+
+@pytest.mark.parametrize("language", ["en", "de"])
+@pytest.mark.parametrize("figure_size", [(9.5, 5.5), (11, 8)])
+def test_metric_axes_labels_fit_the_dashboard(
+    metric_dashboard, tmp_path, language, figure_size
+):
+    figure, navigator, _ = metric_dashboard
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    navigator.set_language(language)
+    figure.set_size_inches(*figure_size)
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    _assert_dashboard_vertical_spacing(navigator, renderer)
+    density_bounds = navigator.metric_density_axis.get_tightbbox(renderer)
+    assert density_bounds.x1 < figure.bbox.x1
+    assert (
+        navigator.metric_density_axis.yaxis.label.get_window_extent(renderer).x0
+        > navigator.metric_density_axis.bbox.x1
+    )
+    for axis in navigator.metric_axes:
+        assert axis.get_tightbbox(renderer).x0 > navigator.trajectory_axis.bbox.x1
+    if figure_size == (11, 8) and language == "en":
+        figure.savefig(tmp_path / "metrics_dashboard.png", dpi=120)
+
+
+@pytest.mark.parametrize("has_reference", [True, False])
+def test_metrics_use_observation_counts_when_timestamps_are_unavailable(
+    metric_dashboard, has_reference
+):
+    figure, navigator, _ = metric_dashboard
+    navigator.trajectory = replace(
+        navigator.trajectory,
+        reference_time_seconds=np.full(6, np.nan),
+        has_reference=has_reference,
+    )
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    figure.canvas.draw()
+    assert navigator.metric_axes[0].get_xlabel() == "Observation count N"
+    if not has_reference:
+        assert not navigator.metric_axes[2].patches
+        assert all(
+            any(text.get_text() == "No reference trajectory" for text in axis.texts)
+            for axis in navigator.metric_axes
+        )
+
+
+def test_async_metric_coverage_excludes_cached_forecasts_after_the_selected_stage(
+    metric_dashboard,
+):
+    dashboard = _load_dashboard_module()
+    _, source, _ = metric_dashboard
+    source.slider.set_val(5)
+    source.show_selected_observation_count(None)
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    requests = []
+    _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
+        source.trajectory,
+        source.priors,
+        maximum_observation_count=6,
+        prediction_count=2,
+        prediction_region_style="none",
+        figure=figure,
+        request_update=requests.append,
+    )
+    try:
+        navigator.group_selector.set_active(2)
+        navigator.slider.set_val(3)
+        navigator.show_selected_observation_count(None)
+        for count in (5, 1, 3, 2):
+            navigator.accept_update(source._updates_by_count[count])
+        assert navigator.observation_count == 3
+        assert [
+            bar.get_height() for bar in navigator.metric_axes[2].patches
+        ] == pytest.approx([50, 50])
+        assert (
+            navigator.metric_axes[2].get_xlabel() == "Evaluated forecast positions: 4"
+        )
+        assert all(count == 3 for count in requests)
+    finally:
+        navigator.disconnect()
+        plt.close(figure)
 
 
 def test_reference_theta_without_omega_uses_yaw_not_position_course():

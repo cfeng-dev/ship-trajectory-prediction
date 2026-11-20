@@ -8,6 +8,31 @@ import pytest
 from bayesian_predictor import cli, settings
 
 
+def test_metric_display_preferences_do_not_change_analysis_settings(tmp_path):
+    data_file = tmp_path / "trajectory.csv"
+    data_file.write_text("time,x,y\n0,0,0\n1,1,0\n2,2,0\n", encoding="utf-8")
+    values = settings.default_form_values()
+    values["data"]["data_file"] = str(data_file)
+    original = settings.parse_settings(values)
+    fields = (
+        "show_metric_ade",
+        "show_metric_rmse",
+        "show_metric_fde",
+        "show_metric_energy_score",
+        "show_metric_nlpd",
+        "show_metric_joint_coverage_50",
+        "show_metric_joint_coverage_90",
+    )
+    values["data"].update({field: field == "show_metric_ade" for field in fields})
+    changed = settings.parse_settings(values)
+    assert changed.analysis == original.analysis
+    assert all(
+        getattr(changed, field) == (field == "show_metric_ade") for field in fields
+    )
+    validated = settings.validate_dialog_values("plot", values["data"])
+    assert all(validated[field] == (field == "show_metric_ade") for field in fields)
+
+
 @pytest.mark.parametrize(
     ("package", "description"),
     [("bayesian_predictor", "Bayesian Predictor"), ("imm_predictor", "IMM")],
@@ -1040,6 +1065,13 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_forecast_points": True,
         "show_prediction_region_50": True,
         "show_prediction_region_90": False,
+        "show_metric_ade": True,
+        "show_metric_rmse": False,
+        "show_metric_fde": False,
+        "show_metric_energy_score": True,
+        "show_metric_nlpd": False,
+        "show_metric_joint_coverage_50": True,
+        "show_metric_joint_coverage_90": False,
         "prediction_region_style": display_style,
         "follow_ship_view_span_m": 600.0,
     }

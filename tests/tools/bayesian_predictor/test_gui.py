@@ -2050,6 +2050,91 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     assert closed == [True]
 
 
+def test_metric_checkboxes_apply_to_the_embedded_view_without_inference(root, tmp_path):
+    from bayesian_predictor.dialogs import PlotDisplayWindow
+    from bayesian_predictor.plot_view import PosteriorPlotView
+    from bayesian_predictor.settings import METRIC_DISPLAY_FIELDS, parse_settings
+
+    panel = SettingsPanel(root, lambda: pytest.fail("Unexpected analysis start"))
+    data_file = tmp_path / "trajectory.csv"
+    data_file.write_text("time,x,y\n0,0,0\n1,1,0\n2,2,0\n", encoding="utf-8")
+    panel.variables["data"]["data_file"].set(str(data_file))
+    panel.variables["data"]["show_metric_rmse"].set(False)
+    settings = parse_settings(panel.values())
+    trajectory = PosteriorDashboardTrajectory(*([np.arange(3.0)] * 4))
+    view = PosteriorPlotView(
+        root,
+        settings,
+        trajectory,
+        3,
+        1,
+        lambda _count: pytest.fail("Unexpected inference request"),
+    )
+    app = BayesianPredictor.__new__(BayesianPredictor)
+    app.root, app.controls, app.plot_view, app._closing = root, panel, view, False
+    dialog = PlotDisplayWindow(root, panel)
+    try:
+        view.navigator.group_selector.set_active(2)
+        assert view.navigator.metric_display_options["show_metric_rmse"] is False
+        for key in METRIC_DISPLAY_FIELDS:
+            dialog.variables[key].set(key == "show_metric_ade")
+        assert panel.variables["data"]["show_metric_fde"].get() is True
+        dialog.apply()
+        app._update_display_options()
+        assert not dialog.winfo_exists()
+        assert view.navigator.metric_display_options == {
+            key: key == "show_metric_ade" for key in METRIC_DISPLAY_FIELDS
+        }
+        labels = view.navigator.metric_axes[0].get_legend_handles_labels()[1]
+        assert labels == ["ADE"]
+        assert not view.navigator.metric_density_axis.get_visible()
+    finally:
+        if dialog.winfo_exists():
+            dialog.close()
+        view.destroy()
+
+
+def test_metric_preferences_reach_the_plot_through_the_gui_controller():
+    from bayesian_predictor.dashboard import (
+        create_sequential_posterior_dashboard_figure,
+    )
+    from bayesian_predictor.plot_view import PosteriorPlotView
+    from bayesian_predictor.settings import METRIC_DISPLAY_FIELDS, default_form_values
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
+
+    figure = Figure(figsize=(11, 8))
+    FigureCanvasAgg(figure)
+    _, navigator = create_sequential_posterior_dashboard_figure(
+        PosteriorDashboardTrajectory(*([np.arange(3.0)] * 4)),
+        BayesianCTRVPriors(),
+        lambda _count: pytest.fail("Unexpected inference request"),
+        maximum_observation_count=3,
+        figure=figure,
+    )
+    view = PosteriorPlotView.__new__(PosteriorPlotView)
+    view.navigator = navigator
+    app = BayesianPredictor.__new__(BayesianPredictor)
+    app.root, app.plot_view, app._closing = None, view, False
+    data = {key: _Value(value) for key, value in default_form_values()["data"].items()}
+    app.controls = SimpleNamespace(variables={"data": data})
+    try:
+        navigator.group_selector.set_active(2)
+        for key in METRIC_DISPLAY_FIELDS:
+            data[key].set(key == "show_metric_ade")
+        app._update_display_options()
+        assert navigator.metric_display_options == {
+            key: key == "show_metric_ade" for key in METRIC_DISPLAY_FIELDS
+        }
+        assert navigator.metric_axes[0].get_legend_handles_labels()[1] == ["ADE"]
+        assert not navigator.metric_density_axis.get_visible()
+        assert not navigator._updates_by_count
+    finally:
+        navigator.disconnect()
+
+
 def test_dialog_cancel_and_apply_do_not_start_an_analysis(root, monkeypatch):
     # Keep the parent withdrawn: no visible test window or actual inference.
     from bayesian_predictor.dialogs import SettingsDialog

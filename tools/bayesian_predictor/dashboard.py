@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from time import perf_counter
 from types import MappingProxyType
 
@@ -85,6 +85,25 @@ PARAMETER_POSTERIOR_TITLES = {
 PARAMETER_GROUP_LABELS = {
     "motion": "Motion state",
     "noise": "Uncertainties",
+    "metrics": "Metrics",
+}
+METRIC_DISPLAY_GROUPS = {
+    "Point prediction": ("show_metric_ade", "show_metric_rmse", "show_metric_fde"),
+    "Probabilistic prediction": ("show_metric_energy_score", "show_metric_nlpd"),
+    "Joint coverage": (
+        "show_metric_joint_coverage_50",
+        "show_metric_joint_coverage_90",
+    ),
+}
+METRIC_DISPLAY_FIELDS = tuple(
+    field for fields in METRIC_DISPLAY_GROUPS.values() for field in fields
+)
+METRIC_CURVES = {
+    "show_metric_ade": ("ade_m", "ADE", "#0072b2"),
+    "show_metric_rmse": ("rmse_m", "RMSE", "#009e73"),
+    "show_metric_fde": ("fde_m", "FDE", "#d55e00"),
+    "show_metric_energy_score": ("energy_score_m", "Energy Score", "#0072b2"),
+    "show_metric_nlpd": ("negative_log_predictive_density", "NLPD", "#d55e00"),
 }
 FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
@@ -629,8 +648,29 @@ def posterior_medians_at(updates_by_count, observation_count):
     }
 
 
-def analysis_metrics_at(trajectory, updates_by_count, observation_count):
+def analysis_metrics_at(
+    trajectory, updates_by_count, observation_count, *, forecast_metrics_by_count=None
+):
     """Evaluate the displayed forecast and all available 50%/90% regions."""
+    if forecast_metrics_by_count is not None:
+        current = forecast_metrics_by_count.get(observation_count)
+        if current is None:
+            current = analysis_metrics_at(trajectory, {}, observation_count)
+        records = [
+            metrics
+            for count, metrics in forecast_metrics_by_count.items()
+            if ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT <= count <= observation_count
+        ]
+        return replace(
+            current,
+            joint_coverage_50_count=sum(
+                record.joint_coverage_50_count for record in records
+            ),
+            joint_coverage_90_count=sum(
+                record.joint_coverage_90_count for record in records
+            ),
+            joint_coverage_total=sum(record.joint_coverage_total for record in records),
+        )
     if observation_count < ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT:
         return DashboardAnalysisMetrics(
             ade_m=None,
@@ -804,6 +844,8 @@ class _PosteriorDashboardLayout(LayoutEngine):
         selector_axis,
         follow_axis,
         settings_axis=None,
+        metric_axes=(),
+        metric_density_axis=None,
     ):
         super().__init__()
         self.trajectory_axis = trajectory_axis
@@ -813,6 +855,9 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.selector_axis = selector_axis
         self.follow_axis = follow_axis
         self.settings_axis = settings_axis
+        self.metric_axes = metric_axes
+        self.metric_density_axis = metric_density_axis
+        self.show_metric_density_axis = False
         self.display_mode = "compact"
         self.active_group = "motion"
 
@@ -836,7 +881,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
         )
         grid.update(
             left=max(0.06, 76.0 / width_points),
-            right=0.98,
+            right=0.93 if self.active_group == "metrics" else 0.98,
             bottom=bottom_margin / height_points,
             top=1.0 - top_margin / height_points,
             hspace=panel_gap / panel_height,
@@ -850,7 +895,20 @@ class _PosteriorDashboardLayout(LayoutEngine):
         _fit_trajectory_limits_to_axes(self.trajectory_axis)
         motion_axes = self.posterior_axes_by_group["motion"]
         noise_axes = self.posterior_axes_by_group["noise"]
-        if self.display_mode == "expanded":
+        show_metrics = self.active_group == "metrics"
+        for axis in self.metric_axes:
+            axis.set_visible(show_metrics)
+            axis.set_position(axis.get_subplotspec().get_position(figure))
+        if self.metric_density_axis is not None:
+            self.metric_density_axis.set_visible(
+                show_metrics and self.show_metric_density_axis
+            )
+            self.metric_density_axis.set_position(self.metric_axes[1].get_position())
+        if show_metrics:
+            for axes in self.posterior_axes_by_group.values():
+                for axis in axes:
+                    axis.set_visible(False)
+        elif self.display_mode == "expanded":
             for axis in (*motion_axes, *noise_axes):
                 axis.set_visible(True)
                 axis.set_position(axis.get_subplotspec().get_position(figure))
@@ -875,21 +933,16 @@ class _PosteriorDashboardLayout(LayoutEngine):
                             )
                         )
         playback_width = max(0.085, 64.0 / width_points)
-        if self.display_mode == "expanded":
-            self.selector_axis.set_visible(False)
-            selector_left = 0.97
-        else:
-            self.selector_axis.set_visible(True)
-            selector_width = max(0.2, 165.0 / width_points)
-            selector_left = 0.97 - selector_width
-            self.selector_axis.set_position(
-                (
-                    selector_left,
-                    12.0 / height_points,
-                    selector_width,
-                    44.0 / height_points,
-                )
+        selector_width = max(0.2, 165.0 / width_points)
+        selector_left = 0.97 - selector_width
+        self.selector_axis.set_position(
+            (
+                selector_left,
+                12.0 / height_points,
+                selector_width,
+                54.0 / height_points,
             )
+        )
         slider_left = 0.07 + playback_width
         self.playback_axis.set_position(
             (0.025, 18.0 / height_points, playback_width, 28.0 / height_points)
@@ -923,7 +976,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
 
 
 class PosteriorDashboardNavigator:
-    """Synchronize one route and three switchable posterior panels."""
+    """Synchronize one route with posterior panels and cached forecast metrics."""
 
     def __init__(
         self,
@@ -955,6 +1008,7 @@ class PosteriorDashboardNavigator:
         show_prediction_region_90=True,
         prediction_region_style="funnel",
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
+        metric_display_options=None,
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
@@ -973,6 +1027,11 @@ class PosteriorDashboardNavigator:
             group: tuple(axes) for group, axes in posterior_axes_by_group.items()
         }
         self.posterior_axes = self.posterior_axes_by_group["motion"]
+        grid = self.posterior_axes[0].get_subplotspec().get_gridspec()
+        self.metric_axes = tuple(figure.add_subplot(grid[row, 1:]) for row in range(3))
+        self.metric_density_axis = self.metric_axes[1].twinx()
+        self.metric_display_options = dict.fromkeys(METRIC_DISPLAY_FIELDS, True)
+        self._set_metric_display_options(metric_display_options)
         self.trajectory = trajectory
         self.priors = priors
         self._update_loader = update_loader
@@ -1014,6 +1073,7 @@ class PosteriorDashboardNavigator:
         self._on_settings_visibility_change = on_settings_visibility_change
         self._on_playback_change = on_playback_change
         self._updates_by_count = {}
+        self._forecast_metrics_by_count = {}
         self._observation_count = 0
         self._parameter_group = "motion"
         self._posterior_display_mode = "compact"
@@ -1048,7 +1108,6 @@ class PosteriorDashboardNavigator:
             valfmt="%0.0f",
         )
         selector_axis = figure.add_axes((0.77, 0.035, 0.2, 0.1))
-        selector_axis.set_title("Posterior group", fontsize=10)
         self.group_selector = RadioButtons(
             selector_axis,
             tuple(PARAMETER_GROUP_LABELS.values()),
@@ -1104,6 +1163,8 @@ class PosteriorDashboardNavigator:
             selector_axis,
             follow_axis,
             settings_axis,
+            self.metric_axes,
+            self.metric_density_axis,
         )
         self._layout = layout
         figure.set_layout_engine(layout)
@@ -1136,7 +1197,6 @@ class PosteriorDashboardNavigator:
         self._layout.display_mode = mode
         self._layout.active_group = self._parameter_group
         self._layout.execute(self.figure)
-        self._set_group_selector_visible(mode == "compact")
         self._draw()
         self.figure.canvas.draw_idle()
 
@@ -1157,19 +1217,10 @@ class PosteriorDashboardNavigator:
                 self.settings_checkbox.eventson = eventson
         self.set_posterior_display_mode("compact" if visible else "expanded")
 
-    def _set_group_selector_visible(self, visible) -> None:
-        """Hide every artist of the compact-only posterior-group selector."""
-        self.group_selector.ax.set_visible(visible)
-        self.group_selector._buttons.set_visible(visible)
-        self.group_selector.ax.title.set_visible(visible)
-        self.group_selector.active = visible
-        for label in self.group_selector.labels:
-            label.set_visible(visible)
-
     @property
-    def parameter_names(self) -> tuple[str, str, str]:
+    def parameter_names(self) -> tuple[str, ...]:
         """Return the three parameters visible in the posterior column."""
-        return PARAMETER_GROUPS[self.parameter_group]
+        return PARAMETER_GROUPS.get(self.parameter_group, ())
 
     @property
     def is_playing(self) -> bool:
@@ -1195,10 +1246,17 @@ class PosteriorDashboardNavigator:
             minimum=self.minimum_posterior_observation_count,
             maximum=self.maximum_observation_count,
         )
-        self._updates_by_count[update.observation_count] = update
+        self._cache_update(update)
         self._density_grids_dirty = True
         if self.is_waiting and not self._suspended:
             self._show_observation_count(self._requested_observation_count)
+
+    def _cache_update(self, update) -> None:
+        """Score a forecast once; later redraws only pool its coverage counts."""
+        count = update.observation_count
+        metrics = analysis_metrics_at(self.trajectory, {count: update}, count)
+        self._updates_by_count[count] = update
+        self._forecast_metrics_by_count[count] = metrics
 
     def set_suspended(self, suspended: bool) -> None:
         """Defer automatic drawing without changing the user's playback target."""
@@ -1307,7 +1365,7 @@ class PosteriorDashboardNavigator:
                 raise ValueError(
                     "update_loader returned an unexpected observation count."
                 )
-            self._updates_by_count[missing_count] = update
+            self._cache_update(update)
             loaded_update = True
 
         if loaded_update:
@@ -1343,7 +1401,11 @@ class PosteriorDashboardNavigator:
         for group, label in PARAMETER_GROUP_LABELS.items():
             if selected_label == label:
                 self._parameter_group = group
-                self.posterior_axes = self.posterior_axes_by_group[group]
+                self.posterior_axes = (
+                    self.metric_axes
+                    if group == "metrics"
+                    else self.posterior_axes_by_group[group]
+                )
                 self._layout.active_group = group
                 self._draw()
                 return
@@ -1392,7 +1454,15 @@ class PosteriorDashboardNavigator:
 
     def _draw(self) -> None:
         self._draw_trajectory()
-        if self._posterior_display_mode == "expanded":
+        metrics = analysis_metrics_at(
+            self.trajectory,
+            self._updates_by_count,
+            self.observation_count,
+            forecast_metrics_by_count=self._forecast_metrics_by_count,
+        )
+        if self.parameter_group == "metrics":
+            self._draw_metrics(metrics)
+        elif self._posterior_display_mode == "expanded":
             for group, axes in self.posterior_axes_by_group.items():
                 for index, (axis, parameter_name) in enumerate(
                     zip(axes, PARAMETER_GROUPS[group], strict=True)
@@ -1428,13 +1498,7 @@ class PosteriorDashboardNavigator:
                 )
             )
         if self._on_metrics_change is not None:
-            self._on_metrics_change(
-                analysis_metrics_at(
-                    self.trajectory,
-                    self._updates_by_count,
-                    self.observation_count,
-                )
-            )
+            self._on_metrics_change(metrics)
         if self._on_medians_change is not None:
             self._on_medians_change(
                 posterior_medians_at(self._updates_by_count, self.observation_count)
@@ -1446,6 +1510,195 @@ class PosteriorDashboardNavigator:
                     self.observation_count,
                 )
             )
+
+    def _set_metric_display_options(self, options) -> None:
+        if options is None:
+            return
+        if set(options).difference(METRIC_DISPLAY_FIELDS):
+            raise ValueError("Unknown metric display option.")
+        if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
+            raise ValueError("Metric display options must be boolean values.")
+        self.metric_display_options.update(
+            {name: bool(value) for name, value in options.items()}
+        )
+
+    def _metric_history(self):
+        counts = np.arange(1, self.maximum_observation_count + 1)
+        times = self.trajectory.reference_time_seconds[: self.maximum_observation_count]
+        timed = np.all(np.isfinite(times)) and np.all(np.diff(times) > 0)
+        origins = times - times[0] if timed else counts
+        histories = {field: np.full(len(counts), np.nan) for field in METRIC_CURVES}
+        for count, metrics in self._forecast_metrics_by_count.items():
+            forecast = self._updates_by_count[count].forecast
+            if forecast is None:
+                continue
+            horizon = self.prediction_count or len(forecast.median_positions)
+            if (
+                len(forecast.median_positions) < horizon
+                or len(self.trajectory.reference_x) - count < horizon
+            ):
+                continue  # Keep shortened end-of-recording forecasts out of the time series.
+            for metric_field, (attribute, _label, _color) in METRIC_CURVES.items():
+                value = getattr(metrics, attribute)
+                if value is not None:
+                    histories[metric_field][count - 1] = value
+        current_time = origins[max(self.observation_count - 1, 0)]
+        return (
+            origins,
+            histories,
+            current_time,
+            "Forecast origin time [s]" if timed else "Observation count N",
+        )
+
+    @staticmethod
+    def _metric_empty_message(axis, message):
+        axis.text(
+            0.5,
+            0.5,
+            message,
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+
+    def _draw_metrics(self, metrics) -> None:
+        point_axis, probability_axis, coverage_axis = self.metric_axes
+        for axis in (*self.metric_axes, self.metric_density_axis):
+            axis.clear()
+            axis.tick_params(labelsize=9)
+        self.metric_density_axis.yaxis.set_label_position("right")
+        self.metric_density_axis.yaxis.tick_right()
+        origins, histories, current_time, time_label = self._metric_history()
+        options = self.metric_display_options
+        dual_scale = options["show_metric_energy_score"] and options["show_metric_nlpd"]
+        self._layout.show_metric_density_axis = dual_scale
+        for axis, title in (
+            (point_axis, "Point prediction"),
+            (probability_axis, "Probabilistic prediction"),
+        ):
+            fields = [field for field in METRIC_DISPLAY_GROUPS[title] if options[field]]
+            axis.set_title(title, fontsize=12)
+            axis.set_xlabel(time_label, fontsize=10)
+            axis.set_xlim(
+                float(origins[0]),
+                float(origins[-1]) if len(origins) > 1 else float(origins[0]) + 1,
+            )
+            axis.grid(alpha=0.2)
+            axis.axvline(
+                current_time,
+                color="0.4",
+                linestyle="--",
+                linewidth=1,
+                label="_current_time",
+            )
+            if not fields:
+                self._metric_empty_message(axis, "No metrics selected")
+                continue
+            handles = []
+            for metric_field in fields:
+                _attribute, label, color = METRIC_CURVES[metric_field]
+                target = (
+                    self.metric_density_axis
+                    if dual_scale and metric_field == "show_metric_nlpd"
+                    else axis
+                )
+                handles.extend(
+                    target.plot(
+                        origins,
+                        histories[metric_field],
+                        label=label,
+                        color=color,
+                        linewidth=1.3,
+                        marker=".",
+                        markersize=3,
+                        linestyle="--"
+                        if dual_scale and metric_field == "show_metric_nlpd"
+                        else "-",
+                    )
+                )
+            if title == "Point prediction":
+                axis.set_ylabel("Position error [m]", fontsize=10)
+                axis.set_ylim(bottom=0)
+            else:
+                axis.set_ylabel(
+                    "Energy Score [m]"
+                    if options["show_metric_energy_score"]
+                    else "NLPD",
+                    fontsize=10,
+                )
+                if dual_scale:
+                    self.metric_density_axis.set_ylabel(
+                        "NLPD", color=METRIC_CURVES["show_metric_nlpd"][2], fontsize=10
+                    )
+                    self.metric_density_axis.tick_params(
+                        axis="y",
+                        colors=METRIC_CURVES["show_metric_nlpd"][2],
+                        labelsize=9,
+                    )
+            if not any(np.isfinite(histories[field]).any() for field in fields):
+                message = (
+                    "No reference trajectory"
+                    if not self.trajectory.has_reference
+                    else "No complete evaluated forecasts"
+                )
+                self._metric_empty_message(axis, message)
+            if self.show_legend:
+                axis.legend(
+                    handles=handles, fontsize=8, loc="upper left", ncols=len(handles)
+                )
+        coverage_axis.set_title(
+            f"Joint coverage through N = {self.observation_count}", fontsize=12
+        )
+        coverage_axis.set_ylabel("Coverage [%]", fontsize=10)
+        coverage_axis.set_ylim(0, 110)
+        coverage_axis.grid(axis="y", alpha=0.2)
+        levels = [
+            level
+            for level in (50, 90)
+            if options[f"show_metric_joint_coverage_{level}"]
+        ]
+        coverage_axis.set_xticks(
+            range(len(levels)), [f"{level}% region" for level in levels]
+        )
+        if not levels:
+            self._metric_empty_message(coverage_axis, "No metrics selected")
+        elif metrics.joint_coverage_total:
+            values = [
+                100
+                * getattr(metrics, f"joint_coverage_{level}_count")
+                / metrics.joint_coverage_total
+                for level in levels
+            ]
+            colors = ["#0072b2" if level == 50 else "#009e73" for level in levels]
+            bars = coverage_axis.bar(
+                range(len(levels)), values, color=colors, width=0.5, zorder=3
+            )
+            coverage_axis.bar_label(
+                bars,
+                labels=[f"{value:.1f}%" for value in values],
+                padding=3,
+                fontsize=10,
+            )
+        else:
+            message = (
+                "No reference trajectory"
+                if not self.trajectory.has_reference
+                else "No evaluated forecasts"
+            )
+            self._metric_empty_message(coverage_axis, message)
+        for level in levels:
+            coverage_axis.axhline(
+                level,
+                color="0.45",
+                linestyle=":" if level == 50 else "--",
+                label=f"Target: {level}%",
+            )
+        if levels and self.show_legend:
+            coverage_axis.legend(fontsize=8, loc="upper right")
+        coverage_axis.set_xlabel(
+            f"Evaluated forecast positions: {metrics.joint_coverage_total}", fontsize=10
+        )
 
     def _displayed_observed_positions(self) -> np.ndarray:
         """Return inferred track positions when the active update supplies them."""
@@ -1824,8 +2077,10 @@ class PosteriorDashboardNavigator:
         connect_sample_trajectories=None,
         prediction_region_style=None,
         follow_ship_view_span_m=None,
+        metric_display_options=None,
     ) -> None:
         """Apply presentation-only toggles without loading another update."""
+        self._set_metric_display_options(metric_display_options)
         options = {
             "show_legend": show_legend,
             "show_reference_trajectory": show_reference_trajectory,
@@ -2040,6 +2295,7 @@ def create_sequential_posterior_dashboard_figure(
     show_prediction_region_90=True,
     prediction_region_style="funnel",
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
+    metric_display_options=None,
     on_state_change=None,
     on_metrics_change=None,
     on_medians_change=None,
@@ -2140,6 +2396,7 @@ def create_sequential_posterior_dashboard_figure(
         show_prediction_region_90=show_prediction_region_90,
         prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
+        metric_display_options=metric_display_options,
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,

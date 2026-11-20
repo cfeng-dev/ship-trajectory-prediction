@@ -4,11 +4,13 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from .controls import ScrollableForm, create_variables, populate_fields
+from .dashboard import METRIC_DISPLAY_GROUPS
 from .localization import localize_widgets, translate_for
 from .settings import (
     DATA_OPTION_FIELDS,
     DISPLAY_OPTION_FIELDS,
     LABELS,
+    METRIC_DISPLAY_FIELDS,
     PLOT_DISPLAY_FIELDS,
     PREDICTION_REGION_STYLE_DISPLAY_LABELS,
     PREDICTION_REGION_STYLE_DISPLAY_OPTIONS,
@@ -134,7 +136,9 @@ class PlotDisplayWindow(tk.Toplevel):
         ).pack(fill="x")
         body = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=4)
         body.pack(fill="both", expand=True)
-        for key in DISPLAY_OPTION_FIELDS:
+        for row, key in enumerate(
+            key for key in DISPLAY_OPTION_FIELDS if key not in METRIC_DISPLAY_FIELDS
+        ):
             tk.Checkbutton(
                 body,
                 text=LABELS[key],
@@ -144,9 +148,33 @@ class PlotDisplayWindow(tk.Toplevel):
                 font=FONT,
                 fg=TEXT_COLOR,
                 anchor="w",
-            ).pack(fill="x", pady=3)
+            ).grid(row=row, column=0, sticky="w", pady=3)
+        metric_body = tk.Frame(body, bg=CONTROL_BACKGROUND, padx=18)
+        metric_body.grid(row=0, column=1, rowspan=14, sticky="nw")
+        for title, fields in METRIC_DISPLAY_GROUPS.items():
+            section = tk.LabelFrame(
+                metric_body,
+                text=title,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                font=FONT,
+                padx=10,
+                pady=6,
+            )
+            section.pack(fill="x", pady=(0, 12))
+            for key in fields:
+                tk.Checkbutton(
+                    section,
+                    text=LABELS[key],
+                    variable=self.variables[key],
+                    bg=CONTROL_BACKGROUND,
+                    activebackground=CONTROL_BACKGROUND,
+                    fg=TEXT_COLOR,
+                    font=FONT,
+                    anchor="w",
+                ).pack(fill="x", pady=3)
         region_style_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        region_style_row.pack(fill="x", pady=(8, 3))
+        region_style_row.grid(row=12, column=0, sticky="ew", pady=(8, 3))
         tk.Label(
             region_style_row,
             text=LABELS["prediction_region_style"],
@@ -163,7 +191,7 @@ class PlotDisplayWindow(tk.Toplevel):
             style="Predictor.TCombobox",
         ).pack(side="right")
         span_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        span_row.pack(fill="x", pady=(8, 3))
+        span_row.grid(row=13, column=0, sticky="ew", pady=(8, 3))
         tk.Label(
             span_row,
             text=LABELS["follow_ship_view_span_m"],

@@ -19,6 +19,7 @@ from .dashboard import (
     DEFAULT_BATCH_OBSERVATION_COUNT,
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
+    METRIC_DISPLAY_FIELDS,
     PosteriorDashboardConfig,
     normalize_coordinate_display_mode,
     normalize_prediction_region_style,
@@ -75,7 +76,7 @@ DISPLAY_OPTION_FIELDS = (
     "show_forecast_points",
     "show_prediction_region_50",
     "show_prediction_region_90",
-)
+) + METRIC_DISPLAY_FIELDS
 PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + (
     "prediction_region_style",
     "follow_ship_view_span_m",
@@ -108,6 +109,13 @@ LABELS = {
     "show_prediction_region_90": "Show 90% posterior-predictive region",
     "prediction_region_style": "Prediction uncertainty",
     "follow_ship_view_span_m": "Follow-ship view span [m]",
+    "show_metric_ade": "ADE",
+    "show_metric_rmse": "RMSE",
+    "show_metric_fde": "FDE",
+    "show_metric_energy_score": "Energy Score",
+    "show_metric_nlpd": "NLPD",
+    "show_metric_joint_coverage_50": "Joint 50% coverage",
+    "show_metric_joint_coverage_90": "Joint 90% coverage",
     "speed_prior_upper_mps": "Speed: upper threshold [m/s]",
     "speed_prior_tail_probability": "Speed: tail probability",
     "turn_rate_prior_abs_rate_deg_s": "Turn rate: threshold [°/s]",
@@ -163,6 +171,13 @@ class ExplorerSettings:
     follow_ship_view_span_m: float
     show_reference_points: bool = False
     show_forecast_points: bool = True
+    show_metric_ade: bool = True
+    show_metric_rmse: bool = True
+    show_metric_fde: bool = True
+    show_metric_energy_score: bool = True
+    show_metric_nlpd: bool = True
+    show_metric_joint_coverage_50: bool = True
+    show_metric_joint_coverage_90: bool = True
 
 
 def _defaults():
@@ -198,6 +213,7 @@ def _defaults():
             "show_prediction_region_90": True,
             "prediction_region_style": "funnel",
             "follow_ship_view_span_m": 100.0,
+            **dict.fromkeys(METRIC_DISPLAY_FIELDS, True),
         },
         "priors": asdict(BayesianCTRVPriors()),
         "smc": asdict(create_default_ctrv_smc_config()),

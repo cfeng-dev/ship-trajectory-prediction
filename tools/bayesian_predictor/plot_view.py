@@ -6,6 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from .dashboard import (
+    METRIC_DISPLAY_FIELDS,
     create_sequential_posterior_dashboard_figure,
 )
 from .localization import widget_language
@@ -63,6 +64,9 @@ class PosteriorPlotView(tk.Frame):
             show_prediction_region_90=settings.show_prediction_region_90,
             prediction_region_style=settings.prediction_region_style,
             follow_ship_view_span_m=settings.follow_ship_view_span_m,
+            metric_display_options={
+                key: getattr(settings, key) for key in METRIC_DISPLAY_FIELDS
+            },
             on_state_change=on_state_change,
             on_metrics_change=on_metrics_change,
             on_medians_change=on_medians_change,

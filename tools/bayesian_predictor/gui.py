@@ -14,6 +14,7 @@ from .plot_view import PosteriorPlotView
 from .session import PosteriorAnalysisWorker
 from .settings import (
     DISPLAY_OPTION_FIELDS,
+    METRIC_DISPLAY_FIELDS,
     PLOT_DISPLAY_FIELDS,
     normalize_inference_method,
     parse_settings,
@@ -251,6 +252,9 @@ class BayesianPredictor:
         display_options = {
             key: self.controls.variables["data"][key].get()
             for key in DISPLAY_OPTION_FIELDS
+        }
+        display_options["metric_display_options"] = {
+            key: display_options.pop(key) for key in METRIC_DISPLAY_FIELDS
         }
         display_options["prediction_region_style"] = self.controls.variables["data"][
             "prediction_region_style"

@@ -5,6 +5,7 @@ import runpy
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -108,3 +109,49 @@ def test_associated_imm_consumes_known_positions_without_gating_and_uses_covaria
     np.testing.assert_array_equal(tracker.estimated_position, before)
     with pytest.raises(ValueError):
         tracker.update_position(49075.8, initial, covariance)
+
+
+@pytest.mark.skipif(
+    not (ROOT / "external/IMM/br24_imm.py").is_file(),
+    reason="Optional IMM backend is unavailable",
+)
+@pytest.mark.parametrize("forecast_method", ["forecast", "sample_forecast"])
+@pytest.mark.parametrize(
+    ("mode", "predictor", "expected_parameters"),
+    [
+        (0, "_predict_cv", (0.2**2, 0.2**2)),
+        (1, "_predict_ctrv", (0.4**2, 0.06**2)),
+        (2, "_predict_ca", (8.0, 0.7**2, 0.7**2)),
+    ],
+)
+def test_imm_forecasts_use_configured_process_noise(
+    monkeypatch, forecast_method, mode, predictor, expected_parameters
+):
+    module = runpy.run_path(ROOT / "external/IMM/br24_imm.py")
+    backend = module["BR24IMMTracker"].forecast.__globals__
+    settings = {
+        "CV_ACCELERATION_NOISE_STD": 0.2,
+        "CTRV_SPEED_NOISE_STD": 0.4,
+        "CTRV_TURN_RATE_NOISE_STD_RAD": 0.06,
+        "CA_ACCELERATION_NOISE_STD": 0.7,
+        "CA_ACCELERATION_TIME_CONSTANT_SECONDS": 8.0,
+    }
+    for name, value in settings.items():
+        monkeypatch.setitem(backend, name, value)
+    if forecast_method == "sample_forecast":
+        monkeypatch.setitem(backend, "_TRANSITION_PROBABILITIES", np.eye(3))
+    prediction = Mock(wraps=backend[predictor])
+    monkeypatch.setitem(backend, predictor, prediction)
+    state = module["_initialize_imm_state"](np.zeros(2))
+    state.mode_probabilities = np.eye(3)[mode]
+    tracker = module["BR24IMMTracker"](
+        _state=state,
+        _last_observation_time_seconds=0.0,
+        _sensor_position=np.zeros(2),
+    )
+
+    getattr(tracker, forecast_method)([1.0], seed=42)
+
+    assert prediction.call_args_list
+    for call in prediction.call_args_list:
+        np.testing.assert_allclose(call.args[3:], expected_parameters)
