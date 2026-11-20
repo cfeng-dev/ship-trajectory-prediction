@@ -10,6 +10,171 @@ from matplotlib.ticker import MaxNLocator
 
 import bayestraj.observations.plotting as observation_plotting
 
+DEFAULT_METRIC_WINDOW_WIDTH = 60.0
+
+
+METRIC_DISPLAY_GROUPS = {
+    "Point prediction": ("show_metric_ade", "show_metric_rmse", "show_metric_fde"),
+    "Probabilistic prediction": ("show_metric_energy_score", "show_metric_nlpd"),
+}
+
+
+METRIC_DISPLAY_FIELDS = tuple(
+    field for fields in METRIC_DISPLAY_GROUPS.values() for field in fields
+)
+
+
+METRIC_CURVES = {
+    "show_metric_ade": ("ade_m", "ADE", "#0072b2"),
+    "show_metric_rmse": ("rmse_m", "RMSE", "#009e73"),
+    "show_metric_fde": ("fde_m", "FDE", "#d55e00"),
+    "show_metric_energy_score": ("energy_score_m", "Energy Score", "#0072b2"),
+    "show_metric_nlpd": ("negative_log_predictive_density", "NLPD", "#d55e00"),
+}
+
+
+def _metric_empty_message(axis, message):
+    axis.text(
+        0.5,
+        0.5,
+        message,
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontsize=10,
+    )
+
+
+def draw_forecast_metric_history(
+    axes,
+    density_axis,
+    origins,
+    histories,
+    current_time,
+    *,
+    time_label,
+    display_options,
+    has_reference,
+    show_legend,
+    follow_time,
+    window_width,
+):
+    """Draw cached forecast scores with the same controls in both Predictors."""
+    point_axis, probability_axis = axes
+    for axis in (*axes, density_axis):
+        axis.clear()
+        axis.relim()  # Reset data limits before adding the time cursor.
+        axis.tick_params(labelsize=9)
+    density_axis.yaxis.set_label_position("right")
+    density_axis.yaxis.tick_right()
+    left, right = float(origins[0]), float(origins[-1])
+    if follow_time:
+        left = max(left, current_time - 0.9 * window_width)
+        right = left + window_width
+    elif left == right:
+        right = left + 1
+    visible = (origins >= left) & (origins <= right)
+    options = display_options
+    dual_scale = options["show_metric_energy_score"] and options["show_metric_nlpd"]
+    density_axis.set_visible(dual_scale)
+    for axis, title in (
+        (point_axis, "Point prediction"),
+        (probability_axis, "Probabilistic prediction"),
+    ):
+        fields = [field for field in METRIC_DISPLAY_GROUPS[title] if options[field]]
+        axis.set_title(title, fontsize=12)
+        axis.set_xlabel(time_label, fontsize=10)
+        axis.set_xlim(left, right)
+        axis.grid(alpha=0.2)
+        axis.axvline(
+            current_time,
+            color="0.4",
+            linestyle="--",
+            linewidth=1,
+            label="_current_time",
+        )
+        if not fields:
+            _metric_empty_message(axis, "No metrics selected")
+            continue
+        handles = []
+        for metric_field in fields:
+            _attribute, label, color = METRIC_CURVES[metric_field]
+            target = (
+                density_axis
+                if dual_scale and metric_field == "show_metric_nlpd"
+                else axis
+            )
+            handles.extend(
+                target.plot(
+                    origins[visible],
+                    histories[metric_field][visible],
+                    label=label,
+                    color=color,
+                    linewidth=1.3,
+                    marker=".",
+                    markersize=3,
+                    linestyle="--"
+                    if dual_scale and metric_field == "show_metric_nlpd"
+                    else "-",
+                )
+            )
+        if title == "Point prediction":
+            axis.set_ylabel("Position error [m]", fontsize=10)
+            axis.set_ylim(bottom=0)
+        else:
+            axis.set_ylabel(
+                "Energy Score [m]" if options["show_metric_energy_score"] else "NLPD",
+                fontsize=10,
+                color="black",
+            )
+            if dual_scale:
+                density_axis.set_ylabel("NLPD", color="black", fontsize=10)
+                density_axis.tick_params(
+                    axis="y",
+                    colors="black",
+                    labelsize=9,
+                )
+        if not any(np.isfinite(histories[field][visible]).any() for field in fields):
+            message = (
+                "No reference trajectory"
+                if not has_reference
+                else "No complete evaluated forecasts"
+            )
+            _metric_empty_message(axis, message)
+        if show_legend:
+            axis.legend(
+                handles=handles, fontsize=8, loc="upper right", ncols=len(handles)
+            )
+    return {axis: axis.get_ylim() for axis in (*axes, density_axis)}
+
+
+def reserve_metric_legend_space(
+    figure, axes, density_axis, value_limits, display_limits
+):
+    """Keep metric curves below the legends, including after resize."""
+    get_renderer = getattr(figure.canvas, "get_renderer", None)
+    if get_renderer is None:
+        return
+    renderer = get_renderer()
+    padding = renderer.points_to_pixels(5)
+    for index, axis in enumerate(axes):
+        legend = axis.get_legend()
+        if legend is None or axis not in value_limits:
+            continue
+        available = legend.get_window_extent(renderer).y0 - axis.bbox.y0 - padding
+        data_fraction = np.clip(available / max(axis.bbox.height, 1), 0.03, 1)
+        data_axes = [axis]
+        if index == 1 and density_axis.get_visible():
+            data_axes.append(density_axis)
+        for data_axis in data_axes:
+            previous = display_limits.get(data_axis)
+            if previous is not None and not np.allclose(data_axis.get_ylim(), previous):
+                continue  # Preserve the user's manual zoom or pan.
+            lower, upper = value_limits[data_axis]
+            data_axis.set_ylim(lower, lower + (upper - lower) / data_fraction)
+            display_limits[data_axis] = data_axis.get_ylim()
+
+
 RUNTIME_PLOT_STYLE = observation_plotting.ShipDataPlotStyle()
 COMPARISON_MODEL_COLORS = ("#0072B2", "#E69F00")
 COMPARISON_LEGEND_PADDING_POINTS = 8.0

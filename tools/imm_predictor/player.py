@@ -18,6 +18,7 @@ import bayestraj.inference.imm_adapter as imm_adapter
 import bayestraj.observations.br24 as br24
 import bayestraj.observations.io as observations_io
 import bayestraj.validation.metrics as validation_metrics
+import bayestraj.validation.runtime_plotting as metric_plotting
 from bayestraj.inference.imm_adapter import IMMStateMixture, IMMStatePosterior
 from bayestraj.inference.imm_adapter import (
     forecast_position_medians as _forecast_position_medians,
@@ -43,7 +44,7 @@ PLOT_DISPLAY_OPTIONS = {
     "show_legend": "Show legend",
     "show_recorded_trajectory": "Show reference trajectory",
     "show_reference_points": "Show reference points",
-    "show_imm_track": "Show IMM track through N",
+    "show_imm_track": "Show observations through N",
     "show_current_position": "Show current position",
     "show_sample_trajectories": "Show sampled IMM trajectories",
     "show_forecast_median": "Show forecast (median)",
@@ -51,6 +52,9 @@ PLOT_DISPLAY_OPTIONS = {
     "show_forecast_points": "Show forecast points",
     "show_prediction_region_50": "Show 50% posterior-predictive region",
     "show_prediction_region_90": "Show 90% posterior-predictive region",
+    "show_prediction_region_99": "Show 99% posterior-predictive region",
+    **{field: label for field, (_, label, _) in metric_plotting.METRIC_CURVES.items()},
+    "follow_metric_time": "Follow metric time",
 }
 RESIDUAL_POSITION_NOISE_FLOOR_M = 1e-6
 
@@ -66,6 +70,14 @@ class IMMPlayerConfig:
     prediction_region_style: str = "funnel"
     show_prediction_region_50: bool = True
     show_prediction_region_90: bool = True
+    show_prediction_region_99: bool = False
+    show_metric_ade: bool = True
+    show_metric_rmse: bool = True
+    show_metric_fde: bool = True
+    show_metric_energy_score: bool = True
+    show_metric_nlpd: bool = True
+    follow_metric_time: bool = True
+    metric_window_width: float = metric_plotting.DEFAULT_METRIC_WINDOW_WIDTH
     show_legend: bool = True
     show_recorded_trajectory: bool = True
     show_reference_points: bool = False
@@ -117,6 +129,14 @@ class IMMPlayerConfig:
                 "follow_ship_view_span_meters must be a positive finite number."
             )
         object.__setattr__(self, "follow_ship_view_span_meters", span)
+        window = float(self.metric_window_width)
+        if (
+            isinstance(self.metric_window_width, bool)
+            or not np.isfinite(window)
+            or window <= 0
+        ):
+            raise ValueError("metric_window_width must be a positive finite number.")
+        object.__setattr__(self, "metric_window_width", window)
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +369,7 @@ class IMMPlaybackStore:
         self._measurement_covariances: list[np.ndarray | None] = [initial_covariance]
         self._stages: dict[int, IMMPlayerStage] = {}
         self._display_states: dict[int, IMMDisplayState] = {}
+        self._forecast_metrics_by_count: dict[int, IMMForecastMetrics] = {}
         self._capture_stage(fit_runtime_seconds=0.0)
 
     def stage_for(self, observation_count: int) -> IMMPlayerStage:
@@ -366,17 +387,55 @@ class IMMPlaybackStore:
             self._display_states[observation_count] = IMMDisplayState(
                 stage=stage,
                 state_estimate=_state_estimate(stage),
-                metrics=_forecast_metrics(
-                    stage,
-                    self.reference,
-                    coverage_stages=tuple(
-                        self._stages[count] for count in range(1, observation_count + 1)
-                    ),
-                ),
+                metrics=self._cumulative_metrics(stage),
                 uncertainty=_forecast_uncertainty(stage),
                 reference_state=_reference_state(stage, self.reference),
             )
         return self._display_states[observation_count]
+
+    def _metrics_for_stage(self, stage: IMMPlayerStage) -> IMMForecastMetrics:
+        """Evaluate each cached forecast once, independently of the visible window."""
+        if not hasattr(self, "_forecast_metrics_by_count"):
+            self._forecast_metrics_by_count = {}
+        if stage.observation_count not in self._forecast_metrics_by_count:
+            self._forecast_metrics_by_count[stage.observation_count] = (
+                _forecast_metrics(stage, self.reference, coverage_stages=(stage,))
+            )
+        return self._forecast_metrics_by_count[stage.observation_count]
+
+    def _cumulative_metrics(self, stage: IMMPlayerStage) -> IMMForecastMetrics:
+        records = [
+            self._metrics_for_stage(self._stages[count])
+            for count in range(1, stage.observation_count + 1)
+        ]
+        return replace(
+            records[-1],
+            **{
+                name: sum(getattr(record, name) for record in records)
+                for name in (
+                    "joint_coverage_50_count",
+                    "joint_coverage_90_count",
+                    "joint_coverage_total",
+                )
+            },
+        )
+
+    def metric_history(self) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+        """Return scores of computed stages without advancing the IMM tracker."""
+        origins = self.times[: self.maximum_observation_count] - self.times[0]
+        histories = {
+            field: np.full(len(origins), np.nan)
+            for field in metric_plotting.METRIC_DISPLAY_FIELDS
+        }
+        for count, stage in self._stages.items():
+            if stage.forecast is None or not 1 <= count <= len(origins):
+                continue
+            metrics = self._metrics_for_stage(stage)
+            for field, (attribute, _, _) in metric_plotting.METRIC_CURVES.items():
+                value = getattr(metrics, attribute)
+                if value is not None:
+                    histories[field][count - 1] = value
+        return origins, histories
 
     def _advance_to(self, observation_count: int) -> None:
         if observation_count in self._stages:

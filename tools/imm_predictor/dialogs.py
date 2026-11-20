@@ -6,6 +6,8 @@ import tkinter as tk
 from dataclasses import replace
 from tkinter import messagebox, ttk
 
+from bayestraj.validation.runtime_plotting import METRIC_DISPLAY_GROUPS
+
 from .player import (
     PLOT_DISPLAY_OPTIONS,
     PREDICTION_REGION_STYLE_LABELS,
@@ -60,6 +62,9 @@ class PlaybackSettingsDialog:
             ),
             "follow_ship_view_span_meters": tk.StringVar(
                 self.window, value=f"{config.follow_ship_view_span_meters:g}"
+            ),
+            "metric_window_width": tk.StringVar(
+                self.window, value=f"{config.metric_window_width:g}"
             ),
         }
         self._build()
@@ -187,10 +192,28 @@ class PlaybackSettingsDialog:
         ).pack(fill="x")
         body = tk.Frame(self.window, bg=CONTROL_BACKGROUND, padx=14, pady=4)
         body.pack(fill="both", expand=True)
-        for name, label in PLOT_DISPLAY_OPTIONS.items():
+        left = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        left.grid(row=0, column=0, sticky="nw", padx=(0, 18))
+        right = tk.Frame(body, bg=CONTROL_BACKGROUND)
+        right.grid(row=0, column=1, sticky="nw")
+
+        def group(parent, title):
+            frame = tk.LabelFrame(
+                parent,
+                text=title,
+                font=FONT,
+                bg=CONTROL_BACKGROUND,
+                fg=TEXT_COLOR,
+                padx=8,
+                pady=4,
+            )
+            frame.pack(fill="x", pady=(0, 10))
+            return frame
+
+        def checkbox(parent, name):
             tk.Checkbutton(
-                body,
-                text=label,
+                parent,
+                text=PLOT_DISPLAY_OPTIONS[name],
                 variable=self._variables[name],
                 bg=CONTROL_BACKGROUND,
                 activebackground=CONTROL_BACKGROUND,
@@ -198,37 +221,64 @@ class PlaybackSettingsDialog:
                 font=FONT,
                 anchor="w",
             ).pack(fill="x", pady=3)
-        row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        row.pack(fill="x", pady=(8, 3))
-        tk.Label(
-            row,
-            text="Prediction uncertainty",
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-            font=FONT,
-        ).pack(side="left")
+
+        def number_entry(parent, label, name):
+            row = tk.Frame(parent, bg=CONTROL_BACKGROUND)
+            row.pack(fill="x", pady=(8, 3))
+            tk.Label(
+                row, text=label, bg=CONTROL_BACKGROUND, fg=TEXT_COLOR, font=FONT
+            ).pack(side="left")
+            ttk.Entry(
+                row,
+                textvariable=self._variables[name],
+                width=10,
+                style="IMMPredictor.TEntry",
+            ).pack(side="right", padx=(8, 0))
+
+        groups = {
+            "General": ("show_legend",),
+            "Trajectory": (
+                "show_recorded_trajectory",
+                "show_reference_points",
+                "show_imm_track",
+                "show_current_position",
+            ),
+            "Forecast": (
+                "show_sample_trajectories",
+                "show_forecast_median",
+                "show_forecast_mean",
+                "show_forecast_points",
+            ),
+            "Prediction uncertainty": (
+                "show_prediction_region_50",
+                "show_prediction_region_90",
+                "show_prediction_region_99",
+            ),
+        }
+        frames = {}
+        for title, names in groups.items():
+            frames[title] = group(left, title)
+            for name in names:
+                checkbox(frames[title], name)
+        number_entry(
+            frames["Trajectory"],
+            "Follow-ship view span [m]",
+            "follow_ship_view_span_meters",
+        )
         ttk.Combobox(
-            row,
+            frames["Prediction uncertainty"],
             textvariable=self._variables["prediction_region_style"],
             values=tuple(PREDICTION_REGION_STYLE_LABELS.values()),
             state="readonly",
             width=30,
-        ).pack(side="right")
-        row = tk.Frame(body, bg=CONTROL_BACKGROUND)
-        row.pack(fill="x", pady=(8, 3))
-        tk.Label(
-            row,
-            text="Follow-ship view span [m]",
-            bg=CONTROL_BACKGROUND,
-            fg=TEXT_COLOR,
-            font=FONT,
-        ).pack(side="left")
-        ttk.Entry(
-            row,
-            textvariable=self._variables["follow_ship_view_span_meters"],
-            width=12,
-            style="IMMPredictor.TEntry",
-        ).pack(side="right")
+        ).pack(fill="x", pady=(8, 3))
+        for title, names in METRIC_DISPLAY_GROUPS.items():
+            frame = group(right, title)
+            for name in names:
+                checkbox(frame, name)
+        time_axis = group(right, "Metric time axis")
+        checkbox(time_axis, "follow_metric_time")
+        number_entry(time_axis, "Window width [s]", "metric_window_width")
         actions = tk.Frame(self.window, bg=CONTROL_BACKGROUND, padx=14, pady=12)
         actions.pack(fill="x")
         create_button(actions, "Apply", self.apply, width=12).pack(
@@ -254,6 +304,9 @@ class PlaybackSettingsDialog:
                     ),
                     follow_ship_view_span_meters=float(
                         self._variables["follow_ship_view_span_meters"].get()
+                    ),
+                    metric_window_width=float(
+                        self._variables["metric_window_width"].get()
                     ),
                 )
             else:
@@ -515,7 +568,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Display layers",
-                "Toggle the legend, reference trajectory, IMM track, current position, sampled paths, forecast median and mean",
+                "Toggle the legend, reference trajectory, observations through N, current position, sampled paths, forecast median and mean. The blue history shows the filtered IMM positions",
             ),
             (
                 "Forecast (median)",
@@ -527,7 +580,7 @@ IMM_HELP_SECTIONS = (
             ),
             (
                 "Prediction uncertainty",
-                "Choose horizon or per-step density regions/contours, covariance ellipses, or no region; toggle 50% and 90% separately",
+                "Choose horizon or per-step density regions/contours, covariance ellipses, or no region; toggle 50%, 90% and 99% separately",
             ),
             (
                 "Density regions",
@@ -552,6 +605,14 @@ IMM_HELP_SECTIONS = (
             (
                 "Forecast summaries / metrics",
                 "ADE, FDE and RMSE always evaluate the cached fused IMM mean, matching scripts/model_evaluation/imm.py. Energy Score, NLPD and coverage use the Gaussian mean and covariance. No score changes when forecast lines are hidden or the displayed path count changes",
+            ),
+            (
+                "Metrics view",
+                "Select Metrics below the plots for forecast errors and probabilistic scores over forecast-origin time. Choose individual curves in Plot display. NLPD uses the right axis when Energy Score is also selected, otherwise the left axis",
+            ),
+            (
+                "Follow metric time",
+                "On by default: a moving 60-second window follows the selected N. Adjust Window width in Plot display or disable following to show the full recording. Only computed forecasts are shown; the display never advances the tracker",
             ),
         ),
     ),

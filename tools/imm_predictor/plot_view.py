@@ -12,14 +12,23 @@ from matplotlib.patches import Ellipse, Patch
 from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 from scipy.stats import chi2
 
-from bayestraj.validation import prediction_plotting
+from bayestraj.validation import (
+    prediction_plotting,
+)
+from bayestraj.validation import (
+    runtime_plotting as metric_plotting,
+)
 
 from .player import IMMDisplayState, IMMPlaybackStore, IMMStateMixture
 from .view import PLOT_BACKGROUND, TEXT_COLOR, configure_plot_toolbar
 
 MODE_NAMES = ("CV", "CTRV", "CA")
 MODE_COLORS = ("#3C78A8", "#D27D2D", "#5A9C65")
-PANEL_GROUP_LABELS = {"motion": "Motion state", "forecast": "Forecast uncertainty"}
+PANEL_GROUP_LABELS = {
+    "motion": "Motion state",
+    "forecast": "Forecast uncertainty",
+    "metrics": "Metrics",
+}
 
 
 def _draw_mixture_marginal(axis, mixture: IMMStateMixture, index, scale, point_span):
@@ -101,13 +110,14 @@ class _IMMPredictorLayout(LayoutEngine):
     def execute(self, figure):
         view = self.view
         expanded = not view.settings_visible_var.get()
+        metrics_visible = view._panel_group == "metrics"
         width = max(400.0, figure.get_figwidth() * 72)
         height = max(320.0, figure.get_figheight() * 72)
         grid = view.route_axis.get_subplotspec().get_gridspec()
         panel_height = max(1.0, (height - 116 - 52 - 58) / 2)
         grid.update(
             left=max(0.06, 76 / width),
-            right=0.98,
+            right=0.93 if metrics_visible else 0.98,
             bottom=116 / height,
             top=1 - 52 / height,
             hspace=58 / panel_height,
@@ -134,9 +144,30 @@ class _IMMPredictorLayout(LayoutEngine):
                 spec = spec.get_gridspec()[spec.rowspan.start : spec.rowspan.stop, 1:]
             axis.set_position(spec.get_position(figure))
         for axis in view.motion_axes:
-            axis.set_visible(expanded or view._panel_group == "motion")
+            axis.set_visible(
+                not metrics_visible and (expanded or view._panel_group == "motion")
+            )
         for axis in (view.mode_axis, view.uncertainty_axis):
-            axis.set_visible(expanded or view._panel_group == "forecast")
+            axis.set_visible(
+                not metrics_visible and (expanded or view._panel_group == "forecast")
+            )
+        for axis in view.metric_axes:
+            axis.set_position(axis.get_subplotspec().get_position(figure))
+            axis.set_visible(metrics_visible)
+        view.metric_density_axis.set_position(view.metric_axes[1].get_position())
+        view.metric_density_axis.set_visible(
+            metrics_visible
+            and view.store.config.show_metric_energy_score
+            and view.store.config.show_metric_nlpd
+        )
+        if metrics_visible:
+            metric_plotting.reserve_metric_legend_space(
+                figure,
+                view.metric_axes,
+                view.metric_density_axis,
+                view._metric_value_limits,
+                view._metric_display_limits,
+            )
         view._fit_route_limits_to_axes()
         playback_width = max(0.085, 64 / width)
         view.playback_button.ax.set_position(
@@ -145,19 +176,14 @@ class _IMMPredictorLayout(LayoutEngine):
         slider_left = 0.07 + playback_width
         selector_width = max(0.21, 160 / width)
         selector_left = 0.98 - selector_width
-        slider_right = 0.94 if expanded else min(0.70, selector_left - 24 / width)
+        slider_right = min(0.70, selector_left - 24 / width)
         view.slider.ax.set_position(
             (slider_left, 29 / height, slider_right - slider_left, 10 / height)
         )
         view.group_selector.ax.set_position(
-            (selector_left, 18 / height, selector_width, 44 / height)
+            (selector_left, 18 / height, selector_width, 54 / height)
         )
-        view.group_selector.ax.set_visible(not expanded)
-        view.group_selector.ax.title.set_visible(not expanded)
-        view.group_selector._buttons.set_visible(not expanded)
-        for label in view.group_selector.labels:
-            label.set_visible(not expanded)
-        view.group_selector.active = not (expanded or view._failed or view._destroyed)
+        view.group_selector.active = not (view._failed or view._destroyed)
         for checkbox, offset, checkbox_width in (
             (view.follow_checkbox, 0, 95),
             (view.settings_checkbox, 100, 110),
@@ -258,6 +284,12 @@ class IMMPlotView(tk.Frame):
         self.motion_axes = tuple(
             self.figure.add_subplot(motion_grid[index, 1]) for index in range(3)
         )
+        self.metric_axes = tuple(
+            self.figure.add_subplot(grid[row, 1:]) for row in range(2)
+        )
+        self.metric_density_axis = self.metric_axes[1].twinx()
+        self._metric_value_limits = {}
+        self._metric_display_limits = {}
 
     def _build_controls(self) -> None:
         self.playback_button = Button(
@@ -302,7 +334,6 @@ class IMMPlotView(tk.Frame):
             "Show settings", self.settings_visible_var, self._toggle_settings
         )
         selector_axis = self.figure.add_axes((0.77, 0.035, 0.21, 0.10))
-        selector_axis.set_title("Display group", fontsize=10)
         self.group_selector = RadioButtons(
             selector_axis,
             tuple(PANEL_GROUP_LABELS.values()),
@@ -573,9 +604,13 @@ class IMMPlotView(tk.Frame):
     def _draw(self) -> None:
         self._draw_route()
         expanded = not self.settings_visible_var.get()
-        if expanded or self._panel_group == "motion":
+        if self._panel_group == "metrics":
+            self._draw_metrics()
+        elif expanded or self._panel_group == "motion":
             self._draw_motion_posteriors()
-        if expanded or self._panel_group == "forecast":
+        if self._panel_group != "metrics" and (
+            expanded or self._panel_group == "forecast"
+        ):
             self._draw_mode_probabilities()
             self._draw_uncertainty()
         self.figure.suptitle(
@@ -585,6 +620,28 @@ class IMMPlotView(tk.Frame):
             color=TEXT_COLOR,
         )
         self.canvas.draw_idle()
+
+    def _draw_metrics(self) -> None:
+        origins, histories = self.store.metric_history()
+        current_time = origins[max(self._observation_count() - 1, 0)]
+        config = self.store.config
+        self._metric_value_limits = metric_plotting.draw_forecast_metric_history(
+            self.metric_axes,
+            self.metric_density_axis,
+            origins,
+            histories,
+            current_time,
+            time_label="Forecast origin time [s]",
+            display_options={
+                name: getattr(config, name)
+                for name in metric_plotting.METRIC_DISPLAY_FIELDS
+            },
+            has_reference=self.store.reference is not None,
+            show_legend=config.show_legend,
+            follow_time=config.follow_metric_time,
+            window_width=config.metric_window_width,
+        )
+        self._metric_display_limits.clear()
 
     def _draw_motion_posteriors(self) -> None:
         """Plot cached model mixtures; retain a labelled fused-only backend fallback."""
@@ -732,7 +789,7 @@ class IMMPlotView(tk.Frame):
                 tracked[:, 1],
                 color="#24557A",
                 linewidth=2.2,
-                label="IMM track through N",
+                label="Observations through N",
                 zorder=3,
             )
         if self.store.config.show_current_position:
@@ -830,6 +887,7 @@ class IMMPlotView(tk.Frame):
             for probability, enabled in (
                 (0.5, config.show_prediction_region_50),
                 (0.9, config.show_prediction_region_90),
+                (0.99, config.show_prediction_region_99),
             )
             if enabled
         )
@@ -1104,8 +1162,8 @@ def _regularize_covariance(covariance) -> np.ndarray:
 
 
 def _region_alpha(probability: float) -> float:
-    return (
-        prediction_plotting.PREDICTION_REGION_50_ALPHA
-        if probability == 0.5
-        else prediction_plotting.PREDICTION_REGION_90_ALPHA
-    )
+    return {
+        0.5: prediction_plotting.PREDICTION_REGION_50_ALPHA,
+        0.9: prediction_plotting.PREDICTION_REGION_90_ALPHA,
+        0.99: prediction_plotting.PREDICTION_REGION_99_ALPHA,
+    }[probability]

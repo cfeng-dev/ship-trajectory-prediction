@@ -25,6 +25,7 @@ import bayestraj.validation.bayesian_ctrv_prior_posterior as prior_posterior
 import bayestraj.validation.metrics as validation_metrics
 import bayestraj.validation.prediction_plotting as prediction_plotting
 import bayestraj.validation.reporting as reporting
+import bayestraj.validation.runtime_plotting as metric_plotting
 from bayestraj.inference.br24_radar_tracker import BR24BayesianRadarTracker
 from bayestraj.observations.br24 import (
     br24_measurement_covariance,
@@ -87,25 +88,14 @@ PARAMETER_GROUP_LABELS = {
     "noise": "Uncertainties",
     "metrics": "Metrics",
 }
-METRIC_DISPLAY_GROUPS = {
-    "Point prediction": ("show_metric_ade", "show_metric_rmse", "show_metric_fde"),
-    "Probabilistic prediction": ("show_metric_energy_score", "show_metric_nlpd"),
-}
-METRIC_DISPLAY_FIELDS = tuple(
-    field for fields in METRIC_DISPLAY_GROUPS.values() for field in fields
-)
-METRIC_CURVES = {
-    "show_metric_ade": ("ade_m", "ADE", "#0072b2"),
-    "show_metric_rmse": ("rmse_m", "RMSE", "#009e73"),
-    "show_metric_fde": ("fde_m", "FDE", "#d55e00"),
-    "show_metric_energy_score": ("energy_score_m", "Energy Score", "#0072b2"),
-    "show_metric_nlpd": ("negative_log_predictive_density", "NLPD", "#d55e00"),
-}
+METRIC_DISPLAY_GROUPS = metric_plotting.METRIC_DISPLAY_GROUPS
+METRIC_DISPLAY_FIELDS = metric_plotting.METRIC_DISPLAY_FIELDS
+METRIC_CURVES = metric_plotting.METRIC_CURVES
 FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
-DEFAULT_METRIC_WINDOW_WIDTH = 60.0
+DEFAULT_METRIC_WINDOW_WIDTH = metric_plotting.DEFAULT_METRIC_WINDOW_WIDTH
 DEFAULT_BATCH_OBSERVATION_COUNT = 5
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 100.0
@@ -987,30 +977,13 @@ class _PosteriorDashboardLayout(LayoutEngine):
             self._reserve_metric_legend_space(figure)
 
     def _reserve_metric_legend_space(self, figure) -> None:
-        """Keep metric curves below the legends, including after resize."""
-        get_renderer = getattr(figure.canvas, "get_renderer", None)
-        if get_renderer is None:
-            return
-        renderer = get_renderer()
-        padding = renderer.points_to_pixels(5)
-        for index, axis in enumerate(self.metric_axes):
-            legend = axis.get_legend()
-            if legend is None or axis not in self.metric_value_limits:
-                continue
-            available = legend.get_window_extent(renderer).y0 - axis.bbox.y0 - padding
-            data_fraction = np.clip(available / max(axis.bbox.height, 1), 0.03, 1)
-            data_axes = [axis]
-            if index == 1 and self.show_metric_density_axis:
-                data_axes.append(self.metric_density_axis)
-            for data_axis in data_axes:
-                previous = self.metric_display_limits.get(data_axis)
-                if previous is not None and not np.allclose(
-                    data_axis.get_ylim(), previous
-                ):
-                    continue  # Preserve the user's manual zoom or pan.
-                lower, upper = self.metric_value_limits[data_axis]
-                data_axis.set_ylim(lower, lower + (upper - lower) / data_fraction)
-                self.metric_display_limits[data_axis] = data_axis.get_ylim()
+        metric_plotting.reserve_metric_legend_space(
+            figure,
+            self.metric_axes,
+            self.metric_density_axis,
+            self.metric_value_limits,
+            self.metric_display_limits,
+        )
 
 
 class PosteriorDashboardNavigator:
@@ -1600,115 +1573,22 @@ class PosteriorDashboardNavigator:
             "Forecast origin time [s]" if timed else "Observation count N",
         )
 
-    @staticmethod
-    def _metric_empty_message(axis, message):
-        axis.text(
-            0.5,
-            0.5,
-            message,
-            transform=axis.transAxes,
-            ha="center",
-            va="center",
-            fontsize=10,
-        )
-
     def _draw_metrics(self) -> None:
-        point_axis, probability_axis = self.metric_axes
-        for axis in (*self.metric_axes, self.metric_density_axis):
-            axis.clear()
-            axis.relim()  # Reset data limits before adding the time cursor.
-            axis.tick_params(labelsize=9)
-        self.metric_density_axis.yaxis.set_label_position("right")
-        self.metric_density_axis.yaxis.tick_right()
         origins, histories, current_time, time_label = self._metric_history()
-        left, right = float(origins[0]), float(origins[-1])
-        if self.follow_metric_time:
-            left = max(left, current_time - 0.9 * self.metric_window_width)
-            right = left + self.metric_window_width
-        elif left == right:
-            right = left + 1
-        visible = (origins >= left) & (origins <= right)
-        options = self.metric_display_options
-        dual_scale = options["show_metric_energy_score"] and options["show_metric_nlpd"]
-        self._layout.show_metric_density_axis = dual_scale
-        for axis, title in (
-            (point_axis, "Point prediction"),
-            (probability_axis, "Probabilistic prediction"),
-        ):
-            fields = [field for field in METRIC_DISPLAY_GROUPS[title] if options[field]]
-            axis.set_title(title, fontsize=12)
-            axis.set_xlabel(time_label, fontsize=10)
-            axis.set_xlim(left, right)
-            axis.grid(alpha=0.2)
-            axis.axvline(
-                current_time,
-                color="0.4",
-                linestyle="--",
-                linewidth=1,
-                label="_current_time",
-            )
-            if not fields:
-                self._metric_empty_message(axis, "No metrics selected")
-                continue
-            handles = []
-            for metric_field in fields:
-                _attribute, label, color = METRIC_CURVES[metric_field]
-                target = (
-                    self.metric_density_axis
-                    if dual_scale and metric_field == "show_metric_nlpd"
-                    else axis
-                )
-                handles.extend(
-                    target.plot(
-                        origins[visible],
-                        histories[metric_field][visible],
-                        label=label,
-                        color=color,
-                        linewidth=1.3,
-                        marker=".",
-                        markersize=3,
-                        linestyle="--"
-                        if dual_scale and metric_field == "show_metric_nlpd"
-                        else "-",
-                    )
-                )
-            if title == "Point prediction":
-                axis.set_ylabel("Position error [m]", fontsize=10)
-                axis.set_ylim(bottom=0)
-            else:
-                axis.set_ylabel(
-                    "Energy Score [m]"
-                    if options["show_metric_energy_score"]
-                    else "NLPD",
-                    fontsize=10,
-                    color="black",
-                )
-                if dual_scale:
-                    self.metric_density_axis.set_ylabel(
-                        "NLPD", color="black", fontsize=10
-                    )
-                    self.metric_density_axis.tick_params(
-                        axis="y",
-                        colors="black",
-                        labelsize=9,
-                    )
-            if not any(
-                np.isfinite(histories[field][visible]).any() for field in fields
-            ):
-                message = (
-                    "No reference trajectory"
-                    if not self.trajectory.has_reference
-                    else "No complete evaluated forecasts"
-                )
-                self._metric_empty_message(axis, message)
-            if self.show_legend:
-                axis.legend(
-                    handles=handles, fontsize=8, loc="upper right", ncols=len(handles)
-                )
-        self._layout.metric_value_limits = {
-            axis: axis.get_ylim()
-            for axis in (*self.metric_axes, self.metric_density_axis)
-        }
+        self._layout.metric_value_limits = metric_plotting.draw_forecast_metric_history(
+            self.metric_axes,
+            self.metric_density_axis,
+            origins,
+            histories,
+            current_time,
+            time_label=time_label,
+            display_options=self.metric_display_options,
+            has_reference=self.trajectory.has_reference,
+            show_legend=self.show_legend,
+            follow_time=self.follow_metric_time,
+            window_width=self.metric_window_width,
+        )
+        self._layout.show_metric_density_axis = self.metric_density_axis.get_visible()
         self._layout.metric_display_limits.clear()
 
     def _displayed_observed_positions(self) -> np.ndarray:

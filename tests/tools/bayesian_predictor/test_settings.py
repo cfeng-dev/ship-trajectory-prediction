@@ -46,6 +46,14 @@ def test_metric_time_window_requires_a_positive_finite_width(width):
         settings.validate_dialog_values("plot", {"metric_window_width": width})
 
 
+@pytest.mark.parametrize("width", [0, -1, float("nan"), float("inf"), True])
+def test_imm_metric_time_window_requires_a_positive_finite_width(width):
+    from imm_predictor.player import IMMPlayerConfig
+
+    with pytest.raises(ValueError, match="metric_window_width"):
+        IMMPlayerConfig(metric_window_width=width)
+
+
 @pytest.mark.parametrize(
     ("package", "description"),
     [("bayesian_predictor", "Bayesian Predictor"), ("imm_predictor", "IMM")],

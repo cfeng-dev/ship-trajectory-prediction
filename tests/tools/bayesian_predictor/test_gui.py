@@ -737,7 +737,7 @@ def test_windows_frame_lock_with_hidden_native_window():
         assert native.DestroyWindow(frame)
 
 
-def test_imm_route_legend_identifies_the_filtered_track():
+def test_imm_route_legend_labels_the_history_as_observations():
     from imm_predictor.player import IMMPlayerConfig, IMMPlayerStage
     from imm_predictor.plot_view import IMMPlotView
     from matplotlib.figure import Figure
@@ -767,7 +767,7 @@ def test_imm_route_legend_identifies_the_filtered_track():
     view._draw_route()
 
     assert [text.get_text() for text in view.route_axis.get_legend().get_texts()] == [
-        "IMM track through N",
+        "Observations through N",
         "Current position",
     ]
     track = view.route_axis.lines[0]
@@ -795,6 +795,48 @@ def _imm_motion_stage(*, zero_variance=False):
             np.zeros((5, 5)) if zero_variance else np.diag(np.square(scales)),
         ),
     )
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        "funnel",
+        "density_regions",
+        "ellipses",
+        "horizon_density_contours",
+        "density_contours",
+    ],
+)
+def test_imm_route_shows_the_99_percent_region_only_when_selected(style):
+    from dataclasses import replace
+
+    stage = replace(
+        _imm_motion_stage(),
+        forecast=SimpleNamespace(
+            position_means=np.array([[12.0, 23.0], [13.0, 24.0]]),
+            position_covariances=np.tile(np.eye(2), (2, 1, 1)),
+            time_seconds=np.array([2.0, 3.0]),
+        ),
+    )
+    view = _headless_imm_panels(stage)
+    view.store.config = replace(view.store.config, prediction_region_style=style)
+    try:
+        view._draw_route()
+        labels = [text.get_text() for text in view.route_axis.get_legend().get_texts()]
+        assert "Observations through N" in labels
+        assert not any("99 %" in label for label in labels)
+        view.store.config = replace(view.store.config, show_prediction_region_99=True)
+        view._draw_route()
+        assert (
+            sum(
+                "99 %" in text.get_text()
+                for text in view.route_axis.get_legend().get_texts()
+            )
+            == 1
+        )
+    finally:
+        view.disable_navigation()
+        view.figure.clear()
 
 
 def _headless_imm_panels(stage, *, figure_size=(10, 6), settings_visible=True):
@@ -826,6 +868,244 @@ def _headless_imm_panels(stage, *, figure_size=(10, 6), settings_visible=True):
     view._build_controls()
     view.figure.set_layout_engine(_IMMPredictorLayout(view))
     return view
+
+
+@pytest.fixture
+def imm_metric_view():
+    from dataclasses import replace
+
+    from imm_predictor.player import IMMPlaybackStore, IMMPlayerConfig
+
+    store = IMMPlaybackStore.__new__(IMMPlaybackStore)
+    store.config = IMMPlayerConfig(prediction_count=2, prediction_region_style="none")
+    store.times = np.array([100, 102, 105, 109, 114, 120, 127], dtype=float)
+    store.maximum_observation_count = 5
+    x = np.array([0, 1, 3, 5, 7, 9, 11], dtype=float)
+    store.reference = SimpleNamespace(
+        x_meters=x,
+        y_meters=np.zeros(7),
+        time_seconds=store.times,
+        resolved_velocity_mps=np.ones(7),
+        resolved_yaw_rad=np.zeros(7),
+        resolved_turn_rate_rad_s=np.zeros(7),
+        turn_rate_is_derived=False,
+        speed_is_derived=False,
+        heading_is_derived=False,
+    )
+    store._stages, store._display_states = {}, {}
+    for count, error in enumerate([4, 2, 8, 1, 3], start=1):
+        means = np.column_stack((x[count : count + 2], np.zeros(2)))
+        means[1, 0] += error
+        store._stages[count] = replace(
+            _imm_motion_stage(),
+            observation_count=count,
+            observation_time_seconds=store.times[count - 1],
+            tracked_times_seconds=store.times[:count],
+            tracked_positions=np.column_stack((x[:count], np.zeros(count))),
+            forecast=SimpleNamespace(
+                position_means=means,
+                position_covariances=np.tile(4 * np.eye(2), (2, 1, 1)),
+                time_seconds=store.times[count : count + 2],
+                mode_probabilities=np.tile([0.7, 0.2, 0.1], (2, 1)),
+            ),
+            forecast_median_positions=means,
+        )
+    view = _headless_imm_panels(store._stages[3], figure_size=(11, 8))
+    view.store = store
+    view.show_reference_var = _Value(False)
+    view.current_state = store.display_state_for(3)
+    try:
+        yield view
+    finally:
+        view.disable_navigation()
+        view.figure.clear()
+
+
+def test_imm_metrics_panel_tracks_time_and_reuses_cached_scores(
+    imm_metric_view, monkeypatch
+):
+    from dataclasses import replace
+
+    from imm_predictor import player
+
+    view = imm_metric_view
+    view.group_selector.set_active(2)
+    point_axis, probability_axis = view.metric_axes
+    curves = {line.get_label(): line for line in point_axis.lines}
+    np.testing.assert_allclose(curves["ADE"].get_xdata(), [0, 2, 5, 9, 14])
+    np.testing.assert_allclose(curves["ADE"].get_ydata(), [2, 1, 4, 0.5, 1.5])
+    np.testing.assert_allclose(curves["FDE"].get_ydata(), [4, 2, 8, 1, 3])
+    np.testing.assert_allclose(
+        curves["RMSE"].get_ydata(), np.sqrt([8, 2, 32, 0.5, 4.5])
+    )
+    assert view.metric_density_axis.get_visible()
+
+    def unexpected_scoring(*_args, **_kwargs):
+        pytest.fail("A metric display change scored cached IMM forecasts again")
+
+    monkeypatch.setattr(
+        player.validation_metrics, "gaussian_position_metrics", unexpected_scoring
+    )
+    view.store.config = replace(view.store.config, metric_window_width=4)
+    view._draw()
+    assert point_axis.get_xlim() == pytest.approx([1.4, 5.4])
+    assert probability_axis.get_xlim() == pytest.approx([1.4, 5.4])
+    view.current_state = view.store.display_state_for(2)
+    view._draw()
+    assert point_axis.get_xlim() == pytest.approx([0, 4])
+    assert view.current_state.metrics.joint_coverage_50_count == 3
+    assert view.current_state.metrics.joint_coverage_90_count == 4
+    assert view.current_state.metrics.joint_coverage_total == 4
+    view.store.config = replace(
+        view.store.config,
+        show_metric_energy_score=False,
+        show_metric_rmse=False,
+        show_metric_fde=False,
+        follow_metric_time=False,
+    )
+    view._draw()
+    assert point_axis.get_xlim() == pytest.approx([0, 14])
+    assert point_axis.get_legend_handles_labels()[1] == ["ADE"]
+    assert probability_axis.get_ylabel() == "NLPD"
+    assert not view.metric_density_axis.get_visible()
+
+
+@pytest.mark.parametrize("figure_size", [(9.5, 5.5), (11, 8)])
+def test_imm_metrics_remain_available_with_settings_hidden(
+    imm_metric_view, figure_size, tmp_path
+):
+    view = imm_metric_view
+    view.set_settings_visible(False)
+    assert view.group_selector.ax.get_visible()
+    view.group_selector.set_active(2)
+    view.figure.set_size_inches(*figure_size)
+    view.canvas.draw()
+    assert view.group_selector.ax.get_title() == ""
+    assert all(axis.get_visible() for axis in view.metric_axes)
+    assert not any(
+        axis.get_visible()
+        for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
+    )
+    renderer = view.canvas.get_renderer()
+    for axis in view.metric_axes:
+        legend = axis.get_legend().get_window_extent(renderer)
+        assert axis.bbox.x1 - renderer.points_to_pixels(12) < legend.x1 <= axis.bbox.x1
+        data_axes = (
+            (axis, view.metric_density_axis) if axis is view.metric_axes[1] else (axis,)
+        )
+        for data_axis in data_axes:
+            for line in data_axis.lines:
+                if line.get_label().startswith("_"):
+                    continue
+                points = data_axis.transData.transform(line.get_xydata())
+                assert np.nanmax(points[:, 1]) < legend.y0
+    assert (
+        view.metric_density_axis.yaxis.label.get_window_extent(renderer).x0
+        > view.metric_density_axis.bbox.x1
+    )
+    view.figure.savefig(tmp_path / "imm_metrics.png", dpi=100)
+    view.group_selector.set_active(0)
+    assert not any(
+        axis.get_visible() for axis in (*view.metric_axes, view.metric_density_axis)
+    )
+    assert all(
+        axis.get_visible()
+        for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
+    )
+
+
+def test_imm_metric_settings_do_not_restart_an_active_session(imm_metric_view):
+    from dataclasses import replace
+
+    from imm_predictor.gui import IMMPredictorApp
+
+    view = imm_metric_view
+    app = IMMPredictorApp.__new__(IMMPredictorApp)
+    app._closing, app._analysis_active = False, True
+    app.config, app.store, app.plot_view = view.store.config, view.store, view
+    app._prepare_analysis = lambda _config: pytest.fail(
+        "Metric settings restarted inference"
+    )
+    stage = view.current_state.stage
+    assert app._apply_plot_settings(
+        replace(
+            app.config,
+            metric_window_width=12,
+            follow_metric_time=False,
+            show_metric_fde=False,
+            show_prediction_region_99=True,
+        )
+    )
+    assert app.config.metric_window_width == 12
+    assert app.config.follow_metric_time is False
+    assert view.current_state.stage is stage
+
+
+@pytest.mark.parametrize("missing", ["reference", "forecast", "computed_stages"])
+def test_imm_metrics_show_unavailable_scores_without_advancing(
+    imm_metric_view, missing
+):
+    from dataclasses import replace
+
+    view = imm_metric_view
+    store = view.store
+    store._forecast_metrics_by_count.clear()
+    if missing == "reference":
+        store.reference = None
+    elif missing == "forecast":
+        store._stages = {
+            count: replace(stage, forecast=None)
+            for count, stage in store._stages.items()
+        }
+    else:
+        store._stages.clear()
+        view.current_state = None
+    view.group_selector.set_active(2)
+    expected = (
+        "No reference trajectory"
+        if missing == "reference"
+        else "No complete evaluated forecasts"
+    )
+    for axis in view.metric_axes:
+        assert expected in [label.get_text() for label in axis.texts]
+        for line in axis.lines:
+            if not line.get_label().startswith("_"):
+                assert np.isnan(line.get_ydata()).all()
+
+
+def test_imm_plot_dialog_applies_metric_drafts_atomically(imm_metric_view, monkeypatch):
+    from imm_predictor import dialogs
+    from imm_predictor.player import PLOT_DISPLAY_OPTIONS
+
+    dialog = dialogs.PlaybackSettingsDialog.__new__(dialogs.PlaybackSettingsDialog)
+    dialog._closed, dialog._plot_only = False, True
+    dialog._config = imm_metric_view.store.config
+    dialog.window = object()
+    dialog._variables = {
+        name: _Value(getattr(dialog._config, name)) for name in PLOT_DISPLAY_OPTIONS
+    }
+    dialog._variables.update(
+        prediction_region_style=_Value("No uncertainty region"),
+        follow_ship_view_span_meters=_Value("100"),
+        metric_window_width=_Value("0"),
+    )
+    applied, closed, errors = [], [], []
+    dialog._on_apply = lambda config: applied.append(config) or True
+    dialog.close = lambda: closed.append(True)
+    monkeypatch.setattr(
+        dialogs.messagebox, "showerror", lambda *args, **kwargs: errors.append(args)
+    )
+    dialog.apply()
+    assert not applied and not closed and len(errors) == 1
+    dialog._variables["metric_window_width"].set("15")
+    dialog._variables["show_metric_fde"].set(False)
+    dialog.apply()
+    assert len(applied) == 1 and closed == [True]
+    assert applied[0].metric_window_width == 15 and applied[0].show_metric_fde is False
+    assert (
+        dialog._config.metric_window_width == 60
+        and dialog._config.show_metric_fde is True
+    )
 
 
 @pytest.mark.parametrize("coordinate_mode", ["m", "km"])
@@ -1319,11 +1599,11 @@ def test_imm_hiding_settings_shows_both_live_panel_groups_and_restores_selection
         axis.get_visible()
         for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
     )
-    assert not view.group_selector.ax.get_visible()
-    assert not view.group_selector.active
-    assert not view.group_selector._buttons.get_visible()
-    assert all(not label.get_visible() for label in view.group_selector.labels)
-    assert view.slider.ax.get_position().width > compact_slider_width
+    assert view.group_selector.ax.get_visible()
+    assert view.group_selector.active
+    assert view.group_selector._buttons.get_visible()
+    assert all(label.get_visible() for label in view.group_selector.labels)
+    assert view.slider.ax.get_position().width == pytest.approx(compact_slider_width)
     assert view.route_axis.get_position().x1 < view.motion_axes[0].get_position().x0
     assert view.motion_axes[0].get_position().x1 < view.mode_axis.get_position().x0
     assert view.current_state.stage is stage
@@ -1384,8 +1664,8 @@ def test_imm_initially_hidden_settings_keep_both_groups_visible_after_resize(
         axis.get_visible()
         for axis in (*view.motion_axes, view.mode_axis, view.uncertainty_axis)
     )
-    assert not view.group_selector.ax.get_visible()
-    assert not view.group_selector.active
+    assert view.group_selector.ax.get_visible()
+    assert view.group_selector.active
     assert view.mode_axis.get_title() == "Forecast mode probabilities"
     assert view.uncertainty_axis.get_title() == "Forecast uncertainty"
     assert "Forecast disabled (0 steps)" in [

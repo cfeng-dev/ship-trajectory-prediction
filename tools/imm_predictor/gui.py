@@ -352,6 +352,7 @@ class IMMPredictorApp:
                 **{name: getattr(config, name) for name in PLOT_DISPLAY_OPTIONS},
                 prediction_region_style=config.prediction_region_style,
                 follow_ship_view_span_meters=config.follow_ship_view_span_meters,
+                metric_window_width=config.metric_window_width,
             )
         )
 
@@ -363,6 +364,7 @@ class IMMPredictorApp:
             **{name: getattr(self.config, name) for name in PLOT_DISPLAY_OPTIONS},
             prediction_region_style=self.config.prediction_region_style,
             follow_ship_view_span_meters=self.config.follow_ship_view_span_meters,
+            metric_window_width=self.config.metric_window_width,
         )
         if previous_session_config == self.config:
             span_changed = (
