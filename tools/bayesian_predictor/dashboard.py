@@ -90,10 +90,6 @@ PARAMETER_GROUP_LABELS = {
 METRIC_DISPLAY_GROUPS = {
     "Point prediction": ("show_metric_ade", "show_metric_rmse", "show_metric_fde"),
     "Probabilistic prediction": ("show_metric_energy_score", "show_metric_nlpd"),
-    "Joint coverage": (
-        "show_metric_joint_coverage_50",
-        "show_metric_joint_coverage_90",
-    ),
 }
 METRIC_DISPLAY_FIELDS = tuple(
     field for fields in METRIC_DISPLAY_GROUPS.values() for field in fields
@@ -858,6 +854,8 @@ class _PosteriorDashboardLayout(LayoutEngine):
         self.metric_axes = metric_axes
         self.metric_density_axis = metric_density_axis
         self.show_metric_density_axis = False
+        self.metric_value_limits = {}
+        self.metric_display_limits = {}
         self.display_mode = "compact"
         self.active_group = "motion"
 
@@ -896,6 +894,17 @@ class _PosteriorDashboardLayout(LayoutEngine):
         motion_axes = self.posterior_axes_by_group["motion"]
         noise_axes = self.posterior_axes_by_group["noise"]
         show_metrics = self.active_group == "metrics"
+        metric_panel_height = max(
+            1.0, (height_points - bottom_margin - top_margin - panel_gap) / 2
+        )
+        metric_grid = self.metric_axes[0].get_subplotspec().get_gridspec()
+        metric_grid.update(
+            left=grid[0, 1].get_position(figure).x0,
+            right=grid.right,
+            bottom=grid.bottom,
+            top=grid.top,
+            hspace=panel_gap / metric_panel_height,
+        )
         for axis in self.metric_axes:
             axis.set_visible(show_metrics)
             axis.set_position(axis.get_subplotspec().get_position(figure))
@@ -973,6 +982,34 @@ class _PosteriorDashboardLayout(LayoutEngine):
                 10.0 / height_points,
             )
         )
+        if show_metrics:
+            self._reserve_metric_legend_space(figure)
+
+    def _reserve_metric_legend_space(self, figure) -> None:
+        """Keep metric curves below the legends, including after resize."""
+        get_renderer = getattr(figure.canvas, "get_renderer", None)
+        if get_renderer is None:
+            return
+        renderer = get_renderer()
+        padding = renderer.points_to_pixels(5)
+        for index, axis in enumerate(self.metric_axes):
+            legend = axis.get_legend()
+            if legend is None or axis not in self.metric_value_limits:
+                continue
+            available = legend.get_window_extent(renderer).y0 - axis.bbox.y0 - padding
+            data_fraction = np.clip(available / max(axis.bbox.height, 1), 0.03, 1)
+            data_axes = [axis]
+            if index == 1 and self.show_metric_density_axis:
+                data_axes.append(self.metric_density_axis)
+            for data_axis in data_axes:
+                previous = self.metric_display_limits.get(data_axis)
+                if previous is not None and not np.allclose(
+                    data_axis.get_ylim(), previous
+                ):
+                    continue  # Preserve the user's manual zoom or pan.
+                lower, upper = self.metric_value_limits[data_axis]
+                data_axis.set_ylim(lower, lower + (upper - lower) / data_fraction)
+                self.metric_display_limits[data_axis] = data_axis.get_ylim()
 
 
 class PosteriorDashboardNavigator:
@@ -1027,8 +1064,10 @@ class PosteriorDashboardNavigator:
             group: tuple(axes) for group, axes in posterior_axes_by_group.items()
         }
         self.posterior_axes = self.posterior_axes_by_group["motion"]
-        grid = self.posterior_axes[0].get_subplotspec().get_gridspec()
-        self.metric_axes = tuple(figure.add_subplot(grid[row, 1:]) for row in range(3))
+        metric_grid = figure.add_gridspec(2, 1)
+        self.metric_axes = tuple(
+            figure.add_subplot(metric_grid[row]) for row in range(2)
+        )
         self.metric_density_axis = self.metric_axes[1].twinx()
         self.metric_display_options = dict.fromkeys(METRIC_DISPLAY_FIELDS, True)
         self._set_metric_display_options(metric_display_options)
@@ -1461,7 +1500,7 @@ class PosteriorDashboardNavigator:
             forecast_metrics_by_count=self._forecast_metrics_by_count,
         )
         if self.parameter_group == "metrics":
-            self._draw_metrics(metrics)
+            self._draw_metrics()
         elif self._posterior_display_mode == "expanded":
             for group, axes in self.posterior_axes_by_group.items():
                 for index, (axis, parameter_name) in enumerate(
@@ -1562,8 +1601,8 @@ class PosteriorDashboardNavigator:
             fontsize=10,
         )
 
-    def _draw_metrics(self, metrics) -> None:
-        point_axis, probability_axis, coverage_axis = self.metric_axes
+    def _draw_metrics(self) -> None:
+        point_axis, probability_axis = self.metric_axes
         for axis in (*self.metric_axes, self.metric_density_axis):
             axis.clear()
             axis.tick_params(labelsize=9)
@@ -1626,14 +1665,15 @@ class PosteriorDashboardNavigator:
                     if options["show_metric_energy_score"]
                     else "NLPD",
                     fontsize=10,
+                    color="black",
                 )
                 if dual_scale:
                     self.metric_density_axis.set_ylabel(
-                        "NLPD", color=METRIC_CURVES["show_metric_nlpd"][2], fontsize=10
+                        "NLPD", color="black", fontsize=10
                     )
                     self.metric_density_axis.tick_params(
                         axis="y",
-                        colors=METRIC_CURVES["show_metric_nlpd"][2],
+                        colors="black",
                         labelsize=9,
                     )
             if not any(np.isfinite(histories[field]).any() for field in fields):
@@ -1645,60 +1685,13 @@ class PosteriorDashboardNavigator:
                 self._metric_empty_message(axis, message)
             if self.show_legend:
                 axis.legend(
-                    handles=handles, fontsize=8, loc="upper left", ncols=len(handles)
+                    handles=handles, fontsize=8, loc="upper right", ncols=len(handles)
                 )
-        coverage_axis.set_title(
-            f"Joint coverage through N = {self.observation_count}", fontsize=12
-        )
-        coverage_axis.set_ylabel("Coverage [%]", fontsize=10)
-        coverage_axis.set_ylim(0, 110)
-        coverage_axis.grid(axis="y", alpha=0.2)
-        levels = [
-            level
-            for level in (50, 90)
-            if options[f"show_metric_joint_coverage_{level}"]
-        ]
-        coverage_axis.set_xticks(
-            range(len(levels)), [f"{level}% region" for level in levels]
-        )
-        if not levels:
-            self._metric_empty_message(coverage_axis, "No metrics selected")
-        elif metrics.joint_coverage_total:
-            values = [
-                100
-                * getattr(metrics, f"joint_coverage_{level}_count")
-                / metrics.joint_coverage_total
-                for level in levels
-            ]
-            colors = ["#0072b2" if level == 50 else "#009e73" for level in levels]
-            bars = coverage_axis.bar(
-                range(len(levels)), values, color=colors, width=0.5, zorder=3
-            )
-            coverage_axis.bar_label(
-                bars,
-                labels=[f"{value:.1f}%" for value in values],
-                padding=3,
-                fontsize=10,
-            )
-        else:
-            message = (
-                "No reference trajectory"
-                if not self.trajectory.has_reference
-                else "No evaluated forecasts"
-            )
-            self._metric_empty_message(coverage_axis, message)
-        for level in levels:
-            coverage_axis.axhline(
-                level,
-                color="0.45",
-                linestyle=":" if level == 50 else "--",
-                label=f"Target: {level}%",
-            )
-        if levels and self.show_legend:
-            coverage_axis.legend(fontsize=8, loc="upper right")
-        coverage_axis.set_xlabel(
-            f"Evaluated forecast positions: {metrics.joint_coverage_total}", fontsize=10
-        )
+        self._layout.metric_value_limits = {
+            axis: axis.get_ylim()
+            for axis in (*self.metric_axes, self.metric_density_axis)
+        }
+        self._layout.metric_display_limits.clear()
 
     def _displayed_observed_positions(self) -> np.ndarray:
         """Return inferred track positions when the active update supplies them."""

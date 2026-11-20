@@ -114,8 +114,6 @@ LABELS = {
     "show_metric_fde": "FDE",
     "show_metric_energy_score": "Energy Score",
     "show_metric_nlpd": "NLPD",
-    "show_metric_joint_coverage_50": "Joint 50% coverage",
-    "show_metric_joint_coverage_90": "Joint 90% coverage",
     "speed_prior_upper_mps": "Speed: upper threshold [m/s]",
     "speed_prior_tail_probability": "Speed: tail probability",
     "turn_rate_prior_abs_rate_deg_s": "Turn rate: threshold [°/s]",
@@ -176,8 +174,6 @@ class ExplorerSettings:
     show_metric_fde: bool = True
     show_metric_energy_score: bool = True
     show_metric_nlpd: bool = True
-    show_metric_joint_coverage_50: bool = True
-    show_metric_joint_coverage_90: bool = True
 
 
 def _defaults():

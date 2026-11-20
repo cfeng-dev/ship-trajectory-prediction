@@ -16,6 +16,7 @@ from matplotlib.backend_bases import (
     ResizeEvent,
 )
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 
 import bayestraj.inference.configuration as inference
@@ -1102,13 +1103,39 @@ def _set_metric_display(navigator, **options):
     )
 
 
+def test_metrics_view_uses_two_history_panels_across_the_available_height(
+    metric_dashboard,
+):
+    figure, navigator, _ = metric_dashboard
+    navigator.group_selector.set_active(2)
+    figure.canvas.draw()
+    assert len(navigator.metric_axes) == 2
+    assert [axis.get_title() for axis in navigator.metric_axes] == [
+        "Point prediction",
+        "Probabilistic prediction",
+    ]
+    assert navigator.metric_axes[0].bbox.y1 == pytest.approx(
+        navigator.trajectory_axis.bbox.y1
+    )
+    assert navigator.metric_axes[1].bbox.y0 == pytest.approx(
+        navigator.trajectory_axis.bbox.y0
+    )
+    assert all(
+        axis.bbox.height
+        > 1.4 * navigator.posterior_axes_by_group["motion"][0].bbox.height
+        for axis in navigator.metric_axes
+    )
+
+
 def test_metrics_history_uses_forecast_origins_and_complete_horizons(metric_dashboard):
     figure, navigator, loads = metric_dashboard
+    metrics_updates = []
+    navigator._on_metrics_change = metrics_updates.append
     navigator.slider.set_val(5)
     navigator.show_selected_observation_count(None)
     navigator.group_selector.set_active(2)
     figure.canvas.draw()
-    point_axis, probability_axis, coverage_axis = navigator.metric_axes
+    point_axis, probability_axis = navigator.metric_axes
     curves = {line.get_label(): line for line in point_axis.lines}
     for label, expected in (
         ("ADE", [0.5, 5.0]),
@@ -1123,10 +1150,9 @@ def test_metrics_history_uses_forecast_origins_and_complete_horizons(metric_dash
     assert point_axis.get_xlabel() == "Forecast origin time [s]"
     assert navigator.metric_density_axis.get_visible()
     assert navigator.metric_density_axis.get_ylabel() == "NLPD"
-    assert [bar.get_height() for bar in coverage_axis.patches] == pytest.approx(
-        [60, 60]
-    )
-    assert {text.get_text() for text in coverage_axis.texts} >= {"60.0%"}
+    assert metrics_updates[-1].joint_coverage_50_count == 3
+    assert metrics_updates[-1].joint_coverage_90_count == 3
+    assert metrics_updates[-1].joint_coverage_total == 5
     assert navigator.group_selector.ax.get_title() == ""
     assert loads == [1, 2, 3, 4, 5]
 
@@ -1153,6 +1179,8 @@ def test_metric_redraws_reuse_scores_and_coverage_follows_slider(
 ):
     dashboard = _load_dashboard_module()
     figure, navigator, loads = metric_dashboard
+    metrics_updates = []
+    navigator._on_metrics_change = metrics_updates.append
     navigator.slider.set_val(5)
     navigator.show_selected_observation_count(None)
 
@@ -1171,9 +1199,8 @@ def test_metric_redraws_reuse_scores_and_coverage_follows_slider(
         show_metric_rmse=False,
         show_metric_fde=False,
         show_metric_energy_score=False,
-        show_metric_joint_coverage_90=False,
     )
-    point_axis, probability_axis, coverage_axis = navigator.metric_axes
+    point_axis, probability_axis = navigator.metric_axes
     assert {
         line.get_label()
         for line in point_axis.lines
@@ -1184,13 +1211,55 @@ def test_metric_redraws_reuse_scores_and_coverage_follows_slider(
     navigator.slider.set_val(2)
     navigator.show_selected_observation_count(None)
     figure.canvas.draw()
-    assert [bar.get_height() for bar in coverage_axis.patches] == pytest.approx([50])
-    assert [line.get_ydata()[0] for line in coverage_axis.lines] == [50]
+    assert metrics_updates[-1].joint_coverage_50_count == 1
+    assert metrics_updates[-1].joint_coverage_90_count == 1
+    assert metrics_updates[-1].joint_coverage_total == 2
     cursor = next(
         line for line in point_axis.lines if line.get_label() == "_current_time"
     )
     np.testing.assert_allclose(cursor.get_xdata(), [2, 2])
     assert loads == [1, 2, 3, 4, 5]
+
+
+def test_nlpd_axis_stays_black_and_moves_left_without_energy_score(metric_dashboard):
+    figure, navigator, _ = metric_dashboard
+    navigator.slider.set_val(3)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    for energy_enabled in (True, False, True):
+        _set_metric_display(navigator, show_metric_energy_score=energy_enabled)
+        figure.canvas.draw()
+        axis = (
+            navigator.metric_density_axis
+            if energy_enabled
+            else navigator.metric_axes[1]
+        )
+        assert axis.get_ylabel() == "NLPD"
+        assert axis.yaxis.get_label_position() == (
+            "right" if energy_enabled else "left"
+        )
+        assert to_rgba(axis.yaxis.label.get_color()) == (0, 0, 0, 1)
+        assert all(
+            to_rgba(label.get_color()) == (0, 0, 0, 1)
+            for label in axis.get_yticklabels()
+        )
+        assert navigator.metric_density_axis.get_visible() == energy_enabled
+
+
+@pytest.mark.parametrize("figure_size", [(9.5, 5.5), (11, 8)])
+def test_metric_legend_space_preserves_zoom(metric_dashboard, figure_size):
+    figure, navigator, _ = metric_dashboard
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+    figure.set_size_inches(*figure_size)
+    figure.canvas.draw()
+    navigator.metric_axes[0].set_ylim(0, 2)
+    figure.canvas.draw()
+    assert navigator.metric_axes[0].get_ylim() == pytest.approx([0, 2])
+    figure.set_size_inches(12, 8)
+    figure.canvas.draw()
+    assert navigator.metric_axes[0].get_ylim() == pytest.approx([0, 2])
 
 
 def test_metrics_view_survives_settings_layout_and_language_changes(metric_dashboard):
@@ -1225,14 +1294,13 @@ def test_metrics_view_survives_settings_layout_and_language_changes(metric_dashb
     assert navigator.metric_axes[0].get_title() == "Point prediction"
 
 
-def test_metrics_empty_states_do_not_display_zero_coverage(metric_dashboard):
+def test_metrics_empty_states_before_evaluation(metric_dashboard):
     figure, navigator, _ = metric_dashboard
     navigator.group_selector.set_active(2)
     figure.canvas.draw()
-    assert not navigator.metric_axes[2].patches
-    assert any(
-        "No evaluated forecasts" in text.get_text()
-        for text in navigator.metric_axes[2].texts
+    assert all(
+        any(text.get_text() == "No complete evaluated forecasts" for text in axis.texts)
+        for axis in navigator.metric_axes
     )
     _set_metric_display(
         navigator,
@@ -1244,8 +1312,6 @@ def test_metrics_empty_states_do_not_display_zero_coverage(metric_dashboard):
                 "fde",
                 "energy_score",
                 "nlpd",
-                "joint_coverage_50",
-                "joint_coverage_90",
             )
         },
     )
@@ -1278,6 +1344,44 @@ def test_metric_axes_labels_fit_the_dashboard(
     )
     for axis in navigator.metric_axes:
         assert axis.get_tightbbox(renderer).x0 > navigator.trajectory_axis.bbox.x1
+        legend_bounds = axis.get_legend().get_window_extent(renderer)
+        assert (
+            axis.bbox.x1 - renderer.points_to_pixels(12)
+            < legend_bounds.x1
+            <= axis.bbox.x1
+        )
+        assert (
+            axis.bbox.y1 - renderer.points_to_pixels(12)
+            < legend_bounds.y1
+            <= axis.bbox.y1
+        )
+        data_axes = (
+            (axis, navigator.metric_density_axis)
+            if axis is navigator.metric_axes[1]
+            else (axis,)
+        )
+        for data_axis in data_axes:
+            for line in data_axis.lines:
+                if line.get_label().startswith("_"):
+                    continue
+                visible = line.get_xydata()
+                visible = visible[np.isfinite(visible).all(axis=1)]
+                if len(visible):
+                    assert data_axis.transData.transform(visible)[
+                        :, 1
+                    ].max() < legend_bounds.y0 - renderer.points_to_pixels(4)
+    limits = [
+        axis.get_ylim()
+        for axis in (*navigator.metric_axes, navigator.metric_density_axis)
+    ]
+    figure.canvas.draw()
+    np.testing.assert_allclose(
+        [
+            axis.get_ylim()
+            for axis in (*navigator.metric_axes, navigator.metric_density_axis)
+        ],
+        limits,
+    )
     if figure_size == (11, 8) and language == "en":
         figure.savefig(tmp_path / "metrics_dashboard.png", dpi=120)
 
@@ -1298,7 +1402,6 @@ def test_metrics_use_observation_counts_when_timestamps_are_unavailable(
     figure.canvas.draw()
     assert navigator.metric_axes[0].get_xlabel() == "Observation count N"
     if not has_reference:
-        assert not navigator.metric_axes[2].patches
         assert all(
             any(text.get_text() == "No reference trajectory" for text in axis.texts)
             for axis in navigator.metric_axes
@@ -1315,6 +1418,7 @@ def test_async_metric_coverage_excludes_cached_forecasts_after_the_selected_stag
     figure = Figure(figsize=(11, 8))
     FigureCanvasAgg(figure)
     requests = []
+    metrics_updates = []
     _, navigator = dashboard.create_sequential_posterior_dashboard_figure(
         source.trajectory,
         source.priors,
@@ -1323,6 +1427,7 @@ def test_async_metric_coverage_excludes_cached_forecasts_after_the_selected_stag
         prediction_region_style="none",
         figure=figure,
         request_update=requests.append,
+        on_metrics_change=metrics_updates.append,
     )
     try:
         navigator.group_selector.set_active(2)
@@ -1331,12 +1436,9 @@ def test_async_metric_coverage_excludes_cached_forecasts_after_the_selected_stag
         for count in (5, 1, 3, 2):
             navigator.accept_update(source._updates_by_count[count])
         assert navigator.observation_count == 3
-        assert [
-            bar.get_height() for bar in navigator.metric_axes[2].patches
-        ] == pytest.approx([50, 50])
-        assert (
-            navigator.metric_axes[2].get_xlabel() == "Evaluated forecast positions: 4"
-        )
+        assert metrics_updates[-1].joint_coverage_50_count == 2
+        assert metrics_updates[-1].joint_coverage_90_count == 2
+        assert metrics_updates[-1].joint_coverage_total == 4
         assert all(count == 3 for count in requests)
     finally:
         navigator.disconnect()

@@ -20,8 +20,6 @@ def test_metric_display_preferences_do_not_change_analysis_settings(tmp_path):
         "show_metric_fde",
         "show_metric_energy_score",
         "show_metric_nlpd",
-        "show_metric_joint_coverage_50",
-        "show_metric_joint_coverage_90",
     )
     values["data"].update({field: field == "show_metric_ade" for field in fields})
     changed = settings.parse_settings(values)
@@ -31,6 +29,7 @@ def test_metric_display_preferences_do_not_change_analysis_settings(tmp_path):
     )
     validated = settings.validate_dialog_values("plot", values["data"])
     assert all(validated[field] == (field == "show_metric_ade") for field in fields)
+    assert not any("coverage" in field for field in settings.PLOT_DISPLAY_FIELDS)
 
 
 @pytest.mark.parametrize(
@@ -1070,8 +1069,6 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_metric_fde": False,
         "show_metric_energy_score": True,
         "show_metric_nlpd": False,
-        "show_metric_joint_coverage_50": True,
-        "show_metric_joint_coverage_90": False,
         "prediction_region_style": display_style,
         "follow_ship_view_span_m": 600.0,
     }

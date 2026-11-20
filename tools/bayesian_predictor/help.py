@@ -256,7 +256,7 @@ POSTERIOR_HELP_SECTIONS = (
             ("Uncertainties", "Posterior for observation and process noise"),
             (
                 "Metrics",
-                "Forecast error and score histories at each forecast origin; curves use complete forecast horizons. Coverage bars pool all evaluated positions through N.",
+                "Forecast error and score histories at each forecast origin; curves use complete forecast horizons.",
             ),
             (
                 "Metric selection",

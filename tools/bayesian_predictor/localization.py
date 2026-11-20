@@ -173,7 +173,7 @@ TRANSLATIONS = {
     "Evaluated forecast positions: {count}": "Ausgewertete Prognosepositionen: {count}",
     "{percent}% region": "{percent}%-Region",
     "Target: {percent}%": "Sollwert: {percent}%",
-    "Forecast error and score histories at each forecast origin; curves use complete forecast horizons. Coverage bars pool all evaluated positions through N.": "Verlauf von Prognosefehlern und Scores zum jeweiligen Prognosestart; die Kurven verwenden vollständige Prognosehorizonte. Die Coverage-Balken fassen alle ausgewerteten Positionen bis N zusammen.",
+    "Forecast error and score histories at each forecast origin; curves use complete forecast horizons.": "Verlauf von Prognosefehlern und Scores zum jeweiligen Prognosestart; die Kurven verwenden vollständige Prognosehorizonte.",
     "Choose individual metrics in Plot display. Changing their visibility reuses the computed forecasts.": "Einzelne Metriken in der Plot-Darstellung auswählen. Änderungen der Sichtbarkeit verwenden die bereits berechneten Prognosen.",
     "Metric selection": "Metrikauswahl",
     "Posterior group": "Posterior-Gruppe",
