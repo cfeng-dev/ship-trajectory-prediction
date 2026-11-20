@@ -1084,7 +1084,9 @@ def metric_dashboard():
         plt.close(figure)
 
 
-def _set_metric_display(navigator, **options):
+def _set_metric_display(
+    navigator, *, follow_metric_time=None, metric_window_width=None, **options
+):
     navigator.set_display_options(
         **{
             name: getattr(navigator, name)
@@ -1100,6 +1102,16 @@ def _set_metric_display(navigator, **options):
             )
         },
         metric_display_options=options,
+        **(
+            {}
+            if follow_metric_time is None
+            else {"follow_metric_time": follow_metric_time}
+        ),
+        **(
+            {}
+            if metric_window_width is None
+            else {"metric_window_width": metric_window_width}
+        ),
     )
 
 
@@ -1154,6 +1166,44 @@ def test_metrics_history_uses_forecast_origins_and_complete_horizons(metric_dash
     assert metrics_updates[-1].joint_coverage_90_count == 3
     assert metrics_updates[-1].joint_coverage_total == 5
     assert navigator.group_selector.ax.get_title() == ""
+    assert loads == [1, 2, 3, 4, 5]
+
+
+def test_metric_time_window_follows_slider_and_reuses_forecasts(
+    metric_dashboard, monkeypatch
+):
+    dashboard = _load_dashboard_module()
+    figure, navigator, loads = metric_dashboard
+    navigator.slider.set_val(5)
+    navigator.show_selected_observation_count(None)
+    navigator.group_selector.set_active(2)
+
+    def unexpected_scoring(*_args, **_kwargs):
+        pytest.fail("Changing the time window scored cached forecasts again")
+
+    monkeypatch.setattr(
+        dashboard.validation_metrics, "gaussian_position_metrics", unexpected_scoring
+    )
+    _set_metric_display(navigator, follow_metric_time=True, metric_window_width=10)
+    figure.canvas.draw()
+    for axis in (*navigator.metric_axes, navigator.metric_density_axis):
+        assert axis.get_xlim() == pytest.approx([5, 15])
+    ade = next(
+        line for line in navigator.metric_axes[0].lines if line.get_label() == "ADE"
+    )
+    np.testing.assert_allclose(ade.get_xdata()[np.isfinite(ade.get_ydata())], [5])
+    navigator.slider.set_val(2)
+    navigator.show_selected_observation_count(None)
+    assert all(
+        axis.get_xlim() == pytest.approx([0, 10]) for axis in navigator.metric_axes
+    )
+    _set_metric_display(navigator, metric_window_width=1)
+    assert navigator.metric_axes[0].get_xlim() == pytest.approx([1.1, 2.1])
+    assert navigator.metric_axes[0].get_ylim()[1] < 2
+    _set_metric_display(navigator, follow_metric_time=False)
+    assert all(
+        axis.get_xlim() == pytest.approx([0, 20]) for axis in navigator.metric_axes
+    )
     assert loads == [1, 2, 3, 4, 5]
 
 
@@ -1401,6 +1451,8 @@ def test_metrics_use_observation_counts_when_timestamps_are_unavailable(
     navigator.group_selector.set_active(2)
     figure.canvas.draw()
     assert navigator.metric_axes[0].get_xlabel() == "Observation count N"
+    _set_metric_display(navigator, follow_metric_time=True, metric_window_width=3)
+    assert navigator.metric_axes[0].get_xlim() == pytest.approx([2.3, 5.3])
     if not has_reference:
         assert all(
             any(text.get_text() == "No reference trajectory" for text in axis.texts)

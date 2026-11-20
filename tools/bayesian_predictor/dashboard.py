@@ -105,6 +105,7 @@ FIGURE_SIZE = (15.0, 8.5)
 DEFAULT_PLAYBACK_INTERVAL_MS = 1_000
 DEFAULT_PREDICTION_COUNT = 3
 DEFAULT_PREDICTION_SAMPLE_COUNT = 20
+DEFAULT_METRIC_WINDOW_WIDTH = 60.0
 DEFAULT_BATCH_OBSERVATION_COUNT = 5
 ANALYSIS_METRICS_MINIMUM_OBSERVATION_COUNT = 2
 FOLLOW_SHIP_VIEW_SPAN_METERS = 100.0
@@ -1046,6 +1047,8 @@ class PosteriorDashboardNavigator:
         prediction_region_style="funnel",
         follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
         metric_display_options=None,
+        follow_metric_time=False,
+        metric_window_width=DEFAULT_METRIC_WINDOW_WIDTH,
         on_state_change=None,
         on_metrics_change=None,
         on_medians_change=None,
@@ -1071,6 +1074,12 @@ class PosteriorDashboardNavigator:
         self.metric_density_axis = self.metric_axes[1].twinx()
         self.metric_display_options = dict.fromkeys(METRIC_DISPLAY_FIELDS, True)
         self._set_metric_display_options(metric_display_options)
+        if not isinstance(follow_metric_time, (bool, np.bool_)):
+            raise ValueError("follow_metric_time must be a boolean.")
+        self.follow_metric_time = bool(follow_metric_time)
+        self.metric_window_width = numeric_validation.validate_positive_finite(
+            "metric_window_width", metric_window_width
+        )
         self.trajectory = trajectory
         self.priors = priors
         self._update_loader = update_loader
@@ -1605,10 +1614,18 @@ class PosteriorDashboardNavigator:
         point_axis, probability_axis = self.metric_axes
         for axis in (*self.metric_axes, self.metric_density_axis):
             axis.clear()
+            axis.relim()  # Reset data limits before adding the time cursor.
             axis.tick_params(labelsize=9)
         self.metric_density_axis.yaxis.set_label_position("right")
         self.metric_density_axis.yaxis.tick_right()
         origins, histories, current_time, time_label = self._metric_history()
+        left, right = float(origins[0]), float(origins[-1])
+        if self.follow_metric_time:
+            left = max(left, current_time - 0.9 * self.metric_window_width)
+            right = left + self.metric_window_width
+        elif left == right:
+            right = left + 1
+        visible = (origins >= left) & (origins <= right)
         options = self.metric_display_options
         dual_scale = options["show_metric_energy_score"] and options["show_metric_nlpd"]
         self._layout.show_metric_density_axis = dual_scale
@@ -1619,10 +1636,7 @@ class PosteriorDashboardNavigator:
             fields = [field for field in METRIC_DISPLAY_GROUPS[title] if options[field]]
             axis.set_title(title, fontsize=12)
             axis.set_xlabel(time_label, fontsize=10)
-            axis.set_xlim(
-                float(origins[0]),
-                float(origins[-1]) if len(origins) > 1 else float(origins[0]) + 1,
-            )
+            axis.set_xlim(left, right)
             axis.grid(alpha=0.2)
             axis.axvline(
                 current_time,
@@ -1644,8 +1658,8 @@ class PosteriorDashboardNavigator:
                 )
                 handles.extend(
                     target.plot(
-                        origins,
-                        histories[metric_field],
+                        origins[visible],
+                        histories[metric_field][visible],
                         label=label,
                         color=color,
                         linewidth=1.3,
@@ -1676,7 +1690,9 @@ class PosteriorDashboardNavigator:
                         colors="black",
                         labelsize=9,
                     )
-            if not any(np.isfinite(histories[field]).any() for field in fields):
+            if not any(
+                np.isfinite(histories[field][visible]).any() for field in fields
+            ):
                 message = (
                     "No reference trajectory"
                     if not self.trajectory.has_reference
@@ -2071,9 +2087,18 @@ class PosteriorDashboardNavigator:
         prediction_region_style=None,
         follow_ship_view_span_m=None,
         metric_display_options=None,
+        follow_metric_time=None,
+        metric_window_width=None,
     ) -> None:
         """Apply presentation-only toggles without loading another update."""
         self._set_metric_display_options(metric_display_options)
+        window_width = (
+            self.metric_window_width
+            if metric_window_width is None
+            else numeric_validation.validate_positive_finite(
+                "metric_window_width", metric_window_width
+            )
+        )
         options = {
             "show_legend": show_legend,
             "show_reference_trajectory": show_reference_trajectory,
@@ -2092,6 +2117,8 @@ class PosteriorDashboardNavigator:
             options["show_reference_points"] = show_reference_points
         if show_forecast_points is not None:
             options["show_forecast_points"] = show_forecast_points
+        if follow_metric_time is not None:
+            options["follow_metric_time"] = follow_metric_time
         if any(not isinstance(value, (bool, np.bool_)) for value in options.values()):
             raise ValueError("Display options must be boolean values.")
         for name, value in options.items():
@@ -2108,6 +2135,7 @@ class PosteriorDashboardNavigator:
             )
             if self.follow_checkbox.get_status()[0]:
                 self._follow_ship_view_needs_focus = True
+        self.metric_window_width = window_width
         self._draw()
 
     def set_coordinate_display_mode(self, coordinate_display_mode) -> None:
@@ -2289,6 +2317,8 @@ def create_sequential_posterior_dashboard_figure(
     prediction_region_style="funnel",
     follow_ship_view_span_m=FOLLOW_SHIP_VIEW_SPAN_METERS,
     metric_display_options=None,
+    follow_metric_time=False,
+    metric_window_width=DEFAULT_METRIC_WINDOW_WIDTH,
     on_state_change=None,
     on_metrics_change=None,
     on_medians_change=None,
@@ -2390,6 +2420,8 @@ def create_sequential_posterior_dashboard_figure(
         prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
         metric_display_options=metric_display_options,
+        follow_metric_time=follow_metric_time,
+        metric_window_width=metric_window_width,
         on_state_change=on_state_change,
         on_metrics_change=on_metrics_change,
         on_medians_change=on_medians_change,

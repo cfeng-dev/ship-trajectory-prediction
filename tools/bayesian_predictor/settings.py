@@ -17,6 +17,7 @@ from .dashboard import (
 )
 from .dashboard import (
     DEFAULT_BATCH_OBSERVATION_COUNT,
+    DEFAULT_METRIC_WINDOW_WIDTH,
     DEFAULT_PREDICTION_COUNT,
     DEFAULT_PREDICTION_SAMPLE_COUNT,
     METRIC_DISPLAY_FIELDS,
@@ -76,10 +77,12 @@ DISPLAY_OPTION_FIELDS = (
     "show_forecast_points",
     "show_prediction_region_50",
     "show_prediction_region_90",
+    "follow_metric_time",
 ) + METRIC_DISPLAY_FIELDS
 PLOT_DISPLAY_FIELDS = DISPLAY_OPTION_FIELDS + (
     "prediction_region_style",
     "follow_ship_view_span_m",
+    "metric_window_width",
 )
 LABELS = {
     "coordinate_display_mode": "Coordinate display",
@@ -109,6 +112,8 @@ LABELS = {
     "show_prediction_region_90": "Show 90% posterior-predictive region",
     "prediction_region_style": "Prediction uncertainty",
     "follow_ship_view_span_m": "Follow-ship view span [m]",
+    "follow_metric_time": "Follow metric time",
+    "metric_window_width": "Window width [s / observations]",
     "show_metric_ade": "ADE",
     "show_metric_rmse": "RMSE",
     "show_metric_fde": "FDE",
@@ -174,6 +179,8 @@ class ExplorerSettings:
     show_metric_fde: bool = True
     show_metric_energy_score: bool = True
     show_metric_nlpd: bool = True
+    follow_metric_time: bool = False
+    metric_window_width: float = DEFAULT_METRIC_WINDOW_WIDTH
 
 
 def _defaults():
@@ -209,6 +216,8 @@ def _defaults():
             "show_prediction_region_90": True,
             "prediction_region_style": "funnel",
             "follow_ship_view_span_m": 100.0,
+            "follow_metric_time": False,
+            "metric_window_width": DEFAULT_METRIC_WINDOW_WIDTH,
             **dict.fromkeys(METRIC_DISPLAY_FIELDS, True),
         },
         "priors": asdict(BayesianCTRVPriors()),
@@ -320,6 +329,8 @@ def _validate_data_options(fields):
         raise ValueError("Playback interval must be greater than 0.")
     if "follow_ship_view_span_m" in fields and fields["follow_ship_view_span_m"] <= 0:
         raise ValueError("Follow-ship view span must be greater than 0.")
+    if "metric_window_width" in fields and fields["metric_window_width"] <= 0:
+        raise ValueError("Metric window width must be greater than 0.")
     if "coordinate_display_mode" in fields:
         fields["coordinate_display_mode"] = normalize_coordinate_display_mode(
             fields["coordinate_display_mode"]
@@ -381,6 +392,7 @@ def parse_settings(values) -> ExplorerSettings:
     coordinate_display_mode = data.pop("coordinate_display_mode")
     prediction_region_style = data.pop("prediction_region_style")
     follow_ship_view_span_m = data.pop("follow_ship_view_span_m")
+    metric_window_width = data.pop("metric_window_width")
     display_options = {key: data.pop(key) for key in DISPLAY_OPTION_FIELDS}
     priors = BayesianCTRVPriors(**_parse_group(values["priors"], defaults["priors"]))
     defaults[method] = _parse_group(values[method], defaults[method])
@@ -399,5 +411,6 @@ def parse_settings(values) -> ExplorerSettings:
         coordinate_display_mode=coordinate_display_mode,
         prediction_region_style=prediction_region_style,
         follow_ship_view_span_m=follow_ship_view_span_m,
+        metric_window_width=metric_window_width,
         **display_options,
     )

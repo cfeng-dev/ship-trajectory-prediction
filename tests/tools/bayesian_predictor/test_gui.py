@@ -1940,6 +1940,7 @@ def test_plot_display_window_closes_from_its_cancel_button(root):
             | {
                 "prediction_region_style": tk.StringVar(root, value="funnel"),
                 "follow_ship_view_span_m": tk.StringVar(root, value="600"),
+                "metric_window_width": tk.StringVar(root, value="60"),
             }
         }
     )
@@ -2002,6 +2003,7 @@ def test_invalid_follow_ship_view_span_shows_an_error_instead_of_raising(monkeyp
                     get=lambda: "Covariance ellipses"
                 ),
                 "follow_ship_view_span_m": SimpleNamespace(get=lambda: "nan"),
+                "metric_window_width": SimpleNamespace(get=lambda: "60"),
             }
         }
     )
@@ -2026,11 +2028,13 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
     } | {
         "prediction_region_style": _Value("Per-step density contours"),
         "follow_ship_view_span_m": _Value("250"),
+        "metric_window_width": _Value("30"),
     }
     shared_variables = {key: _Value(True) for key in DISPLAY_OPTION_FIELDS} | {
         "connect_sample_trajectories": _Value(False),
         "prediction_region_style": _Value("Covariance ellipses"),
         "follow_ship_view_span_m": _Value("600"),
+        "metric_window_width": _Value("60"),
     }
     window = PlotDisplayWindow.__new__(PlotDisplayWindow)
     window.variables = draft_variables
@@ -2047,6 +2051,7 @@ def test_plot_display_apply_commits_the_local_draft_and_closes():
         shared_variables["prediction_region_style"].get() == "Per-step density contours"
     )
     assert shared_variables["follow_ship_view_span_m"].get() == 250.0
+    assert shared_variables["metric_window_width"].get() == 30.0
     assert closed == [True]
 
 
@@ -2124,7 +2129,12 @@ def test_metric_preferences_reach_the_plot_through_the_gui_controller():
         navigator.group_selector.set_active(2)
         for key in METRIC_DISPLAY_FIELDS:
             data[key].set(key == "show_metric_ade")
+        data["follow_metric_time"].set(True)
+        data["metric_window_width"].set("30")
         app._update_display_options()
+        assert navigator.follow_metric_time is True
+        assert navigator.metric_window_width == 30.0
+        assert navigator.metric_axes[0].get_xlim() == pytest.approx([1, 31])
         assert navigator.metric_display_options == {
             key: key == "show_metric_ade" for key in METRIC_DISPLAY_FIELDS
         }

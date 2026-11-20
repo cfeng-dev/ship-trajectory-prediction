@@ -255,6 +255,10 @@ POSTERIOR_HELP_SECTIONS = (
             ("Motion state", "Posterior for speed, heading, and turn rate"),
             ("Uncertainties", "Posterior for observation and process noise"),
             (
+                "Follow metric time",
+                "Follow the selected forecast origin in a moving window. Width is in seconds, or observations when timestamps are unavailable; disable to show the full timeline.",
+            ),
+            (
                 "Metrics",
                 "Forecast error and score histories at each forecast origin; curves use complete forecast horizons.",
             ),

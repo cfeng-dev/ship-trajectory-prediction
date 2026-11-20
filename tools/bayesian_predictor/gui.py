@@ -263,6 +263,9 @@ class BayesianPredictor:
             display_options["follow_ship_view_span_m"] = float(
                 self.controls.variables["data"]["follow_ship_view_span_m"].get()
             )
+            display_options["metric_window_width"] = float(
+                self.controls.variables["data"]["metric_window_width"].get()
+            )
         except ValueError:
             return
         try:

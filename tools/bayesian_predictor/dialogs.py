@@ -137,7 +137,9 @@ class PlotDisplayWindow(tk.Toplevel):
         body = tk.Frame(self, bg=CONTROL_BACKGROUND, padx=14, pady=4)
         body.pack(fill="both", expand=True)
         for row, key in enumerate(
-            key for key in DISPLAY_OPTION_FIELDS if key not in METRIC_DISPLAY_FIELDS
+            key
+            for key in DISPLAY_OPTION_FIELDS
+            if key not in (*METRIC_DISPLAY_FIELDS, "follow_metric_time")
         ):
             tk.Checkbutton(
                 body,
@@ -173,6 +175,40 @@ class PlotDisplayWindow(tk.Toplevel):
                     font=FONT,
                     anchor="w",
                 ).pack(fill="x", pady=3)
+        time_section = tk.LabelFrame(
+            metric_body,
+            text="Metric time axis",
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+            padx=10,
+            pady=6,
+        )
+        time_section.pack(fill="x", pady=(0, 12))
+        tk.Checkbutton(
+            time_section,
+            text=LABELS["follow_metric_time"],
+            variable=self.variables["follow_metric_time"],
+            bg=CONTROL_BACKGROUND,
+            activebackground=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+            anchor="w",
+        ).pack(fill="x", pady=3)
+        tk.Label(
+            time_section,
+            text=LABELS["metric_window_width"],
+            bg=CONTROL_BACKGROUND,
+            fg=TEXT_COLOR,
+            font=FONT,
+            anchor="w",
+        ).pack(fill="x", pady=(6, 3))
+        ttk.Entry(
+            time_section,
+            textvariable=self.variables["metric_window_width"],
+            width=12,
+            style="Predictor.TEntry",
+        ).pack(anchor="w", pady=(0, 3))
         region_style_row = tk.Frame(body, bg=CONTROL_BACKGROUND)
         region_style_row.grid(row=12, column=0, sticky="ew", pady=(8, 3))
         tk.Label(

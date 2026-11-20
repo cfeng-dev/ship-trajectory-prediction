@@ -64,6 +64,8 @@ class PosteriorPlotView(tk.Frame):
             show_prediction_region_90=settings.show_prediction_region_90,
             prediction_region_style=settings.prediction_region_style,
             follow_ship_view_span_m=settings.follow_ship_view_span_m,
+            follow_metric_time=settings.follow_metric_time,
+            metric_window_width=settings.metric_window_width,
             metric_display_options={
                 key: getattr(settings, key) for key in METRIC_DISPLAY_FIELDS
             },

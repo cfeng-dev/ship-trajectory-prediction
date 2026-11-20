@@ -22,14 +22,23 @@ def test_metric_display_preferences_do_not_change_analysis_settings(tmp_path):
         "show_metric_nlpd",
     )
     values["data"].update({field: field == "show_metric_ade" for field in fields})
+    values["data"].update(follow_metric_time=True, metric_window_width="30")
     changed = settings.parse_settings(values)
     assert changed.analysis == original.analysis
+    assert changed.follow_metric_time is True
+    assert changed.metric_window_width == 30.0
     assert all(
         getattr(changed, field) == (field == "show_metric_ade") for field in fields
     )
     validated = settings.validate_dialog_values("plot", values["data"])
     assert all(validated[field] == (field == "show_metric_ade") for field in fields)
     assert not any("coverage" in field for field in settings.PLOT_DISPLAY_FIELDS)
+
+
+@pytest.mark.parametrize("width", [0, -1, "nan", "inf"])
+def test_metric_time_window_requires_a_positive_finite_width(width):
+    with pytest.raises(ValueError):
+        settings.validate_dialog_values("plot", {"metric_window_width": width})
 
 
 @pytest.mark.parametrize(
@@ -1071,6 +1080,8 @@ def test_plot_options_dialog_validates_display_switches_independently(
         "show_metric_nlpd": False,
         "prediction_region_style": display_style,
         "follow_ship_view_span_m": 600.0,
+        "follow_metric_time": False,
+        "metric_window_width": 60.0,
     }
 
     result = settings.validate_dialog_values("plot", values)
