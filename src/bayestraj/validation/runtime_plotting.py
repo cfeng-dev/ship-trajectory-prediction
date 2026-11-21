@@ -208,6 +208,11 @@ OBSERVATION_COUNT_METRICS = {
     "joint_coverage_90": COMPARISON_METRIC_LABELS["joint_coverage_90"],
     "mean_fit_runtime_seconds": ("Runtime [s]", "Runtime"),
 }
+PREDICTION_HORIZON_METRICS = {
+    name: labels
+    for name, labels in OBSERVATION_COUNT_METRICS.items()
+    if name != "mean_fit_runtime_seconds"
+}
 OBSERVATION_COUNT_DIAGNOSTICS = {
     "mcmc_rhat_max_mean": (
         "mcmc",
@@ -993,6 +998,165 @@ def plot_observation_count_comparison(
     return tuple(figures)
 
 
+def _forecast_configuration_label(label, prediction_count):
+    """Keep the model and its method/window/horizon parameters on two lines."""
+    if label.endswith(")"):
+        label = f"{label[:-1]}, H={prediction_count})"
+    else:
+        label = f"{label} (H={prediction_count})"
+    return label.replace(" (", "\n(")
+
+
+def plot_prediction_horizon_comparison(
+    models,
+    *,
+    show=True,
+    output_dir=None,
+    show_points=True,
+    show_summary_table=True,
+    metric_y_scale="linear",
+    plot_language="de",
+):
+    """Plot saved prefix metrics against the number of future positions."""
+    if metric_y_scale not in {"linear", "symlog"}:
+        raise ValueError("metric_y_scale must be 'linear' or 'symlog'.")
+    if plot_language not in COMPARISON_PLOT_TEXT:
+        raise ValueError("plot_language must be 'de' or 'en'.")
+    if not models:
+        raise ValueError("Select at least one model for horizon comparison.")
+    text = COMPARISON_PLOT_TEXT[plot_language]
+    title = (
+        "Vergleich der Vorhersagehorizonte"
+        if plot_language == "de"
+        else "Prediction-horizon comparison"
+    )
+    xlabel = (
+        "Vorhersagehorizont [zukünftige Positionen]"
+        if plot_language == "de"
+        else "Prediction horizon [future positions]"
+    )
+    labels = [
+        label.replace("Bayesian CTRV", text["bayesian_model"], 1) for label in models
+    ]
+    colors = _comparison_series_colors(list(models.values()))
+    style = RUNTIME_PLOT_STYLE
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    figures = []
+    for metric, (ylabel, metric_name) in PREDICTION_HORIZON_METRICS.items():
+        figure, axis = _comparison_subplots(figsize=style.speed_figure_size)
+        coverage = metric.startswith("joint_coverage_")
+        if not coverage and metric_y_scale == "symlog":
+            values = np.abs(
+                np.concatenate(
+                    [table[metric].to_numpy(dtype=float) for table in models.values()]
+                )
+            )
+            positive = values[np.isfinite(values) & (values > 0)]
+            threshold = float(np.percentile(positive, 10)) if positive.size else 1.0
+            axis.set_yscale("symlog", linthresh=threshold)
+        for table, label, color in zip(models.values(), labels, colors, strict=True):
+            axis.plot(
+                table["prediction_count"],
+                table[metric] * (100 if coverage else 1),
+                label=label,
+                color=color,
+                marker="o" if show_points else "None",
+                markersize=3,
+            )
+        if coverage:
+            nominal = int(metric.rsplit("_", 1)[1])
+            axis.axhline(
+                nominal,
+                color="0.35",
+                linestyle=":",
+                label=text["nominal"].format(percent=nominal),
+            )
+            axis.set_ylim(0, 100)
+            axis.set_yticks(np.arange(0, 101, 20))
+        else:
+            lower, upper = axis.get_ylim()
+            axis.set_ylim(min(0.0, lower), max(0.0, upper))
+        axis.set_xticks(
+            sorted(
+                {
+                    int(count)
+                    for table in models.values()
+                    for count in table["prediction_count"]
+                }
+            )
+        )
+        axis.set_xlabel(xlabel, fontsize=style.axis_label_font_size)
+        axis.set_ylabel(ylabel, fontsize=style.axis_label_font_size)
+        axis.tick_params(axis="both", labelsize=style.axis_tick_font_size)
+        axis.set_axisbelow(True)
+        axis.grid(True, color="0.7", alpha=0.2)
+        legend = axis.legend(loc="upper right")
+        figure.suptitle(
+            f"{title} ({metric_name})",
+            fontsize=style.title_font_size,
+            fontweight=style.title_font_weight,
+        )
+        figure.tight_layout()
+        _reserve_legend_headroom(figure, axis, legend)
+        if output_dir is not None:
+            figure.savefig(output_dir / f"{metric}.png", dpi=150, bbox_inches="tight")
+        if show:
+            _show_comparison_figure(figure)
+        figures.append((figure, axis))
+    if show_summary_table:
+        configurations = {
+            _forecast_configuration_label(label, int(row["prediction_count"])): [
+                row[metric] for metric in PREDICTION_HORIZON_METRICS
+            ]
+            for label, table in zip(labels, models.values(), strict=True)
+            for _, row in table.iterrows()
+        }
+        summary = pd.DataFrame(
+            {
+                "metric": list(PREDICTION_HORIZON_METRICS),
+                **configurations,
+                "preferred": [
+                    f"near {metric.rsplit('_', 1)[1]}%"
+                    if metric.startswith("joint_coverage_")
+                    else "lower"
+                    for metric in PREDICTION_HORIZON_METRICS
+                ],
+            }
+        )
+        note = (
+            "H: Anzahl zukünftiger Positionen. Gemeinsame Prognosestartpunkte.\nCoverage über alle vorhergesagten Positionen."
+            if plot_language == "de"
+            else "H: number of future positions. Identical forecast origins.\nCoverage over all predicted positions."
+        )
+        figure, axis = _plot_comparison_summary_table(
+            summary,
+            list(configurations),
+            text={
+                **text,
+                "metric": "Konfiguration" if plot_language == "de" else "Configuration",
+                "summary_note": note,
+            },
+            title=title,
+            metric_labels={
+                metric: label[0] for metric, label in PREDICTION_HORIZON_METRICS.items()
+            },
+            transpose=True,
+            metric_column_width=1.1,
+            label_column_width=2.8,
+            row_height=0.5,
+        )
+        if output_dir is not None:
+            figure.savefig(
+                output_dir / "metrics_summary.png", dpi=150, bbox_inches="tight"
+            )
+        if show:
+            _show_comparison_figure(figure)
+        figures.append((figure, axis))
+    return tuple(figures)
+
+
 def _plot_comparison_summary_table(
     summary,
     labels,
@@ -1002,15 +1166,17 @@ def _plot_comparison_summary_table(
     metric_labels=None,
     transpose=False,
     metric_column_width=1.5,
+    label_column_width=2.0,
+    row_height=0.35,
 ):
     """Render the computed comparison summary without recalculating metrics."""
     style = RUNTIME_PLOT_STYLE
     width = (
-        max(8.0, 2.0 + metric_column_width * len(summary))
+        max(8.0, label_column_width + metric_column_width * len(summary))
         if transpose
-        else max(8.0, 2.0 + 2.0 * len(labels))
+        else max(8.0, label_column_width + 2.0 * len(labels))
     )
-    height = max(5.5, 2.0 + 0.35 * len(labels)) if transpose else 5.5
+    height = max(5.5, 2.0 + row_height * len(labels)) if transpose else 5.5
     figure, axis = _comparison_subplots(figsize=(width, height))
     axis.set_axis_off()
     rows = []
@@ -1072,7 +1238,7 @@ def _plot_comparison_summary_table(
         ]
         rows = transposed[1:]
         best_cells = {(column, row) for row, column in best_cells}
-    metric_width = 2.0 / width
+    metric_width = label_column_width / width
     table = axis.table(
         cellText=rows,
         colLabels=column_labels,

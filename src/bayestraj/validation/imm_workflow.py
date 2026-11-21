@@ -66,6 +66,14 @@ def run_evaluation(
         imm_python=imm_python,
         options=options,
     )
+    export_evaluation_csv(predictions, output_csv)
+    if options.show_plot and show_rolling_diagnostics_plot:
+        runtime_plotting.plot_imm_rolling_diagnostics(predictions)
+    return predictions, summary
+
+
+def export_evaluation_csv(predictions: pd.DataFrame, output_csv: str | Path) -> None:
+    """Export IMM forecasts with their covariance and mode-probability fields."""
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     exported = predictions.drop(
@@ -73,9 +81,6 @@ def run_evaluation(
     ).rename(columns=metrics.GAUSSIAN_SCORE_CSV_NAMES)
     exported.to_csv(output_path, index=False)
     print(f"\nSaved per-forecast IMM metrics: {output_path}")
-    if options.show_plot and show_rolling_diagnostics_plot:
-        runtime_plotting.plot_imm_rolling_diagnostics(predictions)
-    return predictions, summary
 
 
 def run_imm_evaluation(
