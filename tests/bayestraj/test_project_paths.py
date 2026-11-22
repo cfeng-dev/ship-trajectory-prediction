@@ -50,8 +50,8 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
         ),
         (
             "scripts/model_comparison/compare_bayesian_ctrv_imm.py",
-            "BAYESIAN_SMC_CSV",
-            "results/evaluation/bayesian_ctrv_smc.csv",
+            "INPUT_DIR",
+            "results/evaluation",
         ),
         (
             "scripts/model_evaluation/imm.py",
@@ -59,10 +59,18 @@ def test_project_path_accepts_path_objects_and_normalizes_parent_components():
             "external/IMM/br24_imm.py",
         ),
         (
-            "scripts/model_comparison/compare_bayesian_ctrv_imm.py",
-            "IMM_CSV",
-            "results/evaluation/imm.csv",
+            "scripts/model_comparison/compare_forcast_steps.py",
+            "INPUT_DIR",
+            "results/forecast_evaluation",
         ),
+        *[
+            (
+                f"scripts/forecast_evaluation/evaluate_{method}_forcast_steps.py",
+                "OUTPUT_DIR",
+                "results/forecast_evaluation",
+            )
+            for method in ("imm", "smc", "vi", "mcmc")
+        ],
         (
             "examples/plot_simulated_trajectory.py",
             "DATA_FILE",
@@ -78,3 +86,4 @@ def test_entrypoint_paths_remain_unchanged_from_another_working_directory(
     namespace = runpy.run_path(ROOT / script)
 
     assert namespace[name] == ROOT / relative_path
+    assert list(tmp_path.iterdir()) == []
