@@ -267,9 +267,14 @@ COMPARISON_PLOT_TEXT = {
         "runtime": "Laufzeit",
         "mean": "Mittelwert",
         "bayesian_model": "Bayessches CTRV",
+        "forecast_horizon": "Vorhersagehorizont: H = {count}",
         "nominal": "Sollwert: {percent}%",
         "metric": "Metrik",
         "summary": "Metrikübersicht",
+        "horizon_note": (
+            "H: Anzahl der Positionen, die ab jedem Prognosestart "
+            "in die Zukunft vorhergesagt werden."
+        ),
         "window_note": (
             "T: maximale Anzahl der Zeitschritte im Beobachtungsfenster "
             "von MCMC und VI."
@@ -285,9 +290,13 @@ COMPARISON_PLOT_TEXT = {
         "runtime": "Runtime",
         "mean": "Mean",
         "bayesian_model": "Bayesian CTRV",
+        "forecast_horizon": "Forecast horizon: H = {count}",
         "nominal": "Nominal {percent}%",
         "metric": "Metric",
         "summary": "Metric summary",
+        "horizon_note": (
+            "H: number of future positions predicted from each forecast origin."
+        ),
         "window_note": (
             "T: maximum number of time steps in the observation window of MCMC and VI."
         ),
@@ -468,6 +477,12 @@ def plot_model_comparison(
     text = COMPARISON_PLOT_TEXT[plot_language]
     names = list(models)
     tables = list(models.values())
+    prediction_counts = sorted(
+        {int(count) for table in tables for count in table["prediction_count"].unique()}
+    )
+    legend_title = text["forecast_horizon"].format(
+        count=", ".join(str(count) for count in prediction_counts)
+    )
     labels = [
         comparison_model_label(
             str(name).replace("Bayesian CTRV", text["bayesian_model"], 1)
@@ -478,7 +493,10 @@ def plot_model_comparison(
         for name in names
     ]
     show_window_note = any("T=" in label for label in labels)
-    layout_rect = (0, 0.06, 1, 1) if show_window_note else None
+    configuration_note = text["horizon_note"]
+    if show_window_note:
+        configuration_note += f"\n{text['window_note']}"
+    layout_rect = (0, 0.08 if show_window_note else 0.06, 1, 1)
     series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
@@ -572,16 +590,15 @@ def plot_model_comparison(
             color="0.7",
             alpha=0.2,
         )
-        legend = axis.legend(loc="upper right", ncol=1)
+        legend = axis.legend(
+            loc="upper right", ncol=1, title=legend_title, alignment="left"
+        )
         figure.suptitle(
             title if title is not None else f"{text['title']} ({metric_name})",
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )
-        if show_window_note:
-            figure.text(
-                0.5, 0.02, text["window_note"], ha="center", va="bottom", fontsize=9
-            )
+        figure.text(0.5, 0.02, configuration_note, ha="center", va="bottom", fontsize=9)
         figure.tight_layout(rect=layout_rect)
         _reserve_legend_headroom(figure, axis, legend, layout_rect=layout_rect)
         if output_dir is not None:
@@ -600,11 +617,10 @@ def plot_model_comparison(
         )
     summary = pd.DataFrame(rows)
     if show_summary_table:
-        summary_text = (
-            {**text, "summary_note": f"{text['summary_note']}\n{text['window_note']}"}
-            if show_window_note
-            else text
-        )
+        summary_text = {
+            **text,
+            "summary_note": f"{text['summary_note']}\n{configuration_note}",
+        }
         figure, axis = _plot_comparison_summary_table(
             summary,
             [label.replace(" (", "\n(") for label in labels],
