@@ -4,12 +4,16 @@ import dataclasses
 import importlib
 import json
 import runpy
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.backend_bases import ResizeEvent
 
 from bayestraj.forecasting.bayesian_ctrv import RollingExperimentConfig
 from bayestraj.models.bayesian_ctrv import BayesianCTRVPriors
@@ -430,6 +434,23 @@ def test_horizon_plots_use_position_counts_and_keep_coverage_nominal_lines(
             "Runtime" not in axis.get_ylabel() and "Laufzeit" not in axis.get_ylabel()
             for _figure, axis in figures[:7]
         )
+        text = runtime_plotting.COMPARISON_PLOT_TEXT[language]
+        for figure, axis in figures:
+            captions = [
+                item for item in figure.texts if text["horizon_note"] in item.get_text()
+            ]
+            assert len(captions) == 1
+            assert text["window_note"] in captions[0].get_text()
+            figure.canvas.draw()
+            renderer = figure.canvas.get_renderer()
+            bounds = captions[0].get_window_extent(renderer)
+            assert figure.bbox.contains(bounds.x0, bounds.y0)
+            assert figure.bbox.contains(bounds.x1, bounds.y1)
+            if axis.axison:
+                assert axis.xaxis.label.get_window_extent(renderer).y0 > bounds.y1 + 2
+            else:
+                for cell in axis.tables[0].get_celld().values():
+                    assert cell.get_window_extent(renderer).y0 > bounds.y1 + 2
     finally:
         for figure, _axis in figures:
             plt.close(figure)
@@ -437,31 +458,14 @@ def test_horizon_plots_use_position_counts_and_keep_coverage_nominal_lines(
 
 @pytest.mark.parametrize("language", ["de", "en"])
 @pytest.mark.parametrize("model_count", [2, 4])
+@pytest.mark.parametrize("prediction_counts", [(1, 2, 3), (1, 2, 3, 5, 7, 10)])
 def test_forecast_summary_configuration_labels_fit_their_cells(
-    tmp_path, language, model_count
+    tmp_path, language, model_count, prediction_counts
 ):
+    models = _forecast_summary_models(model_count, prediction_counts)
     specs = [
-        ("Bayesian CTRV (VI, T=4)", "vi"),
-        ("Bayesian CTRV (MCMC, T=7)", "mcmc"),
+        (label, table["inference_method"].iloc[0]) for label, table in models.items()
     ]
-    if model_count == 4:
-        specs = [("IMM", "imm"), ("Bayesian CTRV (SMC)", "smc"), *specs]
-    models = {
-        label: pd.DataFrame(
-            {
-                "prediction_count": [1, 2, 3],
-                "inference_method": method,
-                "ade_m": [9.830, 10.443, 11.342],
-                "fde_m": [9.830, 11.056, 13.139],
-                "rmse_m": [12.005, 12.644, 13.594],
-                "mean_energy_score_m": [7.179, 7.592, 8.246],
-                "mean_negative_log_predictive_density": [6.828, 6.979, 7.184],
-                "joint_coverage_50": [0.384, 0.446, 0.499],
-                "joint_coverage_90": [0.775, 0.843, 0.881],
-            }
-        )
-        for label, method in specs
-    }
     original = {label: table.copy(deep=True) for label, table in models.items()}
     figures = runtime_plotting.plot_prediction_horizon_comparison(
         models, show=False, show_summary_table=True, plot_language=language
@@ -469,11 +473,11 @@ def test_forecast_summary_configuration_labels_fit_their_cells(
     try:
         figure, axis = figures[-1]
         cells = axis.tables[0].get_celld()
-        assert len(cells) == (1 + 3 * model_count) * 8
+        assert len(cells) == (1 + len(prediction_counts) * model_count) * 8
         assert cells[1, 1].get_text().get_text() == "9.830"
         for index, (_label, method) in enumerate(specs):
-            for count in (1, 2, 3):
-                cell = cells[3 * index + count, 0]
+            for position, count in enumerate(prediction_counts, start=1):
+                cell = cells[len(prediction_counts) * index + position, 0]
                 label = cell.get_text().get_text()
                 assert method.upper() in label
                 assert f"H={count}" in label
@@ -487,7 +491,7 @@ def test_forecast_summary_configuration_labels_fit_their_cells(
                 bounds = cell.get_window_extent(renderer)
                 text_bounds = cell.get_text().get_window_extent(renderer)
                 assert bounds.x0 <= text_bounds.x0 < text_bounds.x1 <= bounds.x1
-                assert bounds.y0 <= text_bounds.y0 < text_bounds.y1 <= bounds.y1
+                assert bounds.y0 + 3 <= text_bounds.y0 < text_bounds.y1 <= bounds.y1 - 3
                 assert cell.get_text().get_fontsize() >= 10
         preview = tmp_path / f"forecast_summary_{language}_{model_count}.png"
         figure.savefig(preview, dpi=120, bbox_inches="tight")
@@ -495,6 +499,135 @@ def test_forecast_summary_configuration_labels_fit_their_cells(
         for label, table in models.items():
             pd.testing.assert_frame_equal(table, original[label])
     finally:
+        for figure, _axis in figures:
+            plt.close(figure)
+
+
+def _forecast_summary_models(model_count, prediction_counts):
+    specs = [
+        ("Bayesian CTRV (VI, T=4)", "vi"),
+        ("Bayesian CTRV (MCMC, T=7)", "mcmc"),
+    ]
+    if model_count == 4:
+        specs = [("IMM", "imm"), ("Bayesian CTRV (SMC)", "smc"), *specs]
+    return {
+        label: pd.DataFrame(
+            {
+                "prediction_count": [1, 2, 3],
+                "inference_method": method,
+                "ade_m": [9.830, 10.443, 11.342],
+                "fde_m": [9.830, 11.056, 13.139],
+                "rmse_m": [12.005, 12.644, 13.594],
+                "mean_energy_score_m": [7.179, 7.592, 8.246],
+                "mean_negative_log_predictive_density": [6.828, 6.979, 7.184],
+                "joint_coverage_50": [0.384, 0.446, 0.499],
+                "joint_coverage_90": [0.775, 0.843, 0.881],
+            }
+        )
+        .iloc[np.arange(len(prediction_counts)) % 3]
+        .reset_index(drop=True)
+        .assign(prediction_count=prediction_counts)
+        for label, method in specs
+    }
+
+
+@pytest.mark.parametrize("window_width", [1000, 1886])
+@pytest.mark.parametrize("screen_height", [1080, 3000])
+def test_forecast_table_keeps_readable_rows_in_a_short_tk_window(
+    tmp_path, monkeypatch, window_width, screen_height
+):
+    models = _forecast_summary_models(4, (1, 2, 3, 5, 7, 10))
+    figures = runtime_plotting.plot_prediction_horizon_comparison(models, show=False)
+    try:
+        figure, axis = figures[-1]
+        canvas = figure.canvas
+
+        def backend_resize(event):
+            figure.set_size_inches(
+                event.width / figure.dpi, event.height / figure.dpi, forward=False
+            )
+            ResizeEvent("resize_event", canvas)._process()
+            canvas.draw()
+
+        bindings = {"<Configure>": backend_resize}
+        widget = Mock()
+        widget.winfo_screenheight.return_value = screen_height
+        widget.bind.side_effect = lambda name, callback: bindings.update(
+            {name: callback}
+        )
+        scrollbar_factory = Mock()
+        monkeypatch.setitem(
+            sys.modules,
+            "tkinter",
+            SimpleNamespace(ttk=SimpleNamespace(Scrollbar=scrollbar_factory)),
+        )
+        monkeypatch.setattr(canvas, "get_tk_widget", lambda: widget, raising=False)
+        monkeypatch.setattr(canvas, "resize", backend_resize, raising=False)
+        monkeypatch.setattr(plt, "show", lambda: None)
+
+        runtime_plotting._show_comparison_figure(figure)
+        bindings["<Configure>"](SimpleNamespace(width=window_width, height=829))
+
+        renderer = canvas.get_renderer()
+        for cell in axis.tables[0].get_celld().values():
+            bounds = cell.get_window_extent(renderer)
+            text_bounds = cell.get_text().get_window_extent(renderer)
+            assert bounds.y0 + 3 <= text_bounds.y0 < text_bounds.y1 <= bounds.y1 - 3
+            assert cell.get_text().get_fontsize() >= 10
+        assert figure.bbox.height > 829
+        scrollbar_factory.assert_called_once()
+        assert scrollbar_factory.call_args.kwargs["command"] == widget.yview
+        assert widget.configure.call_args.kwargs["scrollregion"][3] > 829
+        bindings["<MouseWheel>"](SimpleNamespace(delta=-120))
+        widget.yview_scroll.assert_called_once_with(1, "units")
+        preview = tmp_path / "forecast_table_resized.png"
+        figure.savefig(preview, dpi=100)
+        assert plt.imread(preview).shape[0] > 829
+    finally:
+        for figure, _axis in figures:
+            plt.close(figure)
+
+
+def test_forecast_table_scrolls_with_a_real_hidden_tk_canvas(monkeypatch):
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Tk display is unavailable: {error}")
+    root.withdraw()
+
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+    figures = []
+    try:
+        models = _forecast_summary_models(4, (1, 2, 3, 5, 7, 10))
+        figures = runtime_plotting.plot_prediction_horizon_comparison(
+            models, show=False
+        )
+        figure, axis = figures[-1]
+        canvas = FigureCanvasTkAgg(figure, master=root)
+        widget = canvas.get_tk_widget()
+        widget.pack(fill="both", expand=True)
+        monkeypatch.setattr(plt, "show", lambda: None)
+
+        runtime_plotting._show_comparison_figure(figure)
+        root.geometry("1886x829")
+        root.update_idletasks()
+        widget.event_generate("<Configure>", width=1886, height=829)
+        root.update_idletasks()
+        canvas.draw()
+
+        assert canvas._comparison_table_scrollbar.winfo_exists()
+        assert figure.bbox.height > 829
+        widget.yview_moveto(1)
+        assert widget.yview()[0] > 0
+        renderer = canvas.get_renderer()
+        for cell in axis.tables[0].get_celld().values():
+            bounds = cell.get_window_extent(renderer)
+            text_bounds = cell.get_text().get_window_extent(renderer)
+            assert bounds.y0 + 3 <= text_bounds.y0 < text_bounds.y1 <= bounds.y1 - 3
+    finally:
+        root.destroy()
         for figure, _axis in figures:
             plt.close(figure)
 
@@ -516,8 +649,8 @@ def test_scripts_keep_settings_in_headers_and_delegate_to_shared_workflows(
     assert evaluation["OUTPUT_DIR"] == ROOT / "results/forecast_evaluation"
     monkeypatch.setitem(evaluation["main"].__globals__, "OUTPUT_DIR", tmp_path)
     evaluation["main"]([])
-    assert evaluation["PREDICTION_COUNTS"] == (1, 2, 3)
-    assert calls[0]["prediction_counts"] == (1, 2, 3)
+    assert evaluation["PREDICTION_COUNTS"] == (1, 2, 3, 5, 7, 10)
+    assert calls[0]["prediction_counts"] == (1, 2, 3, 5, 7, 10)
     assert calls[0]["output_dir"] == tmp_path
     assert calls[0]["experiment"].inference_method == method
     assert calls[0]["experiment"].observation_count == count
@@ -657,7 +790,7 @@ def test_imm_script_keeps_header_settings_and_delegates_to_shared_workflow(
     assert script["OUTPUT_DIR"] == ROOT / "results/forecast_evaluation"
     monkeypatch.setitem(script["main"].__globals__, "OUTPUT_DIR", tmp_path)
     script["main"]([])
-    assert script["PREDICTION_COUNTS"] == (1, 2, 3)
+    assert script["PREDICTION_COUNTS"] == (1, 2, 3, 5, 7, 10)
     assert calls[0]["output_dir"] == tmp_path
     assert calls[0]["imm_python"] == ROOT / "external/IMM/br24_imm.py"
     assert calls[0]["forecast_seed"] == 42

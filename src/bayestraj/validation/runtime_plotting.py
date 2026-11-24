@@ -3,6 +3,7 @@
 from collections import Counter
 from pathlib import Path
 from textwrap import fill
+from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -283,6 +284,10 @@ COMPARISON_PLOT_TEXT = {
             "Mittelwerte über gemeinsame Vorhersageursprünge.\n"
             "Coverage über alle zugeordneten Vorhersagepunkte."
         ),
+        "forecast_summary_note": (
+            "Gemeinsame Prognosestartpunkte.\n"
+            "Coverage über alle vorhergesagten Positionen."
+        ),
     },
     "en": {
         "title": "Model comparison",
@@ -303,6 +308,9 @@ COMPARISON_PLOT_TEXT = {
         "summary_note": (
             "Mean metrics over common forecast origins.\n"
             "Coverage over all matched forecast positions."
+        ),
+        "forecast_summary_note": (
+            "Identical forecast origins.\nCoverage over all predicted positions."
         ),
     },
 }
@@ -403,8 +411,76 @@ def _comparison_subplots(*, figsize):
 
 def _show_comparison_figure(figure):
     """Render the final layout before making comparison windows visible."""
+    if any(axis.tables for axis in figure.axes):
+        _prepare_scrollable_comparison_table(figure)
     figure.canvas.draw()
     plt.show()
+
+
+def _prepare_scrollable_comparison_table(figure):
+    """Keep Tk tables at their full height inside a scrollable viewport."""
+    canvas = figure.canvas
+    get_widget = getattr(canvas, "get_tk_widget", None)
+    if get_widget is None or hasattr(canvas, "_comparison_table_scrollbar"):
+        return
+    widget = get_widget()
+    minimum_height = figure.get_figheight()
+    content_height = round(minimum_height * figure.dpi)
+    viewport_height = min(
+        content_height, max(1, int(widget.winfo_screenheight() * 0.8))
+    )
+
+    from tkinter import ttk
+
+    scrollbar = ttk.Scrollbar(widget.master, orient="vertical", command=widget.yview)
+    scrollbar_visible = False
+
+    def show_scrollbar(visible):
+        nonlocal scrollbar_visible
+        if visible == scrollbar_visible:
+            return
+        if visible:
+            scrollbar.pack(side="right", fill="y", before=widget)
+        else:
+            scrollbar.pack_forget()
+        scrollbar_visible = visible
+
+    show_scrollbar(content_height > viewport_height)
+    widget.configure(
+        height=viewport_height,
+        yscrollcommand=scrollbar.set,
+        yscrollincrement=24,
+        scrollregion=(0, 0, round(figure.bbox.width), content_height),
+    )
+
+    def resize(event):
+        height = max(event.height, round(minimum_height * figure.dpi))
+        show_scrollbar(event.height < height)
+        canvas.resize(SimpleNamespace(width=event.width, height=height))
+        widget.configure(
+            height=min(
+                round(minimum_height * figure.dpi),
+                max(1, int(widget.winfo_screenheight() * 0.8)),
+            ),
+            scrollregion=(0, 0, event.width, height),
+        )
+
+    def scroll(event):
+        button = getattr(event, "num", None)
+        delta = getattr(event, "delta", 0)
+        if button in (4, 5):
+            steps = -1 if button == 4 else 1
+        elif delta:
+            steps = (-1 if delta > 0 else 1) * max(1, abs(delta) // 120)
+        else:
+            return "break"
+        widget.yview_scroll(steps, "units")
+        return "break"
+
+    widget.bind("<Configure>", resize)
+    for name in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        widget.bind(name, scroll)
+    canvas._comparison_table_scrollbar = scrollbar
 
 
 def comparison_model_label(label, table):
@@ -434,6 +510,14 @@ def comparison_model_label(label, table):
     if label.endswith(")"):
         return f"{label[:-1]}, T={count})"
     return f"{label} (T={count})"
+
+
+def _comparison_configuration_note(text, labels):
+    """Use the same horizon and observation-window definitions in both views."""
+    notes = [text["horizon_note"]]
+    if any("T=" in label for label in labels):
+        notes.append(text["window_note"])
+    return "\n".join(notes)
 
 
 def _comparison_series_colors(tables):
@@ -492,11 +576,8 @@ def plot_model_comparison(
         )
         for name in names
     ]
-    show_window_note = any("T=" in label for label in labels)
-    configuration_note = text["horizon_note"]
-    if show_window_note:
-        configuration_note += f"\n{text['window_note']}"
-    layout_rect = (0, 0.08 if show_window_note else 0.06, 1, 1)
+    configuration_note = _comparison_configuration_note(text, labels)
+    layout_rect = (0, 0.08 if "\n" in configuration_note else 0.06, 1, 1)
     series = [_rolling_window_metric_series(table) for table in tables]
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
@@ -1054,6 +1135,8 @@ def plot_prediction_horizon_comparison(
     labels = [
         label.replace("Bayesian CTRV", text["bayesian_model"], 1) for label in models
     ]
+    configuration_note = _comparison_configuration_note(text, labels)
+    layout_rect = (0, 0.08 if "\n" in configuration_note else 0.06, 1, 1)
     colors = _comparison_series_colors(list(models.values()))
     style = RUNTIME_PLOT_STYLE
     if output_dir is not None:
@@ -1114,8 +1197,9 @@ def plot_prediction_horizon_comparison(
             fontsize=style.title_font_size,
             fontweight=style.title_font_weight,
         )
-        figure.tight_layout()
-        _reserve_legend_headroom(figure, axis, legend)
+        figure.text(0.5, 0.02, configuration_note, ha="center", va="bottom", fontsize=9)
+        figure.tight_layout(rect=layout_rect)
+        _reserve_legend_headroom(figure, axis, legend, layout_rect=layout_rect)
         if output_dir is not None:
             figure.savefig(output_dir / f"{metric}.png", dpi=150, bbox_inches="tight")
         if show:
@@ -1141,11 +1225,7 @@ def plot_prediction_horizon_comparison(
                 ],
             }
         )
-        note = (
-            "H: Anzahl zukünftiger Positionen. Gemeinsame Prognosestartpunkte.\nCoverage über alle vorhergesagten Positionen."
-            if plot_language == "de"
-            else "H: number of future positions. Identical forecast origins.\nCoverage over all predicted positions."
-        )
+        note = f"{text['forecast_summary_note']}\n{configuration_note}"
         figure, axis = _plot_comparison_summary_table(
             summary,
             list(configurations),
@@ -1266,8 +1346,6 @@ def _plot_comparison_summary_table(
     table.auto_set_font_size(False)
     table.set_fontsize(style.axis_tick_font_size)
     for (row, column), cell in table.get_celld().items():
-        if transpose and row == 0:
-            cell.set_height(2 * cell.get_height())
         cell.set_edgecolor("0.8")
         cell.set_linewidth(0.6)
         cell.set_facecolor("0.92" if row == 0 else ("0.97" if row % 2 else "white"))
@@ -1282,7 +1360,28 @@ def _plot_comparison_summary_table(
     )
     figure.text(0.5, 0.04, text["summary_note"], ha="center", fontsize=9)
     figure.tight_layout(rect=(0, 0.1, 1, 0.93))
+    _fit_comparison_table_rows(figure, table)
     return figure, axis
+
+
+def _fit_comparison_table_rows(figure, table):
+    """Allocate each row from its rendered text height and vertical padding."""
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    padding = renderer.points_to_pixels(3)
+    row_heights = {}
+    for (row, _column), cell in table.get_celld().items():
+        text_height = cell.get_text().get_window_extent(renderer).height
+        row_heights[row] = max(row_heights.get(row, 0), text_height + 2 * padding)
+    required_height = sum(row_heights.values())
+    available_height = table.get_window_extent(renderer).height
+    for (row, _column), cell in table.get_celld().items():
+        cell.set_height(row_heights[row] / required_height)
+    if required_height > available_height:
+        width, height = figure.get_size_inches()
+        figure.set_size_inches(width, height * required_height / available_height)
+        figure.tight_layout(rect=(0, 0.1, 1, 0.93))
+    figure.canvas.draw()
 
 
 def _reserve_legend_headroom(figure, axis, legend, *, layout_rect=None):
