@@ -328,6 +328,67 @@ def test_playback_stops_at_last_origin_and_seeking_cancels_pending_timer():
     assert not clock.pending
 
 
+def test_predictor_style_controls_seek_without_feedback_during_playback_updates():
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    changes = []
+    bar = plotting.PlaybackBar(
+        on_seek=lambda value: changes.append(("seek", value)),
+        on_play=lambda: changes.append(("play", True)),
+        on_follow=lambda value: changes.append(("follow", value)),
+        on_settings=lambda value: changes.append(("settings", value)),
+    )
+    try:
+        assert not bar.slider.active
+        bar.set_count(3)
+        bar.show_index(2, elapsed_seconds=5.0)
+        assert changes == []
+        assert "3/3" in bar.slider.valtext.get_text()
+        assert "5.0 s" in bar.slider.valtext.get_text()
+        bar.slider.set_val(1)
+        assert changes == [("seek", 1)]
+        bar.follow_checkbox.set_active(0)
+        assert changes[-1] == ("follow", False)
+        bar.settings_checkbox.set_active(0)
+        assert changes[-1] == ("settings", False)
+        bar.set_settings_visible(True)
+        bar.set_follow_ship(True)
+        assert changes[-1] == ("settings", False)
+        bar.set_language("de")
+        bar.set_playing(True)
+        assert bar.playback_button.label.get_text() == "Pause"
+        assert bar.settings_checkbox.labels[0].get_text() == "Einstellungen anzeigen"
+        bar.figure.canvas.draw()
+    finally:
+        plt.close(bar.figure)
+
+
+def test_predictor_style_playback_button_and_single_origin_slider():
+    from matplotlib.backend_bases import MouseEvent
+
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    played = []
+    bar = plotting.PlaybackBar(
+        on_seek=lambda value: None,
+        on_play=lambda: played.append(True),
+        on_follow=lambda value: None,
+        on_settings=lambda value: None,
+    )
+    try:
+        bar.set_count(1)
+        bar.show_index(0, elapsed_seconds=0.0)
+        assert not bar.slider.active
+        assert bar.slider.valtext.get_text().startswith("1/1")
+        bar.figure.canvas.draw()
+        x, y = bar.playback_button.ax.transAxes.transform((0.5, 0.5))
+        for event in ("button_press_event", "button_release_event"):
+            bar.figure.canvas.callbacks.process(
+                event, MouseEvent(event, bar.figure.canvas, x, y, button=1)
+            )
+        assert played == [True]
+    finally:
+        plt.close(bar.figure)
+
+
 def test_metric_click_and_slider_seek_the_same_cached_origin(tmp_path):
     pytest.importorskip("tkinter")
     from types import SimpleNamespace
@@ -379,7 +440,7 @@ def test_language_switch_preserves_unapplied_model_metric_and_window_edits():
     app.pause = lambda: None
     app.playback = None
     app._build_menu = lambda: None
-    app.settings_check = SimpleNamespace(configure=lambda **kwargs: None)
+    app.navigation = SimpleNamespace(set_language=lambda language: None)
     app.plot = SimpleNamespace(clear=lambda language: None)
     app.canvas = SimpleNamespace(draw_idle=lambda: None)
 

@@ -3,8 +3,7 @@
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
-
-from bayestraj.validation import runtime_plotting
+from matplotlib.widgets import Button, CheckButtons, Slider
 
 from .localization import text
 from .settings import METRICS
@@ -16,16 +15,11 @@ class EvaluationPlot:
             figsize=(11.5, 7), facecolor=background, layout="constrained"
         )
         FigureCanvasAgg(self.figure)
-        self.figure.get_layout_engine().set(rect=(0, 0.07, 1, 0.93))
         grid = self.figure.add_gridspec(2, 2, width_ratios=(1, 1.15))
         self.trajectory_axis = self.figure.add_subplot(grid[:, 0])
         self.metric_axes = (
             self.figure.add_subplot(grid[0, 1]),
             self.figure.add_subplot(grid[1, 1]),
-        )
-        self.title = self.figure.suptitle("", fontsize=16, fontweight="bold")
-        self.note = self.figure.text(
-            0.5, 0.015, "", ha="center", va="bottom", fontsize=8
         )
         self.clear()
 
@@ -34,7 +28,6 @@ class EvaluationPlot:
             axis.clear()
             axis.grid(alpha=0.2)
             axis.tick_params(labelsize=9)
-        self.title.set_text(text("Model evaluation", language))
         self.trajectory_axis.set_aspect("equal", adjustable="box")
 
     def draw(self, data, index, options, selected_models):
@@ -46,9 +39,6 @@ class EvaluationPlot:
         origin = data.origins[index]
         current = data.elapsed[index]
         horizon = data.horizon_seconds[index][-1]
-        self.title.set_text(
-            f"{text('Model evaluation', language)} — {text('Forecast origin', language)} +{current:.1f} s · H = {data.prediction_counts[index]}"
-        )
         axis = self.trajectory_axis
         reference = data.reference_positions
         axis.plot(
@@ -92,7 +82,10 @@ class EvaluationPlot:
                 label=self._model_label(label, language),
             )
         axis.set_title(
-            f"{text('Saved point forecasts', language)} · +{horizon:.1f} s", fontsize=12
+            text("Ship movement · Forecast +{seconds} s", language).format(
+                seconds=f"{horizon:.1f}"
+            ),
+            fontsize=12,
         )
         axis.set_xlabel(text("Easting x [m]", language))
         axis.set_ylabel(text("Northing y [m]", language))
@@ -139,7 +132,6 @@ class EvaluationPlot:
                 if "density" in metric
                 else " [m]"
             )
-            axis.set_title(name, fontsize=12)
             axis.set_ylabel(name + unit)
             axis.set_xlabel(text("Forecast origin time [s]", language))
             if values:
@@ -161,10 +153,6 @@ class EvaluationPlot:
                 )
             if options.show_legend:
                 axis.legend(loc="upper right", fontsize=8)
-        strings = runtime_plotting.COMPARISON_PLOT_TEXT[language]
-        self.note.set_text(
-            runtime_plotting._comparison_configuration_note(strings, selected_models)
-        )
 
     @staticmethod
     def _model_label(label, language):
@@ -173,3 +161,122 @@ class EvaluationPlot:
             if language == "de"
             else label
         )
+
+
+class PlaybackBar:
+    """Use the Predictor's Matplotlib controls without coupling to inference."""
+
+    def __init__(
+        self, *, on_seek, on_play, on_follow, on_settings, background="#f4f9fc"
+    ):
+        self.figure = Figure(figsize=(11.5, 0.9), facecolor=background)
+        FigureCanvasAgg(self.figure)
+        self._count = 0
+        self._playing = False
+        self.language = "en"
+        self.playback_button = Button(
+            self.figure.add_axes((0.025, 0.08, 0.085, 0.42)), "Start"
+        )
+        self.playback_button.on_clicked(lambda _: on_play())
+        self.slider = Slider(
+            self.figure.add_axes((0.18, 0.18, 0.62, 0.16)),
+            "Index",
+            0,
+            1,
+            valinit=0,
+            valstep=1,
+            valfmt="%0.0f",
+        )
+        self.slider.on_changed(
+            lambda value: on_seek(int(round(value))) if self._count > 1 else None
+        )
+
+        def checkbox(label, position, callback):
+            axis = self.figure.add_axes(position, facecolor=background)
+            axis.set_frame_on(False)
+            control = CheckButtons(
+                axis,
+                (label,),
+                (True,),
+                useblit=False,
+                label_props={"fontsize": [10]},
+                frame_props={"s": [196], "linewidth": [1.2]},
+                check_props={"s": [196], "linewidth": [1.5]},
+            )
+            control.on_clicked(lambda _: callback(control.get_status()[0]))
+            return control
+
+        self.follow_checkbox = checkbox(
+            "Follow ship", (0.025, 0.55, 0.14, 0.4), on_follow
+        )
+        self.settings_checkbox = checkbox(
+            "Show settings", (0.18, 0.55, 0.2, 0.4), on_settings
+        )
+        self.figure.canvas.mpl_connect("resize_event", self._resize)
+        self._resize()
+        self.set_count(0)
+
+    def _resize(self, _event=None):
+        width = self.figure.get_figwidth() * 72
+        button_width = 64 / width
+        slider_left = 0.025 + button_width + 50 / width
+        self.playback_button.ax.set_position((0.025, 0.08, button_width, 0.42))
+        self.slider.ax.set_position(
+            (slider_left, 0.18, max(0.05, 0.975 - slider_left - 140 / width), 0.16)
+        )
+        self.follow_checkbox.ax.set_position((0.025, 0.55, 110 / width, 0.4))
+        self.settings_checkbox.ax.set_position(
+            (0.025 + 120 / width, 0.55, 160 / width, 0.4)
+        )
+
+    def set_count(self, count):
+        self._count = count
+        self.slider.valmax = max(1, count - 1)
+        self.slider.ax.set_xlim(0, self.slider.valmax)
+        self.slider.active = count > 1
+        self.playback_button.active = count > 0
+        self.show_index(0, elapsed_seconds=0)
+
+    def show_index(self, index, *, elapsed_seconds):
+        # Programmatic synchronization must not pause or seek active playback.
+        eventson, drawon = self.slider.eventson, self.slider.drawon
+        self.slider.eventson = self.slider.drawon = False
+        try:
+            self.slider.set_val(index)
+        finally:
+            self.slider.eventson, self.slider.drawon = eventson, drawon
+        self.slider.valtext.set_text(
+            f"{index + 1}/{self._count} · {elapsed_seconds:.1f} s"
+            if self._count
+            else "—"
+        )
+        self.figure.canvas.draw_idle()
+
+    def set_playing(self, playing):
+        self._playing = playing
+        self.playback_button.label.set_text(
+            text("Pause" if playing else "Start", self.language)
+        )
+        self.figure.canvas.draw_idle()
+
+    def set_language(self, language):
+        self.language = language
+        self.follow_checkbox.labels[0].set_text(text("Follow ship", language))
+        self.settings_checkbox.labels[0].set_text(text("Show settings", language))
+        self.set_playing(self._playing)
+
+    @staticmethod
+    def _sync_checkbox(control, value):
+        eventson = control.eventson
+        control.eventson = False
+        try:
+            if control.get_status()[0] != bool(value):
+                control.set_active(0)
+        finally:
+            control.eventson = eventson
+
+    def set_settings_visible(self, visible):
+        self._sync_checkbox(self.settings_checkbox, visible)
+
+    def set_follow_ship(self, follow):
+        self._sync_checkbox(self.follow_checkbox, follow)

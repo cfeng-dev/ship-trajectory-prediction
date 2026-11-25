@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 from bayestraj.validation.evaluation_viewer import load_evaluation_directory
 
 from .localization import text
-from .plot_view import EvaluationPlot
+from .plot_view import EvaluationPlot, PlaybackBar
 from .session import Playback
 from .settings import METRICS, ViewerOptions
 
@@ -28,7 +28,6 @@ class EvaluationViewer:
         self.directory = tk.StringVar(root, value=str(input_dir))
         self.settings_visible = tk.BooleanVar(root, value=True)
         self.status = tk.StringVar(root)
-        self.time_label = tk.StringVar(root)
         view.configure_window(root)
         root.title("Evaluation Viewer")
         self.sidebar = tk.Frame(root, bg=view.CONTROL_BACKGROUND)
@@ -203,51 +202,18 @@ class EvaluationViewer:
         ).pack(anchor="w", pady=(0, 6))
 
     def _build_timeline(self):
-        self.timeline = tk.Frame(
-            self.plot_host, bg=view.PLOT_BACKGROUND, padx=10, pady=6
+        self.navigation = PlaybackBar(
+            on_seek=self._slider,
+            on_play=self.toggle_playback,
+            on_follow=self.set_follow_ship,
+            on_settings=self.set_settings_visible,
+            background=view.PLOT_BACKGROUND,
         )
-        self.timeline.grid(row=1, column=0, sticky="ew")
-        self.timeline.columnconfigure(3, weight=1)
-        self.play_button = view.create_styled_button(
-            self.timeline, text=self.tr("Start"), command=self.toggle_playback, width=8
+        self.timeline_canvas = view.PredictorFigureCanvas(
+            self.navigation.figure, master=self.plot_host
         )
-        self.play_button.grid(row=1, column=0, padx=(0, 8))
-        for column, delta, label in ((1, -1, "‹"), (2, 1, "›")):
-            view.create_styled_button(
-                self.timeline,
-                text=label,
-                command=lambda step=delta: self.step(step),
-                width=2,
-            ).grid(row=1, column=column, padx=2)
-        self.slider = tk.Scale(
-            self.timeline,
-            from_=0,
-            to=1,
-            orient="horizontal",
-            showvalue=False,
-            resolution=1,
-            command=self._slider,
-            bg=view.PLOT_BACKGROUND,
-            highlightthickness=0,
-            state="disabled",
-        )
-        self.slider.grid(row=1, column=3, sticky="ew", padx=8)
-        tk.Label(
-            self.timeline,
-            textvariable=self.time_label,
-            bg=view.PLOT_BACKGROUND,
-            font=view.FONT,
-        ).grid(row=1, column=4)
-        self.settings_check = tk.Checkbutton(
-            self.timeline,
-            text=self.tr("Show settings"),
-            variable=self.settings_visible,
-            command=self.toggle_settings,
-            bg=view.PLOT_BACKGROUND,
-            activebackground=view.PLOT_BACKGROUND,
-            font=view.FONT,
-        )
-        self.settings_check.grid(row=0, column=0, columnspan=4, sticky="w")
+        self.timeline_canvas.get_tk_widget().configure(height=90)
+        self.timeline_canvas.get_tk_widget().grid(row=1, column=0, sticky="ew")
 
     def _build_menu(self):
         menu = tk.Menu(self.root)
@@ -329,7 +295,7 @@ class EvaluationViewer:
         )
         self.playback = Playback(self.root, len(data.origins), self._frame)
         self._build_sidebar()
-        self.slider.configure(to=max(1, len(data.origins) - 1), state="normal")
+        self.navigation.set_count(len(data.origins))
         self.toolbar.update()
         self._frame(0)
 
@@ -366,16 +332,14 @@ class EvaluationViewer:
             return
         self.options = options
         self.selected_models = selected
+        self.navigation.set_follow_ship(options.follow_ship)
         self.toolbar.update()
         if self.playback is not None:
             self._frame(self.playback.index)
 
     def _frame(self, index):
         self.plot.draw(self.data, index, self.options, self.selected_models)
-        self.slider.set(index)
-        self.time_label.set(
-            f"{index + 1}/{len(self.data.origins)} · {self.data.elapsed[index]:.1f} s"
-        )
+        self.navigation.show_index(index, elapsed_seconds=self.data.elapsed[index])
         self._set_status()
         self._sync_play_button()
         self.canvas.draw_idle()
@@ -391,7 +355,7 @@ class EvaluationViewer:
 
     def _sync_play_button(self):
         playing = self.playback is not None and self.playback.playing
-        self.play_button.configure(text=self.tr("Pause" if playing else "Start"))
+        self.navigation.set_playing(playing)
 
     def pause(self):
         if self.playback is not None:
@@ -448,10 +412,22 @@ class EvaluationViewer:
 
     def toggle_settings(self):
         self.pause()
+        self.navigation.set_settings_visible(self.settings_visible.get())
         if self.settings_visible.get():
             self.sidebar.grid()
         else:
             self.sidebar.grid_remove()
+
+    def set_settings_visible(self, visible):
+        self.settings_visible.set(visible)
+        self.toggle_settings()
+
+    def set_follow_ship(self, follow):
+        self.pause()
+        self.options = replace(self.options, follow_ship=bool(follow))
+        self.display_variables["follow_ship"].set(follow)
+        if self.playback is not None:
+            self._frame(self.playback.index)
 
     def set_language(self, language):
         self.pause()
@@ -475,7 +451,7 @@ class EvaluationViewer:
         for key, value in display_draft.items():
             self.display_variables[key].set(value)
         self._build_menu()
-        self.settings_check.configure(text=self.tr("Show settings"))
+        self.navigation.set_language(language)
         if self.playback is not None:
             self._frame(self.playback.index)
         else:

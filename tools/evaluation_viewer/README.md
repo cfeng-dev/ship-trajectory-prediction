@@ -29,9 +29,13 @@ uv run evaluation-viewer --input-dir results/evaluation
 
 Alternatively, run `uv run python -m evaluation_viewer` in an installed project.
 Choose a results folder, select models and one metric for each right-hand plot,
-then select **Apply**. Use the time slider, arrow buttons, Start/Pause or click a
+then select **Apply**. Use the time slider, arrow keys, Start/Pause or click a
 metric curve to inspect a forecast origin. Follow metric time defaults to a
 60-second window. Disable it for the full time range.
+
+The bottom bar uses the same Matplotlib button, blue slider and checkbox style
+as Bayesian Predictor. **Follow ship** and **Show settings** apply immediately;
+the slider shows the selected forecast index and its elapsed time.
 
 The viewer compares common origins with identical complete forecast horizons
 and reference positions, using the existing comparison reader. Each metric line
