@@ -22,6 +22,7 @@ dependencies = [
 ship-simulator = "ship_simulator.cli:main"
 bayesian-predictor = "bayesian_predictor.cli:main"
 imm-predictor = "imm_predictor.cli:main"
+evaluation-viewer = "evaluation_viewer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "tools"]
@@ -30,6 +31,7 @@ include = [
     "imm_predictor*",
     "ship_simulator*",
     "bayesian_predictor*",
+    "evaluation_viewer*",
 ]
 
 [tool.ruff]
