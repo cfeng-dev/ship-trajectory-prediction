@@ -40,7 +40,14 @@ METRIC_ORDER = [
     "joint_coverage_90",
     "fit_runtime_seconds",
 ]
+STUDENT_T_NLPD_COLUMN = "student_t_negative_log_predictive_density"
+DUAL_NLPD_METRIC_ORDER = [
+    *METRIC_ORDER[:5],
+    "mean_student_t_negative_log_predictive_density",
+    *METRIC_ORDER[5:],
+]
 CURVE_PLOT_INDICES = (0, 1, 2, 3, 4, 7)
+DUAL_NLPD_CURVE_PLOT_INDICES = (0, 1, 2, 3, 4, 5, 8)
 METRIC_AXIS_LABELS = ["ADE [m]", "FDE [m]", "RMSE [m]", "ES [m]", "NLPD", "Runtime [s]"]
 METRIC_NAMES = [
     "Average Displacement Error",
@@ -90,6 +97,7 @@ def _table(model):
             "energy_score_m": np.array([2.0, 4.0, 6.0, 10.0]) + (model == "imm"),
             "log_predictive_density": np.array([-1.0, -3.0, -5.0, -7.0])
             - (model == "imm"),
+            STUDENT_T_NLPD_COLUMN: np.array([0.5, 1.5, 2.5, 3.5]) + (model == "imm"),
             "fit_runtime_seconds": [0.01, 0.01, 0.02, 0.02]
             if model == "bayesian"
             else [0.002, 0.002, 0.004, 0.004],
@@ -127,6 +135,115 @@ def _smc_table(particles=100, fractions=(0.5, 0.25)):
     table["particle_effective_sample_size"] = particles * np.repeat(fractions, 2)
     table["particle_resample_count"] = [1, 1, 3, 3]
     return table
+
+
+@pytest.mark.parametrize("plot_language", ["de", "en"])
+@pytest.mark.parametrize("metric_y_scale", ["linear", "symlog"])
+def test_model_comparison_plots_both_saved_nlpd_distributions(
+    tmp_path, plot_language, metric_y_scale
+):
+    models = comparison.read_model_comparison_csvs(_write_model_csvs(tmp_path))
+    originals = {name: table.copy(deep=True) for name, table in models.items()}
+    summary, figures = runtime_plotting.plot_model_comparison(
+        models,
+        show=False,
+        show_mean_lines=False,
+        show_summary_table=True,
+        show_student_t_nlpd=True,
+        plot_language=plot_language,
+        metric_y_scale=metric_y_scale,
+        output_dir=tmp_path / "plots",
+    )
+    try:
+        assert summary["metric"].tolist() == DUAL_NLPD_METRIC_ORDER
+        assert len(figures) == 10
+        gaussian, student_t = figures[4][1], figures[5][1]
+        gaussian_label = "NLPD (Gauß)" if plot_language == "de" else "NLPD (Gaussian)"
+        assert gaussian.get_ylabel() == gaussian_label
+        assert student_t.get_ylabel() == "NLPD (Student-t, ν=5)"
+        assert gaussian_label in figures[4][0]._suptitle.get_text()
+        assert "Student-t, ν=5" in figures[5][0]._suptitle.get_text()
+        assert gaussian.get_yscale() == student_t.get_yscale() == metric_y_scale
+        np.testing.assert_allclose(gaussian.lines[1].get_ydata(), [2, 6])
+        np.testing.assert_allclose(student_t.lines[1].get_ydata(), [1, 3])
+        indexed = summary.set_index("metric")
+        assert (
+            indexed.loc["mean_negative_log_predictive_density", "Bayesian CTRV (SMC)"]
+            == 4
+        )
+        assert (
+            indexed.loc[
+                "mean_student_t_negative_log_predictive_density", "Bayesian CTRV (SMC)"
+            ]
+            == 2
+        )
+        for left, right in zip(gaussian.lines, student_t.lines, strict=True):
+            assert left.get_label() == right.get_label()
+            assert left.get_color() == right.get_color()
+            np.testing.assert_array_equal(left.get_xdata(), right.get_xdata())
+        cells = figures[-1][1].tables[0].get_celld()
+        assert "Student-t" in cells[0, 6].get_text().get_text()
+        assert "ν=5" in cells[0, 6].get_text().get_text()
+        figures[-1][0].canvas.draw()
+        renderer = figures[-1][0].canvas.get_renderer()
+        for cell in cells.values():
+            box = cell.get_window_extent(renderer)
+            label = cell.get_text().get_window_extent(renderer)
+            assert box.contains(label.x0, label.y0)
+            assert box.contains(label.x1, label.y1)
+        assert {path.name for path in (tmp_path / "plots").iterdir()} == {
+            *(f"{metric}.png" for metric in DUAL_NLPD_METRIC_ORDER),
+            "metrics_summary.png",
+        }
+        for name, table in models.items():
+            pd.testing.assert_frame_equal(table, originals[name])
+    finally:
+        for figure, _ in figures:
+            plt.close(figure)
+
+
+@pytest.mark.parametrize("value", [None, np.nan, np.inf, "invalid"])
+def test_script_requires_complete_student_t_scores_before_plotting(
+    tmp_path, monkeypatch, value
+):
+    paths = _write_model_csvs(tmp_path)
+    path = paths["IMM_CSV"]
+    table = pd.read_csv(path)
+    if value is None:
+        table = table.drop(columns=STUDENT_T_NLPD_COLUMN)
+    else:
+        table[STUDENT_T_NLPD_COLUMN] = value
+    table.to_csv(path, index=False)
+    namespace = runpy.run_path(SCRIPT)["main"].__globals__
+    monkeypatch.setitem(namespace, "INPUT_DIR", tmp_path)
+    monkeypatch.setattr(
+        plt, "subplots", lambda **kwargs: pytest.fail("Validate scores before plotting")
+    )
+    with pytest.raises(
+        SystemExit, match="Student-t.*student_t_negative_log_predictive_density"
+    ):
+        namespace["main"]()
+
+
+def test_script_can_compare_legacy_csvs_with_student_t_plot_disabled(
+    tmp_path, monkeypatch
+):
+    paths = _write_model_csvs(tmp_path)
+    for path in paths.values():
+        pd.read_csv(path).drop(columns=STUDENT_T_NLPD_COLUMN).to_csv(path, index=False)
+    namespace = runpy.run_path(SCRIPT)["main"].__globals__
+    monkeypatch.setitem(namespace, "INPUT_DIR", tmp_path)
+    monkeypatch.setitem(namespace, "SHOW_STUDENT_T_NLPD", False)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    previous = set(plt.get_fignums())
+    try:
+        summary = namespace["main"]()
+        assert summary["metric"].tolist() == METRIC_ORDER
+        assert len(shown) == 9
+    finally:
+        for number in set(plt.get_fignums()) - previous:
+            plt.close(number)
 
 
 def test_model_comparison_omits_smc_diagnostic_plots(tmp_path):
@@ -734,6 +851,7 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
     display_labels = PLOT_MODEL_LABELS[plot_language]
     namespace = runpy.run_path(SCRIPT)["main"].__globals__
     assert namespace["PLOT_LANGUAGE"] == "de"
+    assert namespace["SHOW_STUDENT_T_NLPD"] is True
     monkeypatch.setitem(namespace, "INPUT_DIR", tmp_path)
     monkeypatch.setitem(namespace, "SHOW_POINTS", show_points)
     monkeypatch.setitem(namespace, "SHOW_MEAN_LINES", show_mean_lines)
@@ -751,9 +869,9 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
     try:
         summary = namespace["main"]()
 
-        assert len(shown) == 9
-        assert summary["metric"].tolist() == METRIC_ORDER
-        curve_figures = [shown[index] for index in CURVE_PLOT_INDICES]
+        assert len(shown) == 10
+        assert summary["metric"].tolist() == DUAL_NLPD_METRIC_ORDER
+        curve_figures = [shown[index] for index in DUAL_NLPD_CURVE_PLOT_INDICES]
         assert all(
             figure.axes[0].get_yscale() == metric_y_scale for figure in curve_figures
         )
@@ -768,7 +886,13 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
             7.0,
             8.0,
         ]
-        metric_names = [*METRIC_NAMES[:-1], PLOT_TEXT[plot_language]["runtime"]]
+        gaussian_label = "NLPD (Gauß)" if plot_language == "de" else "NLPD (Gaussian)"
+        metric_names = [
+            *METRIC_NAMES[:4],
+            gaussian_label,
+            "NLPD (Student-t, ν=5)",
+            PLOT_TEXT[plot_language]["runtime"],
+        ]
         for figure, metric_name in zip(curve_figures, metric_names, strict=True):
             axis = figure.axes[0]
             assert figure._suptitle.get_text() == (
@@ -788,19 +912,19 @@ def test_script_compares_configured_csvs_without_running_models_or_writing_outpu
             legend = [text.get_text() for text in axis.get_legend().get_texts()]
             mean_label = PLOT_TEXT[plot_language]["mean"] + " ="
             assert any(mean_label in text for text in legend) == show_mean_lines
-        for figure, nominal in zip(shown[5:7], (50, 90), strict=True):
+        for figure, nominal in zip(shown[6:8], (50, 90), strict=True):
             axis = figure.axes[0]
             assert len(axis.patches) == len(model_labels)
             assert len(axis.lines) == 1
             assert axis.get_yscale() == "linear"
             np.testing.assert_allclose(axis.lines[0].get_ydata(), nominal)
-        table = shown[8].axes[0].tables[0]
+        table = shown[9].axes[0].tables[0]
         assert [
             table[row, 0].get_text().get_text()
             for row in range(1, len(model_labels) + 1)
         ] == [label.replace(" (", "\n(") for label in display_labels]
         assert table[1, 1].get_text().get_text() == "9.250"
-        assert table[1, 6].get_text().get_text() == "25.0%"
+        assert table[1, 7].get_text().get_text() == "25.0%"
         assert set(tmp_path.iterdir()) == set(paths.values())
         assert {path: path.read_bytes() for path in paths.values()} == originals
     finally:
@@ -1406,16 +1530,18 @@ def test_comparison_script_reads_csv_without_running_models_or_saving_plots(
     try:
         summary = module["main"]()
 
-        assert len(summary) == 8
-        assert len(shown) == 9
+        assert len(summary) == 9
+        assert len(shown) == 10
         assert set(tmp_path.iterdir()) == {bayesian_csv, imm_csv}
         assert [path.read_bytes() for path in (bayesian_csv, imm_csv)] == originals
-        assert len(set(plt.get_fignums()) - previous_figures) == 9
+        assert len(set(plt.get_fignums()) - previous_figures) == 10
         report = capsys.readouterr().out
         assert "Matched forecast origins: 2" in report
         assert "Gaussian" in report and "near 50%" in report and "near 90%" in report
         assert "50.0%" in report and "25.0%" in report
         assert "mean_negative_log_predictive_density" in report
+        assert "mean_student_t_negative_log_predictive_density" in report
+        assert "Student-t" in report
     finally:
         for figure_number in set(plt.get_fignums()) - previous_figures:
             plt.close(figure_number)
@@ -1495,7 +1621,7 @@ def test_comparison_script_shows_plots_using_configured_csvs(
             == 6.0
         )
         assert indexed.loc["ade_m", "IMM"] == 9.25
-        assert len(shown) == (9 if show_summary_table else 8)
+        assert len(shown) == (10 if show_summary_table else 9)
         if method != "smc":
             count = 5 if method == "vi" else 3
             assert shown[0].axes[0].lines[1].get_label() == (

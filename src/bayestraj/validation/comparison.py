@@ -695,6 +695,7 @@ def run_model_comparison(
     show_points=True,
     show_mean_lines=True,
     show_summary_table=False,
+    show_student_t_nlpd=False,
     metric_y_scale="linear",
     plot_language="en",
 ):
@@ -713,6 +714,7 @@ def run_model_comparison(
         show_points=show_points,
         show_mean_lines=show_mean_lines,
         show_summary_table=show_summary_table,
+        show_student_t_nlpd=show_student_t_nlpd,
         metric_y_scale=metric_y_scale,
         plot_language=plot_language,
     )
@@ -726,8 +728,15 @@ def run_model_comparison(
         ]
     print(display.to_string(index=False))
     if any(table["model_variant"].iloc[0] == "imm" for table in models.values()):
+        distribution_note = (
+            "For each forecast, Gaussian and Student-t NLPD use the same latent position "
+            "mean and covariance. "
+            "Energy Score and coverage use the Gaussian moment approximation. "
+            if show_student_t_nlpd
+            else "All distribution scores use the same latent Gaussian moment approximation. "
+        )
         print(
-            "\nNote: All distribution scores use the same latent Gaussian moment approximation. "
+            f"\nNote: {distribution_note}"
             "Point errors use the point estimate recorded in each CSV "
             "(legacy CSVs use coordinate-wise medians)."
         )

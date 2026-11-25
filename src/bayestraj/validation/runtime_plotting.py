@@ -12,6 +12,7 @@ from matplotlib.colors import to_hex, to_rgb
 from matplotlib.ticker import MaxNLocator
 
 import bayestraj.observations.plotting as observation_plotting
+import bayestraj.validation.metrics as metrics
 
 DEFAULT_METRIC_WINDOW_WIDTH = 60.0
 
@@ -268,6 +269,7 @@ COMPARISON_PLOT_TEXT = {
         "runtime": "Laufzeit",
         "mean": "Mittelwert",
         "bayesian_model": "Bayessches CTRV",
+        "gaussian": "Gauß",
         "forecast_horizon": "Vorhersagehorizont: H = {count}",
         "nominal": "Sollwert: {percent}%",
         "metric": "Metrik",
@@ -295,6 +297,7 @@ COMPARISON_PLOT_TEXT = {
         "runtime": "Runtime",
         "mean": "Mean",
         "bayesian_model": "Bayesian CTRV",
+        "gaussian": "Gaussian",
         "forecast_horizon": "Forecast horizon: H = {count}",
         "nominal": "Nominal {percent}%",
         "metric": "Metric",
@@ -548,6 +551,7 @@ def plot_model_comparison(
     show_points=True,
     show_mean_lines=True,
     show_summary_table=False,
+    show_student_t_nlpd=False,
     metric_y_scale="linear",
     plot_language="en",
 ):
@@ -578,7 +582,25 @@ def plot_model_comparison(
     ]
     configuration_note = _comparison_configuration_note(text, labels)
     layout_rect = (0, 0.08 if "\n" in configuration_note else 0.06, 1, 1)
-    series = [_rolling_window_metric_series(table) for table in tables]
+    series = []
+    for name, table in zip(names, tables, strict=True):
+        try:
+            series.append(
+                _rolling_window_metric_series(table, student_t_nlpd=show_student_t_nlpd)
+            )
+        except ValueError as error:
+            raise ValueError(f"{name}: {error}") from error
+    metric_specs = {}
+    gaussian_label = f"NLPD ({text['gaussian']})"
+    student_label = f"NLPD (Student-t, ν={metrics.STUDENT_T_DEGREES_OF_FREEDOM})"
+    for name, spec in COMPARISON_METRIC_LABELS.items():
+        metric_specs[name] = spec
+        if name == "mean_negative_log_predictive_density" and show_student_t_nlpd:
+            metric_specs[name] = (gaussian_label, gaussian_label)
+            metric_specs["mean_student_t_negative_log_predictive_density"] = (
+                student_label,
+                student_label,
+            )
     elapsed = series[0][0] - series[0][0][0]
     style = RUNTIME_PLOT_STYLE
     colors = _comparison_series_colors(tables)
@@ -586,7 +608,7 @@ def plot_model_comparison(
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
     figures, rows = [], []
-    for name, (ylabel, metric_name) in COMPARISON_METRIC_LABELS.items():
+    for name, (ylabel, metric_name) in metric_specs.items():
         nominal = (
             int(name.rsplit("_", 1)[1]) / 100
             if name.startswith("joint_coverage_")
@@ -698,6 +720,14 @@ def plot_model_comparison(
         )
     summary = pd.DataFrame(rows)
     if show_summary_table:
+        summary_metric_labels = {name: spec[0] for name, spec in metric_specs.items()}
+        if show_student_t_nlpd:
+            summary_metric_labels["mean_negative_log_predictive_density"] = (
+                f"NLPD\n({text['gaussian']})"
+            )
+            summary_metric_labels["mean_student_t_negative_log_predictive_density"] = (
+                f"NLPD\n(Student-t)\nν={metrics.STUDENT_T_DEGREES_OF_FREEDOM}"
+            )
         summary_text = {
             **text,
             "summary_note": f"{text['summary_note']}\n{configuration_note}",
@@ -710,6 +740,7 @@ def plot_model_comparison(
                 "metric": "Modell" if plot_language == "de" else "Model",
             },
             title=title,
+            metric_labels=summary_metric_labels,
             transpose=True,
             metric_column_width=1.1,
         )
@@ -1512,9 +1543,12 @@ def _plot_rolling_diagnostics(
     return tuple(figures)
 
 
-def _rolling_window_metric_series(predictions):
+def _rolling_window_metric_series(predictions, *, student_t_nlpd=False):
     """Aggregate each forecast window into one time-indexed diagnostic row."""
     windows = []
+    student_column = "student_t_negative_log_predictive_density"
+    if student_t_nlpd and student_column not in predictions:
+        raise ValueError(f"Missing Student-t NLPD column: {student_column}")
     for _, window in predictions.groupby("window_index", sort=False):
         time_seconds = window["forecast_origin_seconds"].to_numpy(dtype=float)
         if not np.all(np.isfinite(time_seconds)) or not np.allclose(
@@ -1539,6 +1573,21 @@ def _rolling_window_metric_series(predictions):
             and np.all(np.isfinite(fit_runtime_seconds))
         ):
             raise ValueError("Rolling diagnostic values must be finite.")
+        student_value = ()
+        if student_t_nlpd:
+            try:
+                student_scores = pd.to_numeric(
+                    window[student_column], errors="raise"
+                ).to_numpy(dtype=float)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Student-t NLPD column {student_column} must contain finite numbers."
+                ) from error
+            if not np.isfinite(student_scores).all():
+                raise ValueError(
+                    f"Student-t NLPD column {student_column} must contain finite numbers."
+                )
+            student_value = (float(np.mean(student_scores)),)
         final_row = window.loc[window["horizon_step"].idxmax()]
         windows.append(
             (
@@ -1549,13 +1598,14 @@ def _rolling_window_metric_series(predictions):
                 float(final_row["position_error_m"]),
                 float(np.mean(energy_score_m)),
                 float(fit_runtime_seconds[0]),
+                *student_value,
             )
         )
     if not windows:
         raise ValueError("Rolling diagnostics require at least one forecast window.")
     windows.sort(key=lambda values: values[0])
     values = np.asarray(windows, dtype=float)
-    return values[:, 0], {
+    metric_values = {
         "rmse_m": values[:, 1],
         "mean_negative_log_predictive_density": values[:, 2],
         "ade_m": values[:, 3],
@@ -1563,6 +1613,9 @@ def _rolling_window_metric_series(predictions):
         "energy_score_m": values[:, 5],
         "fit_runtime_seconds": values[:, 6],
     }
+    if student_t_nlpd:
+        metric_values["mean_student_t_negative_log_predictive_density"] = values[:, 7]
+    return values[:, 0], metric_values
 
 
 def _plot_window_runtime(
