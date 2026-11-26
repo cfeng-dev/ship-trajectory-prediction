@@ -58,22 +58,88 @@ class EvaluationPlot:
                 marker=".",
                 label=text("Reference forecast segment", language),
             )
-        at_origin = np.flatnonzero(
-            np.isclose(data.reference_times, origin, rtol=0, atol=1e-6)
+        current_position = None
+        observation_origin = None
+        if data.observations is not None:
+            observed = data.observations.time_seconds <= origin + 1e-6
+            history = data.observations.positions[observed]
+            if len(history):
+                axis.plot(
+                    *history.T,
+                    color="#24557A",
+                    linewidth=2.2,
+                    label=text("Observations through N", language),
+                    zorder=2,
+                )
+                current_position = history[-1]
+                at_origin = np.isclose(
+                    data.observations.time_seconds[observed][-1],
+                    origin,
+                    rtol=0,
+                    atol=1e-6,
+                )
+                if at_origin:
+                    observation_origin = current_position
+                axis.plot(
+                    *current_position,
+                    marker="o",
+                    markersize=7,
+                    linestyle="none",
+                    color="#D97706",
+                    label=text(
+                        "Current position" if at_origin else "Latest observation",
+                        language,
+                    ),
+                    zorder=4,
+                )
+        track_positions = [
+            data.models[label].origin_positions[index]
+            for label in selected_models
+            if data.models[label].inference_method == "imm"
+            and data.models[label].origin_positions is not None
+        ]
+        shared_origin = (
+            track_positions[0]
+            if track_positions
+            and np.allclose(track_positions, track_positions[0], rtol=0, atol=1e-6)
+            else None
         )
-        if at_origin.size:
-            axis.scatter(
-                *reference[at_origin[0]],
-                color="0.2",
-                marker="x",
-                s=55,
-                linewidths=1.5,
-                zorder=4,
-                label=text("Reference at forecast origin", language),
-            )
+        if data.observations is not None:
+            shared_origin = observation_origin
         for label in selected_models:
             model = data.models[label]
             forecast = model.forecasts[index]
+            if model.inference_method == "imm" and model.origin_positions is not None:
+                tracked_origin = model.origin_positions[index]
+                if data.observations is None:
+                    axis.plot(
+                        *model.origin_positions[: index + 1].T,
+                        color="#24557A",
+                        linewidth=2.2,
+                        label=text(
+                            "{model} track through forecast origin", language
+                        ).format(model=self._model_label(label, language)),
+                        zorder=2,
+                    )
+                    axis.scatter(
+                        *tracked_origin,
+                        color="#D97706",
+                        s=55,
+                        zorder=4,
+                        label=text("{model} track at forecast origin", language).format(
+                            model=self._model_label(label, language)
+                        ),
+                    )
+            if shared_origin is not None:
+                # This display link does not change the model's saved forecast.
+                axis.plot(
+                    *np.vstack((shared_origin, forecast[0])).T,
+                    color=model.color,
+                    linestyle="--",
+                    linewidth=1.2,
+                    alpha=0.8,
+                    label="_imm_track_connection",
+                )
             axis.plot(
                 *forecast.T,
                 color=model.color,
@@ -90,7 +156,13 @@ class EvaluationPlot:
         axis.set_xlabel(text("Easting x [m]", language))
         axis.set_ylabel(text("Northing y [m]", language))
         if options.follow_ship:
-            center = reference[np.argmin(np.abs(data.reference_times - origin))]
+            center = (
+                current_position
+                if current_position is not None
+                else np.mean(track_positions, axis=0)
+                if track_positions
+                else reference[np.argmin(np.abs(data.reference_times - origin))]
+            )
             half = options.ship_view_span / 2
             axis.set_xlim(center[0] - half, center[0] + half)
             axis.set_ylim(center[1] - half, center[1] + half)

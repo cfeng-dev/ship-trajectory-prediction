@@ -20,6 +20,15 @@ class EvaluatedModel:
     metrics: dict[str, np.ndarray]
     forecasts: tuple[np.ndarray, ...]
     origin_positions: np.ndarray | None
+    inference_method: str
+
+
+@dataclass(frozen=True)
+class ObservationHistory:
+    """Original input positions in their unchanged source time and coordinates."""
+
+    time_seconds: np.ndarray
+    positions: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -33,6 +42,7 @@ class EvaluationDataset:
     horizon_seconds: tuple[np.ndarray, ...]
     prediction_counts: np.ndarray
     available_metrics: tuple[str, ...]
+    observations: ObservationHistory | None = None
 
     @property
     def elapsed(self):
@@ -78,11 +88,43 @@ def _reference_route(times, positions):
     return times[retained], positions[retained]
 
 
-def load_evaluation_directory(directory: str | Path) -> EvaluationDataset:
+def _read_observation_history(path, origins):
+    source = pd.read_csv(Path(path).expanduser(), float_precision="round_trip")
+    columns = ("time", "x", "y")
+    if not set(columns).issubset(source):
+        raise ValueError("Observation CSV requires time, x and y columns.")
+    try:
+        values = (
+            source[list(columns)]
+            .apply(pd.to_numeric, errors="raise")
+            .to_numpy(dtype=float)
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("Observation time, x and y must be finite numbers.") from error
+    if len(values) == 0 or not np.isfinite(values).all():
+        raise ValueError("Observation time, x and y must be nonempty and finite.")
+    values = values[np.argsort(values[:, 0], kind="stable")]
+    if np.any(np.diff(values[:, 0]) <= 0):
+        raise ValueError("Observation times must be unique and strictly increasing.")
+    if values[0, 0] > origins[0] + 1e-6 or values[-1, 0] < origins[-1] - 1e-6:
+        raise ValueError(
+            "Observation CSV must cover the forecast origin times in the same time units and frame; times are not normalized."
+        )
+    return ObservationHistory(values[:, 0].copy(), values[:, 1:].copy())
+
+
+def load_evaluation_directory(
+    directory: str | Path, *, observations_csv: str | Path | None = None
+) -> EvaluationDataset:
     """Reuse the comparison CSV contract and aggregate each complete forecast."""
     tables = comparison.read_model_comparison_directory(directory)
     first = next(iter(tables.values()))
     origins = np.unique(first["forecast_origin_seconds"].to_numpy(dtype=float))
+    observations = (
+        _read_observation_history(observations_csv, origins)
+        if observations_csv
+        else None
+    )
     use_route = all("x_actual_route" in table for table in tables.values())
     if not use_route and any(
         "x_actual_route" in table or "y_actual_route" in table
@@ -147,7 +189,12 @@ def load_evaluation_directory(directory: str | Path) -> EvaluationDataset:
                 positions.append(values[0])
             positions = np.asarray(positions)
         models[label] = EvaluatedModel(
-            color, point_estimate, metrics, forecasts, positions
+            color=color,
+            point_estimate=point_estimate,
+            metrics=metrics,
+            forecasts=forecasts,
+            origin_positions=positions,
+            inference_method=table["inference_method"].iloc[0],
         )
     groups = tuple(
         group for _, group in first.groupby("forecast_origin_seconds", sort=True)
@@ -162,4 +209,5 @@ def load_evaluation_directory(directory: str | Path) -> EvaluationDataset:
         ),
         prediction_counts=np.array([len(group) for group in groups]),
         available_metrics=tuple(next(iter(models.values())).metrics),
+        observations=observations,
     )

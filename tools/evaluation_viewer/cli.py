@@ -13,6 +13,14 @@ def main(argv=None):
         default=project_path("results/evaluation"),
         help="Folder containing saved evaluation CSVs.",
     )
+    default_observations = project_path(
+        "data/processed/BR24_imm_tracked_trajectory.csv"
+    )
+    parser.add_argument(
+        "--observations-csv",
+        default=default_observations if default_observations.is_file() else None,
+        help="Original time,x,y input CSV for the same experiment; uses source timestamps without normalization. Use --observations-csv= to show only the saved IMM track.",
+    )
     arguments = parser.parse_args(argv)
     try:
         import tkinter as tk
@@ -26,7 +34,11 @@ def main(argv=None):
         parser.exit(2, f"Could not open the Tk window: {error}\n")
     app = None
     try:
-        app = EvaluationViewer(root, input_dir=arguments.input_dir)
+        app = EvaluationViewer(
+            root,
+            input_dir=arguments.input_dir,
+            observations_csv=arguments.observations_csv,
+        )
         root.mainloop()
     finally:
         if app is None:

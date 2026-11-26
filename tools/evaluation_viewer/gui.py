@@ -18,7 +18,7 @@ from .settings import METRICS, ViewerOptions
 
 
 class EvaluationViewer:
-    def __init__(self, root, *, input_dir):
+    def __init__(self, root, *, input_dir, observations_csv=None):
         self.root = root
         self.options = ViewerOptions()
         self.data = None
@@ -26,6 +26,9 @@ class EvaluationViewer:
         self.selected_models = ()
         self._closed = False
         self.directory = tk.StringVar(root, value=str(input_dir))
+        self.observations_csv = tk.StringVar(
+            root, value=str(observations_csv) if observations_csv else ""
+        )
         self.settings_visible = tk.BooleanVar(root, value=True)
         self.status = tk.StringVar(root)
         view.configure_window(root)
@@ -107,6 +110,22 @@ class EvaluationViewer:
             row,
             text="…",
             command=self.open_directory,
+            style="Predictor.TButton",
+            width=3,
+        ).pack(side="right", padx=(5, 0))
+        self._label(group, "Observation CSV")
+        observation_row = tk.Frame(group, bg=view.CONTROL_BACKGROUND)
+        observation_row.pack(fill="x")
+        ttk.Entry(
+            observation_row,
+            textvariable=self.observations_csv,
+            style="Predictor.TEntry",
+            width=18,
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            observation_row,
+            text="…",
+            command=self.open_observations,
             style="Predictor.TButton",
             width=3,
         ).pack(side="right", padx=(5, 0))
@@ -271,10 +290,29 @@ class EvaluationViewer:
             self.directory.set(selected)
             self.load_directory()
 
+    def open_observations(self):
+        self.pause()
+        current_path = self.observations_csv.get().strip()
+        selected = filedialog.askopenfilename(
+            parent=self.root,
+            initialdir=str(Path(current_path).expanduser().parent)
+            if current_path
+            else self.directory.get(),
+            title=self.tr("Open observation CSV…"),
+            filetypes=(("CSV", "*.csv"), ("All files", "*.*")),
+        )
+        if selected:
+            self.observations_csv.set(selected)
+            self.load_directory()
+
     def load_directory(self, *, show_error=True):
         self.pause()
         try:
-            data = load_evaluation_directory(Path(self.directory.get()).expanduser())
+            observation_path = self.observations_csv.get().strip()
+            data = load_evaluation_directory(
+                Path(self.directory.get()).expanduser(),
+                observations_csv=observation_path or None,
+            )
         except (OSError, ValueError) as error:
             self.status.set(str(error))
             if show_error:
@@ -352,6 +390,14 @@ class EvaluationViewer:
             self.status.set(
                 f"{self.tr('Matched origins')}: {len(self.data.origins)}\n{self.tr('Forecast origin')}: {self.data.origins[index]:.3f} s\nH = {self.data.prediction_counts[index]} · +{self.data.horizon_seconds[index][-1]:.1f} s"
             )
+            if self.data.observations is not None:
+                count = int(
+                    (
+                        self.data.observations.time_seconds
+                        <= self.data.origins[index] + 1e-6
+                    ).sum()
+                )
+                self.status.set(self.status.get() + f"\nN = {count}")
 
     def _sync_play_button(self):
         playing = self.playback is not None and self.playback.playing

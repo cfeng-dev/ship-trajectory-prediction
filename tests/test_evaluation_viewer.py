@@ -73,6 +73,131 @@ def test_saved_forecasts_share_physical_origins_and_reuse_existing_metrics(tmp_p
     assert data.nearest_index(-10.0) == 0
 
 
+def _write_observations(path):
+    pd.DataFrame(
+        {
+            "time": [95.0, 100.0, 102.5, 105.0, 110.0],
+            "x": [1.0, 5.5, 10.5, 15.5, 900.0],
+            "y": [1.0, 0.5, 0.5, 1.5, 900.0],
+            "ground_truth_x": -1000.0,
+            "ground_truth_y": -1000.0,
+        }
+    ).to_csv(path, index=False)
+    return path
+
+
+def test_observation_history_keeps_source_time_and_excludes_future_samples(tmp_path):
+    directory = _write_csvs(tmp_path / "forecasts")
+    observations = _write_observations(tmp_path / "observations.csv")
+    data = _module().load_evaluation_directory(directory, observations_csv=observations)
+    np.testing.assert_allclose(
+        data.observations.time_seconds, [95, 100, 102.5, 105, 110]
+    )
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        lines = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        np.testing.assert_allclose(
+            lines["Observations through N"].get_xydata(),
+            [[1, 1], [5.5, 0.5], [10.5, 0.5], [15.5, 1.5]],
+        )
+        np.testing.assert_allclose(
+            lines["Current position"].get_xydata(), [[15.5, 1.5]]
+        )
+        assert lines["Observations through N"].get_color() == "#24557A"
+        assert lines["Current position"].get_color() == "#D97706"
+        assert not plot.trajectory_axis.collections
+        np.testing.assert_allclose(plot.trajectory_axis.get_xlim(), [-34.5, 65.5])
+        np.testing.assert_allclose(
+            lines["Bayesian CTRV (SMC)"].get_xydata(), [[25, 5], [37, 10]]
+        )
+        np.testing.assert_allclose(lines["IMM"].get_xydata(), [[26, 5], [38, 10]])
+        imm_links = [
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_linestyle() == "--"
+            and line.get_color() == data.models["IMM"].color
+        ]
+        assert len(imm_links) == 1
+        np.testing.assert_allclose(imm_links[0].get_xydata(), [[15.5, 1.5], [26, 5]])
+        links = [
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_linestyle() == "--"
+            and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
+        ]
+        np.testing.assert_allclose(links[0].get_xydata(), [[15.5, 1.5], [25, 5]])
+        assert "Connection to current position" not in [
+            entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
+        ]
+        plot.draw(data, 0, options, tuple(data.models))
+        history = next(
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_label() == "Observations through N"
+        )
+        np.testing.assert_allclose(history.get_xydata(), [[1, 1], [5.5, 0.5]])
+        plot.draw(data, 1, options, ("Bayesian CTRV (SMC)",))
+        lines = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        np.testing.assert_allclose(
+            lines["Current position"].get_xydata(), [[15.5, 1.5]]
+        )
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize(
+    "problem", ["duplicate", "nonfinite", "time_offset", "missing_column"]
+)
+def test_invalid_observation_files_are_rejected_without_replacing_them_with_reference(
+    tmp_path, problem
+):
+    directory = _write_csvs(tmp_path / "forecasts")
+    path = _write_observations(tmp_path / "observations.csv")
+    table = pd.read_csv(path)
+    if problem == "duplicate":
+        table.loc[1, "time"] = table.loc[0, "time"]
+    elif problem == "nonfinite":
+        table.loc[1, "x"] = np.nan
+    elif problem == "time_offset":
+        table["time"] -= 95
+    else:
+        table.drop(columns="x", inplace=True)
+    table.to_csv(path, index=False)
+    with pytest.raises(ValueError, match="Observation"):
+        _module().load_evaluation_directory(directory, observations_csv=path)
+
+
+def test_missing_observation_at_origin_is_not_interpolated_or_called_current(tmp_path):
+    directory = _write_csvs(tmp_path / "forecasts")
+    path = _write_observations(tmp_path / "observations.csv")
+    table = pd.read_csv(path)
+    table[table["time"] != 105].to_csv(path, index=False)
+    data = _module().load_evaluation_directory(directory, observations_csv=path)
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        lines = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        assert "Current position" not in lines
+        np.testing.assert_allclose(
+            lines["Latest observation"].get_xydata(), [[10.5, 0.5]]
+        )
+        assert "Connection to current position" not in [
+            entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
+        ]
+        assert not any(
+            line.get_linestyle() == "--"
+            and line.get_color() in {model.color for model in data.models.values()}
+            for line in plot.trajectory_axis.lines
+        )
+    finally:
+        plt.close(plot.figure)
+
+
 @pytest.mark.parametrize("bad_score", [None, np.nan, np.inf])
 def test_student_t_is_only_offered_for_complete_paired_scores(tmp_path, bad_score):
     directory = _write_csvs(tmp_path)
@@ -188,7 +313,7 @@ def test_plot_uses_one_metric_per_axis_and_matching_colors_and_time(tmp_path):
 
 
 @pytest.mark.parametrize("prediction_count", [1, 2])
-def test_trajectory_lines_start_with_saved_future_points_and_reference_is_separate(
+def test_all_forecast_lines_keep_only_future_points_and_share_the_current_marker(
     tmp_path, prediction_count
 ):
     directory = _write_csvs(tmp_path)
@@ -213,18 +338,105 @@ def test_trajectory_lines_start_with_saved_future_points_and_reference_is_separa
             np.testing.assert_allclose(
                 lines[label].get_xydata(), points[:prediction_count]
             )
+        imm_links = [
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_linestyle() == "--"
+            and line.get_color() == data.models["IMM"].color
+        ]
+        assert len(imm_links) == 1
+        np.testing.assert_allclose(
+            imm_links[0].get_xydata(), [[1000.0, 0.0], [26.0, 5.0]]
+        )
         markers = {
             artist.get_label(): artist for artist in plot.trajectory_axis.collections
         }
         assert not set(data.models).intersection(markers)
-        if prediction_count == 2:
-            assert set(markers) == {"Reference at forecast origin"}
+        assert set(markers) == {"IMM track at forecast origin"}
+        np.testing.assert_allclose(
+            markers["IMM track at forecast origin"].get_offsets(), [[1000.0, 0.0]]
+        )
+        connections = [
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_linestyle() == "--"
+            and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
+        ]
+        assert len(connections) == 1
+        np.testing.assert_allclose(
+            connections[0].get_xydata(), [[1000.0, 0.0], [25.0, 5.0]]
+        )
+        np.testing.assert_allclose(
+            data.models["Bayesian CTRV (SMC)"].forecasts[1],
+            [[25.0, 5.0], [37.0, 10.0]][:prediction_count],
+        )
+        assert "Connection to IMM track" not in [
+            entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
+        ]
+        np.testing.assert_allclose(plot.trajectory_axis.get_xlim(), [950.0, 1050.0])
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize(
+    "route,selected", [(True, ("Bayesian CTRV (SMC)",)), (False, ("IMM",))]
+)
+def test_missing_or_hidden_imm_origins_do_not_create_a_reference_anchor(
+    tmp_path, route, selected
+):
+    data = _module().load_evaluation_directory(_write_csvs(tmp_path, route=route))
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, selected)
+        assert not plot.trajectory_axis.collections
+        line = next(
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_label() == selected[0]
+        )
+        expected = (
+            [[26.0, 5.0], [38.0, 10.0]]
+            if selected[0] == "IMM"
+            else [[25.0, 5.0], [37.0, 10.0]]
+        )
+        np.testing.assert_allclose(line.get_xydata(), expected)
+        assert not any(
+            line.get_linestyle() == "--"
+            and line.get_color() == data.models[selected[0]].color
+            for line in plot.trajectory_axis.lines
+        )
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("different_origins", [False, True])
+def test_connections_require_one_unambiguous_selected_imm_origin(
+    tmp_path, different_origins
+):
+    directory = _write_csvs(tmp_path)
+    extra = pd.read_csv(directory / "imm.csv")
+    if different_origins:
+        extra["forecast_origin_x_route"] += 10
+    extra.to_csv(directory / "imm_other.csv", index=False)
+    data = _module().load_evaluation_directory(directory)
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        connections = [
+            line
+            for line in plot.trajectory_axis.lines
+            if line.get_linestyle() == "--"
+            and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
+        ]
+        assert len(connections) == (0 if different_origins else 1)
+        if connections:
             np.testing.assert_allclose(
-                markers["Reference at forecast origin"].get_offsets(), [[15.0, 0.0]]
+                connections[0].get_xydata(), [[15.0, 0.0], [25.0, 5.0]]
             )
-            np.testing.assert_allclose(plot.trajectory_axis.get_xlim(), [-35.0, 65.0])
-        else:
-            assert not markers  # The CSV does not contain the reference at this origin.
     finally:
         plt.close(plot.figure)
 
@@ -237,7 +449,9 @@ def test_cli_help_does_not_import_tk_or_start_inference(monkeypatch, capsys):
     with pytest.raises(SystemExit) as error:
         cli.main(["--help"])
     assert error.value.code == 0
-    assert "--input-dir" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "--input-dir" in output
+    assert "--observations-csv" in output
 
 
 def test_single_origin_plots_and_metric_legend_leaves_room_for_all_models(tmp_path):
@@ -389,6 +603,38 @@ def test_predictor_style_playback_button_and_single_origin_slider():
         plt.close(bar.figure)
 
 
+def test_viewer_loads_selected_observations_and_retains_data_on_file_error(tmp_path):
+    pytest.importorskip("tkinter")
+    from types import SimpleNamespace
+
+    gui = importlib.import_module("evaluation_viewer.gui")
+    directory = _write_csvs(tmp_path / "forecasts")
+    observations = _write_observations(tmp_path / "observations.csv")
+    app = gui.EvaluationViewer.__new__(gui.EvaluationViewer)
+    app.root = _Clock()
+    app.options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    app.directory = SimpleNamespace(get=lambda: str(directory))
+    app.observations_csv = SimpleNamespace(get=lambda: str(observations))
+    app.pause = lambda: None
+    app.playback = None
+    app._build_sidebar = lambda: None
+    counts, frames, errors = [], [], []
+    app.navigation = SimpleNamespace(set_count=counts.append)
+    app.toolbar = SimpleNamespace(update=lambda: None)
+    app._frame = frames.append
+    app.status = SimpleNamespace(set=errors.append)
+    app.load_directory()
+    loaded = app.data
+    np.testing.assert_allclose(loaded.observations.positions[1], [5.5, 0.5])
+    assert counts == [2]
+    assert frames == [0]
+    app.observations_csv = SimpleNamespace(get=lambda: str(tmp_path / "missing.csv"))
+    app.load_directory(show_error=False)
+    assert app.data is loaded
+    assert frames == [0]
+    assert errors
+
+
 def test_metric_click_and_slider_seek_the_same_cached_origin(tmp_path):
     pytest.importorskip("tkinter")
     from types import SimpleNamespace
@@ -489,11 +735,16 @@ def test_real_tk_viewer_loads_and_applies_settings_when_a_display_is_available(
         pytest.skip(f"Tk display unavailable: {error}")
     root.withdraw()
     gui = importlib.import_module("evaluation_viewer.gui")
-    app = gui.EvaluationViewer(root, input_dir=_write_csvs(tmp_path))
+    app = gui.EvaluationViewer(
+        root,
+        input_dir=_write_csvs(tmp_path / "forecasts"),
+        observations_csv=_write_observations(tmp_path / "observations.csv"),
+    )
     try:
         app.load_directory()
         root.update()
         assert app.data is not None
+        assert app.data.observations is not None
         app.metric_variables["top_metric"].set("FDE")
         app.apply_options()
         assert app.options.top_metric == "fde_m"
@@ -518,6 +769,9 @@ def test_stored_results_preview_when_explicitly_requested(tmp_path):
     try:
         for index in (0, len(data.origins) - 1, data.nearest_index(900)):
             plot.draw(data, index, options, tuple(data.models))
+            lines = {line.get_label(): line for line in plot.trajectory_axis.lines}
+            for label in data.models:
+                assert len(lines[label].get_xydata()) == data.prediction_counts[index]
             plot.figure.canvas.draw()
         output = tmp_path / "evaluation_viewer_preview.png"
         plot.figure.savefig(output, dpi=130)
