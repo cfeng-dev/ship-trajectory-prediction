@@ -19,7 +19,7 @@ def main(argv=None):
     parser.add_argument(
         "--observations-csv",
         default=default_observations if default_observations.is_file() else None,
-        help="Original time,x,y input CSV for the same experiment; uses source timestamps without normalization. Use --observations-csv= to show only the saved IMM track.",
+        help="Original time,x,y input CSV for the same experiment; uses source timestamps without normalization. Use --observations-csv= to load evaluation results without observations.",
     )
     arguments = parser.parse_args(argv)
     try:

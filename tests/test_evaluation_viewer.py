@@ -612,14 +612,10 @@ def test_trajectory_layers_are_independent_of_forecasts_metrics_and_viewport(
         "show_reference_forecast_segment": {
             "Reference forecast segment",
         },
-        "show_observed_trajectory": {
-            "Observations through N"
-            if with_observations
-            else "IMM track through forecast origin"
-        },
-        "show_current_position": {
-            "Current position" if with_observations else "IMM track at forecast origin"
-        },
+        "show_observed_trajectory": {"Observations through N"}
+        if with_observations
+        else set(),
+        "show_current_position": {"Current position"} if with_observations else set(),
     }
     try:
         plot.draw(data, 1, options, tuple(data.models))
@@ -637,6 +633,15 @@ def test_trajectory_layers_are_independent_of_forecasts_metrics_and_viewport(
                 *plot.trajectory_axis.collections,
             )
         }
+        if not with_observations:
+            assert labels.isdisjoint(
+                {
+                    "Observations through N",
+                    "Current position",
+                    "IMM track through forecast origin",
+                    "IMM track at forecast origin",
+                }
+            )
         assert not labels.intersection(hidden_labels[field])
         for other_field, other_labels in hidden_labels.items():
             if other_field != field:
@@ -788,10 +793,10 @@ def test_all_forecast_lines_keep_only_future_points_without_origin_connections(
             artist.get_label(): artist for artist in plot.trajectory_axis.collections
         }
         assert not set(data.models).intersection(markers)
-        assert set(markers) == {"IMM track at forecast origin"}
-        np.testing.assert_allclose(
-            markers["IMM track at forecast origin"].get_offsets(), [[1000.0, 0.0]]
-        )
+        assert not markers
+        assert "IMM track through forecast origin" not in lines
+        assert "Observations through N" not in lines
+        assert "Current position" not in lines
         connections = [
             line
             for line in plot.trajectory_axis.lines
@@ -806,7 +811,8 @@ def test_all_forecast_lines_keep_only_future_points_without_origin_connections(
         assert "Connection to IMM track" not in [
             entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
         ]
-        np.testing.assert_allclose(plot.trajectory_axis.get_xlim(), [950.0, 1050.0])
+        expected_limits = [-40.0, 60.0] if prediction_count == 1 else [-35.0, 65.0]
+        np.testing.assert_allclose(plot.trajectory_axis.get_xlim(), expected_limits)
     finally:
         plt.close(plot.figure)
 
@@ -931,18 +937,22 @@ def test_invalid_display_spans_are_rejected(key, value):
 class _Clock:
     def __init__(self):
         self.pending = {}
+        self.delays = {}
         self.counter = 0
 
     def after(self, delay, callback):
         self.counter += 1
         self.pending[self.counter] = callback
+        self.delays[self.counter] = delay
         return self.counter
 
     def after_cancel(self, handle):
         self.pending.pop(handle)
+        self.delays.pop(handle)
 
     def tick(self):
         handle = next(iter(self.pending))
+        self.delays.pop(handle)
         self.pending.pop(handle)()
 
     def update_idletasks(self):
@@ -974,12 +984,20 @@ class _LoadControl:
 
 
 def _prepare_loading_controls(app):
+    from types import SimpleNamespace
+
     app._loading = False
+    app._analysis_active = False
     app._load_worker = None
     app._load_poll_id = None
     app._closed = False
     app._plot_settings_dialog = None
+    app._playback_settings_dialog = None
+    app._help_window = None
     app._load_inputs = [_LoadControl()]
+    app._source_inputs = []
+    app._observation_inputs = []
+    app.use_observations = SimpleNamespace(get=lambda: True)
     app.load_button = _LoadControl()
     app.placeholder = _LoadControl()
 
@@ -1052,12 +1070,93 @@ def test_loading_feedback_and_button_follow_predictor_states(loading_viewer):
     assert not app.root.pending
 
 
+def test_analysis_button_stays_active_until_cancelled_and_stops_playback(
+    loading_viewer, tmp_path
+):
+    app, jobs = loading_viewer
+    data = _module().load_evaluation_directory(_write_csvs(tmp_path))
+    app.data = data
+    app._source_inputs = [_LoadControl() for _ in range(5)]
+    app._observation_inputs = app._source_inputs[-2:]
+    app._load_inputs.extend(app._source_inputs)
+    frames = []
+    app.playback = importlib.import_module("evaluation_viewer.session").Playback(
+        app.root, len(data.origins), frames.append
+    )
+    app._apply_loaded_data = lambda loaded: None
+    app.load_directory(show_error=False)
+    jobs[0].messages.append(("ready", data))
+    app.root.tick()
+    assert app.load_button.properties["text"] == "Cancel analysis"
+    assert app.load_button.properties["bg"] == "#f7d9d9"
+    assert all(
+        widget.properties["state"] == "disabled" for widget in app._source_inputs
+    )
+    assert app._load_inputs[0].properties["state"] == "normal"
+    app.toggle_playback()
+    assert app.playback.playing
+    assert len(app.root.pending) == 1
+    app.pause()
+    assert app.load_button.properties["text"] == "Cancel analysis"
+    assert all(
+        widget.properties["state"] == "disabled" for widget in app._source_inputs
+    )
+    app.toggle_playback()
+    app.load_button.properties["command"]()
+    assert not app.playback.playing
+    assert not app.root.pending
+    assert not app._analysis_active
+    assert app.load_button.properties["text"] == "Start analysis"
+    assert app.load_button.properties["bg"] == "#ffffff"
+    assert app.data is data
+    assert all(widget.properties["state"] == "normal" for widget in app._source_inputs)
+    app.toggle_playback()
+    assert app.load_button.properties["text"] == "Cancel analysis"
+    app.root.tick()
+    assert not app.playback.playing
+    assert app.playback.index == len(data.origins) - 1
+    assert app.load_button.properties["text"] == "Cancel analysis"
+    assert all(
+        widget.properties["state"] == "disabled" for widget in app._source_inputs
+    )
+    app.load_button.properties["command"]()
+    assert app.load_button.properties["text"] == "Start analysis"
+    assert not app.root.pending
+
+
+def test_observation_inputs_follow_the_toggle_and_loading_state(loading_viewer):
+    from types import SimpleNamespace
+
+    app, _ = loading_viewer
+    checked = False
+    app.use_observations = SimpleNamespace(get=lambda: checked)
+    app._observation_inputs = [_LoadControl(), _LoadControl()]
+    app._load_inputs.extend(app._observation_inputs)
+    app._sync_load_controls()
+    assert all(
+        widget.properties["state"] == "disabled" for widget in app._observation_inputs
+    )
+    assert app._load_inputs[0].properties["state"] == "normal"
+    checked = True
+    app._sync_load_controls()
+    assert all(widget.properties["state"] == "normal" for widget in app._load_inputs)
+    app.load_directory(show_error=False)
+    assert all(widget.properties["state"] == "disabled" for widget in app._load_inputs)
+    app.cancel_analysis()
+    assert all(widget.properties["state"] == "normal" for widget in app._load_inputs)
+    checked = False
+    app._sync_load_controls()
+    assert all(
+        widget.properties["state"] == "disabled" for widget in app._observation_inputs
+    )
+
+
 def test_cancelled_load_cannot_replace_data_and_can_be_restarted(loading_viewer):
     app, jobs = loading_viewer
     previous = app.data = object()
     app._set_status = lambda: None
     app.load_directory(show_error=False)
-    app.cancel_loading()
+    app.cancel_analysis()
     assert jobs[0].cancelled
     assert app.data is previous
     assert not app.root.pending
@@ -1159,6 +1258,39 @@ def test_playback_stops_at_last_origin_and_seeking_cancels_pending_timer():
     assert not clock.pending
 
 
+def test_playback_interval_changes_keep_the_frame_and_one_pending_timer():
+    clock, frames = _Clock(), []
+    playback = importlib.import_module("evaluation_viewer.session").Playback(
+        clock, 3, frames.append, interval_ms=500
+    )
+    playback.start()
+    previous_timer = next(iter(clock.pending))
+    assert list(clock.delays.values()) == [500]
+    playback.set_interval(125)
+    assert playback.playing and playback.index == 0
+    assert frames == [0]
+    assert previous_timer not in clock.pending
+    assert len(clock.pending) == 1
+    assert list(clock.delays.values()) == [125]
+    clock.tick()
+    assert frames == [0, 1]
+    assert list(clock.delays.values()) == [125]
+    playback.pause()
+    playback.set_interval(1000)
+    assert not clock.pending and not playback.playing
+    assert playback.index == 1
+    playback.start()
+    assert list(clock.delays.values()) == [1000]
+    playback.close()
+
+
+@pytest.mark.parametrize("interval", [0, -1, 1.5, True, np.inf, "100"])
+def test_playback_rejects_invalid_timer_intervals(interval):
+    playback = importlib.import_module("evaluation_viewer.session").Playback
+    with pytest.raises(ValueError, match="interval"):
+        playback(_Clock(), 2, lambda index: None, interval_ms=interval)
+
+
 def test_predictor_style_controls_seek_without_feedback_during_playback_updates():
     plotting = importlib.import_module("evaluation_viewer.plot_view")
     changes = []
@@ -1222,7 +1354,10 @@ def test_predictor_style_playback_button_and_single_origin_slider():
         plt.close(bar.figure)
 
 
-def test_viewer_loads_selected_observations_and_retains_data_on_file_error(tmp_path):
+@pytest.mark.parametrize("invalid_observations", ["missing", "schema", "time_frame"])
+def test_viewer_loads_selected_observations_and_retains_data_on_file_error(
+    tmp_path, invalid_observations
+):
     pytest.importorskip("tkinter")
     from types import SimpleNamespace
 
@@ -1231,7 +1366,9 @@ def test_viewer_loads_selected_observations_and_retains_data_on_file_error(tmp_p
     observations = _write_observations(tmp_path / "observations.csv")
     app = gui.EvaluationViewer.__new__(gui.EvaluationViewer)
     app.root = _Clock()
-    app.options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
+    app.options = importlib.import_module("evaluation_viewer.settings").ViewerOptions(
+        playback_interval_seconds=0.75
+    )
     app.directory = SimpleNamespace(get=lambda: str(directory))
     app.observations_csv = SimpleNamespace(get=lambda: str(observations))
     app.pause = lambda: None
@@ -1249,15 +1386,39 @@ def test_viewer_loads_selected_observations_and_retains_data_on_file_error(tmp_p
     app.load_directory()
     _finish_loading(app)
     loaded = app.data
+    assert app.playback.interval_ms == 750
     np.testing.assert_allclose(loaded.observations.positions[1], [5.5, 0.5])
     assert counts == [2]
     assert frames == [0]
-    app.observations_csv = SimpleNamespace(get=lambda: str(tmp_path / "missing.csv"))
+    invalid_path = tmp_path / "invalid_observations.csv"
+    if invalid_observations == "schema":
+        invalid_path.write_text("wrong,columns\n1,2\n", encoding="utf-8")
+    elif invalid_observations == "time_frame":
+        invalid_path.write_text("time,x,y\n0,1,2\n1,2,3\n", encoding="utf-8")
+    app.observations_csv = SimpleNamespace(get=lambda: str(invalid_path))
     app.load_directory(show_error=False)
     _finish_loading(app)
     assert app.data is loaded
     assert frames == [0]
     assert errors
+    app.use_observations = SimpleNamespace(get=lambda: False)
+    app.load_directory(show_error=False)
+    _finish_loading(app)
+    without_observations = app.data
+    assert without_observations is not loaded
+    assert without_observations.observations is None
+    assert app.observations_csv.get() == str(invalid_path)
+    assert frames == [0, 0]
+    for label, model in loaded.models.items():
+        for metric, values in model.metrics.items():
+            np.testing.assert_allclose(
+                without_observations.models[label].metrics[metric], values
+            )
+    app.use_observations = SimpleNamespace(get=lambda: True)
+    app.load_directory(show_error=False)
+    _finish_loading(app)
+    assert app.data is without_observations
+    assert frames == [0, 0]
 
 
 def test_viewer_opens_without_loading_or_creating_plots_until_requested(
@@ -1386,12 +1547,16 @@ def test_viewer_opens_without_loading_or_creating_plots_until_requested(
     assert frames == [0]
 
 
-def test_file_selection_only_changes_paths_until_the_load_action(tmp_path, monkeypatch):
+@pytest.mark.parametrize("active", [False, True])
+def test_file_selection_only_changes_paths_when_analysis_is_inactive(
+    tmp_path, monkeypatch, active
+):
     pytest.importorskip("tkinter")
 
     gui = importlib.import_module("evaluation_viewer.gui")
     app = gui.EvaluationViewer.__new__(gui.EvaluationViewer)
     app._loading = False
+    app._analysis_active = active
     app.root = object()
     app.options = importlib.import_module("evaluation_viewer.settings").ViewerOptions()
     app.pause = lambda: None
@@ -1410,18 +1575,23 @@ def test_file_selection_only_changes_paths_until_the_load_action(tmp_path, monke
     app.observations_csv = Variable("")
     loads = []
     app.load_directory = lambda: loads.append(True)
-    monkeypatch.setattr(
-        gui.filedialog, "askdirectory", lambda **kwargs: str(tmp_path / "other")
-    )
-    monkeypatch.setattr(
-        gui.filedialog,
-        "askopenfilename",
-        lambda **kwargs: str(tmp_path / "observations.csv"),
-    )
+
+    def choose_directory(**kwargs):
+        assert not active, "Opened a directory picker during active analysis."
+        return str(tmp_path / "other")
+
+    def choose_observations(**kwargs):
+        assert not active, "Opened an observation picker during active analysis."
+        return str(tmp_path / "observations.csv")
+
+    monkeypatch.setattr(gui.filedialog, "askdirectory", choose_directory)
+    monkeypatch.setattr(gui.filedialog, "askopenfilename", choose_observations)
     app.open_directory()
     app.open_observations()
-    assert app.directory.get() == str(tmp_path / "other")
-    assert app.observations_csv.get() == str(tmp_path / "observations.csv")
+    assert app.directory.get() == str(tmp_path if active else tmp_path / "other")
+    assert app.observations_csv.get() == (
+        "" if active else str(tmp_path / "observations.csv")
+    )
     assert not loads
 
 
@@ -1455,7 +1625,7 @@ def test_metric_click_and_slider_seek_the_same_cached_origin(tmp_path):
     assert frames[-1] == 0
 
 
-def test_language_switch_preserves_sidebar_drafts_and_applied_plot_settings():
+def test_language_menu_callbacks_retain_menus_variables_and_sidebar_drafts(monkeypatch):
     pytest.importorskip("tkinter")
     from types import SimpleNamespace
 
@@ -1472,12 +1642,48 @@ def test_language_switch_preserves_sidebar_drafts_and_applied_plot_settings():
         def set(self, value):
             self.value = value
 
+    class Menu:
+        def __init__(self, *args, **kwargs):
+            self.entries = []
+            self.destroyed = False
+
+        def add_command(self, **options):
+            self.entries.append(options)
+
+        add_cascade = add_checkbutton = add_radiobutton = add_command
+
+        def add_separator(self):
+            self.entries.append({})
+
+        def index(self, value):
+            return len(self.entries) - 1 if value == "end" else value
+
+        def entryconfigure(self, index, **options):
+            self.entries[index].update(options)
+
+        def entry(self, label):
+            return next(entry for entry in self.entries if entry.get("label") == label)
+
+        def invoke(self, label):
+            entry = self.entry(label)
+            entry["variable"].set(entry["value"])
+            return entry["command"]()
+
+        def destroy(self):
+            self.destroyed = True
+
+    monkeypatch.setattr(gui.tk, "Menu", Menu)
+    monkeypatch.setattr(gui.tk, "StringVar", lambda parent, value: Variable(value))
     app = gui.EvaluationViewer.__new__(gui.EvaluationViewer)
-    app._loading = False
+    app.root = _Clock()
+    root_options = {}
+    app.root.configure = lambda **options: root_options.update(options)
+    app.root.after_idle = lambda callback: app.root.after(0, callback)
+    _prepare_loading_controls(app)
     app.options = options(metric_window_width=120.0)
+    app.settings_visible = Variable(True)
     app.pause = lambda: None
     app.playback = None
-    app._build_menu = lambda: None
     app.navigation = SimpleNamespace(set_language=lambda language: None)
     app.plot = SimpleNamespace(clear=lambda language: None)
     app.canvas = SimpleNamespace(draw_idle=lambda: None)
@@ -1489,12 +1695,42 @@ def test_language_switch_preserves_sidebar_drafts_and_applied_plot_settings():
 
     app._build_sidebar = rebuild
     rebuild()
+    app._build_menu()
+    menu = root_options["menu"]
+    language_menu = menu.entry("Language")["menu"]
+    language_variable = app.language_variable
+    file_menu = menu.entry("File")["menu"]
+    app._analysis_active = True
+    app._sync_load_controls()
     app.model_variables["IMM"].set(False)
     app.metric_variables["top_metric"].set("FDE")
-    app.set_language("de")
-    assert app.model_variables["IMM"].get() is False
-    assert app.metric_variables["top_metric"].get() == "FDE"
-    assert app.options.metric_window_width == 120.0
+    for selection, language, headings in (
+        ("Deutsch", "de", ["Datei", "Ansicht", "Einstellungen", "Sprache", "Hilfe"]),
+        ("English", "en", ["File", "View", "Settings", "Language", "Help"]),
+    ) * 3:
+        language_menu.invoke(selection)
+        while app.root.pending:
+            app.root.tick()
+        assert root_options["menu"] is menu
+        assert not menu.destroyed
+        assert not language_menu.destroyed
+        assert [entry["label"] for entry in menu.entries] == headings
+        assert app.language_variable is language_variable
+        assert language_variable.get() == language
+        assert app.options.language == language
+        assert app.model_variables["IMM"].get() is False
+        assert app.metric_variables["top_metric"].get() == "FDE"
+        assert app.options.metric_window_width == 120.0
+        assert (
+            file_menu.entry(app.tr("Open directory…")).get("state", "normal")
+            == "disabled"
+        )
+        assert file_menu.entry(app.tr("Reload")).get("state", "normal") == "disabled"
+        assert file_menu.entry(app.tr("Exit")).get("state", "normal") == "normal"
+    app._analysis_active = False
+    app._sync_load_controls()
+    assert file_menu.entry("Open directory…").get("state", "normal") == "normal"
+    assert file_menu.entry("Reload").get("state", "normal") == "normal"
 
 
 @pytest.mark.parametrize("key", ["top_metric", "bottom_metric"])
@@ -1643,16 +1879,18 @@ def running_viewer_with_dialog_widgets(monkeypatch):
     return app, dialog, gui
 
 
-def test_plot_settings_are_nonmodal_reused_and_close_with_the_main_window(
-    running_viewer_with_dialog_widgets,
+@pytest.mark.parametrize("opener", ["open_plot_settings", "open_playback_settings"])
+def test_settings_are_nonmodal_reused_and_close_with_the_main_window(
+    running_viewer_with_dialog_widgets, opener
 ):
     app, dialog, gui = running_viewer_with_dialog_widgets
     timers = tuple(app.root.pending)
-    assert app.open_plot_settings() is dialog
+    open_dialog = getattr(app, opener)
+    assert open_dialog() is dialog
     dialog.grab_set.assert_not_called()
     assert app.playback.playing
     assert tuple(app.root.pending) == timers
-    assert app.open_plot_settings() is dialog
+    assert open_dialog() is dialog
     assert gui.tk.Toplevel.call_count == 1
     dialog.lift.assert_called_once()
     app.close()
@@ -1689,6 +1927,71 @@ def test_applying_plot_display_options_keeps_playback_running(
     assert app.playback.playing
     assert tuple(app.root.pending) == timers
     app.playback.close()
+
+
+def test_playback_settings_apply_live_and_preserve_invalid_drafts(
+    running_viewer_with_dialog_widgets, monkeypatch
+):
+    app, _, gui = running_viewer_with_dialog_widgets
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **k: errors.append(a))
+    previous_timer = next(iter(app.root.pending))
+    assert app._apply_playback_options({"playback_interval_seconds": "0.75"})
+    assert app.options.playback_interval_seconds == 0.75
+    assert app.playback.interval_ms == 750
+    assert app.playback.playing and app.playback.index == 1
+    assert len(app.root.pending) == 1
+    assert previous_timer not in app.root.pending
+    assert list(app.root.delays.values()) == [750]
+    applied = app.options
+    for value in ("0", "nan", "abc", "0.0001"):
+        assert not app._apply_playback_options({"playback_interval_seconds": value})
+        assert app.options is applied
+        assert app.playback.playing and app.playback.index == 1
+        assert list(app.root.delays.values()) == [750]
+    assert len(errors) == 4
+    app.root.tick()
+    assert app.playback.index == 2
+    app.playback.close()
+
+
+def test_help_is_reused_without_pausing_and_closes_with_the_viewer(
+    running_viewer_with_dialog_widgets, monkeypatch
+):
+    app, _, gui = running_viewer_with_dialog_widgets
+
+    class HelpWindow:
+        def __init__(self, parent, *, language, on_close):
+            self.language = language
+            self.exists = True
+            self.on_close = on_close
+
+        def winfo_exists(self):
+            return self.exists
+
+        def lift(self):
+            pass
+
+        def focus_set(self):
+            pass
+
+        def close(self):
+            self.exists = False
+            self.on_close()
+
+    monkeypatch.setattr(gui, "EvaluationHelpWindow", HelpWindow, raising=False)
+    timers = tuple(app.root.pending)
+    window = app.show_help()
+    assert window.language == "en"
+    assert app.show_help() is window
+    assert tuple(app.root.pending) == timers
+    assert app.playback.playing
+    window.close()
+    assert app._help_window is None
+    window = app.show_help()
+    app.close()
+    assert not window.exists
+    assert app.root.destroyed and not app.root.pending
 
 
 def test_plot_settings_apply_validated_values_without_applying_sidebar_drafts(
@@ -1779,15 +2082,41 @@ def test_real_tk_viewer_loads_and_applies_settings_when_a_display_is_available(
         input_dir=_write_csvs(tmp_path / "forecasts"),
         observations_csv=_write_observations(tmp_path / "observations.csv"),
     )
+    menu = app._menu
+    language_variable = app.language_variable
+    callbacks = {
+        source: (entry_menu, index)
+        for entry_menu, index, source in app._menu_label_entries
+        if source in {"English", "Deutsch"}
+    }
+    errors = []
+    root.report_callback_exception = lambda *error: errors.append(error)
     try:
         root.update()
         assert app.data is None
         assert app.plot is None
+        for selection, language in (("Deutsch", "de"), ("English", "en")) * 3:
+            entry_menu, index = callbacks[selection]
+            entry_menu.invoke(index)
+            root.update_idletasks()
+            assert not errors
+            assert root.winfo_exists()
+            assert menu.winfo_exists() and entry_menu.winfo_exists()
+            assert app._menu is menu
+            assert app.language_variable is language_variable
+            assert app.options.language == language
         app.load_directory()
         _finish_loading(app)
         root.update()
         assert app.data is not None
         assert app.data.observations is not None
+        help_window = app.show_help()
+        root.update_idletasks()
+        assert help_window.winfo_exists()
+        assert help_window._form.body.winfo_children()
+        assert app.show_help() is help_window
+        help_window.close()
+        assert app._help_window is None
         choices = [
             child
             for section in app._form.body.winfo_children()
@@ -1805,7 +2134,12 @@ def test_real_tk_viewer_loads_and_applies_settings_when_a_display_is_available(
         )
         app.step(1)
         assert app.playback.index == 1
-        app.set_language("de")
+        entry_menu, index = callbacks["Deutsch"]
+        entry_menu.invoke(index)
+        root.update_idletasks()
+        assert not errors
+        assert root.winfo_exists()
+        assert app._menu is menu
         assert app.plot.metric_axes[0].get_ylabel() == "FDE [m]"
         assert not app.options.follow_metric_time
         second_metric = app.options.bottom_metric

@@ -188,38 +188,9 @@ class EvaluationPlot:
                         ),
                         zorder=4,
                     )
-        track_positions = [
-            data.models[label].origin_positions[index]
-            for label in selected_models
-            if data.models[label].inference_method == "imm"
-            and data.models[label].origin_positions is not None
-        ]
         for label in selected_models:
             model = data.models[label]
             forecast = model.forecasts[index]
-            if model.inference_method == "imm" and model.origin_positions is not None:
-                tracked_origin = model.origin_positions[index]
-                if data.observations is None:
-                    if options.show_observed_trajectory:
-                        axis.plot(
-                            *model.origin_positions[: index + 1].T,
-                            color="#24557A",
-                            linewidth=2.2,
-                            label=text(
-                                "{model} track through forecast origin", language
-                            ).format(model=self._model_label(label, language)),
-                            zorder=2,
-                        )
-                    if options.show_current_position:
-                        axis.scatter(
-                            *tracked_origin,
-                            color="#D97706",
-                            s=55,
-                            zorder=4,
-                            label=text(
-                                "{model} track at forecast origin", language
-                            ).format(model=self._model_label(label, language)),
-                        )
             axis.plot(
                 *forecast.T,
                 color=model.color,
@@ -236,8 +207,6 @@ class EvaluationPlot:
             center = (
                 current_position
                 if current_position is not None
-                else np.mean(track_positions, axis=0)
-                if track_positions
                 else reference[np.argmin(np.abs(data.reference_times - origin))]
             )
             half_x, half_y = (

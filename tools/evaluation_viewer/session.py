@@ -62,10 +62,23 @@ class Playback:
         self.scheduler = scheduler
         self.count = count
         self.on_frame = on_frame
-        self.interval_ms = interval_ms
         self.index = 0
         self.playing = False
         self._timer = None
+        self.set_interval(interval_ms)
+
+    def set_interval(self, interval_ms):
+        """Reschedule the next step without advancing or pausing playback."""
+        if (
+            isinstance(interval_ms, bool)
+            or not isinstance(interval_ms, int)
+            or interval_ms < 1
+        ):
+            raise ValueError("Playback interval must be a positive integer in ms.")
+        self.interval_ms = interval_ms
+        if self._timer is not None:
+            self.scheduler.after_cancel(self._timer)
+            self._timer = self.scheduler.after(self.interval_ms, self._tick)
 
     def pause(self):
         self.playing = False

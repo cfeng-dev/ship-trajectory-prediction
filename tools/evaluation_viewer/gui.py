@@ -7,9 +7,17 @@ from tkinter import filedialog, messagebox, ttk
 
 from bayesian_predictor import view
 from bayesian_predictor.controls import ScrollableForm
+from bayesian_predictor.help import (
+    DIALOG_CONTENT_PADDING,
+    HELP_WINDOW_WIDTH,
+    add_help_description_rows,
+    help_content_height_for_screen,
+    help_window_height,
+    help_window_position,
+)
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 
-from .localization import text
+from .localization import help_sections, text
 from .session import EvaluationLoader, Playback
 from .settings import METRICS, ViewerOptions
 
@@ -26,14 +34,22 @@ class EvaluationViewer:
         self.timeline_canvas = None
         self.toolbar = None
         self._plot_settings_dialog = None
+        self._playback_settings_dialog = None
+        self._help_window = None
         self.selected_models = ()
         self._closed = False
         self._loading = False
+        self._analysis_active = False
         self._load_worker = None
         self._load_poll_id = None
+        self._source_inputs = []
+        self._observation_inputs = []
         self.directory = tk.StringVar(root, value=str(input_dir))
         self.observations_csv = tk.StringVar(
             root, value=str(observations_csv) if observations_csv else ""
+        )
+        self.use_observations = tk.BooleanVar(
+            root, value=bool(self.observations_csv.get().strip())
         )
         self.settings_visible = tk.BooleanVar(root, value=True)
         self.status = tk.StringVar(root)
@@ -139,7 +155,19 @@ class EvaluationViewer:
             style="Predictor.TButton",
             width=3,
         ).pack(side="right", padx=(5, 0))
-        self._label(group, "Observation CSV")
+        observation_toggle = tk.Checkbutton(
+            group,
+            text=self.tr("Use observation CSV"),
+            variable=self.use_observations,
+            command=self._sync_load_controls,
+            bg=view.CONTROL_BACKGROUND,
+            activebackground=view.CONTROL_BACKGROUND,
+            fg=view.TEXT_COLOR,
+            font=view.FONT,
+            anchor="w",
+        )
+        observation_toggle.pack(fill="x", pady=(2, 4))
+        self._load_inputs.append(observation_toggle)
         observation_row = tk.Frame(group, bg=view.CONTROL_BACKGROUND)
         observation_row.pack(fill="x")
         ttk.Entry(
@@ -156,7 +184,9 @@ class EvaluationViewer:
             width=3,
         ).pack(side="right", padx=(5, 0))
         self._load_inputs.extend(row.winfo_children())
-        self._load_inputs.extend(observation_row.winfo_children())
+        self._observation_inputs = observation_row.winfo_children()
+        self._load_inputs.extend(self._observation_inputs)
+        self._source_inputs = self._load_inputs.copy()
         group = self._section(body, "Models")
         self.model_variables = {}
         if self.data is None:
@@ -242,48 +272,150 @@ class EvaluationViewer:
         self.timeline_canvas.get_tk_widget().grid(row=1, column=0, sticky="ew")
 
     def _build_menu(self):
+        if getattr(self, "_menu", None) is not None:
+            # Keep the native menu alive while its language callback is running.
+            for menu, index, source in self._menu_label_entries:
+                menu.entryconfigure(index, label=self.tr(source))
+            self.language_variable.set(self.options.language)
+            return
+
+        labels = []
+
+        def add(parent, kind, source, **options):
+            getattr(parent, f"add_{kind}")(label=self.tr(source), **options)
+            labels.append((parent, parent.index("end"), source))
+
         menu = tk.Menu(self.root)
         file_menu = tk.Menu(menu, tearoff=0)
-        file_menu.add_command(
-            label=self.tr("Open directory…"), command=self.open_directory
-        )
-        file_menu.add_command(label=self.tr("Reload"), command=self.load_directory)
+        add(file_menu, "command", "Open directory…", command=self.open_directory)
+        add(file_menu, "command", "Reload", command=self.load_directory)
         file_menu.add_separator()
-        file_menu.add_command(label=self.tr("Exit"), command=self.close)
-        menu.add_cascade(label=self.tr("File"), menu=file_menu)
+        add(file_menu, "command", "Exit", command=self.close)
+        add(menu, "cascade", "File", menu=file_menu)
         view_menu = tk.Menu(menu, tearoff=0)
-        view_menu.add_checkbutton(
-            label=self.tr("Show settings"),
+        add(
+            view_menu,
+            "checkbutton",
+            "Show settings",
             variable=self.settings_visible,
             command=self.toggle_settings,
         )
-        view_menu.add_command(
-            label=self.tr("Plot display…"), command=self.open_plot_settings
-        )
-        menu.add_cascade(label=self.tr("View"), menu=view_menu)
+        add(view_menu, "command", "Plot display…", command=self.open_plot_settings)
+        add(menu, "cascade", "View", menu=view_menu)
+        settings_menu = tk.Menu(menu, tearoff=0)
+        add(settings_menu, "command", "Playback…", command=self.open_playback_settings)
+        add(menu, "cascade", "Settings", menu=settings_menu)
         language = tk.Menu(menu, tearoff=0)
         self.language_variable = tk.StringVar(self.root, value=self.options.language)
         for label, value in (("English", "en"), ("Deutsch", "de")):
-            language.add_radiobutton(
-                label=label,
+            add(
+                language,
+                "radiobutton",
+                label,
                 value=value,
                 variable=self.language_variable,
                 command=lambda selected=value: self.set_language(selected),
             )
-        menu.add_cascade(label=self.tr("Language"), menu=language)
+        add(menu, "cascade", "Language", menu=language)
         help_menu = tk.Menu(menu, tearoff=0)
-        help_menu.add_command(
-            label=self.tr("Show Help"),
-            command=lambda: messagebox.showinfo(
-                self.tr("Help"), self.tr("Help text"), parent=self.root
-            ),
+        add(
+            help_menu,
+            "command",
+            "Show Help",
+            command=self.show_help,
         )
-        menu.add_cascade(label=self.tr("Help"), menu=help_menu)
-        previous = getattr(self, "_menu", None)
-        self.root.configure(menu=menu)
+        add(menu, "cascade", "Help", menu=help_menu)
+        self._menu_label_entries = tuple(labels)
         self._menu = menu
-        if previous is not None:
-            self.root.after_idle(previous.destroy)
+        self.root.configure(menu=menu)
+
+    def show_help(self):
+        if self._closed:
+            return
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.lift()
+            self._help_window.focus_set()
+            return self._help_window
+        self._help_window = EvaluationHelpWindow(
+            self.root, language=self.options.language, on_close=self._help_closed
+        )
+        return self._help_window
+
+    def _help_closed(self):
+        self._help_window = None
+
+    def open_playback_settings(self):
+        if self._closed or self._loading:
+            return
+        dialog = self._playback_settings_dialog
+        if dialog is not None and dialog.winfo_exists():
+            dialog.lift()
+            dialog.focus_set()
+            return dialog
+        dialog = tk.Toplevel(self.root)
+        self._playback_settings_dialog = dialog
+        dialog.withdraw()
+        dialog.transient(self.root)
+        dialog.title(self.tr("Playback"))
+        dialog.configure(bg=view.CONTROL_BACKGROUND)
+        dialog.resizable(False, False)
+        body = tk.Frame(dialog, bg=view.CONTROL_BACKGROUND, padx=14, pady=12)
+        body.pack(fill="both", expand=True)
+        self._label(body, "Changes are applied only after selecting Apply.")
+        group = self._section(body, "Playback")
+        self._label(group, "Playback interval [s]")
+        variable = tk.StringVar(
+            dialog, value=f"{self.options.playback_interval_seconds:g}"
+        )
+        ttk.Entry(
+            group, textvariable=variable, style="Predictor.TEntry", width=12
+        ).pack(anchor="w", pady=(0, 6))
+        self._label(
+            group, "Delay between saved forecast origins. Smaller values play faster."
+        )
+
+        def apply():
+            if self._apply_playback_options(
+                {"playback_interval_seconds": variable.get()}, parent=dialog
+            ):
+                self._close_playback_settings()
+
+        actions = tk.Frame(body, bg=view.CONTROL_BACKGROUND)
+        actions.pack(fill="x")
+        view.create_styled_button(
+            actions, text=self.tr("Apply"), width=12, command=apply
+        ).pack(side="right", padx=(8, 0))
+        view.create_styled_button(
+            actions,
+            text=self.tr("Cancel"),
+            width=12,
+            command=self._close_playback_settings,
+        ).pack(side="right")
+        dialog.protocol("WM_DELETE_WINDOW", self._close_playback_settings)
+        self._show_dialog(dialog)
+        return dialog
+
+    def _close_playback_settings(self):
+        dialog, self._playback_settings_dialog = self._playback_settings_dialog, None
+        if dialog is not None and dialog.winfo_exists():
+            dialog.destroy()
+
+    def _apply_playback_options(self, values, *, parent=None):
+        if self._closed or self._loading:
+            return False
+        try:
+            options = replace(self.options, **values)
+        except (ValueError, TypeError, tk.TclError) as error:
+            messagebox.showerror(
+                self.tr("Invalid settings"),
+                self.tr(str(error)),
+                parent=parent or self.root,
+            )
+            return False
+        self.options = options
+        if self.playback is not None:
+            self.playback.set_interval(options.playback_interval_ms)
+        return True
 
     def open_plot_settings(self):
         if self._closed or self._loading:
@@ -397,6 +529,10 @@ class EvaluationViewer:
             actions, text=self.tr("Cancel"), width=12, command=self._close_plot_settings
         ).pack(side="right")
         dialog.protocol("WM_DELETE_WINDOW", self._close_plot_settings)
+        self._show_dialog(dialog)
+        return dialog
+
+    def _show_dialog(self, dialog):
         dialog.update_idletasks()
         left = max(
             0,
@@ -411,7 +547,6 @@ class EvaluationViewer:
         dialog.geometry(f"+{left}+{top}")
         dialog.deiconify()
         dialog.focus_set()
-        return dialog
 
     def _close_plot_settings(self):
         dialog, self._plot_settings_dialog = self._plot_settings_dialog, None
@@ -446,7 +581,7 @@ class EvaluationViewer:
             self._refresh_plots()
 
     def open_directory(self):
-        if self._loading:
+        if self._loading or self._analysis_active:
             return
         self.pause()
         selected = filedialog.askdirectory(
@@ -458,7 +593,7 @@ class EvaluationViewer:
             self.directory.set(selected)
 
     def open_observations(self):
-        if self._loading:
+        if self._loading or self._analysis_active:
             return
         self.pause()
         current_path = self.observations_csv.get().strip()
@@ -477,9 +612,12 @@ class EvaluationViewer:
         if self._closed or self._loading:
             return
         self.pause()
-        observation_path = self.observations_csv.get().strip()
+        observation_path = (
+            self.observations_csv.get().strip() if self.use_observations.get() else ""
+        )
         self._show_load_error = show_error
         self._load_message = "Preparing analysis …"
+        self._analysis_active = True
         self._set_loading_ui(True)
         self._load_worker = EvaluationLoader(
             Path(self.directory.get()).expanduser(),
@@ -488,23 +626,35 @@ class EvaluationViewer:
         self._load_poll_id = self.root.after(75, self._poll_load)
 
     def _sync_load_controls(self):
+        active = self._loading or self._analysis_active
         self.load_button.configure(
-            text=self.tr("Cancel analysis" if self._loading else "Start analysis"),
-            command=self.cancel_loading if self._loading else self.load_directory,
+            text=self.tr("Cancel analysis" if active else "Start analysis"),
+            command=self.cancel_analysis if active else self.load_directory,
         )
         view.set_styled_button_palette(
             self.load_button,
-            background="#f7d9d9" if self._loading else "#ffffff",
-            hover_background="#efbcbc" if self._loading else "#b8d8e8",
+            background="#f7d9d9" if active else "#ffffff",
+            hover_background="#efbcbc" if active else "#b8d8e8",
         )
         for widget in self._load_inputs:
+            disabled = (
+                self._loading
+                or (active and widget in self._source_inputs)
+                or (
+                    not self.use_observations.get()
+                    and widget in self._observation_inputs
+                )
+            )
             widget.configure(
                 state="disabled"
-                if self._loading
+                if disabled
                 else "readonly"
                 if isinstance(widget, ttk.Combobox)
                 else "normal"
             )
+        for menu, index, source in getattr(self, "_menu_label_entries", ()):
+            if source in {"Open directory…", "Reload"}:
+                menu.entryconfigure(index, state="disabled" if active else "normal")
 
     def _set_loading_ui(self, active):
         self._loading = active
@@ -541,6 +691,7 @@ class EvaluationViewer:
                 return
             elif kind == "error":
                 self._load_worker = None
+                self._analysis_active = False
                 self._set_loading_ui(False)
                 self.status.set(str(value))
                 if self._show_load_error:
@@ -550,9 +701,11 @@ class EvaluationViewer:
                 return
         self._load_poll_id = self.root.after(75, self._poll_load)
 
-    def cancel_loading(self):
-        if not self._loading:
+    def cancel_analysis(self):
+        if not (self._loading or self._analysis_active):
             return
+        self._analysis_active = False
+        self.pause()
         if self._load_worker is not None:
             self._load_worker.cancel()
             self._load_worker = None
@@ -578,7 +731,12 @@ class EvaluationViewer:
             if self.options.bottom_metric in data.available_metrics
             else "mean_negative_log_predictive_density",
         )
-        self.playback = Playback(self.root, len(data.origins), self._frame)
+        self.playback = Playback(
+            self.root,
+            len(data.origins),
+            self._frame,
+            interval_ms=self.options.playback_interval_ms,
+        )
         self._build_sidebar()
         self.navigation.set_count(len(data.origins))
         self.toolbar.update()
@@ -662,6 +820,8 @@ class EvaluationViewer:
         if self.playback.playing:
             self.pause()
         else:
+            self._analysis_active = True
+            self._sync_load_controls()
             self.playback.start()
 
     def step(self, delta):
@@ -746,6 +906,8 @@ class EvaluationViewer:
             if value is not None:
                 self.metric_variables[key].set(self.tr(METRICS[value]))
         self._build_menu()
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.set_language(language)
         if self.navigation is not None:
             self.navigation.set_language(language)
         if self.playback is not None:
@@ -763,6 +925,9 @@ class EvaluationViewer:
             return
         self._closed = True
         self._close_plot_settings()
+        self._close_playback_settings()
+        if self._help_window is not None and self._help_window.winfo_exists():
+            self._help_window.close()
         if self._load_worker is not None:
             self._load_worker.cancel()
             self._load_worker = None
@@ -772,3 +937,77 @@ class EvaluationViewer:
         if self.playback is not None:
             self.playback.close()
         self.root.destroy()
+
+
+class EvaluationHelpWindow(tk.Toplevel):
+    """Use the Predictors' scrollable, non-modal help presentation."""
+
+    def __init__(self, parent, *, language="en", on_close=None):
+        super().__init__(parent)
+        self._on_close = on_close
+        self._closed = False
+        self.withdraw()
+        self.transient(parent)
+        self.configure(bg=view.CONTROL_BACKGROUND)
+        self.resizable(False, False)
+        main = tk.Frame(self, bg=view.CONTROL_BACKGROUND)
+        main.pack(fill="both", expand=True)
+        tk.Label(
+            main,
+            text="Evaluation Viewer",
+            font=("Arial", 13, "bold"),
+            bg=view.CONTROL_BACKGROUND,
+            fg=view.TEXT_COLOR,
+            anchor="w",
+        ).pack(fill="x", padx=24, pady=(18, 12))
+        self._form = ScrollableForm(main, width=HELP_WINDOW_WIDTH - 60)
+        self._form.pack(fill="both", expand=True, padx=24)
+        actions = tk.Frame(main, bg=view.CONTROL_BACKGROUND)
+        actions.pack(fill="x", padx=24, pady=(12, 18))
+        view.create_styled_button(
+            actions, text="OK", width=12, command=self.close
+        ).pack(anchor="e")
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Escape>", lambda _: self.close())
+        self.set_language(language)
+        self.update_idletasks()
+        self._form.canvas.configure(
+            height=help_content_height_for_screen(
+                self._form.body.winfo_reqheight(), self.winfo_screenheight()
+            )
+        )
+        self.update_idletasks()
+        height = help_window_height(
+            main.winfo_reqheight() + DIALOG_CONTENT_PADDING, self.winfo_screenheight()
+        )
+        left, top = help_window_position()
+        self.geometry(f"{HELP_WINDOW_WIDTH}x{height}+{left}+{top}")
+        self.deiconify()
+        self.focus_set()
+
+    def set_language(self, language):
+        self.title(text("Help", language))
+        for child in self._form.body.winfo_children():
+            child.destroy()
+        for heading, rows in help_sections(language):
+            section = tk.LabelFrame(
+                self._form.body,
+                text=heading,
+                font=view.FONT,
+                bg=view.CONTROL_BACKGROUND,
+                fg=view.TEXT_COLOR,
+                padx=12,
+                pady=10,
+            )
+            section.pack(fill="x", pady=(0, 12))
+            section.columnconfigure(1, weight=1)
+            add_help_description_rows(section, rows)
+        self._form.bind_mouse_wheel()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        if self._on_close is not None:
+            self._on_close()
+        self.destroy()

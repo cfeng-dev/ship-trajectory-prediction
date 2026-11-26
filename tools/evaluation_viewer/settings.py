@@ -33,6 +33,7 @@ class ViewerOptions:
     show_observed_trajectory: bool = True
     show_current_position: bool = True
     show_reference_forecast_segment: bool = False
+    playback_interval_seconds: float = 0.2
 
     def __post_init__(self):
         if self.top_metric not in METRICS or self.bottom_metric not in METRICS:
@@ -44,3 +45,15 @@ class ViewerOptions:
             if not isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and greater than zero.")
             object.__setattr__(self, name, value)
+        message = "Playback interval must be finite and at least 0.001 s."
+        try:
+            interval = float(self.playback_interval_seconds)
+        except (TypeError, ValueError) as error:
+            raise ValueError(message) from error
+        if not isfinite(interval) or interval < 0.001:
+            raise ValueError(message)
+        object.__setattr__(self, "playback_interval_seconds", interval)
+
+    @property
+    def playback_interval_ms(self):
+        return round(self.playback_interval_seconds * 1000)
