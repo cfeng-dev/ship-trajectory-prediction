@@ -177,7 +177,7 @@ class _IMMPredictorLayout(LayoutEngine):
         slider_left = 0.07 + playback_width
         selector_width = max(0.21, 160 / width)
         selector_left = 0.98 - selector_width
-        slider_right = min(0.70, selector_left - 24 / width)
+        slider_right = min(0.70, selector_left - 54 / width)
         view.slider.ax.set_position(
             (slider_left, 29 / height, slider_right - slider_left, 10 / height)
         )
@@ -304,7 +304,7 @@ class IMMPlotView(tk.Frame):
             self.store.maximum_observation_count,
             valinit=self._observation_count(),
             valstep=1,
-            valfmt="%0.0f",
+            valfmt=f"%0.0f/{self.store.maximum_observation_count}",
         )
         self.slider.on_changed(self._on_slider_change)
 

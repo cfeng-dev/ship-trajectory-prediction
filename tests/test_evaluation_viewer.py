@@ -120,15 +120,14 @@ def test_observation_history_keeps_source_time_and_excludes_future_samples(tmp_p
             if line.get_linestyle() == "--"
             and line.get_color() == data.models["IMM"].color
         ]
-        assert len(imm_links) == 1
-        np.testing.assert_allclose(imm_links[0].get_xydata(), [[15.5, 1.5], [26, 5]])
+        assert not imm_links
         links = [
             line
             for line in plot.trajectory_axis.lines
             if line.get_linestyle() == "--"
             and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
         ]
-        np.testing.assert_allclose(links[0].get_xydata(), [[15.5, 1.5], [25, 5]])
+        assert not links
         assert "Connection to current position" not in [
             entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
         ]
@@ -283,7 +282,7 @@ def test_plot_uses_one_metric_per_axis_and_matching_colors_and_time(tmp_path):
     plotting = importlib.import_module("evaluation_viewer.plot_view")
     settings = importlib.import_module("evaluation_viewer.settings")
     plot = plotting.EvaluationPlot()
-    options = settings.ViewerOptions()
+    options = settings.ViewerOptions(single_metric_layout=False)
     assert not options.follow_metric_time
     plot.draw(data, 1, options, tuple(data.models))
     plot.figure.canvas.draw()
@@ -316,8 +315,444 @@ def test_plot_uses_one_metric_per_axis_and_matching_colors_and_time(tmp_path):
     plt.close(plot.figure)
 
 
+def test_single_metric_layout_places_metric_above_trajectory_and_restores_view(
+    tmp_path,
+):
+    data = _module().load_evaluation_directory(_write_csvs(tmp_path))
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    settings = importlib.import_module("evaluation_viewer.settings")
+    options = settings.ViewerOptions()
+    assert options.single_metric_layout
+    combined_options = replace(options, single_metric_layout=False)
+    plot = plotting.EvaluationPlot()
+    axes = (plot.trajectory_axis, *plot.metric_axes)
+    try:
+        plot.draw(data, 0, combined_options, tuple(data.models))
+        plot.figure.canvas.draw()
+        combined_width = plot.metric_axes[0].get_position().width
+        for index in (0, 1):
+            plot.draw(
+                data,
+                index,
+                options,
+                tuple(data.models),
+            )
+            plot.figure.canvas.draw()
+            assert plot.trajectory_axis.get_visible()
+            assert plot.trajectory_axis.get_in_layout()
+            assert not plot.metric_axes[1].get_visible()
+            assert not plot.metric_axes[1].get_in_layout()
+            assert not plot.metric_axes[1].lines
+            metric_axis = plot.metric_axes[0]
+            bounds = metric_axis.get_position()
+            assert bounds.x0 < 0.15
+            assert bounds.x1 > 0.95
+            assert bounds.width > 1.6 * combined_width
+            assert bounds.y0 > plot.trajectory_axis.get_position().y1
+            lines = {line.get_label(): line for line in metric_axis.lines}
+            for label in data.models:
+                np.testing.assert_allclose(
+                    lines[label].get_ydata(),
+                    data.models[label].metrics[options.top_metric],
+                )
+            np.testing.assert_allclose(
+                lines["_current_time"].get_xdata(), [data.elapsed[index]] * 2
+            )
+            trajectory_lines = {
+                line.get_label(): line for line in plot.trajectory_axis.lines
+            }
+            for label in data.models:
+                np.testing.assert_allclose(
+                    trajectory_lines[label].get_xydata(),
+                    data.models[label].forecasts[index],
+                )
+        plot.draw(data, 1, combined_options, tuple(data.models))
+        plot.figure.canvas.draw()
+        assert plot.trajectory_axis.get_visible()
+        assert plot.trajectory_axis.get_in_layout()
+        assert tuple(plot.figure.axes) == axes
+        for axis in plot.metric_axes:
+            assert axis.get_visible()
+            assert axis.get_in_layout()
+            assert axis.get_position().x0 > 0.45
+            assert axis.get_position().width < 0.7
+        assert {line.get_label() for line in plot.trajectory_axis.lines}.issuperset(
+            data.models
+        )
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("follow_ship", [False, True])
+def test_stacked_plots_have_equal_width_and_undistorted_coordinates_after_resize(
+    tmp_path, follow_ship, caplog
+):
+    data = _module().load_evaluation_directory(
+        _write_csvs(tmp_path / "forecasts"),
+        observations_csv=_write_observations(tmp_path / "observations.csv"),
+    )
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    settings = importlib.import_module("evaluation_viewer.settings")
+    options = settings.ViewerOptions(single_metric_layout=True, follow_ship=follow_ship)
+    plot = plotting.EvaluationPlot()
+    origin = data.origins[1]
+    history = data.observations.positions[data.observations.time_seconds <= origin]
+    try:
+        for width, height in ((11.5, 7), (17, 9), (8, 8)):
+            plot.figure.set_size_inches(width, height)
+            plot.draw(data, 1, options, tuple(data.models))
+            plot.figure.canvas.draw()
+            trajectory = plot.trajectory_axis
+            bounds = trajectory.get_position()
+            metric_bounds = plot.metric_axes[0].get_position()
+            np.testing.assert_allclose(
+                [bounds.x0, bounds.x1], [metric_bounds.x0, metric_bounds.x1], atol=1e-5
+            )
+            assert metric_bounds.y0 > bounds.y1
+            origin_px, x_px, y_px = trajectory.transData.transform(
+                [[0, 0], [1, 0], [0, 1]]
+            )
+            assert np.linalg.norm(x_px - origin_px) == pytest.approx(
+                np.linalg.norm(y_px - origin_px)
+            )
+            x_limits, y_limits = trajectory.get_xlim(), trajectory.get_ylim()
+            if follow_ship:
+                np.testing.assert_allclose(
+                    [np.mean(x_limits), np.mean(y_limits)], history[-1]
+                )
+                assert y_limits[1] - y_limits[0] == pytest.approx(
+                    options.ship_view_span
+                )
+            else:
+                points = np.vstack(
+                    [data.reference_positions, history]
+                    + [model.forecasts[1] for model in data.models.values()]
+                )
+                assert x_limits[0] <= points[:, 0].min()
+                assert x_limits[1] >= points[:, 0].max()
+                assert y_limits[0] <= points[:, 1].min()
+                assert y_limits[1] >= points[:, 1].max()
+        assert not any("Ignoring fixed" in record.message for record in caplog.records)
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("with_observations", [False, True])
+@pytest.mark.parametrize("single_metric_layout", [False, True])
+def test_disabling_follow_fits_the_route_once_then_keeps_a_stable_view(
+    tmp_path, single_metric_layout, with_observations
+):
+    directory = _write_csvs(tmp_path / "forecasts")
+    for path in directory.glob("*.csv"):
+        table = pd.read_csv(path)
+        offset = (table["forecast_origin_seconds"] - 100) * 200
+        for column in table:
+            if column.startswith(
+                (
+                    "x_actual",
+                    "y_actual",
+                    "x_mean",
+                    "y_mean",
+                    "x_median",
+                    "y_median",
+                    "forecast_origin_x",
+                    "forecast_origin_y",
+                )
+            ):
+                table[column] += offset
+        table.to_csv(path, index=False)
+    data = _module().load_evaluation_directory(
+        directory,
+        observations_csv=_write_observations(tmp_path / "observations.csv")
+        if with_observations
+        else None,
+    )
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    settings = importlib.import_module("evaluation_viewer.settings")
+    options = settings.ViewerOptions(single_metric_layout=single_metric_layout)
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 0, options, tuple(data.models))
+        plot.figure.canvas.draw()
+        axis = plot.trajectory_axis
+        focused_y_span = abs(np.diff(axis.get_ylim())[0])
+        overview = replace(options, follow_ship=False)
+        plot.draw(data, 0, overview, tuple(data.models))
+        plot.figure.canvas.draw()
+        frozen = np.array([axis.get_xlim(), axis.get_ylim()])
+        assert frozen[0][0] <= data.reference_positions[:, 0].min()
+        assert frozen[0][1] >= data.reference_positions[:, 0].max()
+        assert frozen[1][0] <= data.reference_positions[:, 1].min()
+        assert frozen[1][1] >= data.reference_positions[:, 1].max()
+        assert abs(np.diff(frozen[1])[0]) > focused_y_span
+        for index in (0, 1, 0, 1, 0, 1):
+            plot.draw(data, index, overview, tuple(data.models))
+            plot.figure.canvas.draw()
+            current = np.array([axis.get_xlim(), axis.get_ylim()])
+            np.testing.assert_allclose(
+                current.mean(axis=1), frozen.mean(axis=1), rtol=0, atol=1e-6
+            )
+            np.testing.assert_allclose(current[1], frozen[1], rtol=0, atol=1e-6)
+            # Constrained layout may settle by a fraction of a pixel after a draw.
+            pixel_width = abs(np.diff(frozen[0])[0]) / axis.bbox.width
+            np.testing.assert_allclose(current[0], frozen[0], rtol=0, atol=pixel_width)
+        plot.draw(data, 1, options, tuple(data.models))
+        plot.figure.canvas.draw()
+        assert abs(np.diff(axis.get_ylim())[0]) == pytest.approx(options.ship_view_span)
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("follow_ship", [False, True])
+@pytest.mark.parametrize("single_metric_layout", [False, True])
+@pytest.mark.parametrize(
+    "zoom_bounds",
+    [
+        ((0.25, 0.25), (0.75, 0.75)),
+        ((0.2, 0.4), (0.8, 0.6)),
+        ((0.4, 0.2), (0.6, 0.8)),
+    ],
+    ids=["square", "wide", "tall"],
+)
+def test_toolbar_zoom_and_pan_survive_redraw_and_follow_the_ship_at_the_chosen_scale(
+    tmp_path, follow_ship, single_metric_layout, zoom_bounds
+):
+    from matplotlib.backend_bases import MouseEvent, NavigationToolbar2
+
+    data = _module().load_evaluation_directory(
+        _write_csvs(tmp_path / "forecasts"),
+        observations_csv=_write_observations(tmp_path / "observations.csv"),
+    )
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    settings = importlib.import_module("evaluation_viewer.settings")
+    options = settings.ViewerOptions(
+        follow_ship=follow_ship, single_metric_layout=single_metric_layout
+    )
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 0, options, tuple(data.models))
+        canvas = plot.figure.canvas
+        canvas.draw()
+        axis = plot.trajectory_axis
+        before = np.array([axis.get_xlim(), axis.get_ylim()])
+        toolbar = NavigationToolbar2(canvas)
+        toolbar.zoom()
+        start, end = axis.transAxes.transform(zoom_bounds)
+        toolbar.press_zoom(MouseEvent("button_press_event", canvas, *start, button=1))
+        assert toolbar._zoom_info.axes == [axis]
+        plot.draw(data, 1, options, tuple(data.models))
+        canvas.draw()
+        toolbar.release_zoom(MouseEvent("button_release_event", canvas, *end, button=1))
+        canvas.draw()
+        zoomed = np.array([axis.get_xlim(), axis.get_ylim()])
+        assert np.all(np.abs(np.diff(zoomed)) < 0.8 * np.abs(np.diff(before)))
+        if not single_metric_layout:
+            assert axis.bbox.width == pytest.approx(axis.bbox.height)
+            assert abs(np.diff(zoomed[0])[0]) == pytest.approx(
+                abs(np.diff(zoomed[1])[0])
+            )
+        toolbar.zoom()
+        toolbar.pan()
+        start = axis.transAxes.transform((0.5, 0.5))
+        toolbar.press_pan(MouseEvent("button_press_event", canvas, *start, button=1))
+        plot.draw(data, 1, options, tuple(data.models))
+        canvas.draw()
+        toolbar.drag_pan(
+            MouseEvent("motion_notify_event", canvas, *(start + [20, 10]), button=1)
+        )
+        toolbar.release_pan(
+            MouseEvent("button_release_event", canvas, *(start + [20, 10]), button=1)
+        )
+        canvas.draw()
+        panned = np.array([axis.get_xlim(), axis.get_ylim()])
+        assert not np.allclose(panned.mean(axis=1), zoomed.mean(axis=1))
+        plot.draw(data, 1, options, tuple(data.models))
+        canvas.draw()
+        after = np.array([axis.get_xlim(), axis.get_ylim()])
+        if not single_metric_layout:
+            assert axis.bbox.width == pytest.approx(axis.bbox.height)
+        np.testing.assert_allclose(np.diff(after), np.diff(panned), rtol=0.05)
+        expected_center = (
+            data.observations.positions[3] if follow_ship else panned.mean(axis=1)
+        )
+        np.testing.assert_allclose(after.mean(axis=1), expected_center)
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("with_observations", [False, True])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "show_reference_trajectory",
+        "show_reference_forecast_segment",
+        "show_observed_trajectory",
+        "show_current_position",
+    ],
+)
+def test_trajectory_layers_are_independent_of_forecasts_metrics_and_viewport(
+    tmp_path, with_observations, field
+):
+    directory = _write_csvs(tmp_path / "forecasts")
+    observations = (
+        _write_observations(tmp_path / "observations.csv")
+        if with_observations
+        else None
+    )
+    data = _module().load_evaluation_directory(directory, observations_csv=observations)
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions(
+        show_reference_forecast_segment=True
+    )
+    plot = plotting.EvaluationPlot()
+    hidden_labels = {
+        "show_reference_trajectory": {
+            "Reference trajectory",
+        },
+        "show_reference_forecast_segment": {
+            "Reference forecast segment",
+        },
+        "show_observed_trajectory": {
+            "Observations through N"
+            if with_observations
+            else "IMM track through forecast origin"
+        },
+        "show_current_position": {
+            "Current position" if with_observations else "IMM track at forecast origin"
+        },
+    }
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        plot.figure.canvas.draw()
+        previous_limits = [
+            plot.trajectory_axis.get_xlim(),
+            plot.trajectory_axis.get_ylim(),
+        ]
+        plot.draw(data, 1, replace(options, **{field: False}), tuple(data.models))
+        plot.figure.canvas.draw()
+        labels = {
+            artist.get_label()
+            for artist in (
+                *plot.trajectory_axis.lines,
+                *plot.trajectory_axis.collections,
+            )
+        }
+        assert not labels.intersection(hidden_labels[field])
+        for other_field, other_labels in hidden_labels.items():
+            if other_field != field:
+                assert other_labels.issubset(labels)
+        np.testing.assert_allclose(
+            [plot.trajectory_axis.get_xlim(), plot.trajectory_axis.get_ylim()],
+            previous_limits,
+            rtol=0,
+            atol=abs(np.diff(previous_limits[0])[0]) / plot.trajectory_axis.bbox.width,
+        )
+        forecast_lines = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        metric_lines = {line.get_label(): line for line in plot.metric_axes[0].lines}
+        for label, model in data.models.items():
+            np.testing.assert_allclose(
+                forecast_lines[label].get_xydata(), model.forecasts[1]
+            )
+            np.testing.assert_allclose(
+                metric_lines[label].get_ydata(), model.metrics[options.top_metric]
+            )
+    finally:
+        plt.close(plot.figure)
+
+
+@pytest.mark.parametrize("single_metric_layout", [False, True])
+@pytest.mark.parametrize(
+    "trajectory_legend,metric_legend",
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+def test_trajectory_and_metric_legends_have_independent_visibility_and_spacing(
+    tmp_path, single_metric_layout, trajectory_legend, metric_legend
+):
+    data = _module().load_evaluation_directory(_write_csvs(tmp_path))
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    settings = importlib.import_module("evaluation_viewer.settings")
+    options = settings.ViewerOptions(single_metric_layout=single_metric_layout)
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        upper_limits = [axis.get_ylim()[1] for axis in plot.metric_axes]
+        plot.draw(
+            data,
+            1,
+            replace(
+                options,
+                show_trajectory_legend=trajectory_legend,
+                show_metric_legend=metric_legend,
+            ),
+            tuple(data.models),
+        )
+        plot.figure.canvas.draw()
+        assert (plot.trajectory_axis.get_legend() is not None) is trajectory_legend
+        for axis, upper in zip(plot.metric_axes, upper_limits, strict=True):
+            expected = metric_legend and axis.get_visible()
+            assert (axis.get_legend() is not None) is expected
+            if axis.get_visible():
+                if metric_legend:
+                    assert axis.get_ylim()[1] == pytest.approx(upper)
+                else:
+                    assert axis.get_ylim()[1] < upper
+    finally:
+        plt.close(plot.figure)
+
+
+def test_reference_points_and_general_legend_visibility(tmp_path):
+    data = _module().load_evaluation_directory(_write_csvs(tmp_path))
+    plotting = importlib.import_module("evaluation_viewer.plot_view")
+    options = importlib.import_module("evaluation_viewer.settings").ViewerOptions(
+        single_metric_layout=False
+    )
+    plot = plotting.EvaluationPlot()
+    try:
+        plot.draw(data, 1, options, tuple(data.models))
+        assert not options.show_reference_points
+        assert not options.show_reference_forecast_segment
+        reference = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        assert "Reference forecast segment" not in reference
+        assert "Reference forecast segment" not in {
+            entry.get_text() for entry in plot.trajectory_axis.get_legend().get_texts()
+        }
+        assert reference["Reference trajectory"].get_marker() in ("None", "", " ")
+        plot.draw(
+            data,
+            1,
+            replace(
+                options,
+                show_reference_points=True,
+                show_reference_forecast_segment=True,
+                show_trajectory_legend=False,
+                show_metric_legend=False,
+            ),
+            tuple(data.models),
+        )
+        reference = {line.get_label(): line for line in plot.trajectory_axis.lines}
+        assert reference["Reference trajectory"].get_marker() == "o"
+        assert reference["Reference forecast segment"].get_marker() == "o"
+        assert all(axis.get_legend() is None for axis in plot.figure.axes)
+        plot.draw(
+            data,
+            1,
+            replace(
+                options,
+                show_reference_points=True,
+                show_reference_trajectory=False,
+                show_reference_forecast_segment=True,
+            ),
+            tuple(data.models),
+        )
+        labels = {line.get_label() for line in plot.trajectory_axis.lines}
+        assert "Reference trajectory" not in labels
+        assert "Reference forecast segment" in labels
+    finally:
+        plt.close(plot.figure)
+
+
 @pytest.mark.parametrize("prediction_count", [1, 2])
-def test_all_forecast_lines_keep_only_future_points_and_share_the_current_marker(
+def test_all_forecast_lines_keep_only_future_points_without_origin_connections(
     tmp_path, prediction_count
 ):
     directory = _write_csvs(tmp_path)
@@ -348,10 +783,7 @@ def test_all_forecast_lines_keep_only_future_points_and_share_the_current_marker
             if line.get_linestyle() == "--"
             and line.get_color() == data.models["IMM"].color
         ]
-        assert len(imm_links) == 1
-        np.testing.assert_allclose(
-            imm_links[0].get_xydata(), [[1000.0, 0.0], [26.0, 5.0]]
-        )
+        assert not imm_links
         markers = {
             artist.get_label(): artist for artist in plot.trajectory_axis.collections
         }
@@ -366,10 +798,7 @@ def test_all_forecast_lines_keep_only_future_points_and_share_the_current_marker
             if line.get_linestyle() == "--"
             and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
         ]
-        assert len(connections) == 1
-        np.testing.assert_allclose(
-            connections[0].get_xydata(), [[1000.0, 0.0], [25.0, 5.0]]
-        )
+        assert not connections
         np.testing.assert_allclose(
             data.models["Bayesian CTRV (SMC)"].forecasts[1],
             [[25.0, 5.0], [37.0, 10.0]][:prediction_count],
@@ -416,7 +845,7 @@ def test_missing_or_hidden_imm_origins_do_not_create_a_reference_anchor(
 
 
 @pytest.mark.parametrize("different_origins", [False, True])
-def test_connections_require_one_unambiguous_selected_imm_origin(
+def test_forecasts_stay_unconnected_with_multiple_imm_origins(
     tmp_path, different_origins
 ):
     directory = _write_csvs(tmp_path)
@@ -436,11 +865,7 @@ def test_connections_require_one_unambiguous_selected_imm_origin(
             if line.get_linestyle() == "--"
             and line.get_color() == data.models["Bayesian CTRV (SMC)"].color
         ]
-        assert len(connections) == (0 if different_origins else 1)
-        if connections:
-            np.testing.assert_allclose(
-                connections[0].get_xydata(), [[15.0, 0.0], [25.0, 5.0]]
-            )
+        assert not connections
     finally:
         plt.close(plot.figure)
 
@@ -476,7 +901,7 @@ def test_single_origin_plots_and_metric_legend_leaves_room_for_all_models(tmp_pa
     plot.figure.canvas.draw()
     assert plot.metric_axes[0].get_xlim() == (0, 1)
     renderer = plot.figure.canvas.get_renderer()
-    for axis in plot.metric_axes:
+    for axis in (axis for axis in plot.metric_axes if axis.get_visible()):
         legend_bottom = axis.get_legend().get_window_extent(renderer).y0
         for line in axis.lines:
             if line.get_label().startswith("_"):
@@ -553,6 +978,7 @@ def _prepare_loading_controls(app):
     app._load_worker = None
     app._load_poll_id = None
     app._closed = False
+    app._plot_settings_dialog = None
     app._load_inputs = [_LoadControl()]
     app.load_button = _LoadControl()
     app.placeholder = _LoadControl()
@@ -745,10 +1171,12 @@ def test_predictor_style_controls_seek_without_feedback_during_playback_updates(
     try:
         assert not bar.slider.active
         bar.set_count(3)
-        bar.show_index(2, elapsed_seconds=5.0)
+        bar.show_index(2)
         assert changes == []
-        assert "3/3" in bar.slider.valtext.get_text()
-        assert "5.0 s" in bar.slider.valtext.get_text()
+        assert bar.slider.valtext.get_text() == "3/3"
+        bar.show_index(2, observation_count=7, maximum_observation_count=10)
+        assert changes == []
+        assert bar.slider.valtext.get_text() == "7/10"
         bar.slider.set_val(1)
         assert changes == [("seek", 1)]
         bar.follow_checkbox.set_active(0)
@@ -780,9 +1208,9 @@ def test_predictor_style_playback_button_and_single_origin_slider():
     )
     try:
         bar.set_count(1)
-        bar.show_index(0, elapsed_seconds=0.0)
+        bar.show_index(0)
         assert not bar.slider.active
-        assert bar.slider.valtext.get_text().startswith("1/1")
+        assert bar.slider.valtext.get_text() == "1/1"
         bar.figure.canvas.draw()
         x, y = bar.playback_button.ax.transAxes.transform((0.5, 0.5))
         for event in ("button_press_event", "button_release_event"):
@@ -1171,6 +1599,98 @@ def test_model_selection_updates_immediately_and_keeps_at_least_one_model(monkey
     assert errors
 
 
+@pytest.fixture
+def running_viewer_with_dialog_widgets(monkeypatch):
+    pytest.importorskip("tkinter")
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    gui = importlib.import_module("evaluation_viewer.gui")
+    app = gui.EvaluationViewer.__new__(gui.EvaluationViewer)
+    app.root = _Clock()
+    app.root.winfo_rootx = app.root.winfo_rooty = lambda: 0
+    app.root.winfo_width = lambda: 1400
+    app.root.winfo_height = lambda: 700
+    app.options = gui.ViewerOptions()
+    app.navigation = MagicMock()
+    app.toolbar = None
+    app.data = app.plot = None
+    _prepare_loading_controls(app)
+    app._plot_settings_dialog = None
+    frames = []
+    app._frame = frames.append
+    app.playback = importlib.import_module("evaluation_viewer.session").Playback(
+        app.root, 4, app._frame
+    )
+    app.playback.seek(1)
+    app.playback.start()
+    dialog = MagicMock()
+    dialog.winfo_exists.return_value = True
+    dialog.winfo_reqwidth.return_value = 650
+    dialog.winfo_reqheight.return_value = 450
+    dialog.destroy.side_effect = lambda: setattr(
+        dialog.winfo_exists, "return_value", False
+    )
+    monkeypatch.setattr(gui.tk, "Toplevel", MagicMock(return_value=dialog))
+    for name in ("Frame", "Label", "LabelFrame", "Checkbutton"):
+        monkeypatch.setattr(gui.tk, name, MagicMock())
+    monkeypatch.setattr(gui.ttk, "Entry", MagicMock())
+    for name in ("StringVar", "BooleanVar"):
+        monkeypatch.setattr(
+            gui.tk, name, lambda master, value: SimpleNamespace(get=lambda: value)
+        )
+    monkeypatch.setattr(gui.view, "create_styled_button", MagicMock())
+    return app, dialog, gui
+
+
+def test_plot_settings_are_nonmodal_reused_and_close_with_the_main_window(
+    running_viewer_with_dialog_widgets,
+):
+    app, dialog, gui = running_viewer_with_dialog_widgets
+    timers = tuple(app.root.pending)
+    assert app.open_plot_settings() is dialog
+    dialog.grab_set.assert_not_called()
+    assert app.playback.playing
+    assert tuple(app.root.pending) == timers
+    assert app.open_plot_settings() is dialog
+    assert gui.tk.Toplevel.call_count == 1
+    dialog.lift.assert_called_once()
+    app.close()
+    dialog.destroy.assert_called_once()
+    assert not app.root.pending
+    assert app.root.destroyed
+
+
+@pytest.mark.parametrize("follow", [False, True])
+def test_follow_ship_toggle_keeps_playback_and_its_timer(
+    running_viewer_with_dialog_widgets, follow
+):
+    app, _, _ = running_viewer_with_dialog_widgets
+    app.options = replace(app.options, follow_ship=not follow)
+    timers = tuple(app.root.pending)
+    app.set_follow_ship(follow)
+    assert app.options.follow_ship is follow
+    assert app.playback.playing
+    assert app.playback.index == 1
+    assert tuple(app.root.pending) == timers
+    app.root.tick()
+    assert app.playback.index == 2
+    assert len(app.root.pending) == 1
+    app.playback.close()
+
+
+def test_applying_plot_display_options_keeps_playback_running(
+    running_viewer_with_dialog_widgets,
+):
+    app, _, _ = running_viewer_with_dialog_widgets
+    timers = tuple(app.root.pending)
+    assert app._apply_plot_options({"show_trajectory_legend": False})
+    assert not app.options.show_trajectory_legend
+    assert app.playback.playing
+    assert tuple(app.root.pending) == timers
+    app.playback.close()
+
+
 def test_plot_settings_apply_validated_values_without_applying_sidebar_drafts(
     monkeypatch,
 ):
@@ -1191,22 +1711,29 @@ def test_plot_settings_apply_validated_values_without_applying_sidebar_drafts(
     app.navigation = SimpleNamespace(set_follow_ship=following.append)
     app.toolbar = SimpleNamespace(update=lambda: None)
     app._frame = frames.append
+    layouts = []
+    app._build_sidebar = lambda: layouts.append(app.options.single_metric_layout)
     errors = []
     monkeypatch.setattr(
         gui.messagebox, "showerror", lambda *args, **kwargs: errors.append(args)
     )
     values = {
+        "single_metric_layout": False,
         "follow_metric_time": True,
         "metric_window_width": "120",
         "follow_ship": False,
         "ship_view_span": "200",
-        "show_legend": False,
+        "show_trajectory_legend": False,
+        "show_metric_legend": False,
     }
     assert app._apply_plot_options(values)
+    assert not app.options.single_metric_layout
+    assert layouts == [False]
     assert app.options.follow_metric_time
     assert app.options.metric_window_width == 120.0
     assert app.options.ship_view_span == 200.0
-    assert not app.options.show_legend
+    assert not app.options.show_trajectory_legend
+    assert not app.options.show_metric_legend
     assert following == [False]
     assert frames == [1]
     assert app.selected_models == ("IMM",)
@@ -1215,6 +1742,7 @@ def test_plot_settings_apply_validated_values_without_applying_sidebar_drafts(
     assert not app._apply_plot_options({**values, "metric_window_width": "0"})
     assert app.options is previous
     assert frames == [1]
+    assert layouts == [False]
     assert errors
 
 
@@ -1280,16 +1808,64 @@ def test_real_tk_viewer_loads_and_applies_settings_when_a_display_is_available(
         app.set_language("de")
         assert app.plot.metric_axes[0].get_ylabel() == "FDE [m]"
         assert not app.options.follow_metric_time
+        second_metric = app.options.bottom_metric
+        assert app._apply_plot_options({"single_metric_layout": True})
+        choices = [
+            child
+            for section in app._form.body.winfo_children()
+            for child in section.winfo_children()
+            if isinstance(child, gui.ttk.Combobox)
+        ]
+        assert len(choices) == 1
+        assert app.options.bottom_metric == second_metric
+        choices[0].set("RMSE")
+        choices[0].event_generate("<<ComboboxSelected>>")
+        root.update()
+        assert app.options.top_metric == "rmse_m"
+        assert app._apply_plot_options({"single_metric_layout": False})
+        choices = [
+            child
+            for section in app._form.body.winfo_children()
+            for child in section.winfo_children()
+            if isinstance(child, gui.ttk.Combobox)
+        ]
+        assert len(choices) == 2
+        assert app.options.bottom_metric == second_metric
         previous = app.options
         dialog = app.open_plot_settings()
         root.update()
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
         sections = [
             section.cget("text")
-            for body in dialog.winfo_children()
-            for section in body.winfo_children()
+            for section in descendants(dialog)
             if isinstance(section, tk.LabelFrame)
         ]
-        assert sections == ["Metrik-Zeitachse", "Trajektorienansicht"]
+        assert sections == [
+            "Allgemein",
+            "Trajektorie",
+            "Plot-Aufteilung",
+            "Metrik-Zeitachse",
+        ]
+        checkboxes = [
+            widget.cget("text")
+            for widget in descendants(dialog)
+            if isinstance(widget, tk.Checkbutton)
+        ]
+        assert app.tr("Follow ship") not in checkboxes
+        assert {
+            app.tr("Show trajectory legend"),
+            app.tr("Show metric legend"),
+            app.tr("Show reference trajectory"),
+            app.tr("Show reference points"),
+            app.tr("Show reference forecast segment"),
+            app.tr("Show observations through N"),
+            app.tr("Show current position"),
+        }.issubset(checkboxes)
         dialog.destroy()
         assert app.options is previous
     finally:

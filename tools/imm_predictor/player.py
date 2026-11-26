@@ -46,7 +46,7 @@ PLOT_DISPLAY_OPTIONS = {
     "show_reference_points": "Show reference points",
     "show_imm_track": "Show observations through N",
     "show_current_position": "Show current position",
-    "show_sample_trajectories": "Show sampled IMM trajectories",
+    "show_sample_trajectories": "Show possible future trajectories",
     "show_forecast_median": "Show forecast (median)",
     "show_forecast_mean": "Show forecast (mean)",
     "show_forecast_points": "Show forecast points",
@@ -67,7 +67,7 @@ class IMMPlayerConfig:
     prediction_count: int = PREDICTION_COUNT
     playback_interval_ms: int = PLAYBACK_INTERVAL_MS
     follow_ship_view_span_meters: float = FOLLOW_SHIP_VIEW_SPAN_METERS
-    prediction_region_style: str = "funnel"
+    prediction_region_style: str = "ellipses"
     show_prediction_region_50: bool = True
     show_prediction_region_90: bool = True
     show_prediction_region_99: bool = False
@@ -86,7 +86,7 @@ class IMMPlayerConfig:
     show_forecast_median: bool = False
     show_forecast_mean: bool = True
     show_forecast_points: bool = True
-    show_sample_trajectories: bool = True
+    show_sample_trajectories: bool = False
     prediction_sample_count: int = 20
     forecast_seed: int = 42
     start_index: int = 0

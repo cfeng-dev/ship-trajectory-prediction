@@ -25,6 +25,7 @@ class EvaluationViewer:
         self.navigation = None
         self.timeline_canvas = None
         self.toolbar = None
+        self._plot_settings_dialog = None
         self.selected_models = ()
         self._closed = False
         self._loading = False
@@ -180,11 +181,13 @@ class EvaluationViewer:
             ("top_metric", "Upper diagram"),
             ("bottom_metric", "Lower diagram"),
         ):
-            self._label(group, label)
             variable = tk.StringVar(
                 self.root, value=self.tr(METRICS[getattr(self.options, key)])
             )
             self.metric_variables[key] = variable
+            if self.options.single_metric_layout and key == "bottom_metric":
+                continue
+            self._label(group, "Metric" if self.options.single_metric_layout else label)
             choice = ttk.Combobox(
                 group,
                 textvariable=variable,
@@ -233,7 +236,9 @@ class EvaluationViewer:
         self.timeline_canvas = view.PredictorFigureCanvas(
             self.navigation.figure, master=self.plot_host
         )
-        self.timeline_canvas.get_tk_widget().configure(height=90)
+        self.timeline_canvas.get_tk_widget().configure(
+            height=round(self.navigation.figure.bbox.height)
+        )
         self.timeline_canvas.get_tk_widget().grid(row=1, column=0, sticky="ew")
 
     def _build_menu(self):
@@ -246,17 +251,16 @@ class EvaluationViewer:
         file_menu.add_separator()
         file_menu.add_command(label=self.tr("Exit"), command=self.close)
         menu.add_cascade(label=self.tr("File"), menu=file_menu)
-        settings = tk.Menu(menu, tearoff=0)
-        settings.add_command(
-            label=self.tr("Plot display…"), command=self.open_plot_settings
-        )
-        settings.add_separator()
-        settings.add_checkbutton(
+        view_menu = tk.Menu(menu, tearoff=0)
+        view_menu.add_checkbutton(
             label=self.tr("Show settings"),
             variable=self.settings_visible,
             command=self.toggle_settings,
         )
-        menu.add_cascade(label=self.tr("Settings"), menu=settings)
+        view_menu.add_command(
+            label=self.tr("Plot display…"), command=self.open_plot_settings
+        )
+        menu.add_cascade(label=self.tr("View"), menu=view_menu)
         language = tk.Menu(menu, tearoff=0)
         self.language_variable = tk.StringVar(self.root, value=self.options.language)
         for label, value in (("English", "en"), ("Deutsch", "de")):
@@ -282,10 +286,17 @@ class EvaluationViewer:
             self.root.after_idle(previous.destroy)
 
     def open_plot_settings(self):
-        if self._loading:
+        if self._closed or self._loading:
             return
-        self.pause()
+        if (
+            self._plot_settings_dialog is not None
+            and self._plot_settings_dialog.winfo_exists()
+        ):
+            self._plot_settings_dialog.lift()
+            self._plot_settings_dialog.focus_set()
+            return self._plot_settings_dialog
         dialog = tk.Toplevel(self.root)
+        self._plot_settings_dialog = dialog
         dialog.withdraw()
         dialog.title(self.tr("Plot display"))
         dialog.transient(self.root)
@@ -293,27 +304,55 @@ class EvaluationViewer:
         dialog.resizable(False, False)
         body = tk.Frame(dialog, bg=view.CONTROL_BACKGROUND, padx=14, pady=12)
         body.pack(fill="both", expand=True)
-        self._label(body, "Changes are applied only after selecting Apply.")
+        hint = self._label(body, "Changes are applied only after selecting Apply.")
+        hint.configure(wraplength=0)
+        columns = tk.Frame(body, bg=view.CONTROL_BACKGROUND)
+        columns.pack(fill="both", expand=True)
+        layers = tk.Frame(columns, bg=view.CONTROL_BACKGROUND)
+        layers.grid(row=0, column=0, sticky="nw")
+        controls = tk.Frame(columns, bg=view.CONTROL_BACKGROUND)
+        controls.grid(row=0, column=1, sticky="nw", padx=(16, 0))
         variables = {}
         groups = (
             (
+                layers,
+                "General",
+                (
+                    ("show_trajectory_legend", "Show trajectory legend"),
+                    ("show_metric_legend", "Show metric legend"),
+                ),
+            ),
+            (
+                layers,
+                "Trajectory",
+                (
+                    ("show_reference_trajectory", "Show reference trajectory"),
+                    ("show_reference_points", "Show reference points"),
+                    (
+                        "show_reference_forecast_segment",
+                        "Show reference forecast segment",
+                    ),
+                    ("show_observed_trajectory", "Show observations through N"),
+                    ("show_current_position", "Show current position"),
+                    ("ship_view_span", "Follow-ship view span [m]"),
+                ),
+            ),
+            (
+                controls,
+                "Plot layout",
+                (("single_metric_layout", "One metric above trajectory"),),
+            ),
+            (
+                controls,
                 "Metric time axis",
                 (
                     ("follow_metric_time", "Follow metric time"),
                     ("metric_window_width", "Window width [s]"),
                 ),
             ),
-            (
-                "Trajectory view",
-                (
-                    ("follow_ship", "Follow ship"),
-                    ("ship_view_span", "View span [m]"),
-                    ("show_legend", "Show legend"),
-                ),
-            ),
         )
-        for title, fields in groups:
-            group = self._section(body, title)
+        for parent, title, fields in groups:
+            group = self._section(parent, title)
             for key, label in fields:
                 value = getattr(self.options, key)
                 if isinstance(value, bool):
@@ -326,19 +365,28 @@ class EvaluationViewer:
                         activebackground=view.CONTROL_BACKGROUND,
                         fg=view.TEXT_COLOR,
                         font=view.FONT,
+                        anchor="w",
                     ).pack(anchor="w", pady=2)
                 else:
                     variable = tk.StringVar(dialog, value=str(value))
-                    self._label(group, label)
+                    row = tk.Frame(group, bg=view.CONTROL_BACKGROUND)
+                    row.pack(fill="x", pady=(8, 3))
+                    tk.Label(
+                        row,
+                        text=self.tr(label),
+                        bg=view.CONTROL_BACKGROUND,
+                        fg=view.TEXT_COLOR,
+                        font=view.FONT,
+                    ).pack(side="left")
                     ttk.Entry(
-                        group, textvariable=variable, style="Predictor.TEntry", width=12
-                    ).pack(anchor="w", pady=(0, 6))
+                        row, textvariable=variable, style="Predictor.TEntry", width=12
+                    ).pack(side="right", padx=(12, 0))
                 variables[key] = variable
 
         def apply():
             values = {key: variable.get() for key, variable in variables.items()}
             if self._apply_plot_options(values, parent=dialog):
-                dialog.destroy()
+                self._close_plot_settings()
 
         actions = tk.Frame(body, bg=view.CONTROL_BACKGROUND)
         actions.pack(fill="x")
@@ -346,8 +394,9 @@ class EvaluationViewer:
             actions, text=self.tr("Apply"), width=12, command=apply
         ).pack(side="right", padx=(8, 0))
         view.create_styled_button(
-            actions, text=self.tr("Cancel"), width=12, command=dialog.destroy
+            actions, text=self.tr("Cancel"), width=12, command=self._close_plot_settings
         ).pack(side="right")
+        dialog.protocol("WM_DELETE_WINDOW", self._close_plot_settings)
         dialog.update_idletasks()
         left = max(
             0,
@@ -361,14 +410,17 @@ class EvaluationViewer:
         )
         dialog.geometry(f"+{left}+{top}")
         dialog.deiconify()
-        dialog.grab_set()
         dialog.focus_set()
         return dialog
+
+    def _close_plot_settings(self):
+        dialog, self._plot_settings_dialog = self._plot_settings_dialog, None
+        if dialog is not None and dialog.winfo_exists():
+            dialog.destroy()
 
     def _apply_plot_options(self, values, *, parent=None):
         if self._loading:
             return False
-        self.pause()
         try:
             options = replace(self.options, **values)
         except (ValueError, TypeError, tk.TclError) as error:
@@ -376,7 +428,12 @@ class EvaluationViewer:
                 self.tr("Invalid settings"), str(error), parent=parent or self.root
             )
             return False
+        layout_changed = (
+            options.single_metric_layout != self.options.single_metric_layout
+        )
         self.options = options
+        if layout_changed:
+            self._build_sidebar()
         self._refresh_plots()
         return True
 
@@ -548,14 +605,24 @@ class EvaluationViewer:
     def _refresh_plots(self):
         if self.navigation is not None:
             self.navigation.set_follow_ship(self.options.follow_ship)
-        if self.toolbar is not None:
-            self.toolbar.update()
         if self.playback is not None:
             self._frame(self.playback.index)
 
     def _frame(self, index):
         self.plot.draw(self.data, index, self.options, self.selected_models)
-        self.navigation.show_index(index, elapsed_seconds=self.data.elapsed[index])
+        observation_count, maximum_observation_count = (
+            [
+                int((self.data.observations.time_seconds <= origin + 1e-6).sum())
+                for origin in (self.data.origins[index], self.data.origins[-1])
+            ]
+            if self.data.observations is not None
+            else (None, None)
+        )
+        self.navigation.show_index(
+            index,
+            observation_count=observation_count,
+            maximum_observation_count=maximum_observation_count,
+        )
         self._set_status()
         self._sync_play_button()
         self.canvas.draw_idle()
@@ -654,10 +721,10 @@ class EvaluationViewer:
         self.toggle_settings()
 
     def set_follow_ship(self, follow):
-        self.pause()
+        if self._loading:
+            return
         self.options = replace(self.options, follow_ship=bool(follow))
-        if self.playback is not None:
-            self._frame(self.playback.index)
+        self._refresh_plots()
 
     def set_language(self, language):
         if self._loading:
@@ -695,6 +762,7 @@ class EvaluationViewer:
         if self._closed:
             return
         self._closed = True
+        self._close_plot_settings()
         if self._load_worker is not None:
             self._load_worker.cancel()
             self._load_worker = None

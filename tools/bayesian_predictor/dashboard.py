@@ -969,7 +969,7 @@ class _PosteriorDashboardLayout(LayoutEngine):
             (
                 slider_left,
                 29.0 / height_points,
-                selector_left - slider_left - 0.06,
+                selector_left - slider_left - max(0.06, 54.0 / width_points),
                 10.0 / height_points,
             )
         )
@@ -1128,7 +1128,7 @@ class PosteriorDashboardNavigator:
             maximum_observation_count,
             valinit=0,
             valstep=slider_steps,
-            valfmt="%0.0f",
+            valfmt=f"%0.0f/{maximum_observation_count}",
         )
         selector_axis = figure.add_axes((0.77, 0.035, 0.2, 0.1))
         self.group_selector = RadioButtons(

@@ -24,8 +24,15 @@ class ViewerOptions:
     metric_window_width: float = 60.0
     follow_ship: bool = True
     ship_view_span: float = 100.0
-    show_legend: bool = True
+    show_trajectory_legend: bool = True
+    show_metric_legend: bool = True
     language: str = "en"
+    single_metric_layout: bool = True
+    show_reference_trajectory: bool = True
+    show_reference_points: bool = False
+    show_observed_trajectory: bool = True
+    show_current_position: bool = True
+    show_reference_forecast_segment: bool = False
 
     def __post_init__(self):
         if self.top_metric not in METRICS or self.bottom_metric not in METRICS:
