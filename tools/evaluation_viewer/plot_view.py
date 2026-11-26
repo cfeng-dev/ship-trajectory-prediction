@@ -189,8 +189,7 @@ class EvaluationPlot:
                     label=self._model_label(label, language),
                     color=model.color,
                     linewidth=1.3,
-                    marker=".",
-                    markersize=3,
+                    marker="None",
                 )
             axis.axvline(
                 current, color="0.4", linestyle="--", linewidth=1, label="_current_time"

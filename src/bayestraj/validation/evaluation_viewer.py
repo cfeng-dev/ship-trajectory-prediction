@@ -114,12 +114,24 @@ def _read_observation_history(path, origins):
 
 
 def load_evaluation_directory(
-    directory: str | Path, *, observations_csv: str | Path | None = None
+    directory: str | Path,
+    *,
+    observations_csv: str | Path | None = None,
+    on_progress=None,
 ) -> EvaluationDataset:
     """Reuse the comparison CSV contract and aggregate each complete forecast."""
+
+    def progress(message):
+        if on_progress is not None:
+            on_progress(message)
+
+    progress("Loading evaluation CSVs …")
     tables = comparison.read_model_comparison_directory(directory)
+    progress("Preparing metrics …")
     first = next(iter(tables.values()))
     origins = np.unique(first["forecast_origin_seconds"].to_numpy(dtype=float))
+    if observations_csv:
+        progress("Loading observations …")
     observations = (
         _read_observation_history(observations_csv, origins)
         if observations_csv
@@ -150,6 +162,7 @@ def load_evaluation_directory(
     models = {}
     colors = runtime_plotting._comparison_series_colors(list(tables.values()))
     for (label, table), color in zip(tables.items(), colors, strict=True):
+        progress("Preparing metrics …")
         actual = _finite_coordinates(table, actual_columns, label)
         if not np.allclose(reference, actual, rtol=0, atol=1e-6):
             raise ValueError(f"{label}: models must share reference route coordinates.")

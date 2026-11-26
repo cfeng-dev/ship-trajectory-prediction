@@ -20,7 +20,7 @@ METRICS = {
 class ViewerOptions:
     top_metric: str = "ade_m"
     bottom_metric: str = "mean_negative_log_predictive_density"
-    follow_metric_time: bool = True
+    follow_metric_time: bool = False
     metric_window_width: float = 60.0
     follow_ship: bool = True
     ship_view_span: float = 100.0

@@ -8,7 +8,11 @@ GERMAN = {
     "Evaluation directory": "Ergebnisordner",
     "Open directory…": "Ordner öffnen…",
     "Reload": "Neu laden",
-    "Load CSVs": "CSVs laden",
+    "Choose the input paths, then click Start analysis.": "Wähle die Eingabepfade und klicke auf Analyse starten.",
+    "Loading evaluation CSVs …": "Ergebnis-CSVs werden geladen …",
+    "Loading observations …": "Beobachtungen werden geladen …",
+    "Preparing metrics …": "Metriken werden vorbereitet …",
+    "Preparing diagrams …": "Diagramme werden vorbereitet …",
     "Models": "Modelle",
     "Metric diagrams": "Metrikdiagramme",
     "Upper diagram": "Oberes Diagramm",
@@ -42,10 +46,13 @@ GERMAN = {
     "Reference trajectory": "Referenztrajektorie",
     "Easting x [m]": "Ostkoordinate x [m]",
     "Northing y [m]": "Nordkoordinate y [m]",
-    "Help text": "Lade einen Ergebnisordner, wähle Modelle und je Diagramm eine Metrik und klicke auf Anwenden.\n\nZeitschieber, Pfeiltasten und Start/Pause steuern denselben Prognosestartpunkt. Ein Klick in ein Metrikdiagramm wählt den nächstgelegenen gespeicherten Zeitpunkt.\n\nDie Linien zeigen vollständige gespeicherte Verläufe im sichtbaren Zeitfenster. Ihre Farben entsprechen den Modellen. Die senkrechte Linie markiert den ausgewählten Prognosestartpunkt.\n\nDie linke Ansicht zeigt gespeicherte Punktvorhersagen; sie rekonstruiert keine Sample-Trajektorien. Fehler sind dem Prognosestart zugeordnet: Die vorhergesagten Positionen können bereits in einer bevorstehenden Kurve liegen.",
+    "Help text": "Wähle den Ergebnisordner und die optionale Beobachtungs-CSV und klicke auf Analyse starten. Während des Ladens erscheint der Fortschritt mittig; Analyse abbrechen verwirft den laufenden Ladevorgang. Änderungen an Modellen und Metriken aktualisieren die Diagramme sofort. Mindestens ein Modell muss ausgewählt bleiben. Ein Metrikwechsel erhält die Zeitposition und lässt eine laufende Wiedergabe weiterlaufen.\n\nZeitschieber, Pfeiltasten und Start/Pause steuern denselben Prognosestartpunkt. Ein Klick in ein Metrikdiagramm wählt den nächstgelegenen gespeicherten Zeitpunkt.\n\nDie Linien zeigen vollständige gespeicherte Verläufe im sichtbaren Zeitfenster. Ihre Farben entsprechen den Modellen. Die senkrechte Linie markiert den ausgewählten Prognosestartpunkt.\n\nDie linke Ansicht zeigt gespeicherte Punktvorhersagen; sie rekonstruiert keine Sample-Trajektorien. Fehler sind dem Prognosestart zugeordnet: Die vorhergesagten Positionen können bereits in einer bevorstehenden Kurve liegen.",
 }
 ENGLISH_HELP = (
-    "Load a results directory, select models and one metric per diagram, then choose Apply.\n\n"
+    "Choose a results directory and optional observation CSV, then click Start analysis. "
+    "Progress appears in the center; Cancel analysis discards the pending load. "
+    "Model and metric selections update the plots immediately; at least one model must remain selected. "
+    "Metric changes preserve the current origin and continue active playback.\n\n"
     "Use the time slider, arrow keys and Start/Pause to select a common forecast origin. "
     "Click a metric diagram to select the nearest saved origin.\n\n"
     "Lines show the complete saved histories in the visible time window. Colors identify models. "

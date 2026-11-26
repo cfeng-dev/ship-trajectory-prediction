@@ -9,11 +9,8 @@ from bayesian_predictor import view
 from bayesian_predictor.controls import ScrollableForm
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 
-from bayestraj.validation.evaluation_viewer import load_evaluation_directory
-
 from .localization import text
-from .plot_view import EvaluationPlot, PlaybackBar
-from .session import Playback
+from .session import EvaluationLoader, Playback
 from .settings import METRICS, ViewerOptions
 
 
@@ -23,8 +20,16 @@ class EvaluationViewer:
         self.options = ViewerOptions()
         self.data = None
         self.playback = None
+        self.plot = None
+        self.canvas = None
+        self.navigation = None
+        self.timeline_canvas = None
+        self.toolbar = None
         self.selected_models = ()
         self._closed = False
+        self._loading = False
+        self._load_worker = None
+        self._load_poll_id = None
         self.directory = tk.StringVar(root, value=str(input_dir))
         self.observations_csv = tk.StringVar(
             root, value=str(observations_csv) if observations_csv else ""
@@ -39,6 +44,23 @@ class EvaluationViewer:
         self.plot_host.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
         self.plot_host.columnconfigure(0, weight=1)
         self.plot_host.rowconfigure(0, weight=1)
+        self.placeholder = tk.Label(
+            self.plot_host,
+            text=self.tr("Choose the input paths, then click Start analysis."),
+            bg=view.PLOT_BACKGROUND,
+            fg=view.TEXT_COLOR,
+            font=view.FONT,
+        )
+        self.placeholder.grid(row=0, column=0)
+        self._build_sidebar()
+        self._build_menu()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        for key in ("<Left>", "<Right>", "<space>"):
+            root.bind(key, self._keyboard, add="+")
+
+    def _create_plot_ui(self):
+        from .plot_view import EvaluationPlot
+
         self.plot = EvaluationPlot(background=view.PLOT_BACKGROUND)
         self.canvas = view.PredictorFigureCanvas(
             self.plot.figure, master=self.plot_host
@@ -52,12 +74,9 @@ class EvaluationViewer:
         view.configure_plot_toolbar(self.toolbar)
         self.canvas.mpl_connect("button_press_event", self._plot_click)
         self.canvas.mpl_connect("resize_event", lambda _: self.pause())
-        self._build_sidebar()
-        self._build_menu()
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
-        for key in ("<Left>", "<Right>", "<space>"):
-            root.bind(key, self._keyboard, add="+")
-        self._initial_load = root.after(50, self._load_initial)
+        self.navigation.set_language(self.options.language)
+        self.navigation.set_follow_ship(self.options.follow_ship)
+        self.navigation.set_settings_visible(self.settings_visible.get())
 
     def tr(self, source):
         return text(source, self.options.language)
@@ -95,10 +114,16 @@ class EvaluationViewer:
         form = ScrollableForm(self.sidebar, width=310)
         form.pack(fill="both", expand=True)
         self._form = form
+        self._load_inputs = []
         form.on_scroll = self.pause
         body = form.body
         title = self._label(body, "Model evaluation")
         title.configure(font=("Arial", 12, "bold"), anchor="center", pady=10)
+        group = self._section(body, "Analysis")
+        self.load_button = view.create_styled_button(
+            group, text=self.tr("Start analysis"), command=self.load_directory
+        )
+        self.load_button.pack(fill="x")
         group = self._section(body, "Data")
         self._label(group, "Evaluation directory")
         row = tk.Frame(group, bg=view.CONTROL_BACKGROUND)
@@ -129,9 +154,8 @@ class EvaluationViewer:
             style="Predictor.TButton",
             width=3,
         ).pack(side="right", padx=(5, 0))
-        view.create_styled_button(
-            group, text=self.tr("Load CSVs"), command=self.load_directory
-        ).pack(fill="x", pady=(8, 0))
+        self._load_inputs.extend(row.winfo_children())
+        self._load_inputs.extend(observation_row.winfo_children())
         group = self._section(body, "Models")
         self.model_variables = {}
         if self.data is None:
@@ -161,43 +185,30 @@ class EvaluationViewer:
                 self.root, value=self.tr(METRICS[getattr(self.options, key)])
             )
             self.metric_variables[key] = variable
-            ttk.Combobox(
+            choice = ttk.Combobox(
                 group,
                 textvariable=variable,
                 values=tuple(self.metric_choices),
                 state="readonly",
                 style="Predictor.TCombobox",
                 width=26,
-            ).pack(fill="x", pady=(0, 7))
-        self.display_variables = {}
-        group = self._section(body, "Metric time axis")
-        self._option_check(group, "follow_metric_time", "Follow metric time")
-        self._option_entry(group, "metric_window_width", "Window width [s]")
-        group = self._section(body, "Trajectory view")
-        self._option_check(group, "follow_ship", "Follow ship")
-        self._option_entry(group, "ship_view_span", "View span [m]")
-        self._option_check(group, "show_legend", "Show legend")
-        view.create_styled_button(
-            body, text=self.tr("Apply"), command=self.apply_options
-        ).pack(fill="x", pady=(0, 8))
-        tk.Label(
-            body,
-            textvariable=self.status,
-            bg=view.CONTROL_BACKGROUND,
-            fg=view.TEXT_COLOR,
-            justify="left",
-            anchor="w",
-            wraplength=275,
-            font=view.FONT,
-        ).pack(fill="x")
+            )
+            choice.bind(
+                "<<ComboboxSelected>>",
+                lambda _event, key=key: self._metric_selected(key),
+            )
+            choice.pack(fill="x", pady=(0, 7))
+            self._load_inputs.append(choice)
         self._set_status()
+        self._sync_load_controls()
         form.bind_mouse_wheel()
 
     def _check(self, group, source, variable, *, translated=False):
-        tk.Checkbutton(
+        checkbox = tk.Checkbutton(
             group,
             text=source if translated else self.tr(source),
             variable=variable,
+            command=self._models_selected,
             bg=view.CONTROL_BACKGROUND,
             activebackground=view.CONTROL_BACKGROUND,
             fg=view.TEXT_COLOR,
@@ -205,22 +216,13 @@ class EvaluationViewer:
             anchor="w",
             justify="left",
             wraplength=255,
-        ).pack(fill="x", pady=2)
-
-    def _option_check(self, group, key, source):
-        variable = tk.BooleanVar(self.root, value=getattr(self.options, key))
-        self.display_variables[key] = variable
-        self._check(group, source, variable)
-
-    def _option_entry(self, group, key, source):
-        self._label(group, source)
-        variable = tk.StringVar(self.root, value=str(getattr(self.options, key)))
-        self.display_variables[key] = variable
-        ttk.Entry(
-            group, textvariable=variable, style="Predictor.TEntry", width=12
-        ).pack(anchor="w", pady=(0, 6))
+        )
+        checkbox.pack(fill="x", pady=2)
+        self._load_inputs.append(checkbox)
 
     def _build_timeline(self):
+        from .plot_view import PlaybackBar
+
         self.navigation = PlaybackBar(
             on_seek=self._slider,
             on_play=self.toggle_playback,
@@ -245,6 +247,10 @@ class EvaluationViewer:
         file_menu.add_command(label=self.tr("Exit"), command=self.close)
         menu.add_cascade(label=self.tr("File"), menu=file_menu)
         settings = tk.Menu(menu, tearoff=0)
+        settings.add_command(
+            label=self.tr("Plot display…"), command=self.open_plot_settings
+        )
+        settings.add_separator()
         settings.add_checkbutton(
             label=self.tr("Show settings"),
             variable=self.settings_visible,
@@ -275,11 +281,116 @@ class EvaluationViewer:
         if previous is not None:
             self.root.after_idle(previous.destroy)
 
-    def _load_initial(self):
-        self._initial_load = None
-        self.load_directory(show_error=False)
+    def open_plot_settings(self):
+        if self._loading:
+            return
+        self.pause()
+        dialog = tk.Toplevel(self.root)
+        dialog.withdraw()
+        dialog.title(self.tr("Plot display"))
+        dialog.transient(self.root)
+        dialog.configure(bg=view.CONTROL_BACKGROUND)
+        dialog.resizable(False, False)
+        body = tk.Frame(dialog, bg=view.CONTROL_BACKGROUND, padx=14, pady=12)
+        body.pack(fill="both", expand=True)
+        self._label(body, "Changes are applied only after selecting Apply.")
+        variables = {}
+        groups = (
+            (
+                "Metric time axis",
+                (
+                    ("follow_metric_time", "Follow metric time"),
+                    ("metric_window_width", "Window width [s]"),
+                ),
+            ),
+            (
+                "Trajectory view",
+                (
+                    ("follow_ship", "Follow ship"),
+                    ("ship_view_span", "View span [m]"),
+                    ("show_legend", "Show legend"),
+                ),
+            ),
+        )
+        for title, fields in groups:
+            group = self._section(body, title)
+            for key, label in fields:
+                value = getattr(self.options, key)
+                if isinstance(value, bool):
+                    variable = tk.BooleanVar(dialog, value=value)
+                    tk.Checkbutton(
+                        group,
+                        text=self.tr(label),
+                        variable=variable,
+                        bg=view.CONTROL_BACKGROUND,
+                        activebackground=view.CONTROL_BACKGROUND,
+                        fg=view.TEXT_COLOR,
+                        font=view.FONT,
+                    ).pack(anchor="w", pady=2)
+                else:
+                    variable = tk.StringVar(dialog, value=str(value))
+                    self._label(group, label)
+                    ttk.Entry(
+                        group, textvariable=variable, style="Predictor.TEntry", width=12
+                    ).pack(anchor="w", pady=(0, 6))
+                variables[key] = variable
+
+        def apply():
+            values = {key: variable.get() for key, variable in variables.items()}
+            if self._apply_plot_options(values, parent=dialog):
+                dialog.destroy()
+
+        actions = tk.Frame(body, bg=view.CONTROL_BACKGROUND)
+        actions.pack(fill="x")
+        view.create_styled_button(
+            actions, text=self.tr("Apply"), width=12, command=apply
+        ).pack(side="right", padx=(8, 0))
+        view.create_styled_button(
+            actions, text=self.tr("Cancel"), width=12, command=dialog.destroy
+        ).pack(side="right")
+        dialog.update_idletasks()
+        left = max(
+            0,
+            self.root.winfo_rootx()
+            + (self.root.winfo_width() - dialog.winfo_reqwidth()) // 2,
+        )
+        top = max(
+            0,
+            self.root.winfo_rooty()
+            + (self.root.winfo_height() - dialog.winfo_reqheight()) // 2,
+        )
+        dialog.geometry(f"+{left}+{top}")
+        dialog.deiconify()
+        dialog.grab_set()
+        dialog.focus_set()
+        return dialog
+
+    def _apply_plot_options(self, values, *, parent=None):
+        if self._loading:
+            return False
+        self.pause()
+        try:
+            options = replace(self.options, **values)
+        except (ValueError, TypeError, tk.TclError) as error:
+            messagebox.showerror(
+                self.tr("Invalid settings"), str(error), parent=parent or self.root
+            )
+            return False
+        self.options = options
+        self._refresh_plots()
+        return True
+
+    def _metric_selected(self, key):
+        if self._loading:
+            return
+        metric = self.metric_choices.get(self.metric_variables[key].get())
+        if metric is not None:
+            self.options = replace(self.options, **{key: metric})
+            self._refresh_plots()
 
     def open_directory(self):
+        if self._loading:
+            return
         self.pause()
         selected = filedialog.askdirectory(
             parent=self.root,
@@ -288,9 +399,10 @@ class EvaluationViewer:
         )
         if selected:
             self.directory.set(selected)
-            self.load_directory()
 
     def open_observations(self):
+        if self._loading:
+            return
         self.pause()
         current_path = self.observations_csv.get().strip()
         selected = filedialog.askopenfilename(
@@ -303,21 +415,99 @@ class EvaluationViewer:
         )
         if selected:
             self.observations_csv.set(selected)
-            self.load_directory()
 
     def load_directory(self, *, show_error=True):
-        self.pause()
-        try:
-            observation_path = self.observations_csv.get().strip()
-            data = load_evaluation_directory(
-                Path(self.directory.get()).expanduser(),
-                observations_csv=observation_path or None,
-            )
-        except (OSError, ValueError) as error:
-            self.status.set(str(error))
-            if show_error:
-                messagebox.showerror(self.tr("CSV error"), str(error), parent=self.root)
+        if self._closed or self._loading:
             return
+        self.pause()
+        observation_path = self.observations_csv.get().strip()
+        self._show_load_error = show_error
+        self._load_message = "Preparing analysis …"
+        self._set_loading_ui(True)
+        self._load_worker = EvaluationLoader(
+            Path(self.directory.get()).expanduser(),
+            observations_csv=observation_path or None,
+        )
+        self._load_poll_id = self.root.after(75, self._poll_load)
+
+    def _sync_load_controls(self):
+        self.load_button.configure(
+            text=self.tr("Cancel analysis" if self._loading else "Start analysis"),
+            command=self.cancel_loading if self._loading else self.load_directory,
+        )
+        view.set_styled_button_palette(
+            self.load_button,
+            background="#f7d9d9" if self._loading else "#ffffff",
+            hover_background="#efbcbc" if self._loading else "#b8d8e8",
+        )
+        for widget in self._load_inputs:
+            widget.configure(
+                state="disabled"
+                if self._loading
+                else "readonly"
+                if isinstance(widget, ttk.Combobox)
+                else "normal"
+            )
+
+    def _set_loading_ui(self, active):
+        self._loading = active
+        self._sync_load_controls()
+        if active:
+            self.placeholder.configure(text=self.tr(self._load_message))
+            self.placeholder.grid(row=0, column=0, rowspan=3, sticky="nsew")
+            self.placeholder.tkraise()
+        else:
+            self.placeholder.grid_remove()
+            if self.data is None:
+                self.placeholder.configure(
+                    text=self.tr("Choose the input paths, then click Start analysis.")
+                )
+                self.placeholder.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        self._set_status()
+
+    def _poll_load(self):
+        self._load_poll_id = None
+        if self._closed or self._load_worker is None:
+            return
+        for kind, value in self._load_worker.take_messages():
+            if kind == "progress":
+                self._load_message = value
+                self.placeholder.configure(text=self.tr(value))
+                self._set_status()
+            elif kind == "ready":
+                self._load_worker = None
+                try:
+                    self.root.update_idletasks()
+                    self._apply_loaded_data(value)
+                finally:
+                    self._set_loading_ui(False)
+                return
+            elif kind == "error":
+                self._load_worker = None
+                self._set_loading_ui(False)
+                self.status.set(str(value))
+                if self._show_load_error:
+                    messagebox.showerror(
+                        self.tr("CSV error"), str(value), parent=self.root
+                    )
+                return
+        self._load_poll_id = self.root.after(75, self._poll_load)
+
+    def cancel_loading(self):
+        if not self._loading:
+            return
+        if self._load_worker is not None:
+            self._load_worker.cancel()
+            self._load_worker = None
+        if self._load_poll_id is not None:
+            self.root.after_cancel(self._load_poll_id)
+            self._load_poll_id = None
+        self._set_loading_ui(False)
+        self.status.set(self.tr("Analysis cancelled. Settings unlocked."))
+
+    def _apply_loaded_data(self, data):
+        if self.plot is None:
+            self._create_plot_ui()
         if self.playback is not None:
             self.playback.close()
         self.data = data
@@ -337,41 +527,29 @@ class EvaluationViewer:
         self.toolbar.update()
         self._frame(0)
 
-    def apply_options(self):
-        self.pause()
-        try:
-            selected = tuple(
-                label
-                for label, variable in self.model_variables.items()
-                if variable.get()
-            )
-            if self.data is not None and not selected:
-                raise ValueError(self.tr("Select at least one model."))
-            metrics = {
-                key: self.metric_choices.get(variable.get())
-                for key, variable in self.metric_variables.items()
-            }
-            if any(value is None for value in metrics.values()):
-                raise ValueError(
-                    self.tr("Select an available metric for each diagram.")
-                )
-            options = replace(
-                self.options,
-                **metrics,
-                **{
-                    key: variable.get()
-                    for key, variable in self.display_variables.items()
-                },
-            )
-        except (ValueError, tk.TclError) as error:
+    def _models_selected(self):
+        if self._loading or self.data is None:
+            return
+        selected = tuple(
+            label for label, variable in self.model_variables.items() if variable.get()
+        )
+        if not selected:
+            for label, variable in self.model_variables.items():
+                variable.set(label in self.selected_models)
             messagebox.showerror(
-                self.tr("Invalid settings"), str(error), parent=self.root
+                self.tr("Invalid settings"),
+                self.tr("Select at least one model."),
+                parent=self.root,
             )
             return
-        self.options = options
         self.selected_models = selected
-        self.navigation.set_follow_ship(options.follow_ship)
-        self.toolbar.update()
+        self._refresh_plots()
+
+    def _refresh_plots(self):
+        if self.navigation is not None:
+            self.navigation.set_follow_ship(self.options.follow_ship)
+        if self.toolbar is not None:
+            self.toolbar.update()
         if self.playback is not None:
             self._frame(self.playback.index)
 
@@ -383,7 +561,9 @@ class EvaluationViewer:
         self.canvas.draw_idle()
 
     def _set_status(self):
-        if self.data is None:
+        if self._loading:
+            self.status.set(self.tr(self._load_message))
+        elif self.data is None:
             self.status.set(self.tr("Select a directory with saved evaluation CSVs."))
         else:
             index = self.playback.index if self.playback else 0
@@ -400,8 +580,9 @@ class EvaluationViewer:
                 self.status.set(self.status.get() + f"\nN = {count}")
 
     def _sync_play_button(self):
-        playing = self.playback is not None and self.playback.playing
-        self.navigation.set_playing(playing)
+        if self.navigation is not None:
+            playing = self.playback is not None and self.playback.playing
+            self.navigation.set_playing(playing)
 
     def pause(self):
         if self.playback is not None:
@@ -409,7 +590,7 @@ class EvaluationViewer:
         self._sync_play_button()
 
     def toggle_playback(self):
-        if self.playback is None:
+        if self._loading or self.playback is None:
             return
         if self.playback.playing:
             self.pause()
@@ -417,17 +598,20 @@ class EvaluationViewer:
             self.playback.start()
 
     def step(self, delta):
-        if self.playback is not None:
+        if not self._loading and self.playback is not None:
             self.playback.seek(self.playback.index + delta)
 
     def _slider(self, value):
+        if self._loading:
+            return
         index = int(float(value))
         if self.playback is not None and index != self.playback.index:
             self.playback.seek(index)
 
     def _plot_click(self, event):
         if (
-            self.data is not None
+            not self._loading
+            and self.data is not None
             and event.inaxes in self.plot.metric_axes
             and event.xdata is not None
             and event.button == 1
@@ -458,7 +642,8 @@ class EvaluationViewer:
 
     def toggle_settings(self):
         self.pause()
-        self.navigation.set_settings_visible(self.settings_visible.get())
+        if self.navigation is not None:
+            self.navigation.set_settings_visible(self.settings_visible.get())
         if self.settings_visible.get():
             self.sidebar.grid()
         else:
@@ -471,11 +656,13 @@ class EvaluationViewer:
     def set_follow_ship(self, follow):
         self.pause()
         self.options = replace(self.options, follow_ship=bool(follow))
-        self.display_variables["follow_ship"].set(follow)
         if self.playback is not None:
             self._frame(self.playback.index)
 
     def set_language(self, language):
+        if self._loading:
+            self.language_variable.set(self.options.language)
+            return
         self.pause()
         model_draft = {
             label: variable.get() for label, variable in self.model_variables.items()
@@ -484,9 +671,6 @@ class EvaluationViewer:
             key: self.metric_choices.get(variable.get())
             for key, variable in self.metric_variables.items()
         }
-        display_draft = {
-            key: variable.get() for key, variable in self.display_variables.items()
-        }
         self.options = replace(self.options, language=language)
         self._build_sidebar()
         for label, value in model_draft.items():
@@ -494,23 +678,29 @@ class EvaluationViewer:
         for key, value in metric_draft.items():
             if value is not None:
                 self.metric_variables[key].set(self.tr(METRICS[value]))
-        for key, value in display_draft.items():
-            self.display_variables[key].set(value)
         self._build_menu()
-        self.navigation.set_language(language)
+        if self.navigation is not None:
+            self.navigation.set_language(language)
         if self.playback is not None:
             self._frame(self.playback.index)
-        else:
+        elif self.plot is not None:
             self.plot.clear(language)
             self.canvas.draw_idle()
+        else:
+            self.placeholder.configure(
+                text=self.tr("Choose the input paths, then click Start analysis.")
+            )
 
     def close(self):
         if self._closed:
             return
         self._closed = True
-        if self._initial_load is not None:
-            self.root.after_cancel(self._initial_load)
-            self._initial_load = None
+        if self._load_worker is not None:
+            self._load_worker.cancel()
+            self._load_worker = None
+        if self._load_poll_id is not None:
+            self.root.after_cancel(self._load_poll_id)
+            self._load_poll_id = None
         if self.playback is not None:
             self.playback.close()
         self.root.destroy()

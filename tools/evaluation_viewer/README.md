@@ -29,10 +29,24 @@ uv run evaluation-viewer --observations-csv data/processed/BR24_imm_tracked_traj
 ```
 
 Alternatively, run `uv run python -m evaluation_viewer` in an installed project.
-Choose a results folder, select models and one metric for each right-hand plot,
-then select **Apply**. Use the time slider, arrow keys, Start/Pause or click a
-metric curve to inspect a forecast origin. Follow metric time defaults to a
-60-second window. Disable it for the full time range.
+The window opens without loading CSVs or creating plots. Choose a results folder
+and an optional observation CSV, then select **Start analysis** in the top
+**Analysis** group to read the data and build the diagrams. Browsing for a folder
+or file only changes its input path. CSV reading and metric preparation run in
+the background, with progress shown in the center. The button
+turns pale red and becomes **Cancel analysis**, matching Bayesian Predictor.
+Cancellation stops preparation at the next stage and discards the pending
+result; any previously loaded evaluation remains available. An in-progress CSV
+read finishes before the worker stops. A new load can be started immediately.
+Model and metric selections update the plots immediately. At least one model
+must remain selected. Changing a metric keeps the current forecast origin and
+continues any active playback.
+Use the time slider, arrow keys, Start/Pause or click a
+metric curve to inspect a forecast origin. Metric curves use lines without point
+markers and show the full time range by default. Open **Settings → Plot display…**
+to enable **Follow metric time**, set its window width (initially 60 seconds),
+or change **Follow ship**, the trajectory view span and legend visibility.
+**Apply** commits the display changes; **Cancel** leaves them unchanged.
 
 **Observation CSV** selects the original input `time,x,y` trajectory. The command
 line defaults to `data/processed/BR24_imm_tracked_trajectory.csv` when it exists.
@@ -41,7 +55,7 @@ numeric timestamps must cover the forecast origins in the same time frame;
 timestamps are not normalized or interpolated. Ground-truth columns are ignored.
 Use the original input for the same experiment; overlapping timestamps alone do
 not verify that two files describe the same trajectory.
-Select **Load CSVs** after editing the source path. Clear the observation path,
+Select **Start analysis** after editing the source path. Clear the observation path,
 or pass `--observations-csv=`, to inspect evaluation CSVs alone.
 
 As in Bayesian Predictor, original observations through the selected origin are

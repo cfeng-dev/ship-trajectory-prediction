@@ -1,4 +1,58 @@
-"""Playback of cached origins with one cancellable Tk-compatible timer."""
+"""Background CSV loading and playback with cancellable Tk timers."""
+
+from queue import Empty, Queue
+from threading import Event, Thread
+
+
+class _LoadCancelled(Exception):
+    pass
+
+
+class EvaluationLoader:
+    """Read saved results off the Tk thread; cancellation discards the result."""
+
+    def __init__(self, directory, *, observations_csv=None):
+        self._messages = Queue()
+        self._cancelled = Event()
+        self.thread = Thread(
+            target=self._run,
+            args=(directory, observations_csv),
+            name="evaluation-csv-loader",
+            daemon=True,
+        )
+        self.thread.start()
+
+    def _progress(self, message):
+        if self._cancelled.is_set():
+            raise _LoadCancelled
+        self._messages.put(("progress", message))
+
+    def _run(self, directory, observations_csv):
+        try:
+            self._progress("Preparing analysis …")
+            from bayestraj.validation.evaluation_viewer import load_evaluation_directory
+
+            data = load_evaluation_directory(
+                directory, observations_csv=observations_csv, on_progress=self._progress
+            )
+            self._progress("Preparing diagrams …")
+            self._messages.put(("ready", data))
+        except _LoadCancelled:
+            pass
+        except Exception as error:
+            if not self._cancelled.is_set():
+                self._messages.put(("error", error))
+
+    def take_messages(self):
+        messages = []
+        while True:
+            try:
+                messages.append(self._messages.get_nowait())
+            except Empty:
+                return messages
+
+    def cancel(self):
+        self._cancelled.set()
 
 
 class Playback:
